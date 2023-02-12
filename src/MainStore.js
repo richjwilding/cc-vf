@@ -58,17 +58,128 @@ function MainStore (){
                 },
                 {
                     "id": 3,
-                    "name": "jason@co-created.com",
+                    "name": "Jason Brooks",
                     "email": "jason@co-created.com",
                     "avatarUrl": "https://lh3.googleusercontent.com/a-/AOh14GjF28AU7uRRX9M51xz7qDyClXwm_Z6YgiuDU2f1",
                 }
             ]
+        },
+        structTests:function(){
+            {
+                let data = {
+                    id: 1,
+                    primitives: [
+                        2,
+                        3,
+                        {
+                            a: [4,5,6],
+                            b:  [7,8]
+                        }
+                    ]
+                }
+
+                let test = new Proxy(data.primitives, structure)
+                console.assert( arrayEquals(test.ids, [2,3]) )
+                console.assert( arrayEquals(test.allIds, [2,3,4,5,6,7,8]) )
+                console.assert( arrayEquals(test.a, [4,5,6]) )
+                console.assert( arrayEquals(test.b, [7,8]) )
+            }
+            {
+                let data = {
+                    id: 1,
+                    primitives: {
+                        null: [
+                            2,
+                            3,
+                            {
+                                a: [4,5,6],
+                                b:  [7,8]
+                            }
+                        ],
+                        test2: [
+                            9,
+                            10,
+                            {
+                                a: [11,5,6],
+                                b:  [12,8]
+                            }
+                        ],
+                        test3: {
+                            a: {
+                                b: [13,14],
+                                c: [15]
+                            },
+                            b: {
+                                b: [16,17],
+                                c: [18]
+                            }
+                        }
+                    }
+                }
+
+                let test = new Proxy(data.primitives, structure)
+                console.assert( arrayEquals(test.allIds, [2,3,4,5,6,7,8,9,10,11,5,6,12,8,13,14,15,16,17,18]) )
+                console.assert( arrayEquals(test.null.ids, [2,3]) )
+                console.assert( arrayEquals(test.null.allIds, [2,3,4,5,6,7,8]) )
+                console.assert( arrayEquals(test.a, [4,5,6]) )
+                console.assert( arrayEquals(test.b, [7,8]) )
+                console.assert( arrayEquals(test.null.a, [4,5,6]) )
+                console.assert( arrayEquals(test.null.b, [7,8]) )
+                console.assert( arrayEquals(test.test2.a, [11,5,6]) )
+                console.assert( arrayEquals(test.test2.b, [12,8]) )
+                console.assert( arrayEquals(test.test2.ids, [9,10]) )
+                console.assert( arrayEquals(test.test2.allIds, [9,10,11,5,6,12,8]) )
+                console.assert( arrayEquals(test.test3.allIds, [13,14,15,16,17,18]) )
+                console.assert( arrayEquals(test.test3.a.allIds, [13,14,15]) )
+                console.assert( arrayEquals(test.test3.b.allIds, [16,17,18]) )
+                console.assert( arrayEquals(test.test3.a.b, [13,14]) )
+                console.assert( arrayEquals(test.test3.b.b, [16,17]) )
+                test.allIds.forEach((id)=>{
+                    console.assert( test.includes(id) === true )
+                    console.assert( test.includes(id * 100) === false )
+                })                
+            }
+            {
+                let data = {
+                    id: 1,
+                    primitives: {
+                        null: [
+                            2,
+                            4,
+                            3,
+                            {
+                                a: [4,5,6],
+                                b:  [7,8]
+                            }
+                        ],
+                        test2: [
+                            9,
+                            10,
+                            {
+                                a: [11,5,6],
+                                b:  [12,8]
+                            }
+                        ],
+                        test3: {
+                            a: {
+                                b: [13,14],
+                                c: [15,4]
+                            },
+                            b: {
+                                b: [16,17],
+                                c: [18]
+                            }
+                        }
+                    }
+                }
+                let test = new Proxy(data.primitives, structure)
+                console.assert( arrayEquals(test.paths(4), ['','.a','.test3.a.c']) )
+                console.assert( test.paths(40) === undefined )
+                console.assert( arrayEquals(test.relationships(4), ['','a','c']) )
+            }
         }
     }
     instance = obj
-    const fastNaN = (val)=>{
-        return !(val <= 0) && !(val > 0)
-    }
     const uniquePrimitives = (list)=>{
         let ids = {}
         return list.filter((p)=>{
@@ -83,6 +194,9 @@ function MainStore (){
             d.master_type = type
 
             d.stateInfo = (obj.stateInfo[d.type] || obj.stateInfo["default"])[d.state] || {title: undefined }
+
+            d._primitives = d.primitives
+            d.primitives = new Proxy( d._primitives, structure )
 
             Object.defineProperty(d, "metadata", {
                 get: function(){
@@ -104,6 +218,9 @@ function MainStore (){
                     }
                 })
             })
+            if( type === "primitive"){
+
+            }
             Object.defineProperties(d, {
                 users:{
                     get: function(){
@@ -137,11 +254,6 @@ function MainStore (){
                         return undefined
                     }
                 },
-                displayType:{
-                    get: function(){
-                        return d.type.charAt(0).toUpperCase() + d.type.slice(1)
-                    }
-                },
                 parentLevelIds:{
                     get: function(){
                         return d.parentLevels.map((d)=>d.id)
@@ -162,6 +274,23 @@ function MainStore (){
                         return obj.primitives().filter((t)=>t.primitives.map((val)=>(fastNaN(val) ? Object.values(val) : val)).flat(2).includes(d.id)).map((t)=>t.id)
                     },
                 },
+                parentPrimitiveRelationships:{
+                    get: function(){
+                        return d.parentPrimitives.reduce((o, p)=>{
+                            let rel = d.relationship(p)
+                            o[rel] = o[rel] || []
+                            o[rel].push( p )
+                            return o
+                          }, [])
+                    }
+                }
+            })
+            Object.defineProperties(d, {
+                displayType:{
+                    get: function(){
+                        return d.type.charAt(0).toUpperCase() + d.type.slice(1)
+                    }
+                },
                 childPrimitiveIds: {
                     get: function(){
                         if( d.primitives === undefined ){return []}
@@ -178,16 +307,6 @@ function MainStore (){
                         return d.primitives
                     },
                 },
-                parentPrimitiveRelationships:{
-                    get: function(){
-                        return d.parentPrimitives.reduce((o, p)=>{
-                            let rel = d.relationship(p)
-                            o[rel] = o[rel] || []
-                            o[rel].push( p )
-                            return o
-                          }, [])
-                    }
-                }
             })
             d.findParentPrimitives = function(options = {type: undefined, first: false}){
                 const scatter = (list)=>{
@@ -225,11 +344,124 @@ function MainStore (){
             }
         }
         return d
-    }
+    }    
     return obj
 }
 
+    const fastNaN = (val)=>{
+        return !(val <= 0) && !(val > 0)
+    }
+const arrayEquals = function(a,b) {
+    if( a === undefined || b=== undefined){return false}
+    if( a.length !== b.length ){return false}
+    return b.reduce((r,c,idx)=>r && (a[idx] === c), true)
+  }
+
+const structure = {
+    get:function(target, prop, receiver) {
+        if( prop === "includes" ){
+            return function(){
+                let value = arguments[0]
+                const find = (v)=>{
+                    return Object.values(v).reduce((r, d)=>{
+                        if( d instanceof(Object) ){
+                            return r || find(d) 
+                        }else{
+                            return r || (d === value)
+                        }
+                    },false)
+                }
+                return find( target )
+            }
+        }
+        if( prop === "paths" ){
+            return function(){
+                let id = arguments[0]
+                const find = (v, path)=>{
+                    let out = []
+                    if( v instanceof(Array) ){
+                        if( v.includes( id )){
+                            out.push( path )
+                        }
+                        v.filter((d)=>d instanceof(Object) ).forEach((d)=>{
+                            out.push( Object.keys(d).map((k)=>{
+                                return find( d[k], path + "." + k)
+                            }))
+                        })
+                    }else{
+                        out.push( Object.keys(v).map((k)=>{
+                            return find( v[k], path + "." + k)
+                        }))
+                    }
+                    out = out.flat(2).filter((d)=>d !== undefined)
+                    return out.length > 0 ? out : undefined
+                }
+                let result = find( target, "" )
+                if( result ){
+                    result = result.map((p)=>p.replace(/^\.null/,""))
+                }
+                return result
+            }
+        }
+        if( prop === "relationships"){
+            return function(){
+                let path = receiver.paths(arguments[0])
+                return path?.map((p)=>p.split('.').slice(-1)[0])
+            }
+        }
+        if( prop === "all"){
+            return target
+        }
+        if( prop === "ids" && target instanceof(Array)){
+            return target.map((d)=>{
+                if( d instanceof(Object)){
+                    return undefined
+                }else{
+                    return d
+                }}).filter((d)=>d)
+        }
+        if( prop === "allIds"){
+            const flatten = (v)=>{
+                return Object.values(v).map((d)=>{
+                    if( d instanceof(Object) ){
+                        return flatten(d) 
+                    }else{
+                        return d
+                    }
+                }).flat()
+            }
+            return flatten( target )
+        }
+        if( Array.isArray(target) ){
+            let out
+            target.forEach((d)=>{
+                if( d instanceof(Object) ){
+                    if( prop in d){
+                        out = d[prop]
+                    }
+                }
+            })
+            return out
+        }
+        if( prop in target ){
+            if( target[prop] instanceof(Array) && target[prop].find((d)=>d instanceof(Object))===undefined){
+                return target[prop]
+            }
+            return new Proxy(target[prop], structure)
+        }
+        if( target[null]){
+            return new Proxy(target[null], structure)[prop]
+        }
+        if (prop in target) {
+            return target[prop];
+        }
+    }
+}
+
 export default MainStore
+
+
+
 
 const defaultRelationships = {
             negative:{
