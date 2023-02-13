@@ -255,7 +255,7 @@ export function PrimitivePage({primitive, ...props}) {
                                 </div>
                                 <div className="px-4 py-6 sm:px-6 gap-3 grid-cols-2 grid md:grid-cols-3 lg:grid-cols-4">
                                     {primitive.primitives.results[category.id].map((p)=>(
-                                        <PrimitiveCard compact={true} primitive={p} fields={cardConfig} border={true} showState={showState} relationships={category.relationships} relationshipTo={primitive}/>
+                                        <PrimitiveCard compact={true} primitive={p} fields={cardConfig} border={true} showState={showState} relationships={category.relationships} relationship={primitive.primitives.relationships(p.id, ["results", category.id])}/>
                                     ))}
                                 </div>
                             </div>

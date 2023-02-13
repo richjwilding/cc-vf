@@ -57,6 +57,11 @@ function MainStore (prims){
                             return out.length > 0 ? out : undefined
                         }
                         let result = find( target, "" )
+                        if( arguments.length == 2){
+                            let str = arguments[1] instanceof(Array) ? `.${arguments[1].join('.')}.` : arguments[1]
+                            let len = str.length
+                            result = result.filter((p)=>p.slice(0, len) === str)
+                        }
                         if( result ){
                             result = result.map((p)=>p.replace(/^\.null/,""))
                         }
@@ -65,7 +70,7 @@ function MainStore (prims){
                 }
                 if( prop === "relationships"){
                     return function(){
-                        let path = receiver.paths(arguments[0])
+                        let path = receiver.paths(...arguments)
                         return path?.map((p)=>p.split('.').slice(-1)[0])
                     }
                 }
@@ -178,17 +183,23 @@ function MainStore (prims){
             }
         },
         component:function(id){
-            return vf_temp.filter((d)=>d.id === id).map((d)=>primitive_access(d, "component"))[0]
+            return this.components().find((d)=>d.id === id)
         },
         components:function(){
-            return vf_temp.map((d)=>primitive_access(d, "component"))
+            if( obj._cache_vf === undefined){
+                obj._cache_vf = vf_temp.map((d)=>primitive_access(d, "component"))
+            }
+            return obj._cache_vf
         },
         primitives:function(){
-            return prims || primitive_temp
+            if( obj._cache_prim === undefined){
+                obj._cache_prim = (prims || primitive_temp).map((p)=>primitive_access(p,"primitive"))
+            }
+            return obj._cache_prim
         },
         primitive:function(id){
             let data = obj.primitives().find((p)=>p.id === id)
-            return data ? primitive_access(data,"primitive") : undefined
+            return data
         },
         resultsCategories:function(){
             return result_category_temp
@@ -231,23 +242,29 @@ function MainStore (prims){
     const uniquePrimitives = (list)=>{
         let ids = {}
         return list.filter((p)=>{
+            if(p=== undefined){console.warn(`undefined prim`)}
             if( ids[p.id] ){return false}
             ids[p.id] = true
             return p
         })
     }
     const primitive_access = (d, type)=>{
-        if( !d._done ){
-            d._done = true
-            d.master_type = type
+        return new Proxy(d, {
+            get(d, prop, receiver) {
+                if( prop === "primitives"){
+                    return new Proxy( d.primitives || [], obj.structure )
+                }
+                if( prop === "id"){
+                    return d.id
+                }
+                if( prop === "master_type"){
+                    return type
+                }
+                if( prop === "stateInfo"){
+                    return (obj.stateInfo[d.type] || obj.stateInfo["default"])[d.state] || {title: undefined }
+                }
 
-            d.stateInfo = (obj.stateInfo[d.type] || obj.stateInfo["default"])[d.state] || {title: undefined }
-
-            d._primitives = d.primitives || []
-            d.primitives = new Proxy( d._primitives, obj.structure )
-
-            Object.defineProperty(d, "metadata", {
-                get: function(){
+                if( prop === "metadata"){
                     if( d.type === "activity" || d.type === "experiment"){
                         return obj.taskCategories().find((p)=>p.id === d.referenceId )
                     }
@@ -258,118 +275,97 @@ function MainStore (prims){
                         return obj.resultsCategories().find((p)=>p.id === d.referenceId )
                     }
                 }
-            })
-            obj.types.forEach((type)=>{
-                Object.defineProperty(d, type, {
-                    get: function(){
-                        return d.primitives[type]
-                    }
-                })
-            })
-            if( type === "primitive"){
-                Object.defineProperties(d, {
-                    users:{
-                        get: function(){
-                            if( d.userIds === undefined){return []}
-                            let id_list = Object.values(d.userIds).flat()
-                            return obj.users().filter((d)=>id_list.includes(d.id))
-                        }
-                    },
-                    origin:{
-                        get: function(){
-                            let origin = d.parentPrimitiveRelationships["origin"]
-                            if( origin ){
-                                return origin[0]
-                            }
-                        }
-                    },
-                    originId:{
-                        get: function(){
-                            return d.origin?.id
-                        }
-                    },
-                    originTask:{
-                        get: function(){
-                            let origin = obj.primitive(d.originId)
-                            if( origin ){
-                                if( ["experiment","activity"].includes(origin.type) ){
-                                    return origin
-                                }
-                                return origin.findParentPrimitives({type: ["experiment", "activity"]})[0]
-                            }
-                            return undefined
-                        }
-                    },
-                    parentLevelIds:{
-                        get: function(){
-                            return d.parentLevels.map((d)=>d.id)
-                        } ,
-                    },
-                    parentLevels:{
-                        get: function(){
-                            return obj.components().map((c)=>c.levels.filter((l)=>l.primitives && l.primitives.includes(d.id))).flat()
-                        } ,
-                    },
-                    parentPrimitives: {
-                        get: function(){
-                            return obj.primitives().filter((t)=>obj.primitive(t.id).primitives.includes(d.id))
-                        } ,
-                    },
-                    parentPrimitiveIds: {
-                        get: function(){
-                            return d.parentPrimitives.map((d)=>d.id)
-                        },
-                    },
-                    parentPrimitiveRelationships:{
-                        get: function(){
-                            return d.parentPrimitives.reduce((o, p)=>{
-                                let rel = d.parentRelationship(p)
-                                o[rel] = o[rel] || []
-                                o[rel].push( p )
-                                return o
-                            }, [])
-                        }
-                    }
-                })
-            }
-            Object.defineProperties(d, {
-                displayType:{
-                    get: function(){
-                        return d.type.charAt(0).toUpperCase() + d.type.slice(1)
-                    }
-                },
-            })
-            d.findParentPrimitives = function(options = {type: undefined, first: false}){
-                const scatter = (list)=>{
-                    if( list === undefined){ return []}
-                    let expanded = list.map((p)=>p.parentPrimitives).flat()
-                    let out = uniquePrimitives( expanded )
-                    return out
+
+                if( prop in obj.types){
+                    return receiver.primitives[type]
                 }
-                let found = []
-                let current = scatter( [d] )
-                
-                while( current.length > 0){
-                    if( options.type === undefined ){
-                        found = [...found, ...current]
-                    }else{
-                        found = [...found, ...current.filter((p)=>options.type.includes(p.type))]                        
+                if( type === "primitive"){
+                    if( prop === "users"){
+                        if( d.userIds === undefined){return []}
+                        let id_list = Object.values(d.userIds).flat()
+                        return obj.users().filter((d)=>id_list.includes(d.id))
                     }
-                    if( options.first && found.length > 0 ){
+                    if( prop === "origin"){
+                        let origin = receiver.parentPrimitiveRelationships["origin"]
+                        if( origin ){
+                            return origin[0]
+                        }
+                    }
+                    if( prop === "originId"){
+                            return receiver.origin?.id
+                    }
+                    if( prop === "originTask"){
+                        let origin = receiver.origin
+                        if( origin ){
+                            if( ["experiment","activity"].includes(origin.type) ){
+                                return origin
+                            }
+                            return origin.findParentPrimitives({type: ["experiment", "activity"]})[0]
+                        }
+                        return undefined
+                    }
+                    if( prop === "parentLevelIds"){
+                        return receiver.parentLevels.map((d)=>d.id)
+                    }
+                    if( prop === "parentLevels"){
+                        return obj.components().map((c)=>c.levels.filter((l)=>l.primitives && l.primitives.includes(d.id))).flat()
+                    }
+                    if( prop === "parentPrimitives"){
+                        return obj.primitives().filter((t)=>t.primitives.includes(d.id))
+                    }
+                    if( prop === "parentPrimitiveIds"){
+                        return receiver.parentPrimitives.map((d)=>d.id)
+                    }
+                    if( prop === "parentPrimitiveRelationships"){
+                        return receiver.parentPrimitives.reduce((o, p)=>{
+                            let rel = receiver.parentRelationship(p)
+                            o[rel] = o[rel] || []
+                            o[rel].push( p )
+                            return o
+                        }, [])
+                    }
+                }
+                if( prop === "displayType"){
+                    return d.type.charAt(0).toUpperCase() + d.type.slice(1)
+                }
+                if( prop === "findParentPrimitives"){
+                    return function(options = {type: undefined, first: false}){
+                        const scatter = (list)=>{
+                            if( list === undefined){ return []}
+                            let expanded = list.map((p)=>p.parentPrimitives).flat()
+                            let out = uniquePrimitives( expanded )
+                            return out
+                        }
+                        let found = []
+                        let current = scatter( [receiver] )
+                        
+                        while( current.length > 0){
+                            if( options.type === undefined ){
+                                found = [...found, ...current]
+                            }else{
+                                found = [...found, ...current.filter((p)=>options.type.includes(p.type))]                        
+                            }
+                            if( options.first && found.length > 0 ){
+                                return found
+                            }
+                            current = scatter( current )
+                        }
                         return found
                     }
-                    current = scatter( current )
                 }
-                return found
-            }
-            d.parentRelationship = function( parent ){
-                if( !fastNaN(parent) ){
-                    parent = obj.primitive(parent)
+                if( prop === "parentRelationship"){
+                    return function( parent ){
+                        if( !(parent instanceof(Object)) ){
+                            parent = obj.primitive(parent)
+                        }
+                        return parent.primitives.relationships( d.id )
+                    }
                 }
-                return parent.primitives.relationships( d.id )
+                if( prop in d){
+                    return d[prop]
+                }
             }
-        }
-        return d
+        })
     }    
     return obj
 }

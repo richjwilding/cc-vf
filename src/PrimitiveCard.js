@@ -156,6 +156,8 @@ const Parameters = function({primitive, ...props}){
 
 const Details = function({primitive, ...props}){
   let metadata = primitive.metadata
+  let parameters = primitive.metadata?.parameters || undefined
+  if( !parameters ){ return <></> }
   return (
          <>
          {!props.hideTitle && 
@@ -181,6 +183,9 @@ const Title = function({primitive, ...props}){
     let relationship = primitive.parentRelationship(props.relationshipTo)
     relationshipConfig = props.relationships[ relationship ] || {title: relationship, color: 'gray'}
   }
+  if( props.relationship ){
+    relationshipConfig = props.relationships[ props.relationship ] || {title: props.relationship, color: 'gray'}
+  }
 
   return (
       <h3 className={`flex text-slate-400 font-medium tracking-tight place-items-center text-${props.compact ? 'xs' : 'sm'}`}>
@@ -190,7 +195,7 @@ const Title = function({primitive, ...props}){
             {primitive.stateInfo.title}
         </span>
         }
-        {props.relationshipTo && 
+        {relationshipConfig && 
           <span className={`inline-flex items-center rounded-full bg-${relationshipConfig.color}-100 px-2 py-0.5 text-xs font-medium text-${relationshipConfig.color}-800 ml-3`}>
             {relationshipConfig.title}
         </span>

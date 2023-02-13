@@ -67,7 +67,7 @@ export function ComponentRow(props) {
     const compact = props.compact 
     const lens = Math.floor(c.order / 4)
     const color = colors[lens]
-    const hypothesis_list = c.hypothesis
+    const hypothesis_list = c.primitives.hypothesis
     let current_level_idx = c.levels.findIndex((d)=>d.id === c.currentLevel)
     let current_level = c.levels[current_level_idx]
     let last_index = c.levels.length - 1
