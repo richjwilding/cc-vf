@@ -131,28 +131,38 @@ const Users = function({primitive, ...props}){
     {userContent}
   </>)
 }
-const Details = function({primitive, ...props}){
-  let metadata = primitive.metadata
-  let parameters = primitive.metadata?.parameters || undefined
-  console.log(primitive, parameters)
-  if( !parameters ){ return <></> }
 
-  let details = Object.keys(parameters).reduce((h, k)=>{
+const Parameters = function({primitive, ...props}){
+  let parameters = primitive.metadata?.parameters || undefined
+  if( !parameters ){ return <></> }
+  let fields = Object.keys(parameters)
+  if( props.fields ){
+    fields = fields.filter((f)=>props.fields.includes(f))
+  }
+
+  let details = fields.reduce((h, k)=>{
     h[k] = {...parameters[k], value: primitive.refereceParameters[k], key: k}
     return h
   }, {})
+  return (
+    Object.values(details).filter((item)=>item.value !== undefined).map((item)=>(
+      <div className={`flex justify-between py-3 text-sm font-medium ${props.className || ''}`}>
+      {(props.showTitles === undefined || props.showTitles === true) && <dt className="text-gray-500">{item.title}</dt>}
+      <RenderItemValue item={item}/>
+    </div>
+    )))
+  
+}
+
+const Details = function({primitive, ...props}){
+  let metadata = primitive.metadata
   return (
          <>
          {!props.hideTitle && 
           <h3 className="mt-6 text-sm font-medium text-gray-900">{props.title || "Details"}</h3>
          }
           <dl className="mt-2 mx-2 divide-y divide-gray-200 border-t border-b border-gray-200">
-            {Object.values(details).filter((item)=>item.value !== undefined).map((item)=>(
-              <div className="flex justify-between py-3 text-sm font-medium">
-                <dt className="text-gray-500">{item.title}</dt>
-                <RenderItemValue item={item}/>
-              </div>
-            ))}
+            <Parameters primitive={primitive}/>
           </dl>
          {!props.hideFooter && 
           <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
@@ -164,12 +174,43 @@ const Details = function({primitive, ...props}){
   )
 }
 
-export function PrimitiveCard({primitive, className, showState, showDetails, showUsers, showLink, showRelationships, major, compact, disableHover, showEdit, ...props}) {
+const Title = function({primitive, ...props}){
   let color = primitive.stateInfo.colorBase || "gray"
-  let details = undefined
-  let category = undefined
+  let relationshipConfig
+  if( props.relationshipTo ){
+    let relationship = primitive.parentRelationship(props.relationshipTo)
+    relationshipConfig = props.relationships[ relationship ] || {title: relationship, color: 'gray'}
+  }
+
+  return (
+      <h3 className={`flex text-slate-400 font-medium tracking-tight place-items-center text-${props.compact ? 'xs' : 'sm'}`}>
+        {primitive.displayType} #{primitive.id}
+        {props.showState && primitive.stateInfo.title && 
+          <span className={`inline-flex items-center rounded-full bg-${color}-100 px-2 py-0.5 text-xs font-medium text-${color}-800 ml-3`}>
+            {primitive.stateInfo.title}
+        </span>
+        }
+        {props.relationshipTo && 
+          <span className={`inline-flex items-center rounded-full bg-${relationshipConfig.color}-100 px-2 py-0.5 text-xs font-medium text-${relationshipConfig.color}-800 ml-3`}>
+            {relationshipConfig.title}
+        </span>
+        }
+        {(props.compact && (props.showLink || props.showEdit)) &&
+          <button
+              type="button"
+              className="ml-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+              {props.showLink && !props.showEdit && <ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" />}
+              {props.showEdit && <PencilIcon className="h-4 w-4" aria-hidden="true" />}
+          </button>
+        }
+      </h3>
+  )
+}
+
+export function PrimitiveCard({primitive, className, showDetails, showUsers, showRelationships, major, disableHover, fields,...props}) {
   let ring = !disableHover
-  let mainTextSize = compact ? 'sm' : 'md' 
+  let mainTextSize = props.compact ? 'sm' : 'md' 
   let margin = props.bigMargin ? (ring ? 'px-4 py-6' : 'px-2 py-3') : (ring ? 'px-2 py-3' : 'px-0.5 py-1')
 
   if( major ){
@@ -178,54 +219,43 @@ export function PrimitiveCard({primitive, className, showState, showDetails, sho
     ring = false
   }
 
-  let relationships
-
-  if( showRelationships){
-  }
-
-
-
   return (
     <div className={
         [`bg-white rounded-lg ${margin}`,
           ring ? `hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 hover:subtle-shadow-bottom` : '',
+          props.border ? "shadow-md border-[1px]" : '',
           className].filter((d)=>d).join(' ')
         }>
-      <h3 className={`flex text-slate-400 font-medium tracking-tight place-items-center text-${compact ? 'xs' : 'sm'}`}>
-        {primitive.displayType} #{primitive.id}
-        {showState && primitive.stateInfo.title && 
-          <span className={`inline-flex items-center rounded-full bg-${color}-100 px-2 py-0.5 text-xs font-medium text-${color}-800 ml-3`}>
-            {primitive.stateInfo.title}
-        </span>
-        }
-        {(compact && (showLink || showEdit)) &&
-          <button
-              type="button"
-              className="ml-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-              {showLink && !showEdit && <ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" />}
-              {showEdit && <PencilIcon className="h-4 w-4" aria-hidden="true" />}
-          </button>
-        }
-      </h3>
-      <div className={`flex items-start justify-between space-x-3 ${compact ? 'mt-2' : 'mt-3'}`}>
-        <p className={`text-slate-700 text-${mainTextSize}`}>
-          {primitive.title}
-        </p>
-        {(!compact && (showLink || showEdit)) &&
-          <button
-              type="button"
-              className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-              {showLink && !showEdit && <ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" />}
-              {showEdit && <PencilIcon className="h-5 w-5" aria-hidden="true" />}
-          </button>
-        }
+      {!fields && <Title primitive={primitive} {...props}/>}
+      {!fields  && 
+      <div className={`flex items-start justify-between space-x-3 ${props.compact ? 'mt-2' : 'mt-3'}`}>
+        <>
+          <p className={`text-slate-700 text-${mainTextSize}`}>
+            {primitive.title}
+          </p>
+          {(!props.compact && (props.showLink || props.showEdit)) &&
+            <button
+                type="button"
+                className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+                {props.showLink && !props.showEdit && <ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" />}
+                {props.showEdit && <PencilIcon className="h-5 w-5" aria-hidden="true" />}
+            </button>
+          }
+        </>
       </div>
+      }
+      {fields &&  
+        <div className={`flex items-start justify-between space-x-3`}>
+          <div><Parameters primitive={primitive} asMain={true} fields={fields} showTitles={false} className='!py-1'/></div>
+        </div>
+      }
+
         {showRelationships && <PrimitiveCard.Relationships primitive={primitive}/>}
         {showDetails && <PrimitiveCard.Details primitive={primitive}/>}
         {showUsers && <PrimitiveCard.Users primitive={primitive}/>}
         {props.children}
+        {fields && <Title primitive={primitive} {...props}/>}
     </div>
   )
 }

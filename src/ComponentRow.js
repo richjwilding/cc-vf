@@ -221,8 +221,10 @@ export function ComponentRow(props) {
             )})}
             { reveal && hypothesis_list && c.levels.map((l, idx) => {
                 return hypothesis_list.map((h, row)=>{
-                  let evidence = h.childPrimitives.filter((p)=>p.type == 'evidence' && p.parentLevelIds.includes(l.id))
+                  let levels = h.primitives.levels
+                  let evidence = levels ? levels[`${l.id}`]?.allEvidence : undefined
                   return (<div 
+                    key={`${idx}_${row}`}
                       style={{
                         gridColumnStart: idx + 2,
                         gridRowStart: row + 2
@@ -232,10 +234,11 @@ export function ComponentRow(props) {
                     <div className={`group-hover:bg-${color.base}-25 justify-start h-[calc(100%_-_1em)] place-items-center w-full`}>
                     {evidence &&  evidence.map((d, idx)=>
                       <EvidenceCard 
+                        key={d.id}
                         onClick={(e)=>{console.log(e);props.selectPrimitive(d); e.stopPropagation()}} 
                         evidence={d} 
                         details={props.evidenceDetail} 
-                        sentiment={d.relationship(h.id)} bgColor={`${color.base}-200`} iconColor={`${color.base}-900`}/>
+                        sentiment={d.parentRelationship(h.id)[0]} bgColor={`${color.base}-200`} iconColor={`${color.base}-900`}/>
                     )}</div></div>
                   )
                 })

@@ -10,6 +10,9 @@ import { fas } from '@fortawesome/free-solid-svg-icons'
 import { faLinkedin } from '@fortawesome/free-brands-svg-icons'
 import { PrimitivePage } from './PrimitivePage';
 
+
+import MainStoreTests from './mainstore_tests';
+
 library.add(fas, faLinkedin)
 
 
@@ -18,6 +21,8 @@ library.add(fas, faLinkedin)
 
 let mainstore = MainStore()
 window.mainstore = mainstore
+
+window.mainstore_tests = MainStoreTests
 
 const PrimitiveCardWrapper = () => {
   const { id } = useParams();

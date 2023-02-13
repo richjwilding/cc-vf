@@ -1,6 +1,6 @@
 let instance = undefined
-function MainStore (){
-    if( instance ){
+function MainStore (prims){
+    if( !prims && instance ){
         return instance
     }
     let obj = {
@@ -17,6 +17,166 @@ function MainStore (){
                 "closed": {title: "Closed"},
             }
         },
+        structure:{
+            get(target, prop, receiver) {
+                if( prop === "includes" ){
+                    return function(){
+                        let value = arguments[0]
+                        const find = (v)=>{
+                            return Object.values(v).reduce((r, d)=>{
+                                if( d instanceof(Object) ){
+                                    return r || find(d) 
+                                }else{
+                                    return r || (d === value)
+                                }
+                            },false)
+                        }
+                        return find( target )
+                    }
+                }
+                if( prop === "paths" ){
+                    return function(){
+                        let id = arguments[0]
+                        const find = (v, path)=>{
+                            let out = []
+                            if( v instanceof(Array) ){
+                                if( v.includes( id )){
+                                    out.push( path )
+                                }
+                                v.filter((d)=>d instanceof(Object) ).forEach((d)=>{
+                                    out.push( Object.keys(d).map((k)=>{
+                                        return find( d[k], path + "." + k)
+                                    }))
+                                })
+                            }else{
+                                out.push( Object.keys(v).map((k)=>{
+                                    return find( v[k], path + "." + k)
+                                }))
+                            }
+                            out = out.flat(2).filter((d)=>d !== undefined)
+                            return out.length > 0 ? out : undefined
+                        }
+                        let result = find( target, "" )
+                        if( result ){
+                            result = result.map((p)=>p.replace(/^\.null/,""))
+                        }
+                        return result
+                    }
+                }
+                if( prop === "relationships"){
+                    return function(){
+                        let path = receiver.paths(arguments[0])
+                        return path?.map((p)=>p.split('.').slice(-1)[0])
+                    }
+                }
+                
+                if( prop === "all"){
+                    return target
+                }
+                if( prop === "ids" && target instanceof(Array)){
+                    return target.map((d)=>{
+                        if( d instanceof(Object)){
+                            return undefined
+                        }else{
+                            return d
+                        }}).filter((d)=>d)
+                }
+                if( prop === "uniqueIds" && target instanceof(Array)){
+                    return uniqueArray( receiver.ids )
+                }
+
+                if( prop === "allIds"){
+                    const flatten = (v)=>{
+                        return Object.values(v).map((d)=>{
+                            if( d instanceof(Object) ){
+                                return flatten(d) 
+                            }else{
+                                return d
+                            }
+                        }).flat()
+                    }
+                    return flatten( target )
+                }
+                if( prop === "uniqueAllIds"){
+                    return uniqueArray( receiver.allIds )
+                }
+                if( Array.isArray(target) ){
+                    let out
+                    target.forEach((d)=>{
+                        if( d instanceof(Object) ){
+                            if( prop in d){
+                                out = d[prop]
+                            }
+                        }
+                    })
+                    if( out ){
+                        return new Proxy(out, obj.structure)
+                    }
+                    if( prop in target ){
+                        const value = target[prop];
+                        if (value instanceof Function) {
+                        return function (...args) {
+                            return value.apply(this === receiver ? target : this, args);
+                        };
+                        }
+                        return value;
+                    }
+                }
+                if( prop in target ){
+                    return new Proxy(target[prop], obj.structure)
+                }else {
+                    let s = prop.toString()
+                    if( s in target ){
+                        return new Proxy(target[s], obj.structure)
+                    }
+                }
+                if( prop === "filter" || prop === "length" || prop === "map"){
+                    const base = receiver.allItems
+                    const value = base[prop];
+                    if (value instanceof Function) {
+                        return function (...args) {
+                            return value.apply(base, args);
+                        };
+                    }
+                }
+                if( prop === "items"){
+                    return receiver.ids.map((d)=>obj.primitive(d))
+                }
+                if( prop === "allItems"){
+                    return receiver.allIds.map((d)=>obj.primitive(d))
+                }
+                if( prop === "uniqueAllItems"){
+                    return receiver.uniqueAllIds.map((d)=>obj.primitive(d))
+                }
+                if( prop === "uniqueItems"){
+                    return receiver.uniqueIds.map((d)=>obj.primitive(d))
+                }
+                if( obj.types.includes(prop)){
+                    return receiver.items.filter((p)=>p.type===prop)
+                }
+                if( prop.slice(0,6) === 'unique' ){
+                    let type = prop.slice(6).toLowerCase()
+                    if( obj.types.includes(type)){
+                        return receiver.uniqueItems.filter((p)=>p.type === type)
+                    }
+                }
+                if( prop.slice(0,9) === 'allUnique' ){
+                    let type = prop.slice(9).toLowerCase()
+                    if( obj.types.includes(type)){
+                        return receiver.uniqueAllItems.filter((p)=>p.type === type)
+                    }
+                }
+                if( prop.slice(0,3) === 'all' ){
+                    let type = prop.slice(3).toLowerCase()
+                    if( obj.types.includes(type)){
+                        return receiver.allItems.filter((p)=>p.type === type)
+                    }
+                }
+                if( target[null]){
+                    return new Proxy(target[null], obj.structure)[prop]
+                }
+            }
+        },
         component:function(id){
             return vf_temp.filter((d)=>d.id === id).map((d)=>primitive_access(d, "component"))[0]
         },
@@ -24,10 +184,10 @@ function MainStore (){
             return vf_temp.map((d)=>primitive_access(d, "component"))
         },
         primitives:function(){
-            return primitive_temp
+            return prims || primitive_temp
         },
         primitive:function(id){
-            let data = primitive_temp.find((p)=>p.id === id)
+            let data = obj.primitives().find((p)=>p.id === id)
             return data ? primitive_access(data,"primitive") : undefined
         },
         resultsCategories:function(){
@@ -64,122 +224,10 @@ function MainStore (){
                 }
             ]
         },
-        structTests:function(){
-            {
-                let data = {
-                    id: 1,
-                    primitives: [
-                        2,
-                        3,
-                        {
-                            a: [4,5,6],
-                            b:  [7,8]
-                        }
-                    ]
-                }
-
-                let test = new Proxy(data.primitives, structure)
-                console.assert( arrayEquals(test.ids, [2,3]) )
-                console.assert( arrayEquals(test.allIds, [2,3,4,5,6,7,8]) )
-                console.assert( arrayEquals(test.a, [4,5,6]) )
-                console.assert( arrayEquals(test.b, [7,8]) )
-            }
-            {
-                let data = {
-                    id: 1,
-                    primitives: {
-                        null: [
-                            2,
-                            3,
-                            {
-                                a: [4,5,6],
-                                b:  [7,8]
-                            }
-                        ],
-                        test2: [
-                            9,
-                            10,
-                            {
-                                a: [11,5,6],
-                                b:  [12,8]
-                            }
-                        ],
-                        test3: {
-                            a: {
-                                b: [13,14],
-                                c: [15]
-                            },
-                            b: {
-                                b: [16,17],
-                                c: [18]
-                            }
-                        }
-                    }
-                }
-
-                let test = new Proxy(data.primitives, structure)
-                console.assert( arrayEquals(test.allIds, [2,3,4,5,6,7,8,9,10,11,5,6,12,8,13,14,15,16,17,18]) )
-                console.assert( arrayEquals(test.null.ids, [2,3]) )
-                console.assert( arrayEquals(test.null.allIds, [2,3,4,5,6,7,8]) )
-                console.assert( arrayEquals(test.a, [4,5,6]) )
-                console.assert( arrayEquals(test.b, [7,8]) )
-                console.assert( arrayEquals(test.null.a, [4,5,6]) )
-                console.assert( arrayEquals(test.null.b, [7,8]) )
-                console.assert( arrayEquals(test.test2.a, [11,5,6]) )
-                console.assert( arrayEquals(test.test2.b, [12,8]) )
-                console.assert( arrayEquals(test.test2.ids, [9,10]) )
-                console.assert( arrayEquals(test.test2.allIds, [9,10,11,5,6,12,8]) )
-                console.assert( arrayEquals(test.test3.allIds, [13,14,15,16,17,18]) )
-                console.assert( arrayEquals(test.test3.a.allIds, [13,14,15]) )
-                console.assert( arrayEquals(test.test3.b.allIds, [16,17,18]) )
-                console.assert( arrayEquals(test.test3.a.b, [13,14]) )
-                console.assert( arrayEquals(test.test3.b.b, [16,17]) )
-                test.allIds.forEach((id)=>{
-                    console.assert( test.includes(id) === true )
-                    console.assert( test.includes(id * 100) === false )
-                })                
-            }
-            {
-                let data = {
-                    id: 1,
-                    primitives: {
-                        null: [
-                            2,
-                            4,
-                            3,
-                            {
-                                a: [4,5,6],
-                                b:  [7,8]
-                            }
-                        ],
-                        test2: [
-                            9,
-                            10,
-                            {
-                                a: [11,5,6],
-                                b:  [12,8]
-                            }
-                        ],
-                        test3: {
-                            a: {
-                                b: [13,14],
-                                c: [15,4]
-                            },
-                            b: {
-                                b: [16,17],
-                                c: [18]
-                            }
-                        }
-                    }
-                }
-                let test = new Proxy(data.primitives, structure)
-                console.assert( arrayEquals(test.paths(4), ['','.a','.test3.a.c']) )
-                console.assert( test.paths(40) === undefined )
-                console.assert( arrayEquals(test.relationships(4), ['','a','c']) )
-            }
-        }
     }
-    instance = obj
+    if( !prims ){
+        instance = obj
+    }
     const uniquePrimitives = (list)=>{
         let ids = {}
         return list.filter((p)=>{
@@ -195,8 +243,8 @@ function MainStore (){
 
             d.stateInfo = (obj.stateInfo[d.type] || obj.stateInfo["default"])[d.state] || {title: undefined }
 
-            d._primitives = d.primitives
-            d.primitives = new Proxy( d._primitives, structure )
+            d._primitives = d.primitives || []
+            d.primitives = new Proxy( d._primitives, obj.structure )
 
             Object.defineProperty(d, "metadata", {
                 get: function(){
@@ -214,98 +262,81 @@ function MainStore (){
             obj.types.forEach((type)=>{
                 Object.defineProperty(d, type, {
                     get: function(){
-                        return d.childPrimitives.filter((d)=>d.type === type)
+                        return d.primitives[type]
                     }
                 })
             })
             if( type === "primitive"){
-
-            }
-            Object.defineProperties(d, {
-                users:{
-                    get: function(){
-                        if( d.userIds === undefined){return []}
-                        let id_list = Object.values(d.userIds).flat()
-                        return obj.users().filter((d)=>id_list.includes(d.id))
-                    }
-                },
-                origin:{
-                    get: function(){
-                        let origin = d.parentPrimitiveRelationships["origin"]
-                        if( origin ){
-                            return origin[0]
+                Object.defineProperties(d, {
+                    users:{
+                        get: function(){
+                            if( d.userIds === undefined){return []}
+                            let id_list = Object.values(d.userIds).flat()
+                            return obj.users().filter((d)=>id_list.includes(d.id))
                         }
-                    }
-                },
-                originId:{
-                    get: function(){
-                        return d.origin?.id
-                    }
-                },
-                originTask:{
-                    get: function(){
-                        let origin = obj.primitive(d.originId)
-                        if( origin ){
-                            if( ["experiment","activity"].includes(origin.type) ){
-                                return origin
-                            }
-                            return origin.findParentPrimitives({type: ["experiment", "activity"]})[0]
-                        }
-                        return undefined
-                    }
-                },
-                parentLevelIds:{
-                    get: function(){
-                        return d.parentLevels.map((d)=>d.id)
-                    } ,
-                },
-                parentLevels:{
-                    get: function(){
-                        return obj.components().map((c)=>c.levels.filter((l)=>l.primitives && l.primitives.includes(d.id))).flat()
-                    } ,
-                },
-                parentPrimitives: {
-                    get: function(){
-                        return d.parentPrimitiveIds.map((d)=>obj.primitive(d))
-                    } ,
-                },
-                parentPrimitiveIds: {
-                    get: function(){
-                        return obj.primitives().filter((t)=>t.primitives.map((val)=>(fastNaN(val) ? Object.values(val) : val)).flat(2).includes(d.id)).map((t)=>t.id)
                     },
-                },
-                parentPrimitiveRelationships:{
-                    get: function(){
-                        return d.parentPrimitives.reduce((o, p)=>{
-                            let rel = d.relationship(p)
-                            o[rel] = o[rel] || []
-                            o[rel].push( p )
-                            return o
-                          }, [])
+                    origin:{
+                        get: function(){
+                            let origin = d.parentPrimitiveRelationships["origin"]
+                            if( origin ){
+                                return origin[0]
+                            }
+                        }
+                    },
+                    originId:{
+                        get: function(){
+                            return d.origin?.id
+                        }
+                    },
+                    originTask:{
+                        get: function(){
+                            let origin = obj.primitive(d.originId)
+                            if( origin ){
+                                if( ["experiment","activity"].includes(origin.type) ){
+                                    return origin
+                                }
+                                return origin.findParentPrimitives({type: ["experiment", "activity"]})[0]
+                            }
+                            return undefined
+                        }
+                    },
+                    parentLevelIds:{
+                        get: function(){
+                            return d.parentLevels.map((d)=>d.id)
+                        } ,
+                    },
+                    parentLevels:{
+                        get: function(){
+                            return obj.components().map((c)=>c.levels.filter((l)=>l.primitives && l.primitives.includes(d.id))).flat()
+                        } ,
+                    },
+                    parentPrimitives: {
+                        get: function(){
+                            return obj.primitives().filter((t)=>obj.primitive(t.id).primitives.includes(d.id))
+                        } ,
+                    },
+                    parentPrimitiveIds: {
+                        get: function(){
+                            return d.parentPrimitives.map((d)=>d.id)
+                        },
+                    },
+                    parentPrimitiveRelationships:{
+                        get: function(){
+                            return d.parentPrimitives.reduce((o, p)=>{
+                                let rel = d.parentRelationship(p)
+                                o[rel] = o[rel] || []
+                                o[rel].push( p )
+                                return o
+                            }, [])
+                        }
                     }
-                }
-            })
+                })
+            }
             Object.defineProperties(d, {
                 displayType:{
                     get: function(){
                         return d.type.charAt(0).toUpperCase() + d.type.slice(1)
                     }
-                },
-                childPrimitiveIds: {
-                    get: function(){
-                        if( d.primitives === undefined ){return []}
-                        return d.primitives.map((val)=>(fastNaN(val) ? Object.values(val) : val)).flat(2)
-                    } ,
-                },
-                childPrimitives: {
-                    get: function(){
-                        return d.childPrimitiveIds.map((id)=>obj.primitive(id))
-                    } ,
-                },
-                childPrimitiveIdsWithRelationships: {
-                    get: function(){
-                        return d.primitives
-                    },
                 },
             })
             d.findParentPrimitives = function(options = {type: undefined, first: false}){
@@ -331,16 +362,11 @@ function MainStore (){
                 }
                 return found
             }
-            d.relationship = function( parent ){
+            d.parentRelationship = function( parent ){
                 if( !fastNaN(parent) ){
                     parent = obj.primitive(parent)
                 }
-                if( parent.primitives.includes( d.id )){
-                    return null
-                }
-                return parent.primitives.filter((val)=>fastNaN(val)).reduce((o, h)=>{
-                    return o || Object.keys(h).filter((k)=>h[k].includes(d.id))[0]
-                },undefined)
+                return parent.primitives.relationships( d.id )
             }
         }
         return d
@@ -351,112 +377,10 @@ function MainStore (){
     const fastNaN = (val)=>{
         return !(val <= 0) && !(val > 0)
     }
-const arrayEquals = function(a,b) {
-    if( a === undefined || b=== undefined){return false}
-    if( a.length !== b.length ){return false}
-    return b.reduce((r,c,idx)=>r && (a[idx] === c), true)
-  }
-
-const structure = {
-    get:function(target, prop, receiver) {
-        if( prop === "includes" ){
-            return function(){
-                let value = arguments[0]
-                const find = (v)=>{
-                    return Object.values(v).reduce((r, d)=>{
-                        if( d instanceof(Object) ){
-                            return r || find(d) 
-                        }else{
-                            return r || (d === value)
-                        }
-                    },false)
-                }
-                return find( target )
-            }
-        }
-        if( prop === "paths" ){
-            return function(){
-                let id = arguments[0]
-                const find = (v, path)=>{
-                    let out = []
-                    if( v instanceof(Array) ){
-                        if( v.includes( id )){
-                            out.push( path )
-                        }
-                        v.filter((d)=>d instanceof(Object) ).forEach((d)=>{
-                            out.push( Object.keys(d).map((k)=>{
-                                return find( d[k], path + "." + k)
-                            }))
-                        })
-                    }else{
-                        out.push( Object.keys(v).map((k)=>{
-                            return find( v[k], path + "." + k)
-                        }))
-                    }
-                    out = out.flat(2).filter((d)=>d !== undefined)
-                    return out.length > 0 ? out : undefined
-                }
-                let result = find( target, "" )
-                if( result ){
-                    result = result.map((p)=>p.replace(/^\.null/,""))
-                }
-                return result
-            }
-        }
-        if( prop === "relationships"){
-            return function(){
-                let path = receiver.paths(arguments[0])
-                return path?.map((p)=>p.split('.').slice(-1)[0])
-            }
-        }
-        if( prop === "all"){
-            return target
-        }
-        if( prop === "ids" && target instanceof(Array)){
-            return target.map((d)=>{
-                if( d instanceof(Object)){
-                    return undefined
-                }else{
-                    return d
-                }}).filter((d)=>d)
-        }
-        if( prop === "allIds"){
-            const flatten = (v)=>{
-                return Object.values(v).map((d)=>{
-                    if( d instanceof(Object) ){
-                        return flatten(d) 
-                    }else{
-                        return d
-                    }
-                }).flat()
-            }
-            return flatten( target )
-        }
-        if( Array.isArray(target) ){
-            let out
-            target.forEach((d)=>{
-                if( d instanceof(Object) ){
-                    if( prop in d){
-                        out = d[prop]
-                    }
-                }
-            })
-            return out
-        }
-        if( prop in target ){
-            if( target[prop] instanceof(Array) && target[prop].find((d)=>d instanceof(Object))===undefined){
-                return target[prop]
-            }
-            return new Proxy(target[prop], structure)
-        }
-        if( target[null]){
-            return new Proxy(target[null], structure)[prop]
-        }
-        if (prop in target) {
-            return target[prop];
-        }
-    }
+const uniqueArray = (a)=>{
+    return a.filter((v,i)=>a.indexOf(v) === i)
 }
+
 
 export default MainStore
 
@@ -527,9 +451,29 @@ const activity_category_temp =
             "sample": {type: "integer", title: "Sample size", description: "Number of planned interviews"},
             "source": {type: "text", title: "Source", description: "Where the interviewees will be sourced from"},
         },
+        metrics:{
+            "conversion": {type: "integer", title: "Conversion", description: "Track conversion metrics", view: {wide: true}},
+            "count": {type: "integer", title: "Count", description: "A count of interviews in a particular state"},
+        },
         icon: 'UserGroupIcon',
         resultCategories: [
-            {id :0, title: "Interview", plurals: "Interviews", resultCategoryId: 1, relationships: ["identified", "contacted", "scheduled", "completed"]}
+            {id :0, 
+                title: "Interview", 
+                plurals: "Interviews", 
+                resultCategoryId: 1, 
+                relationships: {
+                    "identified": {order:0, title:"Identified", color: "orange"}, 
+                    "contacted": {order:1, title:"Contacted", color: "yellow"},  
+                    "scheduled": {order:2, title:"Scheduled", color: "green"}, 
+                    "completed": {order:3, title:"Completed", color: "cyan"}, 
+                },
+                views: {
+                    list:{
+                        'kaban': undefined,
+                        cards: ['contact','role','company']
+                    },
+                    default: 'cards'
+                }},
         ],
         evidenceCategories: [3]
     }
@@ -574,7 +518,7 @@ const vf_temp =
         "title": "Problem",
         "description": "Customer pain points, unmet needs, opportunity areas",
         "currentLevel": 3891,
-        primitives:[4417,4418,4430],
+        primitives:[4417,4418,4430,4421],
         "levels": [
             {
                 "id": 3888,
@@ -603,7 +547,6 @@ const vf_temp =
                 "score": 3,
                 "target": true,
                 "phase_id": 185,
-                primitives:[4444,4446,4448],
             },
             {
                 "id": 3892,
@@ -697,7 +640,6 @@ const vf_temp =
                 "score": 8,
                 "target": false,
                 "phase_id": 187,
-                primitives: [4444]
             },
             {
                 "id": 3904,
@@ -1381,18 +1323,18 @@ let primitive_temp = [
         "id": 4417,
         "type": "hypothesis",
         "title": "Financial wellbeing encompasses delaing with the past, managing todays finances and preparing for the future.  It is different to financial advice and is an unserved market",
-        "primitives": [
-            4421,
-            {
-                "negative": [
-                    4444
-                ],
-                "positive": [
-                    4446,
-                    4448
-                ]
+        "primitives": {
+            null: [4421],
+            levels: {
+                3891: {
+                    "negative": [4444],
+                    "positive": [4446,4448]
+                },
+                3892:{
+                    "positive": [4444],
+                }
             }
-        ]
+        }
     },
     {
         "id": 4418,
@@ -1446,13 +1388,14 @@ let primitive_temp = [
         "id": 4430,
         "type": "hypothesis",
         "title": "Poor employee financial wellness costs enterprises big $$$ (lost productivity, employee retention issues, employee recruitment)",
-        "primitives": [
-            {
-                "positive": [
-                    4444
-                ]
+        "primitives": {
+            null: [4421],
+            levels: {
+                3891:{
+                    "positive": [4444],
+                }
             }
-        ]
+        }
     },
     {
         "id": 4444,
@@ -1526,6 +1469,26 @@ let primitive_temp = [
         "type": "experiment",
         "state": "active",
         "referenceId": 2,
+        "primitives": {
+            results:{
+                0: {
+                    scheduled: [4450],
+                    completed: [4447]
+                }
+            },
+            metrics:{
+                1: {
+                    negative: [4450],
+                    positive: [4447],
+                },
+                2: [4450]
+            }
+        },
+        "metrics":[
+            {id: 0, path: {results: 0}, type: "conversion", targets: [{min_relationship: "completed", value: 20, condition: ">="}, {min_relationship: "contacted", value: 30, condition: ">="}]},
+            {id: 1, path: {metrics: 1}, title: "Interested in a trial", type: "count", targets: [{relationship: "positive", value: 5}]},
+            {id: 2, path: {metrics: 2}, title: "Making an intro", type: "count"}
+        ],
         "refereceParameters": {
             "sample": "20",
             "source": "Network"
@@ -1540,877 +1503,6 @@ let primitive_temp = [
             ]
         },
         "title": "Get feedback from ay least 20 target users from our network",
-        "primitives": [
-            4447,
-            {}
-        ]
-    }
-]
-let primitive_temp_old = 
-[
-    {
-        "id": 4080,
-        "type": "activity",
-        "title": "Market research",
-        "parentIds": {
-            "primitive": [],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4084,
-        "type": "result",
-        "title": "tegus_12949_Former-Group-Product-Manager-for-Growth-at-Earnin",
-        "parentIds": {
-            "primitive": [
-                4080
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4085,
-        "type": "result",
-        "title": "tegus_12949_Former-Group-Product-Manager-for-Growth-at-Earnin.pdf",
-        "parentIds": {
-            "primitive": [
-                4080
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4086,
-        "type": "learning",
-        "title": "testing update",
-        "originId": 4085,
-        "parentIds": {
-            "primitive": [
-                {"origin": [4805]},
-                4085
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4087,
-        "type": "result",
-        "title": "tegus_6675_Current-President-at-Parker-s-a-customer-of-DailyPay.pdf",
-        "parentIds": {
-            "primitive": [
-                4080
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4088,
-        "type": "result",
-        "title": "tegus_21069_Former-SVP-Sales-Business-Development-at-PayActiv.pdf",
-        "parentIds": {
-            "primitive": [
-                4080
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4089,
-        "type": "result",
-        "title": "tegus_21336_Former-Vice-President-Business-Development-Emerging-Markets-at-Netspend.pdf",
-        "parentIds": {
-            "primitive": [
-                4080
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4090,
-        "type": "result",
-        "title": "tegus_13070_Regional-Vice-President-of-Strategic-Accounts-at-DailyPay.pdf",
-        "parentIds": {
-            "primitive": [
-                4080
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4091,
-        "type": "learning",
-        "title": "80% of users taking money every 3 days",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                {"origin": [4087]},
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4092,
-        "type": "learning",
-        "title": "78% of our employees were using DailyPay.",
-        "parentIds": {
-            "primitive": [
-                {"origin": [4087]},
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4093,
-        "type": "learning",
-        "title": "Fast access to pay was in top 5 wants from employees",
-        "parentIds": {
-            "primitive": [
-                {"origin": [4087]},
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4094,
-        "type": "learning",
-        "title": "Employees take ~79% of pay through dailypay and the remainder through payroll",
-        "parentIds": {
-            "primitive": [
-                {"origin": [4087]},
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4095,
-        "type": "learning",
-        "title": "60% of disbursements go to a payment card vs bank account",
-        "parentIds": {
-            "primitive": [
-                {"origin": [4087]},
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4096,
-        "type": "learning",
-        "title": "On-demand payment was priority no. 3 behind competitive pay and competitive benefits in employee survey",
-        "parentIds": {
-            "primitive": [
-                {"origin": [4087]},
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4097,
-        "type": "learning",
-        "title": "Improved employee retention",
-        "parentIds": {
-            "primitive": [
-                {"origin": [4087]},
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4098,
-        "type": "learning",
-        "title": "Thinks that employees would benefit from financial education support in app",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4099,
-        "type": "learning",
-        "title": "75% of all distributions are less than $200.",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4100,
-        "type": "learning",
-        "title": "Average disbursement is $78",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4101,
-        "type": "learning",
-        "title": "6-8 months roll-out to get to 70% usage in firm",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4102,
-        "type": "learning",
-        "title": "98%, 24-hours; 2%, instant.",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4103,
-        "type": "learning",
-        "title": "Employer negotiated with DailyPay to get a better rate for their employees",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4104,
-        "type": "learning",
-        "title": "DailyPay has 3 disbursement options - instant, 24hr and 48hr",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4105,
-        "type": "learning",
-        "title": "DailyPay gets updates once a day at midnight",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4106,
-        "type": "learning",
-        "title": "Part of configuration / setup is putting in place deductions so employees cant go into a negative balance",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4107,
-        "type": "learning",
-        "title": "Cash flow neutral to employer",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4108,
-        "type": "learning",
-        "title": "Employees paying average of $0.99 for 24 hour clearing",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4109,
-        "type": "learning",
-        "title": "DailyPay fee structure based on clearing time",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4110,
-        "type": "learning",
-        "title": "Disbursements requested by employee paid by DailyPay which is then reimbursed by employer through normal payroll",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4111,
-        "type": "learning",
-        "title": "API between DailyPay and existing payroll provider with no intervention needed by employer",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4112,
-        "type": "learning",
-        "title": "Transparency of and confidence in full process (clearing, source, overhead structure) was important in choosing a provider",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4113,
-        "type": "learning",
-        "title": "85% of employees are hourly",
-        "originId": 4087,
-        "parentIds": {
-            "primitive": [
-                4087
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4417,
-        "type": "hypothesis",
-        "title": "Financial wellbeing encompasses delaing with the past, managing todays finances and preparing for the future.  It is different to financial advice and is an unserved market",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                489
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4418,
-        "type": "hypothesis",
-        "title": "In order to prepare for the future, and to deal with the past, Co-workers first to need to have a solid foundation for today's financial needs",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                489
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4419,
-        "type": "hypothesis",
-        "title": "\"Managing today\" means different things for different people and in different market - we need to get a better understanding of the underlying struggles / pain / barriers",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                489
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4420,
-        "type": "activity",
-        "title": "Customer deep dives / interviews / value prop testing",
-        "parentIds": {
-            "primitive": [
-                4419,
-                4417,
-                4425,
-                4435
-            ],
-            "component": [],
-            "level": [3891]
-        }
-    },
-    {
-        "id": 4421,
-        "type": "experiment",
-        state: "closed",
-        referenceId: 1,
-        refereceParameters:{
-            "anonymous": true,
-            "sample": 250,
-            "geography": "USA",
-            "sourced": "3rd party"
-        },
-        userIds: 
-        {
-            owner: [1],
-            other: [2,3]
-        },
-        "title": "High level survey of 2000 people across 7 markets",
-        "parentIds": {
-            "primitive": [
-                4418,
-                4417,
-                4425
-            ],
-            "component": [],
-            "level": [
-                3891
-            ]
-        }
-    },
-    {
-        "id": 4422,
-        "type": "activity",
-        "title": "Additional, high volume, outreach  surveys in selected markets",
-        "parentIds": {
-            "primitive": [
-                4419,
-                4425,
-                4435
-            ],
-            "component": [],
-            "level": [
-            ]
-        }
-    },
-    {
-        "id": 4423,
-        "type": "hypothesis",
-        "title": "Digital platform which allows users to access and manage a suite of financial service that helps them manage today's financial needs (e.g. accessing earned money / trapped cast, emergency borrowing, cost savings)",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                490
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4424,
-        "type": "activity",
-        "title": "Landing pages, wireframe testing, prototype feedback",
-        "parentIds": {
-            "primitive": [
-                4423
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4425,
-        "type": "hypothesis",
-        "title": "Low earners, gen-z and millenials working in retail have the strongest need",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                491
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4426,
-        "type": "experiment",
-        "title": "Desk research / external research reports",
-        "parentIds": {
-            "primitive": [
-                4425,
-                4430,
-                4432,
-                4417
-            ],
-            "component": [],
-            "level": [3888]
-        }
-    },
-    {
-        "id": 4427,
-        "type": "hypothesis",
-        "title": "The intersect of digital banking, employee benefits, financial services in untapped market",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                492
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4428,
-        "type": "experiment",
-        "title": "Market scanning and partner / competitor analysis",
-        "parentIds": {
-            "primitive": [
-                4430,
-                4427,
-                4432,
-                4434
-            ],
-            "component": [],
-            "level": [3891]
-        }
-    },
-    {
-        "id": 4429,
-        "type": "activity",
-        "title": "Detailed regional market level assessment",
-        "parentIds": {
-            "primitive": [
-                4427,
-                4432,
-                4434
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4430,
-        "type": "hypothesis",
-        "title": "Poor employee financial wellness costs enterprises big $$$ (lost productivity, employee retention issues, employee recruitment)",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                489
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4431,
-        "type": "activity",
-        "title": "Enterprise interviews",
-        "parentIds": {
-            "primitive": [
-                4430,
-                4441
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4432,
-        "type": "hypothesis",
-        "title": "There is not holistic employee financial wellness platform - employers would need to choose individual services and integrate / manage independantly ",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                492
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4433,
-        "type": "learning",
-        "title": "Ikea is looking to build its own integrated benefits management system",
-        "parentIds": {
-            "primitive": [
-                4432
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4434,
-        "type": "hypothesis",
-        "title": "We can see a $5.7b market opportunity across 7 key markets",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                493
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4435,
-        "type": "hypothesis",
-        "title": "3 candidate revenue streams identified - employer pays, employee upgrades, employee pays",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                494
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4436,
-        "type": "activity",
-        "title": "Localised modelling",
-        "parentIds": {
-            "primitive": [
-                4435
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4437,
-        "type": "hypothesis",
-        "title": "KOMPIS will be differentiated by owning the customer data management layer and business rules.  It will integrate with relevant service providers in each region to provide platform access to end users",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                498
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4438,
-        "type": "hypothesis",
-        "title": "Capability exists in the market which can provide specific features / benefits - and we can integrate with them",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                498
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4439,
-        "type": "activity",
-        "title": "Engage with partners",
-        "parentIds": {
-            "primitive": [
-                4438
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4440,
-        "type": "activity",
-        "title": "Engage IKEA digital and engineering teams to understand what exists, what needs to be brought in from partners and what needs to be built",
-        "parentIds": {
-            "primitive": [
-                4437
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4441,
-        "type": "hypothesis",
-        "title": "Ikea will be our first customer. Once we have case studies and proof points we can use these to sell to other enterprise clients",
-        "parentIds": {
-            "primitive": [],
-            "component": [
-                499
-            ],
-            "level": []
-        }
-    },
-    {
-        "id": 4442,
-        "type": "activity",
-        "title": "Work with 1 or 2 IKEA regions to prepare for pilot roll-out",
-        "parentIds": {
-            "primitive": [
-                4441
-            ],
-            "component": [],
-            "level": []
-        }
-    },
-    {
-        "id": 4443,
-        "type": "question",
-        "title": "Testing a question here",
-        "parentIds": {
-            "primitive": [
-                4419,
-                4417,
-                4425,
-                4435
-            ],
-            "component": [],
-            "level": [3891]
-        }
-    },
-    {
-        "id": 4444,
-        "type": "evidence",
-        "title": "A significant portion of the respondents scored the proposed solution highly",
-        referenceId: 1,
-        refereceParameters:{
-            value: 8.6
-        },
-        "parentIds": {
-            "primitive": [
-                {"origin": [4421]},
-                {"positive": [4430]},
-                {"negative": [4417]}
-            ],
-            "component": [],
-            "level": [
-                3891
-            ]
-        }
-    },
-    {
-        "id": 4445,
-        "type": "result",
-        "title": "Survey analysis - US batch 4",
-        referenceId: 0,
-        refereceParameters:{
-            "link": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y",
-        },
-        "parentIds": {
-            "primitive": [4421],
-            "component": [],
-            "level": [
-                3891
-            ]
-        }
-    },
-    {
-        "id": 4446,
-        "type": "evidence",
-        "title": "Quicker access to earned wages is a top 3 priority",
-        referenceId: 2,
-        refereceParameters:{
-        },
-        "parentIds": {
-            "primitive": [
-                {"positive": [4417]},
-                {"origin": [4445]}
-            ],
-            "component": [],
-            "level": [
-                3891
-            ]
-        }
-    },
-    {
-        "id": 4447,
-        "type": "result",
-        "title": "Discussion with ConEd",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Eric Davis",
-            "company": "ConEd",
-            "notes": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y",
-            "interviewee": 1,
-        },
-        "parentIds": {
-            "primitive": [4449],
-            "component": [],
-            "level": [
-                3891
-            ]
-        }
-    },
-    {
-        "id": 4448,
-        "type": "evidence",
-        "title": "A lot of people jump to feasibility and viability too quickly - we think you should start at desirability.",
-        referenceId: 3,
-        refereceParameters:{
-        },
-        "parentIds": {
-            "primitive": [
-                {"positive": [4417]},
-                {"origin": [4447]}
-            ],
-            "component": [],
-            "level": [
-                3891
-            ]
-        }
-    },
-    {
-        "id": 4449,
-        "type": "experiment",
-        state: "active",
-        referenceId: 2,
-        refereceParameters:{
-            "sample": "20",
-            "source": "Network"
-        },
-        userIds: 
-        {
-            owner: [1],
-            other: [2,3]
-        },
-        "title": "Get feedback from ay least 20 target users from our network",
-        "parentIds": {
-            "primitive": [
-            ],
-            "component": [],
-            "level": [
-                3891
-            ]
-        }
     },
     {
         "id": 4450,
@@ -2423,13 +1515,5 @@ let primitive_temp_old =
             "notes": "https://docs.google.com/document/d/1mSUzM-upmrSIeGJO3SkzRTe31e-LytU9BJ0ETvvmcHA",
             "interviewee": 1,
         },
-        "parentIds": {
-            "primitive": [4449],
-            "component": [],
-            "level": [
-                3891
-            ]
-        }
     },
-
 ]

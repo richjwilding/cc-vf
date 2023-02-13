@@ -240,22 +240,29 @@ export function PrimitivePage({primitive, ...props}) {
                 </div>
               </section>
 
-              <section aria-labelledby="applicant-information-title">
-                <div className="bg-white shadow sm:rounded-lg">
-                  <div className="divide-y divide-gray-200">
-                    <div className="px-4 py-5 sm:px-6">
-                      <h2 id="notes-title" className="text-lg font-medium text-gray-900">
-                        Notes
-                      </h2>
-                    </div>
-                    <div className="px-4 py-6 sm:px-6 gap-1 grid-cols-1 grid md:grid-cols-3">
-                        {primitive.primitives.filter((p)=>p.type === "result").map((p)=>(
-                            <PrimitiveCard compact={true} primitive={p}/>
-                        ))}
-                    </div>
-                 </div>
-                </div>
-              </section>
+            {primitive.metadata.resultCategories && primitive.metadata.resultCategories.map((category)=>{
+                let view = category.views?.default
+                let cardConfig = view ? category.views.list[view] : undefined
+                let showState = view !== "kaban"
+                return (
+                        <section aria-labelledby="applicant-information-title">
+                            <div className="bg-white shadow sm:rounded-lg">
+                            <div className="divide-y divide-gray-200">
+                                <div className="px-4 py-5 sm:px-6">
+                                <h2 id="notes-title" className="text-lg font-medium text-gray-900">
+                                    {primitive.metadata.title}
+                                </h2>
+                                </div>
+                                <div className="px-4 py-6 sm:px-6 gap-3 grid-cols-2 grid md:grid-cols-3 lg:grid-cols-4">
+                                    {primitive.primitives.results[category.id].map((p)=>(
+                                        <PrimitiveCard compact={true} primitive={p} fields={cardConfig} border={true} showState={showState} relationships={category.relationships} relationshipTo={primitive}/>
+                                    ))}
+                                </div>
+                            </div>
+                            </div>
+                        </section>
+                )
+            })}
 
               <section aria-labelledby="notes-title">
                 <div className="bg-white shadow sm:overflow-hidden sm:rounded-lg">
