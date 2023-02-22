@@ -318,4 +318,5 @@ export default function MainStoreTests(){
         console.assert( teststore.primitive(4444).parentRelationship(4417).join(",") === "negative,positive" )
         console.assert( teststore.primitive(4448).parentRelationship(4417)[0] === "positive" )
     }
+    console.log("Done")
 }

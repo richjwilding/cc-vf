@@ -1,71 +1,19 @@
 import { PrimitiveCard } from './PrimitiveCard'
+import { MetricCard } from './MetricCard'
 import { HeroIcon } from './HeroIcon'
-import { Fragment } from 'react'
-import { Menu, Popover, Transition } from '@headlessui/react'
-import {useRef} from 'react';
+import {Fragment, useRef, useState} from 'react';
+import DropdownButton from './DropdownButton';
+import Panel from './Panel';
 import {
-  ArrowLongLeftIcon,
-  CheckIcon,
-  HandThumbUpIcon,
-  HomeIcon,
-  MagnifyingGlassIcon,
-  PaperClipIcon,
   PencilIcon,
   QuestionMarkCircleIcon,
-  UserIcon,
 } from '@heroicons/react/20/solid'
-import { Bars3Icon, BellIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { motion, AnimatePresence } from "framer-motion"
+import { PrimitivePopup } from './PrimitivePopup';
+import { MetricPopup } from './MetricPopup';
+import MainStore from './MainStore';
 
-
-/*export function PrimitivePage({primitive, ...props}) {
-    if( primitive === undefined ){
-        props.setOpen(false)
-        return(<></>)
-    }
-    let metadata = primitive.metadata
-    let task = primitive.originTask
-    let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
-
-    return (
-        <div className='min-w-max'>
-            <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky top-0 bg-white">
-                <div className="flex items-start justify-between space-x-3">
-                    <div className='flex place-items-center'>
-                        <HeroIcon icon={metadata.icon} className='w-20 h-20'/>
-                        <div className='ml-2'>
-                            <p className="text-sm font-medium text-gray-900 ">{metadata.title}</p>
-                            <p className="text-xs text-gray-500">{metadata.description}</p>
-                        </div>
-                    </div>
-                    <div className="flex h-7 items-center">
-                        <button
-                            type="button"
-                            className="text-gray-400 hover:text-gray-500"
-                            onClick={() => props.setOpen(false)}
-                        >
-                            <span className="sr-only">Close panel</span>
-                            <XMarkIcon className="h-6 w-6" aria-hidden="true" />
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div className="pb-2 pl-4 pr-4 pt-4">
-                <PrimitiveCard primitive={primitive}  showDetails={true} showLink={false} major={true} showRelationships={true} showEdit={true} className='mb-6'/>
-                {origin &&
-                    <div className='mt-4 mb-3'>
-                        <h3 className="mb-1 font-medium text-gray-900">Source</h3>
-                        <PrimitiveCard primitive={origin} showState={true} showLink={true} showDetails={true}/>
-                    </div>
-                }
-                {task &&
-                <div className='mt-4 mb-3'>
-                    <h3 className="mb-2 font-medium text-gray-900">Related {task.type}</h3>
-                    <PrimitiveCard primitive={task}  showState={true} showDetails={true} showUsers={true} showLink={true}/>
-                </div>}
-            </div>
-        </div>
-    )
-}*/
+let mainstore = MainStore()
 
 
 const user = {
@@ -74,57 +22,6 @@ const user = {
   imageUrl:
     'https://images.unsplash.com/photo-1517365830460-955ce3ccd263?ixlib=rb-=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=8&w=256&h=256&q=80',
 }
-const attachments = [
-  { name: 'resume_front_end_developer.pdf', href: '#' },
-  { name: 'coverletter_front_end_developer.pdf', href: '#' },
-]
-const eventTypes = {
-  applied: { icon: UserIcon, bgColorClass: 'bg-gray-400' },
-  advanced: { icon: HandThumbUpIcon, bgColorClass: 'bg-blue-500' },
-  completed: { icon: CheckIcon, bgColorClass: 'bg-green-500' },
-}
-const timeline = [
-  {
-    id: 1,
-    type: eventTypes.applied,
-    content: 'Applied to',
-    target: 'Front End Developer',
-    date: 'Sep 20',
-    datetime: '2020-09-20',
-  },
-  {
-    id: 2,
-    type: eventTypes.advanced,
-    content: 'Advanced to phone screening by',
-    target: 'Bethany Blake',
-    date: 'Sep 22',
-    datetime: '2020-09-22',
-  },
-  {
-    id: 3,
-    type: eventTypes.completed,
-    content: 'Completed phone screening with',
-    target: 'Martha Gardner',
-    date: 'Sep 28',
-    datetime: '2020-09-28',
-  },
-  {
-    id: 4,
-    type: eventTypes.advanced,
-    content: 'Advanced to interview by',
-    target: 'Bethany Blake',
-    date: 'Sep 30',
-    datetime: '2020-09-30',
-  },
-  {
-    id: 5,
-    type: eventTypes.completed,
-    content: 'Completed interview with',
-    target: 'Katherine Snyder',
-    date: 'Oct 4',
-    datetime: '2020-10-04',
-  },
-]
 const comments = [
   {
     id: 1,
@@ -153,10 +50,15 @@ function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
+
+
 export function PrimitivePage({primitive, ...props}) {
     let metadata = primitive.metadata
     let task = primitive.originTask
     let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
+
+    const [selected, setSelected] = useState(null)
+    const [selectedMetric, setSelectedMetric] = useState(null)
 
     let page = useRef()
     let header = useRef()
@@ -192,25 +94,10 @@ export function PrimitivePage({primitive, ...props}) {
       >
         <main className="py-10">
           {/* Page header */}
-          <div ref={header} className="z-10 mx-auto max-w-3xl px-4 sm:px-6 md:flex md:items-center md:justify-between md:space-x-5 lg:max-w-7xl lg:px-8 sticky top-0 bg-gray-100">
-            <div className="flex items-center space-x-5">
-              <div className="flex-shrink-0">
-                <div className="relative">
-                    <HeroIcon icon={metadata.icon} className='w-20 h-20'/>
-                </div>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">{primitive.displayType} #{primitive.id}</h1>
-                <p className="text-sm font-medium text-gray-500">{metadata.title} - {metadata.description}</p>
-              </div>
-            </div>
-            <div className="justify-stretch mt-6 flex flex-col-reverse space-y-4 space-y-reverse sm:flex-row-reverse sm:justify-end sm:space-y-0 sm:space-x-3 sm:space-x-reverse md:mt-0 md:flex-row md:space-x-3">
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-100"
-              >
-                {primitive.stateInfo.title}
-              </button>
+          <div ref={header} className="z-10 mx-auto max-w-3xl px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:max-w-7xl lg:px-8 sticky top-0 bg-gray-100">
+            <PrimitiveCard.Banner primitive={primitive}/>
+            <div className="justify-stretch mt-0 flex flex-col-reverse space-y-4 space-y-reverse sm:flex-row-reverse sm:justify-end sm:space-y-0 sm:space-x-3 sm:space-x-reverse  md:flex-row md:space-x-3">
+              <DropdownButton colorKey='colorBase' items={mainstore.stateInfo[primitive.type]} selected={primitive.state}/>
             </div>
           </div>
 
@@ -237,30 +124,72 @@ export function PrimitivePage({primitive, ...props}) {
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 md:col-span-2">
                     <PrimitiveCard.Users primitive={primitive} title={`Team members`} asTable={true}/>
                   </div>
+                  <div className="px-4 pt-2 pb-5 sm:px-6 md:col-span-5">
+                    <PrimitiveCard.Resources primitive={primitive}/>
+                </div>
                 </div>
               </section>
+            {primitive.metrics &&
+                <section aria-labelledby="applicant-information-title">
+                    <h2 id="notes-title" className="text-md font-medium text-gray-500 pt-5 pb-2 px-0.5">Metrics</h2>
+                    <div className="gap-3 grid-cols-2 grid md:grid-cols-3 lg:grid-cols-3">
+                        {primitive.metrics.map((metric)=>{
+                          const m = <MetricCard key={metric.id} onClick={setSelectedMetric} primitive={primitive} metric={(metric)} onCardClick={(p)=>setSelected(p)}/>
+                          if( metric.type === "conversion" ){
+                            return m
+                          }else{
+                            const open = {
+                              scaleY: 2,
+                              zIndex: 100
+                            };
+                            
+                            const closed = {
+                              scaleY: 1,
+                              transitionEnd: { zIndex: 0 }
+                            };
+                            const id = `m${metric.id}`
+                            return <motion.div 
+                                        animate={
+                                          selectedMetric === metric.id ? open : closed
+                                        }
+                                      key={id} layoutId={id}>
+                                        {m}
+                                  </motion.div> 
+                          }
+                        })}
+                    </div>
+                </section>
+            }
 
             {primitive.metadata.resultCategories && primitive.metadata.resultCategories.map((category)=>{
                 let view = category.views?.default
                 let cardConfig = view ? category.views.list[view] : undefined
                 let showState = view !== "kaban"
                 return (
-                        <section aria-labelledby="applicant-information-title">
-                            <div className="bg-white shadow sm:rounded-lg">
-                            <div className="divide-y divide-gray-200">
-                                <div className="px-4 py-5 sm:px-6">
-                                <h2 id="notes-title" className="text-lg font-medium text-gray-900">
-                                    {primitive.metadata.title}
-                                </h2>
-                                </div>
-                                <div className="px-4 py-6 sm:px-6 gap-3 grid-cols-2 grid md:grid-cols-3 lg:grid-cols-4">
-                                    {primitive.primitives.results[category.id].map((p)=>(
-                                        <PrimitiveCard compact={true} primitive={p} fields={cardConfig} border={true} showState={showState} relationships={category.relationships} relationship={primitive.primitives.relationships(p.id, ["results", category.id])}/>
-                                    ))}
-                                </div>
-                            </div>
-                            </div>
-                        </section>
+                  <Panel key={category.title} title={primitive.metadata.title} titleClassName='text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                        <div 
+                            className="gap-3 space-y-3 no-break-children sm:columns-2 md:columns-3 xl:columns-4">
+                            {primitive.primitives.results[category.id].map((p,idx)=>{
+                                return (
+                                    <motion.div 
+                                        key={p.id}
+                                        layoutId={p.id} onClick={() => setSelected(p)}
+                                    >
+                                    <PrimitiveCard 
+                                        key={p.id}
+                                        compact={true} primitive={p} 
+                                        className='h-full flex flex-col justify-between'
+                                        fields={cardConfig} 
+                                        border={true} 
+                                        showState={showState} 
+                                        showEvidence="compact"
+                                        relationships={category.relationships} 
+                                        relationship={primitive.primitives.relationships(p.id, ["results", category.id])}/>
+                                    </motion.div>
+                                )}
+                            )}
+                        </div>
+                  </Panel>
                 )
             })}
 
@@ -363,7 +292,7 @@ export function PrimitivePage({primitive, ...props}) {
                 <div className="mt-6 flow-root">
                   <ul role="list" className="p-1">
                     {primitive.primitives.filter((p)=>p.type === "evidence").map((p)=>(
-                        <PrimitiveCard compact={true} primitive={p}/>
+                        <PrimitiveCard key={p.id} compact={true} primitive={p}/>
                     ))}
                   </ul>
                 </div>
@@ -379,6 +308,8 @@ export function PrimitivePage({primitive, ...props}) {
             </section>
           </div>
         </main>
+        <PrimitivePopup selected={selected} contextOf={primitive} setSelected={setSelected}/>
+        <MetricPopup selected={selectedMetric} contextOf={primitive} setSelected={setSelectedMetric}/>
       </div>
     </>
   )

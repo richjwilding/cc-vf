@@ -24,18 +24,20 @@ window.mainstore = mainstore
 
 window.mainstore_tests = MainStoreTests
 
-const PrimitiveCardWrapper = () => {
+const PrimitiveCardWrapper = (props) => {
   const { id } = useParams();
-  return <PrimitivePage primitive={mainstore.primitive(parseInt(id))} />;
+  return <PrimitivePage primitive={mainstore.primitive(parseInt(id))} selectPrimitive={props.selectPrimitive} />;
 };
 
 function App() {
   
-  const [open, setOpen] = React.useState(true)
+  const [open, setOpen] = React.useState(false)
+  const [overlay, setOverlay] = React.useState(false)
   const [primitive, setPrimitive] = React.useState(undefined)
 
-  const selectPrimitive = (primitive)=>{
+  const selectPrimitive = (primitive, overlay = false)=>{
     setOpen(true)
+    setOverlay(overlay)
     setPrimitive(primitive)
   }
 
@@ -44,10 +46,10 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<ComponentView components={mainstore.components()} selectPrimitive={selectPrimitive}/>}/>
-          <Route path="/item/:id" element={<PrimitiveCardWrapper/>}/>
+          <Route path="/item/:id" element={<PrimitiveCardWrapper selectPrimitive={selectPrimitive}/>}/>
         </Routes>
       </BrowserRouter>
-      <Sidebar open={open} setOpen={setOpen} primitive={primitive}/>
+      <Sidebar open={open} overlay={overlay} setOpen={(v)=>{console.log(v);setOpen(v)}} primitive={primitive}/>
     </div>
   )
 }

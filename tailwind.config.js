@@ -1,4 +1,5 @@
 const plugin = require('tailwindcss/plugin')
+const defaultTheme = require('tailwindcss/defaultTheme')
 /** @type {import('tailwindcss').Config} */
 module.exports = {
  // important: true,
@@ -23,6 +24,11 @@ module.exports = {
     },
   ],
   theme: {
+    screens: {
+      'xs': '400px',
+      ...defaultTheme.screens,
+      '3xl': '1600px',
+    },
     extend: {
     colors:{
       ccgreen:{
@@ -69,7 +75,10 @@ module.exports = {
     },
   },
   plugins: [
-    plugin(function({ addUtilities }) {
+
+
+
+    plugin(function({ addUtilities, addComponents }) {
       addUtilities({
         '.subtle-shadow-bottom_old':{
           'box-shadow': '0px 8px 12px -12px rgb(115 115 115 / 75%)'
@@ -91,6 +100,13 @@ module.exports = {
             display: 'none'
           }
         }
+      }),
+      addComponents({
+        '.no-break-children': {
+          '&>*': {
+            'break-inside': 'avoid-column'
+          },
+        },
       })
     })
   ]

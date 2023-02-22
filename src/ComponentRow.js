@@ -235,7 +235,7 @@ export function ComponentRow(props) {
                     {evidence &&  evidence.map((d, idx)=>
                       <EvidenceCard 
                         key={d.id}
-                        onClick={(e)=>{console.log(e);props.selectPrimitive(d); e.stopPropagation()}} 
+                        onClick={(e)=>{props.selectPrimitive(d); e.stopPropagation()}} 
                         evidence={d} 
                         details={props.evidenceDetail} 
                         sentiment={d.parentRelationship(h.id)[0]} bgColor={`${color.base}-200`} iconColor={`${color.base}-900`}/>

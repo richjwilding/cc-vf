@@ -13,6 +13,8 @@ export function EvidenceCard({evidence, ...props}) {
   let textColor = props.iconColor === undefined ? "white" : props.iconColor
   let icon = config.icon
   let value = undefined
+
+
   if( config.type === "quantitative" && evidence.refereceParameters ){
     value = evidence.refereceParameters.value
   }
@@ -24,6 +26,22 @@ export function EvidenceCard({evidence, ...props}) {
     bgColor = 'orange-400'
     textColor = 'white'
   }
+
+  if( props.asPill){
+    textColor = "slate-500"
+    bgColor = "white"//"slate-100"
+    let showMulti = props.count && props.count > 1
+    return (
+    <div  onClick={props.onClick} className={`min-w-max rounded-2xl bg-${bgColor} hover:shadow-md hover:ring-1 ring-slate-300 hover:ring-slate-900/20 my-0.5 mr-2 w-fit inline-flex`}>
+        <div key='icon' className={`flex flex-shrink-0 items-center`}>
+          <HeroIcon strokeWidth={1.5} icon={icon} className={`w-6 h-6 text-${textColor} ${showMulti ? "pl-1" : "px-0.5"}`}/>
+          {showMulti && <p className={`text-${textColor} text-xs pr-1`}>x{props.count}</p>}
+        </div>
+    </div>
+
+    )
+  }
+
 
   return (
     <div  onClick={props.onClick} className="min-w-max rounded-2xl bg-white shadow hover:shadow-md ring-1 ring-slate-900/5 hover:ring-slate-900/20 m-2 w-fit inline-flex">

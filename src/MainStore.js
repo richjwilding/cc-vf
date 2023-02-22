@@ -9,7 +9,7 @@ function MainStore (prims){
         stateInfo: {
             "experiment":{
                 "open": {title: "Not started", colorBase: "blue"},
-                "active": {title: "Underway", colorBase: "yellow"},
+                "active": {title: "Underway", colorBase: "amber"},
                 "closed": {title: "Completed", colorBase: "green"},
             },
             default: {
@@ -156,6 +156,21 @@ function MainStore (prims){
                 if( prop === "uniqueItems"){
                     return receiver.uniqueIds.map((d)=>obj.primitive(d))
                 }
+                if( prop === "fromPath"){
+                    return function(){
+                        let path = arguments[0]
+                        let node = receiver                        
+
+                        while( path instanceof(Object) ){
+                            let step = Object.keys(path)[0]
+                            path = path[step]
+                            node = node[step]
+                            if( node === undefined){return undefined}
+                        }
+                        return node[path]
+
+                    }
+                }
                 if( obj.types.includes(prop)){
                     return receiver.items.filter((p)=>p.type===prop)
                 }
@@ -182,6 +197,63 @@ function MainStore (prims){
                 }
             }
         },
+        metricResolver:{
+                get(target, prop, receiver) {
+                    if( prop in target.metric ){
+                        const value = target.metric[prop];
+                        if (value instanceof Function) {
+                            return function (...args) {
+                                return value.apply(target.metrics, args);
+                            };
+                        }
+                        return value
+                    }
+                    if( prop === "value" ){
+                        let metric = target.metric
+                        let prims = target.parent.primitives.fromPath(metric.path)
+                        let counts
+                        let filter_empty = false
+
+                        if( metric.type === "conversion" || metric.type === "count"){
+                            if( metric.type === "conversion" ){
+                                if( Object.keys(metric.path)[0] !== "results"){return undefined}
+                                
+                                let relationships = target.parent.metadata?.resultCategories[Object.values(metric.path)[0]].relationships
+                                Object.keys(relationships).forEach((k)=>{
+                                    if( !prims[k] ){
+                                        prims[k] = []
+                                    }
+                                })
+                                
+                                counts = Object.keys(prims).map((k)=>({relationship: k, list: prims[k].allItems, count: prims[k].length, relationshipConfig: relationships[k]})).sort((a,b)=>relationships[b.relationship].order - relationships[a.relationship].order)
+                                counts = counts.map((v, idx, a)=>{
+                                    if( idx > 0 ) {
+                                        v.count += a[idx - 1].count
+                                    }
+                                    return v
+                                }).reverse()                            
+                            }else if( metric.type === "count" ){
+                                let by_reln = metric.targets || metric.by_relationship
+                                counts = by_reln ? Object.keys(prims).map((k)=>({relationship: k, list: prims[k].allItems, count: prims[k].length})) : {count: prims.allIds.length, list: prims.allItems}
+                                filter_empty = true
+                            }
+
+                            if( metric.targets ){
+                                counts = counts.filter((d)=>{
+                                    let mt = metric.targets.find((d2)=>d2.relationship === d.relationship)
+                                    if( mt ){
+                                        d.target = mt.value
+                                        d.met = d.count >= d.target
+                                        return true
+                                    }
+                                    return !filter_empty
+                                })
+                            }
+                            return counts
+                        }
+                    }
+                }
+        },
         component:function(id){
             return this.components().find((d)=>d.id === id)
         },
@@ -201,14 +273,26 @@ function MainStore (prims){
             let data = obj.primitives().find((p)=>p.id === id)
             return data
         },
+        get defaultRelationships(){
+            return defaultRelationships
+        },
         resultsCategories:function(){
             return result_category_temp
+        },
+        evidenceCategory:function(id){
+            return obj.evidenceCategories().find((e)=>e.id === id)
         },
         evidenceCategories:function(){
             return evidence_category_temp
         },
         taskCategories:function(){
             return activity_category_temp
+        },
+        contacts:function(id){
+            return contacts
+        },
+        contact:function(id){
+            return this.contacts().find((d)=>d.id === id)
         },
         user:function(id){
             return this.users().find((d)=>d.id === id)
@@ -280,6 +364,12 @@ function MainStore (prims){
                     return receiver.primitives[type]
                 }
                 if( type === "primitive"){
+                    if( prop === "metrics"){
+                        if(!d.metrics){ return undefined}
+                        return d.metrics.map((m)=>{
+                            return new Proxy({parent: receiver, metric: m}, obj.metricResolver)
+                        })
+                    }
                     if( prop === "users"){
                         if( d.userIds === undefined){return []}
                         let id_list = Object.values(d.userIds).flat()
@@ -318,9 +408,11 @@ function MainStore (prims){
                     }
                     if( prop === "parentPrimitiveRelationships"){
                         return receiver.parentPrimitives.reduce((o, p)=>{
-                            let rel = receiver.parentRelationship(p)
-                            o[rel] = o[rel] || []
-                            o[rel].push( p )
+                            let rels = [receiver.parentRelationship(p)].flat()
+                            rels.forEach((rel)=>{
+                                o[rel] = o[rel] || []
+                                o[rel].push( p )
+                            })
                             return o
                         }, [])
                     }
@@ -423,6 +515,22 @@ const evidence_category_temp =
         type: 'qualitative',
         relationships:defaultRelationships,
         icon: 'ChatBubbleBottomCenterTextIcon'
+    },
+    {
+        id: 4,
+        title: 'User need',
+        description: "A specific user need",
+        type: 'qualitative',
+        relationships:defaultRelationships,
+        icon: 'ExclamationTriangleIcon'
+    },
+    {
+        id: 5,
+        title: 'Solution fit',
+        description: "Indication that a solution is a good fit",
+        type: 'qualitative',
+        relationships:defaultRelationships,
+        icon: 'PuzzlePieceIcon'
     }
 ]
 const activity_category_temp = 
@@ -448,7 +556,7 @@ const activity_category_temp =
             "source": {type: "text", title: "Source", description: "Where the interviewees will be sourced from"},
         },
         metrics:{
-            "conversion": {type: "integer", title: "Conversion", description: "Track conversion metrics", view: {wide: true}},
+            "conversion": {type: "integer", title: "Conversion", description: "Track conversion metrics"},
             "count": {type: "integer", title: "Count", description: "A count of interviews in a particular state"},
         },
         icon: 'UserGroupIcon',
@@ -471,7 +579,7 @@ const activity_category_temp =
                     default: 'cards'
                 }},
         ],
-        evidenceCategories: [3]
+        evidenceCategories: [3,4,5]
     }
 ]
 const result_category_temp = 
@@ -492,17 +600,17 @@ const result_category_temp =
         title: 'User Interview',
         description: "Interview with member of target audience",
         parameters:{
-            "contact": {type: "string", title: "Name", description: "Name of interviewee", icon: {library: "fa", icon: "fa-brands fa-linkedin"}},
+            "contact": {type: "contact", title: "Name", description: "Name of interviewee"},
             "role": {type: "string", title: "Role", description: "Role of interviewee"},
             "company": {type: "string", title: "Company", description: "Company interviewee works at"},
             "geography": {type: "countries", title: "Location", description: "Location of interviewee"},
-            "interviewee": {type: "user", title: "Interviewee", description: "Location of interviewee" },
+            "interviewee": {type: "user", title: "Interviewee", description: "Interviewer" },
             "notes": {type: "link", title: "Notes", decription: "Interview notes"},
             "transcript": {type: "link", title: "Notes", decription: "Transcript of interview"},
             "audio": {type: "link", title: "Audio", decription: "Audio recording of interview"},
             "video": {type: "link", title: "Video", decription: "Video recording of interview"},
         },
-        icon: 'UserGroupIcon'
+        icon: 'ChatBubbleBottomCenterTextIcon',
     },
 ]
 
@@ -1445,7 +1553,7 @@ let primitive_temp = [
         "primitives": [
             {
                 "origin": [
-                    4448
+                    4448, 4468,4469,4470
                 ]
             }
         ]
@@ -1461,27 +1569,65 @@ let primitive_temp = [
         ]
     },
     {
+        "id": 4468,
+        "type": "evidence",
+        "title": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla eget est purus. Mauris ultrices, leo eu porta volutpat, ante risus varius neque, in posuere sapien justo ac sem.",
+        "referenceId": 4,
+        "refereceParameters": {},
+        "primitives": [
+            {}
+        ]
+    },
+    {
+        "id": 4469,
+        "type": "evidence",
+        "title": "Fusce sagittis placerat mi sed rhoncus.",
+        "referenceId": 4,
+        "refereceParameters": {},
+        "primitives": [
+            {}
+        ]
+    },
+
+    {
+        "id": 4470,
+        "type": "evidence",
+        "title": "Quisque in sem posuere, condimentum nulla ac, feugiat eros. Nam vel fermentum odio. Nam in odio sit amet purus placerat pretium sed a ipsum.",
+        "referenceId": 4,
+        "refereceParameters": {},
+        "primitives": [
+            {}
+        ]
+    },
+    {
         "id": 4449,
         "type": "experiment",
         "state": "active",
         "referenceId": 2,
+        "resources": [
+            {type: "google_drive", url: "https://docs.google.com/presentation/d/1-jUnT29d6qgdBMwtq4BONE-AZZzRH0RM7VAu9eDBTGk/edit#slide=id.g15a01a96490_0_419", title: "Co-Created - Value of a Venture Studio", document_tpye: "slides"},
+            {type: "google_drive", url: "https://docs.google.com/presentation/d/1LRFzQexjdwSML66bauNeGuQe5Sq77AsU_iZ4FyuwO3A/edit#slide=id.g12fbcd42ff2_0_1455", title: "Co-Created Venture Fundamentals", document_tpye: "slides"}
+        ],
         "primitives": {
             results:{
                 0: {
-                    scheduled: [4450],
-                    completed: [4447]
+                    contacted: [4462,4463],
+                    completed: [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466]
                 }
+            },
+            evidence: {
+                positive: [4468]
             },
             metrics:{
                 1: {
-                    negative: [4450],
-                    positive: [4447],
+                    negative: [],
+                    positive: [4450,4452,4454,4457,4451,4466],
                 },
-                2: [4450]
+                2: [4455,4453,4466,4465]
             }
         },
         "metrics":[
-            {id: 0, path: {results: 0}, type: "conversion", targets: [{min_relationship: "completed", value: 20, condition: ">="}, {min_relationship: "contacted", value: 30, condition: ">="}]},
+            {id: 0, path: {results: 0}, title: "Progress through pipeline", type: "conversion", targets: [{relationship: "identified", value: 40},{relationship: "completed", value: 20}, {relationship: "contacted", value: 40},{relationship: "scheduled", value: 20}]},
             {id: 1, path: {metrics: 1}, title: "Interested in a trial", type: "count", targets: [{relationship: "positive", value: 5}]},
             {id: 2, path: {metrics: 2}, title: "Making an intro", type: "count"}
         ],
@@ -1498,7 +1644,7 @@ let primitive_temp = [
                 3
             ]
         },
-        "title": "Get feedback from ay least 20 target users from our network",
+        "title": "Get feedback from at least 20 target users from our network",
     },
     {
         "id": 4450,
@@ -1507,9 +1653,313 @@ let primitive_temp = [
         referenceId: 1,
         refereceParameters:{
             "contact": "Stacey Lusk",
+            "contactId": 1,
             "company": "Southern Co",
+            "companyId": 1,
             "notes": "https://docs.google.com/document/d/1mSUzM-upmrSIeGJO3SkzRTe31e-LytU9BJ0ETvvmcHA",
             "interviewee": 1,
         },
     },
+    {
+        "id": 4451,
+        "type": "result",
+        "title": "Discussion with F-Secure",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Markku Makkonen",
+            "contactId": 2,
+            "company": "F-Secure",
+            "companyId": 2,
+            "notes": "https://docs.google.com/document/d/1r2dpufaNOvWI4WqmaG-YgIno_kFarfP9iJ7bBGYLlxc",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4452,
+        "type": "result",
+        "title": "Discussion with Wayra",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Susana",
+            "contactId": 3,
+            "company": "Wayra (builder)",
+            "notes": "https://docs.google.com/document/d/1c83tAV50ATujd_Lff5gwe5Ot6m9qlmchR_Z2ALlAVdA",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4453,
+        "type": "result",
+        "title": "Discussion with Standard Chartered",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Premila",
+            "contactId": 4,
+            "company": "Standard Chartered Ventures",
+            "notes": "https://docs.google.com/document/d/1Ed916f_SbGGKUK2zOiezNKzqysXbVWiANH8GvhwfXOg",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4454,
+        "type": "result",
+        "title": "Discussion with Admiral Pioneer",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Emma Huntington",
+            "contactId": 5,
+            "company": "Admiral Pioneer",
+            "notes": "https://docs.google.com/document/d/1ds6Zx5B4w51JxTkqSwSvOPL3tr-0Fi_cPd_6WK5YF-k",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4455,
+        "type": "result",
+        "title": "Discussion with Snow Software",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Steve Tait",
+            "contactId": 6,
+            "company": "Snow Software",
+            "notes": "https://docs.google.com/document/d/1A4jl1mHrOm4bpNiYChQgNrThjMOP7yIEZI4WxKiTpDc",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4456,
+        "type": "result",
+        "title": "Discussion with BOTW",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "John Finley",
+            "contactId": 7,
+            "company": "Bank of the West",
+            "notes": "https://docs.google.com/document/d/1SqH4Gmdd3NEpvWwMoU9MuNEIglHATQacOJUBzNEx85M",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4457,
+        "type": "result",
+        "title": "Discussion with State Farm",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Dana Enger",
+            "contactId": 8,
+            "company": "State Farm",
+            "notes": "https://docs.google.com/document/d/16Y8P9QN664OeSdOVP-GhvN5t9Xbs0Jaef2xwVTteQvg",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4458,
+        "type": "result",
+        "title": "Vanguard",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Mark",
+            "company": "Vanguard",
+            "notes": "https://docs.google.com/document/d/18tCOnxKBChH_fQv-J6mcL090ba48gjU2ALeU8WJTLrM",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4459,
+        "type": "result",
+        "title": "Discussion with RBS",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Jeremey Smith",
+            "contactId": 9,
+            "company": "RBS",
+            "notes": "https://docs.google.com/document/d/1YpopfkuLPJFGBCWyXESgrWEbpiodBsrat0GKmdrENGA",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4460,
+        "type": "result",
+        "title": "Discussion with OSF Healthcare",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Brent",
+            "company": "OSF Healthcare",
+            "notes": "https://docs.google.com/document/d/17lSA_u3Bahk2SB80D6XOogV5Gbi_4xWDAlJggKOyAvM",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4461,
+        "type": "result",
+        "title": "Discussion with JPM",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "JOhn Mazzara",
+            "contactId": 11,
+            "company": "JP Morgan",
+            "notes": "https://docs.google.com/document/d/17lSA_u3Bahk2SB80D6XOogV5Gbi_4xWDAlJggKOyAvM",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4462,
+        "type": "result",
+        "title": "Discussion with GSK",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Nick Tate",
+            "company": "GSK",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4463,
+        "type": "result",
+        "title": "Discussion with BT",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Tom Guy",
+            "company": "BT",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4464,
+        "type": "result",
+        "title": "Discussion with Amex Ventures",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Andrew Lei",
+            "company": "AMEX",
+            notes: "https://docs.google.com/document/d/1Pd9Y7-kBUX8lfickIngmxMnTQIHr7jPcf8yZxQ65SoA",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4465,
+        "type": "result",
+        "title": "Discussion with Hyundai",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Guillaume",
+            "contactId": 15,
+            "company": "Hyundai",
+            notes: "https://docs.google.com/document/d/1eTVhHP0QCWFZXxGdCazr69wgnGNl-9m425l8hSLWvY4",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4466,
+        "type": "result",
+        "title": "Discussion with Cemex",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Juan",
+            "company": "Cemex",
+            notes: "https://docs.google.com/document/d/1N6oz_UNr74KC8cFD8JoHsa5vvqwi0SvMtRFTC66DQi0",
+            "interviewee": 1,
+        },
+    }
+]
+
+const contacts = [
+    {
+        id: 1,
+        name: "Stacey Lusk",
+        profile: "https://www.linkedin.com/in/stacey-lusk-a251624/",
+        avatarUrl: "https://media.licdn.com/dms/image/C4E03AQF1hdsHQYyNZA/profile-displayphoto-shrink_200_200/0/1517672808852?e=1682553600&v=beta&t=UM3EkH7d_4ArPbbpH2fYZCvx-kD255qC-pboxAOzx0Q",
+        expertise: ["Product", "Sales"]
+    },
+    {
+        "id": 2,
+        "name": "Markku Makkonen",
+        title:"New Business Development",
+        "profile": "https://www.linkedin.com/in/markkumakkonen/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQG01YxwMA84xQ/profile-displayphoto-shrink_200_200/0/1642673643192?e=1682553600&v=beta&t=TdCksLG-_QSPm5rr_n_o7oGbTEU0hG7BGCSMGJkLUW4",
+        "expertise": ["Product", "New Business", "Wireless", "Mobile"]
+    },
+    {
+        "id": 3,
+        "name": "Susana",
+        "profile": "https://www.linkedin.com/in/susana-jurado/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQHr1E7hqyuRnw/profile-displayphoto-shrink_200_200/0/1646214003279?e=1682553600&v=beta&t=fME3sf5n7bXS3pXcD2MsLJcD1QSfcfK3yLKj0wP680s",
+        "expertise": ["Innovation" ,"Strategy", "Venture"]
+    },
+    {
+        "id": 4,
+        "name": "Premila",
+        "profile": "https://www.linkedin.com/in/pstampe/",
+        "avatarUrl": "https://media.licdn.com/dms/image/D4E03AQFW81e_bfBW1Q/profile-displayphoto-shrink_200_200/0/1664362634237?e=1682553600&v=beta&t=M_7mjJpTgzVn4IKxr73NgtxAr0_LJPS0U8kRioKxMM0",
+        "expertise": ['Banking', 'Innovation']
+    },
+    {
+        "id": 5,
+        "name": "Emma Huntington",
+        "profile": "https://www.linkedin.com/in/emma-huntington-52a2591/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C5103AQHaO0p48x5lEg/profile-displayphoto-shrink_200_200/0/1516242232350?e=1682553600&v=beta&t=eD4jwtGW5_0gUrU1sP-RFUTpAQfj3p-fzNd66QgSjRQ",
+        "expertise": ['Venture', 'Strategy'],
+        seniority: ["CEO", "MD", "CXO"]
+    },
+    {
+        "id": 6,
+        "name": "Steve Tait",
+        "profile": "https://www.linkedin.com/in/steve-tait-588a804/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQENmH8mg2BQtQ/profile-displayphoto-shrink_200_200/0/1634726504466?e=1682553600&v=beta&t=Q0zN2d6M5uuXuVC49qH4Nc__gvnj8X27gLdSVFgNliE",
+        seniority: ["CTO", "CXO"],
+        "expertise": ['Engineering Manager', 'CTO', 'Software']
+    },
+    {
+        "id": 7,
+        "name": "John Finley",
+        "profile": "https://www.linkedin.com/in/johnfinley/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4D03AQGe8x9sAfbZDQ/profile-displayphoto-shrink_200_200/0/1516258052680?e=1682553600&v=beta&t=moSKoSx_vbvGSuGVNVzUSXeSHIonHR94Ef-dcWQPGls",
+        seniority: ["Head of"],
+        "expertise": ['Product', 'Innovation', 'Banking']
+    },
+    {
+        "id": 8,
+        "name": "Dana Enger",
+        "profile": "https://www.linkedin.com/in/dana-enger-a17b4869/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C5603AQEuDpZRrZk8Uw/profile-displayphoto-shrink_200_200/0/1517438571628?e=1682553600&v=beta&t=7Iudfk3-HfVn_4dRRFyI8ISGrBB5FtIKUCJqELPPEoc",
+        seniority: ["Manager"],
+        "expertise": ['Innovation']
+    },
+    {
+        "id": 9,
+        "name": "Jeremey Smith",
+        "profile": "https://www.linkedin.com/in/jeremy-e-smith/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C5103AQGgsiIdCMm33Q/profile-displayphoto-shrink_200_200/0/1517024970577?e=1682553600&v=beta&t=tWSZsho5nsAcGY2gwi8if_1dErTi-CI4ofBz6eGhKZ4",
+        seniority: ["Head of"],
+        "expertise": ['Innovation', 'Banking']
+    },
+    {
+        "id": 11,
+        "name": "John Mazzara",
+        "profile": "https://www.linkedin.com/in/johndmazzara/",
+        "avatarUrl": "https://media.licdn.com/dms/image/D4D03AQG7kT2j9eSXWQ/profile-displayphoto-shrink_200_200/0/1675935532024?e=1682553600&v=beta&t=gYVgMrSLMBSahXrP3rOx6QVrYjEF2ThatOYOkdt3JyA",
+        "expertise": ['Banking', 'Coprporate Finance', 'Innovation']
+    },
+    {
+        "id": 15,
+        "name": "Guillaume Parvaix",
+        "profile": "https://www.linkedin.com/in/guillaumeparvaix/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C5103AQGWblcmF12iVw/profile-displayphoto-shrink_200_200/0/1531397326673?e=1682553600&v=beta&t=eV-5EvZOewwjLT3YhigfAOe8G39Bu9uFTPtxwfPjuD8",
+        "expertise": ['Start-up collaboration', 'Innovation']
+    },
+]
+
+const companies = [
+    {
+        id: 1,
+        name: "Southern Company",
+        logoUrl: "https://media.licdn.com/dms/image/C4D0BAQEgnEjF5Fdghw/company-logo_200_200/0/1534876925295?e=1684972800&v=beta&t=ZXAP5dSt10R9mJEgSp4NVGOZ9hlX0vhdYir76YztcIc",
+        employees: 29000,
+        turnover: {
+            amount: 23000000000,
+            currency: "USD"
+        },
+        sector: ["Energy"],
+        region: ["United States"]
+    }
 ]

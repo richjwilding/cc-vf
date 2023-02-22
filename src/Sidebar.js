@@ -12,7 +12,6 @@ function classNames(...classes) {
 
 export function Sidebar({primitive, ...props}) {
     if( primitive === undefined ){
-        props.setOpen(false)
         return(<></>)
     }
     let metadata = primitive.metadata
@@ -20,17 +19,19 @@ export function Sidebar({primitive, ...props}) {
     let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
 
     return (
-    <Transition.Root show={props.open} 
+    <Transition.Root 
+            show={props.open}
+            appear={true}
             as='aside'
-            enter="transition-[min-width] ease-in-out duration-200"
-            enterFrom="min-w-0"
-            enterTo="min-w-[28rem]"
-            leave="transition-[min-width] ease-in-out duration-200"
-            leaveFrom="min-w-[28rem]"
-            leaveTo="min-w-0"
-            className="overflow-y-auto border-l border-gray-200 bg-white min-w-[28rem] w-0 max-h-screen">
+            enter="transition-[min-width,width] ease-in-out duration-[200ms]"
+            leave="transition-[min-width,width] ease-in-out duration-[200ms] "
+            enterFrom="min-w-0 w-0"
+            enterTo="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem]"
+            leaveFrom="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem]"
+            leaveTo="min-w-0 w-0"
+            className={`${props.overlay ? "absolute right-0 z-10 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen`}>
         <div className='min-w-max'>
-        <div className='max-w-md'>
+        <div className='max-w-[24rem] sm:max-w-[28rem]'>
             <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky top-0 bg-white">
                 <div className="flex items-start justify-between space-x-3">
                     <div className='flex place-items-center'>
