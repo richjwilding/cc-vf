@@ -303,6 +303,8 @@ export default function MainStoreTests(){
         console.assert( arrayEquals(test.paths(4), ['','.a','.test3.a.c']) )
         console.assert( test.paths(40) === undefined )
         console.assert( arrayEquals(test.relationships(4), ['','a','c']) )
+        console.assert( arrayEquals(test.fromPath({test2: "a"}), [11,5,6]))
+        console.assert( test.map((d)=>d).length == 23)
     }
     {
         let p = teststore.primitive(4417)
@@ -317,6 +319,25 @@ export default function MainStoreTests(){
         console.assert( arrayEquals(teststore.primitive(4421).parentPrimitiveIds, [4417, 4418, 4425]))
         console.assert( teststore.primitive(4444).parentRelationship(4417).join(",") === "negative,positive" )
         console.assert( teststore.primitive(4448).parentRelationship(4417)[0] === "positive" )
+    }
+    {
+        let data = {
+            id: 1,
+            primitives: [
+                    2,
+                    4,
+                    4,
+                    3,
+                    {
+                        a: [4,5,6],
+                        b:  [7,8]
+                    }
+                ]
+        }
+        let test = new Proxy(data.primitives, teststore.structure)
+        window.test_data = test
+        console.assert( arrayEquals(test.fromPath({4: "a"}), [4,5,6]))
+        console.assert( test.map((d)=>d).length == 9)
     }
     console.log("Done")
 }

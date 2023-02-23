@@ -105,6 +105,15 @@ function MainStore (prims){
                 if( prop === "uniqueAllIds"){
                     return uniqueArray( receiver.allIds )
                 }
+                if( prop === "filter" || prop === "length" || prop === "map"){
+                    const base = receiver.allItems
+                    const value = base[prop];
+                    if (value instanceof Function) {
+                        return function (...args) {
+                            return value.apply(base, args);
+                        };
+                    }
+                }
                 if( Array.isArray(target) ){
                     let out
                     target.forEach((d)=>{
@@ -135,15 +144,7 @@ function MainStore (prims){
                         return new Proxy(target[s], obj.structure)
                     }
                 }
-                if( prop === "filter" || prop === "length" || prop === "map"){
-                    const base = receiver.allItems
-                    const value = base[prop];
-                    if (value instanceof Function) {
-                        return function (...args) {
-                            return value.apply(base, args);
-                        };
-                    }
-                }
+                // was here
                 if( prop === "items"){
                     return receiver.ids.map((d)=>obj.primitive(d))
                 }
@@ -208,6 +209,128 @@ function MainStore (prims){
                         }
                         return value
                     }
+                    if( prop === "analysis" ){
+                        const collapse = true
+                        const options = [
+                            {
+                                default: "Unknown", id: "contactExpertise", title: "By expertise", project: (item)=>{
+                                    const contactId = item.refereceParameters?.contactId
+                                    if( contactId === undefined){
+                                        return undefined
+                                    }
+                                    return obj.contact(contactId)?.expertise
+                                    
+                                }
+                            },
+                            {
+                                id: "contactDomain", title: "By domain expertise", project: (item)=>{
+                                    const contactId = item.refereceParameters?.contactId
+                                    if( contactId === undefined){
+                                        return undefined
+                                    }
+                                    return obj.contact(contactId)?.domains
+                                    
+                                }
+                            },
+                            {
+                                id: "companySector", title: "By company sector", project: (item)=>{
+                                    const companyId = item.refereceParameters?.companyId
+                                    if( companyId === undefined){
+                                        return undefined
+                                    }
+                                    return obj.company(companyId)?.sector
+                                    
+                                }
+                            },
+                            {
+                                default: "Unknown", id: "companyTurnover", title: "By company turnover", project: (item)=>{
+                                    const companyId = item.refereceParameters?.companyId
+                                    if( companyId === undefined){
+                                        return undefined
+                                    }
+                                    let turnover = obj.company(companyId)?.turnover
+
+                                    if( turnover === undefined){return "Unknown"}
+                                    if( turnover.amount < 1000000){
+                                        return "< $1m"
+                                    }else if( turnover.amount < 10000000){
+                                        return "$1m-$10m"
+                                    }else if( turnover.amount < 100000000){
+                                        return "$10m-$100m"
+                                    }else if( turnover.amount < 500000000){
+                                        return "$100m-$500m"
+                                    }else if( turnover.amount < 1000000000){
+                                        return "$500m-$1b"
+                                    }else if( turnover.amount < 10000000000){
+                                        return "$1b-$10b"
+                                    }else if( turnover.amount >= 10000000000){
+                                        return "$10b+"
+                                    }
+                                    
+                                }
+                            }
+                        ]
+                        let value = receiver.value
+                        if( value === undefined){return undefined}
+                        if( !(value instanceof Array)){
+                            value = [value]
+                        }
+
+                        return options.map((option)=>{
+                            let outcomes = value.map((v)=>{
+                                if( v.list === undefined){return undefined}
+                                let projections = v.list.reduce((o, d)=>{
+                                    let projection = option.project(d)
+                                    if( projection === undefined ){
+                                        if( option.default ){
+                                            projection = option.default
+                                        }else{
+                                            return o
+                                        }
+                                    }
+                                    [projection].flat().forEach((p)=>{
+                                        o.byP[p] = o.byP[p] || []
+                                        o.byP[p].push(d)
+                                        o.byI[d.id] = o.byI[d.id] || []
+                                        o.byI[d.id].push(p)
+                                    })
+                                    return o
+                                }, {byP:{}, byI:{}})
+
+                                if( collapse ){
+                                    const ordered = Object.keys(projections.byP).sort((a,b)=>projections.byP[b].length - projections.byP[a].length)
+                                    const startTotal = Object.values(projections.byP).flat().length
+
+                                    Object.keys(projections.byI).forEach((i)=>{
+                                        projections.byI[i] = projections.byI[i].sort((a,b)=>ordered.indexOf(a) - ordered.indexOf(b))[0]
+                                    })
+                                    Object.keys(projections.byP).forEach((p)=>{
+                                        projections.byP[p] = projections.byP[p].filter((item)=>projections.byI[item.id] === p)
+                                        if(projections.byP[p].length === 0){
+                                            delete projections.byP[p]
+                                        }
+                                    })
+                                    const endTotal = Object.values(projections.byP).flat().length
+                                }
+                                projections = projections.byP
+
+
+                                return Object.keys(projections).length > 0 ? {
+                                    relationship: v.relationship,
+                                    relationshipConfig: v.relationshipConfig,
+                                    count: v.count,
+                                    target: v.target,
+                                    met: v.met,
+                                    data: projections
+                                } : undefined
+                            }).filter((d)=>d)
+                            return (outcomes && outcomes.length > 0) ? {
+                                id: option.id,
+                                title: option.title,
+                                data: outcomes
+                            } : undefined
+                        }).filter((d)=>d)
+                    }
                     if( prop === "value" ){
                         let metric = target.metric
                         let prims = target.parent.primitives.fromPath(metric.path)
@@ -215,29 +338,34 @@ function MainStore (prims){
                         let filter_empty = false
 
                         if( metric.type === "conversion" || metric.type === "count"){
-                            if( metric.type === "conversion" ){
-                                if( Object.keys(metric.path)[0] !== "results"){return undefined}
-                                
-                                let relationships = target.parent.metadata?.resultCategories[Object.values(metric.path)[0]].relationships
-                                Object.keys(relationships).forEach((k)=>{
-                                    if( !prims[k] ){
-                                        prims[k] = []
-                                    }
-                                })
-                                
-                                counts = Object.keys(prims).map((k)=>({relationship: k, list: prims[k].allItems, count: prims[k].length, relationshipConfig: relationships[k]})).sort((a,b)=>relationships[b.relationship].order - relationships[a.relationship].order)
-                                counts = counts.map((v, idx, a)=>{
-                                    if( idx > 0 ) {
-                                        v.count += a[idx - 1].count
-                                    }
-                                    return v
-                                }).reverse()                            
-                            }else if( metric.type === "count" ){
-                                let by_reln = metric.targets || metric.by_relationship
-                                counts = by_reln ? Object.keys(prims).map((k)=>({relationship: k, list: prims[k].allItems, count: prims[k].length})) : {count: prims.allIds.length, list: prims.allItems}
-                                filter_empty = true
-                            }
+                            if( prims === undefined){
+                                counts = [{count: 0, list: []}]
+                            }else{
 
+                                if( metric.type === "conversion" ){
+                                    if( Object.keys(metric.path)[0] !== "results"){return undefined}
+                                    
+                                    let relationships = target.parent.metadata?.resultCategories[Object.values(metric.path)[0]].relationships
+                                    Object.keys(relationships).forEach((k)=>{
+                                        if( !prims[k] ){
+                                            prims[k] = []
+                                        }
+                                    })
+                                    
+                                    counts = Object.keys(prims).map((k)=>({relationship: k, list: prims[k].allItems, count: prims[k].length, relationshipConfig: relationships[k]})).sort((a,b)=>relationships[b.relationship].order - relationships[a.relationship].order)
+                                    counts = counts.map((v, idx, a)=>{
+                                        if( idx > 0 ) {
+                                            v.count += a[idx - 1].count
+                                        }
+                                        return v
+                                    }).reverse()                            
+                                }else if( metric.type === "count" ){
+                                    let by_reln = metric.targets || metric.by_relationship
+                                    counts = by_reln ? Object.keys(prims).map((k)=>({relationship: k, list: prims[k].allItems, count: prims[k].length})) : {count: prims.allIds.length, list: prims.allItems}
+                                    filter_empty = true
+                                }
+                                
+                            }
                             if( metric.targets ){
                                 counts = counts.filter((d)=>{
                                     let mt = metric.targets.find((d2)=>d2.relationship === d.relationship)
@@ -288,7 +416,13 @@ function MainStore (prims){
         taskCategories:function(){
             return activity_category_temp
         },
-        contacts:function(id){
+        companies:function(){
+            return companies
+        },
+        company:function(id){
+            return this.companies().find((d)=>d.id === id)
+        },
+        contacts:function(){
             return contacts
         },
         contact:function(id){
@@ -316,6 +450,12 @@ function MainStore (prims){
                     "name": "Jason Brooks",
                     "email": "jason@co-created.com",
                     "avatarUrl": "https://lh3.googleusercontent.com/a-/AOh14GjF28AU7uRRX9M51xz7qDyClXwm_Z6YgiuDU2f1",
+                },
+                {
+                    "id": 4,
+                    "name": "Ron J Williams",
+                    "email": "ron@co-created.com",
+                    "avatarUrl": "https://lh3.googleusercontent.com/a-/AFdZucqRIC8mcgq2A0xtWB2iXq4cTqM34G4V1UqoGIs5=s96-c",
                 }
             ]
         },
@@ -347,9 +487,12 @@ function MainStore (prims){
                 if( prop === "stateInfo"){
                     return (obj.stateInfo[d.type] || obj.stateInfo["default"])[d.state] || {title: undefined }
                 }
+                if( prop === "isTask"){
+                    return d.type === "activity" || d.type === "experiment"
+                }
 
                 if( prop === "metadata"){
-                    if( d.type === "activity" || d.type === "experiment"){
+                    if( receiver.isTask ){
                         return obj.taskCategories().find((p)=>p.id === d.referenceId )
                     }
                     if( d.type === "evidence" ){
@@ -462,9 +605,6 @@ function MainStore (prims){
     return obj
 }
 
-    const fastNaN = (val)=>{
-        return !(val <= 0) && !(val > 0)
-    }
 const uniqueArray = (a)=>{
     return a.filter((v,i)=>a.indexOf(v) === i)
 }
@@ -1546,6 +1686,7 @@ let primitive_temp = [
         "referenceId": 1,
         "refereceParameters": {
             "contact": "Eric Davis",
+            contactId: 0,
             "company": "ConEd",
             "notes": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y",
             "interviewee": 1
@@ -1612,24 +1753,32 @@ let primitive_temp = [
             results:{
                 0: {
                     contacted: [4462,4463],
-                    completed: [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466]
+                    scheduled: [4471],
+                    completed: [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467]
                 }
             },
+            origin: [4462,4463,4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467,4471],
             evidence: {
-                positive: [4468]
+                positive: [4448]
             },
             metrics:{
                 1: {
                     negative: [],
-                    positive: [4450,4452,4454,4457,4451,4466],
+                    positive: [4450,4451,4452,4454,4451,4466,4467],
                 },
-                2: [4455,4453,4466,4465]
+                2: [4455,4453,4455,4456,4466,4465,4460,4461,4465,4466],
+                3: [4450,4466,4467],
+                4: [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467,4471],
+                5: [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467],
             }
         },
         "metrics":[
             {id: 0, path: {results: 0}, title: "Progress through pipeline", type: "conversion", targets: [{relationship: "identified", value: 40},{relationship: "completed", value: 20}, {relationship: "contacted", value: 40},{relationship: "scheduled", value: 20}]},
+            {id: 4, path: {metrics: 4}, title: "Open to discussing", type: "count"},
+            {id: 5, path: {metrics: 5}, title: "Topic resonates", type: "count"},
             {id: 1, path: {metrics: 1}, title: "Interested in a trial", type: "count", targets: [{relationship: "positive", value: 5}]},
-            {id: 2, path: {metrics: 2}, title: "Making an intro", type: "count"}
+            {id: 2, path: {metrics: 2}, title: "Making an intro", type: "count"},
+            {id: 3, path: {metrics: 3}, title: "Asked for a proposal", type: "count"}
         ],
         "refereceParameters": {
             "sample": "20",
@@ -1641,10 +1790,17 @@ let primitive_temp = [
             ],
             "other": [
                 2,
-                3
+                4
             ]
         },
-        "title": "Get feedback from at least 20 target users from our network",
+        "title": "Test if VFs is a topic of interest to our network",
+        comments:[
+            {
+                userId: 1,
+                date: '2023-02-17T19:31:55.757Z',
+                body: "This is the first experiment with VFs, testing first with friendlies"
+            }
+        ]
     },
     {
         "id": 4450,
@@ -1668,6 +1824,7 @@ let primitive_temp = [
         refereceParameters:{
             "contact": "Markku Makkonen",
             "contactId": 2,
+            role:"New Business Development",
             "company": "F-Secure",
             "companyId": 2,
             "notes": "https://docs.google.com/document/d/1r2dpufaNOvWI4WqmaG-YgIno_kFarfP9iJ7bBGYLlxc",
@@ -1683,6 +1840,7 @@ let primitive_temp = [
             "contact": "Susana",
             "contactId": 3,
             "company": "Wayra (builder)",
+            "companyId": 3,
             "notes": "https://docs.google.com/document/d/1c83tAV50ATujd_Lff5gwe5Ot6m9qlmchR_Z2ALlAVdA",
             "interviewee": 1,
         },
@@ -1696,6 +1854,7 @@ let primitive_temp = [
             "contact": "Premila",
             "contactId": 4,
             "company": "Standard Chartered Ventures",
+            "companyId": 4,
             "notes": "https://docs.google.com/document/d/1Ed916f_SbGGKUK2zOiezNKzqysXbVWiANH8GvhwfXOg",
             "interviewee": 1,
         },
@@ -1709,6 +1868,7 @@ let primitive_temp = [
             "contact": "Emma Huntington",
             "contactId": 5,
             "company": "Admiral Pioneer",
+            "companyId": 5,
             "notes": "https://docs.google.com/document/d/1ds6Zx5B4w51JxTkqSwSvOPL3tr-0Fi_cPd_6WK5YF-k",
             "interviewee": 1,
         },
@@ -1722,6 +1882,7 @@ let primitive_temp = [
             "contact": "Steve Tait",
             "contactId": 6,
             "company": "Snow Software",
+            "companyId": 6,
             "notes": "https://docs.google.com/document/d/1A4jl1mHrOm4bpNiYChQgNrThjMOP7yIEZI4WxKiTpDc",
             "interviewee": 1,
         },
@@ -1735,6 +1896,7 @@ let primitive_temp = [
             "contact": "John Finley",
             "contactId": 7,
             "company": "Bank of the West",
+            "companyId": 7,
             "notes": "https://docs.google.com/document/d/1SqH4Gmdd3NEpvWwMoU9MuNEIglHATQacOJUBzNEx85M",
             "interviewee": 1,
         },
@@ -1748,6 +1910,7 @@ let primitive_temp = [
             "contact": "Dana Enger",
             "contactId": 8,
             "company": "State Farm",
+            "companyId": 8,
             "notes": "https://docs.google.com/document/d/16Y8P9QN664OeSdOVP-GhvN5t9Xbs0Jaef2xwVTteQvg",
             "interviewee": 1,
         },
@@ -1773,6 +1936,7 @@ let primitive_temp = [
             "contact": "Jeremey Smith",
             "contactId": 9,
             "company": "RBS",
+            "companyId": 9,
             "notes": "https://docs.google.com/document/d/1YpopfkuLPJFGBCWyXESgrWEbpiodBsrat0GKmdrENGA",
             "interviewee": 1,
         },
@@ -1860,10 +2024,41 @@ let primitive_temp = [
             notes: "https://docs.google.com/document/d/1N6oz_UNr74KC8cFD8JoHsa5vvqwi0SvMtRFTC66DQi0",
             "interviewee": 1,
         },
+    },
+    {
+        "id": 4467,
+        "type": "result",
+        "title": "Discussion with Crowley",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Sean Fortener",
+            "contactId": 16,
+            "company": "Crowley",
+            "interviewee": 1,
+        },
+    },
+    {
+        "id": 4471,
+        "type": "result",
+        "title": "Discussion with JPM",
+        referenceId: 1,
+        refereceParameters:{
+            "contact": "Sarit Amir",
+            "company": "JP Morgan",
+            "interviewee": 1,
+        },
     }
 ]
 
 const contacts = [
+    {
+        id: 0,
+        name: "Eric Davis",
+        profile: "https://www.linkedin.com/in/ericbdavis/",
+        avatarUrl: "https://media.licdn.com/dms/image/C5603AQGFiG9IuqnE6g/profile-displayphoto-shrink_200_200/0/1516871251799?e=1682553600&v=beta&t=tCNLMWTPl_83Nf_dVYl5OuYfoSsnCBI59mGzc3b0Xhw",
+        expertise: ["Innovation"],
+        domains: ["Mining", "Engineering", "Energy"]
+    },
     {
         id: 1,
         name: "Stacey Lusk",
@@ -1877,7 +2072,8 @@ const contacts = [
         title:"New Business Development",
         "profile": "https://www.linkedin.com/in/markkumakkonen/",
         "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQG01YxwMA84xQ/profile-displayphoto-shrink_200_200/0/1642673643192?e=1682553600&v=beta&t=TdCksLG-_QSPm5rr_n_o7oGbTEU0hG7BGCSMGJkLUW4",
-        "expertise": ["Product", "New Business", "Wireless", "Mobile"]
+        "expertise": ["Product", "New Business"],
+        domains: ["Wireless", "Mobile"]
     },
     {
         "id": 3,
@@ -1899,6 +2095,7 @@ const contacts = [
         "profile": "https://www.linkedin.com/in/emma-huntington-52a2591/",
         "avatarUrl": "https://media.licdn.com/dms/image/C5103AQHaO0p48x5lEg/profile-displayphoto-shrink_200_200/0/1516242232350?e=1682553600&v=beta&t=eD4jwtGW5_0gUrU1sP-RFUTpAQfj3p-fzNd66QgSjRQ",
         "expertise": ['Venture', 'Strategy'],
+        title: "CEO of Admiral Pioneer",
         seniority: ["CEO", "MD", "CXO"]
     },
     {
@@ -1915,7 +2112,8 @@ const contacts = [
         "profile": "https://www.linkedin.com/in/johnfinley/",
         "avatarUrl": "https://media.licdn.com/dms/image/C4D03AQGe8x9sAfbZDQ/profile-displayphoto-shrink_200_200/0/1516258052680?e=1682553600&v=beta&t=moSKoSx_vbvGSuGVNVzUSXeSHIonHR94Ef-dcWQPGls",
         seniority: ["Head of"],
-        "expertise": ['Product', 'Innovation', 'Banking']
+        "expertise": ['Product', 'Innovation'],
+        domains: ["Banking"]
     },
     {
         "id": 8,
@@ -1931,7 +2129,8 @@ const contacts = [
         "profile": "https://www.linkedin.com/in/jeremy-e-smith/",
         "avatarUrl": "https://media.licdn.com/dms/image/C5103AQGgsiIdCMm33Q/profile-displayphoto-shrink_200_200/0/1517024970577?e=1682553600&v=beta&t=tWSZsho5nsAcGY2gwi8if_1dErTi-CI4ofBz6eGhKZ4",
         seniority: ["Head of"],
-        "expertise": ['Innovation', 'Banking']
+        "expertise": ['Innovation'],
+        domains: ["Banking"]
     },
     {
         "id": 11,
@@ -1947,6 +2146,16 @@ const contacts = [
         "avatarUrl": "https://media.licdn.com/dms/image/C5103AQGWblcmF12iVw/profile-displayphoto-shrink_200_200/0/1531397326673?e=1682553600&v=beta&t=eV-5EvZOewwjLT3YhigfAOe8G39Bu9uFTPtxwfPjuD8",
         "expertise": ['Start-up collaboration', 'Innovation']
     },
+    {
+        id: 16,
+        name: "Sean Fortener",
+        profile: "https://www.linkedin.com/in/sean-fortener-34444a95/",
+        avatarUrl: "https://media.licdn.com/dms/image/C4E03AQHZT6ykBZDCbw/profile-displayphoto-shrink_200_200/0/1533226802120?e=1682553600&v=beta&t=sr9g_ht0Of8xuA20rCpkMZXDZxYGJd7BgyXczrtwh-E",
+        expertise: ["Innovation", "Change Management"],
+        title: "Innovation & Change leader",
+        seniority: ["Head of"],
+        domains: ["Petroleum", "Chartering"]
+    },
 ]
 
 const companies = [
@@ -1960,6 +2169,102 @@ const companies = [
             currency: "USD"
         },
         sector: ["Energy"],
-        region: ["United States"]
-    }
+        region: ["USA"]
+    },
+    {
+        id: 2,
+        name: "F-Secure",
+        logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/F-Secure_Logo.png/220px-F-Secure_Logo.png",
+        employees: 350,
+        turnover: {
+            amount: 111000000,
+            currency: "EURO"
+        },
+        sector: ["Cyber security"],
+        region: ["Global"]
+    },
+    {
+        id: 3,
+        name: "Telefonica",
+        logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Telef%C3%B3nica_2021_logo.svg/250px-Telef%C3%B3nica_2021_logo.svg.png",
+        employees: 105000,
+        turnover: {
+            amount: 39200000000,
+            currency: "EURO"
+        },
+        sector: ["Telco"],
+        region: ["Global"]
+    },
+    {
+        id: 4,
+        name: "Standard Chartered",
+        logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Standard_Chartered_%282021%29.svg/250px-Standard_Chartered_%282021%29.svg.png",
+        employees: 85000,
+        turnover: {
+            amount: 16000000000,
+            currency: "USD"
+        },
+        sector: ["Banking"],
+        region: ["Global"]
+    },
+    {
+        id: 5,
+        name: "Admiral Group",
+        logoUrl: "https://upload.wikimedia.org/wikipedia/en/3/3b/Admiral_Group_logo.png",
+        employees: 11000,
+        turnover: {
+            amount: 1550000000,
+            currency: "GBP"
+        },
+        sector: ["Insurance"],
+        region: ["UK"]
+    },
+    {
+        id: 6,
+        name: "Snow Software",
+        logoUrl: "https://www.snowsoftware.com/wp-content/themes/snow-software/dist/svg/snow-brand/snow-logo.svg",
+        employees: 800,
+        turnover: {
+            amount: 80000000,
+            currency: "GBP"
+        },
+        sector: ["Insurance"],
+        region: ["UK"]
+    },
+    {
+        id: 7,
+        name: "Bank of the West",
+        logoUrl: "https://upload.wikimedia.org/wikipedia/en/thumb/4/48/Bank_of_the_West_2017_Logo.jpg/250px-Bank_of_the_West_2017_Logo.jpg",
+        employees: 9200,
+        turnover: {
+            amount: 2750000000,
+            currency: "USD"
+        },
+        sector: ["Banking"],
+        region: ["USA"]
+    },
+    {
+        id: 8,
+        name: "State Farm",
+        logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/State_Farm_logo.svg/250px-State_Farm_logo.svg.png",
+        employees: 58000,
+        turnover: {
+            amount: 79000000000,
+            currency: "USD"
+        },
+        sector: ["Insurance"],
+        region: ["USA"]
+    },
+    {
+        id: 9,
+        name: "RBS",
+        logoUrl: "https://upload.wikimedia.org/wikipedia/en/thumb/e/ef/Royal_Bank_of_Scotland_logo.svg/220px-Royal_Bank_of_Scotland_logo.svg.png",
+        employees: 71000,
+        turnover: {
+            amount: 10000000000,
+            currency: "GBP"
+        },
+        sector: ["Banking"],
+        region: ["Global"]
+    },
 ]

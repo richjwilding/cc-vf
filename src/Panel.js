@@ -10,7 +10,7 @@ export default function Panel({...props}){
     return (
         <div className={`${props.hideTitle ? "" : "mt-6"} ${props.className || ""}`}>
           {!props.hideTitle && 
-            <h3 className="text-sm font-medium text-gray-500 flex w-full">
+            <h3 className={props.titleClassName || "text-sm font-medium text-gray-500 flex"}>
               {props.title || "Details"}
             </h3>}
             {props.children}

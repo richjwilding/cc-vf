@@ -43,7 +43,7 @@ export function PrimitivePopup({contextOf, selected, setSelected, ...props}){
                     <div className='p-4 bg-white rounded-2xl shadow-xl w-full '>
                         <button className="flex ml-auto text-gray-400 hover:text-gray-500" onClick={() => setSelected(null)} ><XMarkIcon className="h-6 w-6" aria-hidden="true" /></button>
                             <PrimitiveCard.Banner primitive={selected} small={true}/>
-                            <PrimitiveCard primitive={selected} disableHover={true} showEdit={true} showId={false}/>
+                            <PrimitiveCard primitive={selected} disableHover={true} showLink={true} showId={false}/>
                             <Tab.Group>
                                 <Tab.List className="-mb-px flex space-x-8 border-b border-gray-200" aria-label="Tabs">
                                 <Tab as={Fragment}>

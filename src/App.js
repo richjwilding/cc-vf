@@ -36,20 +36,25 @@ function App() {
   const [primitive, setPrimitive] = React.useState(undefined)
 
   const selectPrimitive = (primitive, overlay = false)=>{
+    if( primitive === null){
+      setOpen(false)
+      setOverlay(false)
+      return
+    }
     setOpen(true)
     setOverlay(overlay)
     setPrimitive(primitive)
   }
 
   return (
-    <div className = 'max-w-screen-3xl mx-auto flex h-screen'>
+    <div className = 'w-full mx-auto flex h-screen'>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<ComponentView components={mainstore.components()} selectPrimitive={selectPrimitive}/>}/>
           <Route path="/item/:id" element={<PrimitiveCardWrapper selectPrimitive={selectPrimitive}/>}/>
         </Routes>
-      </BrowserRouter>
       <Sidebar open={open} overlay={overlay} setOpen={(v)=>{console.log(v);setOpen(v)}} primitive={primitive}/>
+      </BrowserRouter>
     </div>
   )
 }

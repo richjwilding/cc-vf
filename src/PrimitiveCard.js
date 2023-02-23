@@ -3,6 +3,7 @@ import { RelationshipTable } from './RelationshipTable';
 import React from 'react';
 import Panel from './Panel';
 import {ContactPopover} from './ContactCard';
+import DropdownButton from './DropdownButton';
 import {
   ArrowTopRightOnSquareIcon,
   PencilIcon,
@@ -13,6 +14,7 @@ import {
 import { HeroIcon, SolidHeroIcon } from './HeroIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { EvidenceCard } from './EvidenceCard';
+import { Link } from "react-router-dom";
 
 
 let mainstore = MainStore()
@@ -38,6 +40,7 @@ let mainstore = MainStore()
       let user = mainstore.user( item.value )
       return (
           <img
+            referrerPolicy="no-referrer"
             className="inline-block h-6 w-6 rounded-full"
             src={user.avatarUrl}
             alt={user.name} />
@@ -45,7 +48,7 @@ let mainstore = MainStore()
 
     }else if( item.type === "contact"){
         icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> //
-      if( item.autoId ){
+      if( item.autoId !== undefined ){
         icon = <ContactPopover icon={<UserIcon className='w-5 h-5 pr-0.5 text-blue-200 hover:text-blue-400'/>} contactId={item.autoId}/>
       }
     }
@@ -111,6 +114,7 @@ const Users = function({primitive, ...props}){
             <dt>{user.name}</dt>
               <img
                 className="inline-block h-7 w-7 rounded-full right-0 absolute"
+                referrerPolicy="no-referrer"
                 src={user.avatarUrl}
                 alt={user.name} />
           </div>
@@ -124,6 +128,7 @@ const Users = function({primitive, ...props}){
           <a key={user.email} href={user.href} className="rounded-full hover:opacity-75">
             <img
               className="inline-block h-8 w-8 rounded-full"
+              referrerPolicy="no-referrer"
               src={user.avatarUrl}
               alt={user.name} />
           </a>
@@ -141,7 +146,7 @@ const Users = function({primitive, ...props}){
 const Banner = function({primitive, ...props}){
   let metadata = primitive.metadata
   return (
-    <div className="flex items-center space-x-2 xs:space-x-5">
+    <div className={`flex items-center space-x-2 xs:space-x-5 ${props.className || ""}`}>
       {metadata &&
         <div className="flex-shrink-0">
           <div className="relative">
@@ -149,10 +154,13 @@ const Banner = function({primitive, ...props}){
           </div>
         </div>
       }
-      <div>
+      <div className='flex-grow w-full'>
         <h1 className={`text-lg ${!props.small && "md:text-2xl"} font-bold text-gray-900`}><p className='hidden xs:inline'> {primitive.displayType} </p>#{primitive.id}</h1>
         <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>
       </div>
+      {props.showStateAction &&
+              <DropdownButton colorKey='colorBase' items={mainstore.stateInfo[primitive.type]} selected={primitive.state}/>
+      }
     </div>
   )
 }
@@ -171,7 +179,7 @@ const Parameters = function({primitive, ...props}){
     Object.values(details).filter((item)=>item.value !== undefined).map((item, idx)=>(
       <div key={idx} className={`flex justify-between py-3 text-sm place-items-center ${props.className || ''}`}>
         {(props.showTitles === undefined || props.showTitles === true) && <dt>{item.title}</dt>}
-        <RenderItemValue item={item} secondary={props.inline && idx > 0}/>
+        <RenderItemValue item={item} secondary={(props.inline || props.showAsSecondary) && idx > 0}/>
         {props.inline && <p className='pl-1 text-slate-400'>•</p> }
       </div>
     )))
@@ -282,6 +290,7 @@ const Title = function({primitive, ...props}){
   let color = primitive.stateInfo?.colorBase || "gray"
   let relationshipConfig
   let relationship
+  let metadataRender
   
   if( props.relationshipTo ){
     relationship = primitive.parentRelationship(props.relationshipTo)
@@ -306,6 +315,10 @@ const Title = function({primitive, ...props}){
       </span>
     }
   }
+  if( props.showMetadataTitle ){
+    let metadata = primitive.metadata
+    metadataRender = <p className='ml-1 truncate opacity-0 group-hover:opacity-75 transition-opacity'>· {metadata.title}</p>
+  }
 
 
   return (
@@ -318,12 +331,13 @@ const Title = function({primitive, ...props}){
         </span>
         }
         {relationshipRender}
+        {metadataRender}
         {(props.compact && (props.showLink || props.showEdit)) &&
           <button
               type="button"
               className="ml-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-              {props.showLink && !props.showEdit && <ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" />}
+              {props.showLink && !props.showEdit && <Link to={`/item/${primitive.id}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>}
               {props.showEdit && <PencilIcon className="h-4 w-4" aria-hidden="true" />}
           </button>
         }
@@ -336,10 +350,62 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   let mainTextSize = props.compact ? 'sm' : 'md' 
   let margin = props.bigMargin ? (ring ? 'px-4 py-6' : 'px-2 py-3') : (ring ? 'px-2 py-3' : 'px-0.5 py-1')
 
+  let smallMeta
+  let metadata
+  if( props.showMeta){
+    metadata = primitive.metadata
+    if( props.showMeta !== "large" ){
+      smallMeta = <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
+              {metadata.icon && <HeroIcon icon={metadata.icon} className='w-5 h-5 mr-1' strokeWidth={1}/>}
+              {metadata.description}
+            </h3>
+    }
+
+  }
+  let titleAtBase = fields 
+
   if( major ){
     margin = ""
     mainTextSize = "lg"
     ring = false
+  }
+
+
+  let content = fields ? undefined : 
+      <>
+        <p className={`text-slate-700 text-${mainTextSize}`}>
+          {primitive.title}
+        </p>
+        {(!props.compact && (props.showLink || props.showEdit)) &&
+          <button
+              type="button"
+              className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+              {props.showLink && !props.showEdit && <Link to={`/item/${primitive.id}`}><ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" /></Link>}
+              {props.showEdit && <PencilIcon className="h-5 w-5" aria-hidden="true" />}
+          </button>
+        }
+      </>
+
+  let header
+  if(metadata ){
+      header = <div className='flex'>
+        <HeroIcon icon={metadata.icon} className='w-10 h-10 mr-2 shrink-0 grow-0 text-gray-400 ease-linear transition-colors  group-hover:text-gray-800' strokeWidth={1}/>
+        <div>
+          <div className={`flex items-start justify-between space-x-3`}>
+            {content}
+          </div>
+          {!titleAtBase && <Title primitive={primitive} {...props} showMetadataTitle={true} className='mt-1'/>} 
+        </div>
+      </div>
+
+  }else{
+    header = <>
+              {!titleAtBase && !metadata && <Title primitive={primitive} {...props}/>} 
+              {content && <div className={`flex items-start justify-between space-x-3 ${props.compact ? 'mt-2' : 'mt-3'}`}>
+                {content}
+              </div>}
+            </>
   }
 
   return (
@@ -347,6 +413,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         onClick={props.onClick }
         className={
         [
+          "group",
           props.bg ? props.bg : 'bg-white',
           margin,
           props.flatBorder ? '' : 'rounded-lg',
@@ -355,28 +422,10 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           props.inline ? "flex space-x-2" : "",
           className].filter((d)=>d).join(' ')
         }>
-      {!fields && <Title primitive={primitive} {...props}/>}
-      {!fields  && 
-      <div className={`flex items-start justify-between space-x-3 ${props.compact ? 'mt-2' : 'mt-3'}`}>
-        <>
-          <p className={`text-slate-700 text-${mainTextSize}`}>
-            {primitive.title}
-          </p>
-          {(!props.compact && (props.showLink || props.showEdit)) &&
-            <button
-                type="button"
-                className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-                {props.showLink && !props.showEdit && <ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" />}
-                {props.showEdit && <PencilIcon className="h-5 w-5" aria-hidden="true" />}
-            </button>
-          }
-        </>
-      </div>
-      }
+        {header}
       {fields &&  
         <div className={props.inline ? `flex items-start justify-between space-x-1` : ``}>
-          <Parameters primitive={primitive} inline={props.inline} asMain={true} fields={fields} showTitles={false} className='!py-1'/>
+          <Parameters primitive={primitive} inline={props.inline} showAsSecondary={props.showAsSecondary} asMain={true} fields={fields} showTitles={false} className='!py-1'/>
         </div>
       }
 
@@ -387,7 +436,8 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {(props.showEvidence  === true) && <PrimitiveCard.Evidence primitive={primitive}/>}
         {(props.showEvidence  === "compact") && <PrimitiveCard.Evidence primitive={primitive} hideTitle={true} compact={true} aggregate={true}/>}
         {props.children}
-        {fields && <Title primitive={primitive} {...props} className='grow-0'/>}
+        {titleAtBase && <Title primitive={primitive} {...props} className='grow-0 mt-1'/>}
+        {smallMeta}
     </div>
   )
 }

@@ -74,7 +74,7 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
                 >
                 <div className='p-4 bg-white rounded-2xl shadow-xl w-full '>
                     <button className="flex ml-auto text-gray-400 hover:text-gray-500" onClick={() => setSelected(null)} ><XMarkIcon className="h-6 w-6" aria-hidden="true" /></button>
-                    <RelationshipTable sortable={true} major={true} title={metric.title} fields={fields} inline={true} relationships={relationships} showCounts={true} maxHeightClass='max-h-[50vh]'/>
+                    <RelationshipTable highlight={props.highlight} sortable={true} major={true} title={metric.title} fields={fields} inline={true} relationships={relationships} showCounts={true} maxHeightClass='max-h-[50vh]'/>
                     <div className="flex flex-shrink-0 justify-end pt-4 border-t border-gray-200 mt-1">
                         <button
                             type="button"

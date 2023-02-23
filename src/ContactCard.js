@@ -43,8 +43,8 @@ export function ContactPopover({contact, ...props}) {
               >
                     <div 
                         style={tx}
-                        className='w-4 h-4 bg-white absolute border-blue-500 border-r-2 border-b-2' ref={setArrowElement}/>
-                    <div className='bg-white rounded-lg shadow-xl p-4 ring-2 ring-blue-500'>
+                        className='w-4 h-4 bg-white absolute border-blue-500 border-r-[1px] border-b-[1px]' ref={setArrowElement}/>
+                    <div className='bg-white rounded-lg shadow-xl p-2 ring-1 ring-blue-500 min-w-[16em] max-w-[32em] '>
                         <ContactCard {...props}/>
                     </div>
                 </Popover.Panel>
@@ -54,49 +54,41 @@ export function ContactPopover({contact, ...props}) {
     )
 }
 
-export default function ContactCard({contact, contactId, ...props}) {
+export default function ContactCard({contact, contactId, context, ...props}) {
     contact = contact || MainStore().contact(contactId)
+
+
+    const listToPills = ( list, title )=> {
+        if(!list){return <></>}
+        return  (<div className='mt-1 w-full flex'>
+                {title && <p className='text- text-gray-500 py-0.5 mr-2'>{title}:</p>}
+                <div className='col-span-3 flex flex-wrap'>
+                            {list.map((s)=>(
+                                <p key={s} className="my-0.5 mr-1 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                                    {s}
+                                </p>
+                            ))}
+                    </div>
+                </div>)
+    }
+
   return (
         <>
-          <div className="flex flex-1 flex-col p-4 w-72">
-            <img className="mx-auto h-24 w-24 flex-shrink-0 rounded-full" src={contact.avatarUrl} alt="" />
-            <h3 className="mt-6 text-center text-sm font-medium text-gray-900">
-                {contact.name}
-                {contact.profile && <a href={contact.profile} onClick={(e)=>e.stopPropagation()} target="_blank" className="rounded-full hover:opacity-75 text-slate-500 hover:text-blue-600"><FontAwesomeIcon icon="fa-brands fa-linkedin" className='ml-1'/></a>}
-            </h3>
-            <dl className="mt-1 text-center flex flex-grow flex-col justify-between">
-              {contact.title && <dd className="text-sm text-gray-500">{contact.title}</dd>}
-            </dl>
-              <dl className="mt-3 flex flex-wrap space-x-1 justify-center">
-                {contact.expertise && contact.expertise.map((e)=>(
-                    <p className="my-0.5 rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
-                        {e}
-                    </p>
-                ))}
-                </dl>
-          </div>
-          <div>
-            <div className="-mt-px flex divide-x divide-gray-200">
-              <div className="flex w-0 flex-1">
-                <a
-                  href={`mailto:${contact.email}`}
-                  className="relative -mr-px inline-flex w-0 flex-1 items-center justify-center rounded-bl-lg border border-transparent py-4 text-sm font-medium text-gray-700 hover:text-gray-500"
-                >
-                  <EnvelopeIcon className="h-5 w-5 text-gray-400" aria-hidden="true" />
-                  <span className="ml-3">Email</span>
-                </a>
-              </div>
-              <div className="-ml-px flex w-0 flex-1">
-                <a
-                  href={`tel:${contact.telephone}`}
-                  className="relative inline-flex w-0 flex-1 items-center justify-center rounded-br-lg border border-transparent py-4 text-sm font-medium text-gray-700 hover:text-gray-500"
-                >
-                  <PhoneIcon className="h-5 w-5 text-gray-400" aria-hidden="true" />
-                  <span className="ml-3">Call</span>
-                </a>
-              </div>
+          <div className="flex flex-1 p-2 place-items-center">
+            <img className="mx-auto h-20 w-20 flex-shrink-0 rounded-full" src={contact.avatarUrl} alt="" />
+            <div className='mx-3 w-full'>
+                <h3 className="text-sm font-medium text-gray-900">
+                    {contact.name}
+                    {contact.profile && <a href={contact.profile} onClick={(e)=>e.stopPropagation()} target="_blank" className="rounded-full hover:opacity-75 text-slate-500 hover:text-blue-600"><FontAwesomeIcon icon="fa-brands fa-linkedin" className='ml-1'/></a>}
+                </h3>
+                {contact.title && <p className="text-sm text-gray-500">{contact.title}</p>}
+                {listToPills(contact.seniority)}
             </div>
           </div>
+          <div className="px-3 justify-center pb-2">
+            {listToPills(contact.expertise, "Expertise")}
+            {listToPills(contact.domains, "Domains")}
+        </div>
         </>
 
   )

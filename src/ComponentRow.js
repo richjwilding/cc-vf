@@ -51,7 +51,9 @@ export function ComponentRow(props) {
       gridRef.current.addEventListener('scroll', handleScroll, { passive: true });
   
       return () => {
-        gridRef.current.removeEventListener('scroll', handleScroll);
+        if( gridRef.current ){
+          gridRef.current.removeEventListener('scroll', handleScroll);
+        }
       };
   }, [gridRef.current]);
 

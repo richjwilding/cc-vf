@@ -11,6 +11,7 @@ export default function DropdownButton({...props}) {
     let items = props.items 
     let baseColor = "gray"
     let colors = props.major ? "bg-blue-600 border-blue-50  text-white hover:bg-blue-700 focus:ring-blue-500 focus:ring-offset-gray-100" : "bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-indigo-500 focus:ring-indigo-500"
+    if( items === undefined){return <></>}
     if( !(items instanceof(Array)) ){
         items = Object.keys(items).map((k)=>{
             return {
@@ -26,7 +27,7 @@ export default function DropdownButton({...props}) {
     }
 
   return (
-    <div className="inline-flex rounded-md shadow-sm">
+    <div className={`inline-flex rounded-md shadow-sm ${props.className || ""}`}>
       <button
         type="button"
         className={`relative inline-flex items-center rounded-l-md border  px-4 py-2 text-sm font-medium focus:z-10 focus:outline-none focus:ring-2  focus:ring-offset-2 ${colors}`}
