@@ -1,0 +1,107 @@
+[
+    {
+        "id": 0,
+        "name": "Eric Davis",
+        "profile": "https://www.linkedin.com/in/ericbdavis/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C5603AQGFiG9IuqnE6g/profile-displayphoto-shrink_200_200/0/1516871251799?e=1682553600&v=beta&t=tCNLMWTPl_83Nf_dVYl5OuYfoSsnCBI59mGzc3b0Xhw",
+        "expertise": ["Innovation"],
+        "domains": ["Mining", "Engineering", "Energy"]
+    },
+    {
+        "id": 1,
+        "name": "Stacey Lusk",
+        "profile": "https://www.linkedin.com/in/stacey-lusk-a251624/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQF1hdsHQYyNZA/profile-displayphoto-shrink_200_200/0/1517672808852?e=1682553600&v=beta&t=UM3EkH7d_4ArPbbpH2fYZCvx-kD255qC-pboxAOzx0Q",
+        "expertise": ["Product", "Sales"]
+    },
+    {
+        "id": 2,
+        "name": "Markku Makkonen",
+        "title":"New Business Development",
+        "profile": "https://www.linkedin.com/in/markkumakkonen/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQG01YxwMA84xQ/profile-displayphoto-shrink_200_200/0/1642673643192?e=1682553600&v=beta&t=TdCksLG-_QSPm5rr_n_o7oGbTEU0hG7BGCSMGJkLUW4",
+        "expertise": ["Product", "New Business"],
+        "domains": ["Wireless", "Mobile"]
+    },
+    {
+        "id": 3,
+        "name": "Susana",
+        "profile": "https://www.linkedin.com/in/susana-jurado/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQHr1E7hqyuRnw/profile-displayphoto-shrink_200_200/0/1646214003279?e=1682553600&v=beta&t=fME3sf5n7bXS3pXcD2MsLJcD1QSfcfK3yLKj0wP680s",
+        "expertise": ["Innovation" ,"Strategy", "Venture"]
+    },
+    {
+        "id": 4,
+        "name": "Premila",
+        "profile": "https://www.linkedin.com/in/pstampe/",
+        "avatarUrl": "https://media.licdn.com/dms/image/D4E03AQFW81e_bfBW1Q/profile-displayphoto-shrink_200_200/0/1664362634237?e=1682553600&v=beta&t=M_7mjJpTgzVn4IKxr73NgtxAr0_LJPS0U8kRioKxMM0",
+        "expertise": ["Banking", "Innovation"]
+    },
+    {
+        "id": 5,
+        "name": "Emma Huntington",
+        "profile": "https://www.linkedin.com/in/emma-huntington-52a2591/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C5103AQHaO0p48x5lEg/profile-displayphoto-shrink_200_200/0/1516242232350?e=1682553600&v=beta&t=eD4jwtGW5_0gUrU1sP-RFUTpAQfj3p-fzNd66QgSjRQ",
+        "expertise": ["Venture", "Strategy"],
+        "title": "CEO of Admiral Pioneer",
+        "seniority": ["CEO", "MD", "CXO"]
+    },
+    {
+        "id": 6,
+        "name": "Steve Tait",
+        "profile": "https://www.linkedin.com/in/steve-tait-588a804/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQENmH8mg2BQtQ/profile-displayphoto-shrink_200_200/0/1634726504466?e=1682553600&v=beta&t=Q0zN2d6M5uuXuVC49qH4Nc__gvnj8X27gLdSVFgNliE",
+        "seniority": ["CTO", "CXO"],
+        "expertise": ["Engineering Manager", "CTO", "Software"]
+    },
+    {
+        "id": 7,
+        "name": "John Finley",
+        "profile": "https://www.linkedin.com/in/johnfinley/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4D03AQGe8x9sAfbZDQ/profile-displayphoto-shrink_200_200/0/1516258052680?e=1682553600&v=beta&t=moSKoSx_vbvGSuGVNVzUSXeSHIonHR94Ef-dcWQPGls",
+        "seniority": ["Head of"],
+        "expertise": ["Product", "Innovation"],
+        "domains": ["Banking"]
+    },
+    {
+        "id": 8,
+        "name": "Dana Enger",
+        "profile": "https://www.linkedin.com/in/dana-enger-a17b4869/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C5603AQEuDpZRrZk8Uw/profile-displayphoto-shrink_200_200/0/1517438571628?e=1682553600&v=beta&t=7Iudfk3-HfVn_4dRRFyI8ISGrBB5FtIKUCJqELPPEoc",
+        "seniority": ["Manager"],
+        "expertise": ["Innovation"]
+    },
+    {
+        "id": 9,
+        "name": "Jeremey Smith",
+        "profile": "https://www.linkedin.com/in/jeremy-e-smith/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C5103AQGgsiIdCMm33Q/profile-displayphoto-shrink_200_200/0/1517024970577?e=1682553600&v=beta&t=tWSZsho5nsAcGY2gwi8if_1dErTi-CI4ofBz6eGhKZ4",
+        "seniority": ["Head of"],
+        "expertise": ["Innovation"],
+        "domains": ["Banking"]
+    },
+    {
+        "id": 11,
+        "name": "John Mazzara",
+        "profile": "https://www.linkedin.com/in/johndmazzara/",
+        "avatarUrl": "https://media.licdn.com/dms/image/D4D03AQG7kT2j9eSXWQ/profile-displayphoto-shrink_200_200/0/1675935532024?e=1682553600&v=beta&t=gYVgMrSLMBSahXrP3rOx6QVrYjEF2ThatOYOkdt3JyA",
+        "expertise": ["Banking", "Coprporate Finance", "Innovation"]
+    },
+    {
+        "id": 15,
+        "name": "Guillaume Parvaix",
+        "profile": "https://www.linkedin.com/in/guillaumeparvaix/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C5103AQGWblcmF12iVw/profile-displayphoto-shrink_200_200/0/1531397326673?e=1682553600&v=beta&t=eV-5EvZOewwjLT3YhigfAOe8G39Bu9uFTPtxwfPjuD8",
+        "expertise": ["Start-up collaboration", "Innovation"]
+    },
+    {
+        "id": 16,
+        "name": "Sean Fortener",
+        "profile": "https://www.linkedin.com/in/sean-fortener-34444a95/",
+        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQHZT6ykBZDCbw/profile-displayphoto-shrink_200_200/0/1533226802120?e=1682553600&v=beta&t=sr9g_ht0Of8xuA20rCpkMZXDZxYGJd7BgyXczrtwh-E",
+        "expertise": ["Innovation", "Change Management"],
+        "title": "Innovation & Change leader",
+        "seniority": ["Head of"],
+        "domains": ["Petroleum", "Chartering"]
+    },
+]

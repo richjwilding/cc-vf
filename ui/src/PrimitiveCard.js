@@ -155,7 +155,7 @@ const Banner = function({primitive, ...props}){
         </div>
       }
       <div className='flex-grow w-full'>
-        <h1 className={`text-lg ${!props.small && "md:text-2xl"} font-bold text-gray-900`}><p className='hidden xs:inline'> {primitive.displayType} </p>#{primitive.id}</h1>
+        <h1 className={`text-lg ${!props.small && "md:text-2xl"} font-bold text-gray-900`}><p className='hidden xs:inline'> {primitive.displayType} </p>#{primitive.plainId}</h1>
         <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>
       </div>
       {props.showStateAction &&
@@ -196,7 +196,7 @@ const EvidenceList = function({primitive, ...props}){
     relatedTask = relatedTask[0]
   }
 
-  let evidenceCategories = relatedTask.metadata.evidenceCategories?.map((id)=>mainstore.evidenceCategory(id))
+  let evidenceCategories = relatedTask.metadata.evidenceCategories?.map((id)=>mainstore.category(id))
 
   let evidenceGroups = evidence.reduce((o, c)=>{
       let evidenceType = c.metadata.id
@@ -323,8 +323,8 @@ const Title = function({primitive, ...props}){
 
   return (
       <h3 className={`flex text-slate-400 font-medium tracking-tight place-items-center text-${props.compact ? 'xs' : 'sm'} ${props.className}`}>
-        {(props.showId === undefined || props.showId === true) && <p>{primitive.displayType} #{primitive.id}</p>}
-        {(props.showId === "number") && <p>#{primitive.id}</p>}
+        {(props.showId === undefined || props.showId === true) && <p>{primitive.displayType} #{primitive.plainId}</p>}
+        {(props.showId === "number") && <p>#{primitive.plainId}</p>}
         {props.showState && primitive.stateInfo.title && 
           <span className={`inline-flex items-center rounded-full bg-${color}-100 px-2 py-0.5 text-xs font-medium text-${color}-800 ml-3`}>
             {primitive.stateInfo.title}
@@ -337,7 +337,7 @@ const Title = function({primitive, ...props}){
               type="button"
               className="ml-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-              {props.showLink && !props.showEdit && <Link to={`/item/${primitive.id}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>}
+              {props.showLink && !props.showEdit && <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>}
               {props.showEdit && <PencilIcon className="h-4 w-4" aria-hidden="true" />}
           </button>
         }
@@ -381,7 +381,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
               type="button"
               className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-              {props.showLink && !props.showEdit && <Link to={`/item/${primitive.id}`}><ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" /></Link>}
+              {props.showLink && !props.showEdit && <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" /></Link>}
               {props.showEdit && <PencilIcon className="h-5 w-5" aria-hidden="true" />}
           </button>
         }
@@ -417,9 +417,10 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           props.bg ? props.bg : 'bg-white',
           margin,
           props.flatBorder ? '' : 'rounded-lg',
-          ring ? `hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 hover:subtle-shadow-bottom` : '',
+          ring ? `hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
           props.border ? "shadow border-[1px]" : '',
           props.inline ? "flex space-x-2" : "",
+          props.dragShadow ? "shadow-xl rotate-[-5deg]" : "",
           className].filter((d)=>d).join(' ')
         }>
         {header}

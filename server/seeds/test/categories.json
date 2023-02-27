@@ -1,0 +1,180 @@
+[
+    {
+        "id": 1,
+        "title": "NPS score",
+        "description": "Measure of customer satisfaction",
+        "type": "quantitative",
+        "relationships":{
+            "negative":{
+                "title": "Negative",
+                "icon": "HandThumbDownIcon",
+                "bgColor": "orange-400",
+                "textColor": "white"
+            },
+            "positive":{
+                "title": "Positive",
+                "icon": "HandThumbUpIcon",
+                "bgColor": "green-100",
+                "textColor": "green-800"
+            },
+        },
+        "icon": "FaceSmileIcon"
+    },
+    {
+        "id": 2,
+        "title": "Survey analysis",
+        "description": "Insights from a survey",
+        "type": "qualitative",
+        "relationships":{
+            "negative":{
+                "title": "Negative",
+                "icon": "HandThumbDownIcon",
+                "bgColor": "orange-400",
+                "textColor": "white"
+            },
+            "positive":{
+                "title": "Positive",
+                "icon": "HandThumbUpIcon",
+                "bgColor": "green-100",
+                "textColor": "green-800"
+            },
+        },
+        "icon": "BeakerIcon"
+    },
+    {
+        "id": 3,
+        "title": "User quote",
+        "description": "Quote from a target user",
+        "type": "qualitative",
+        "relationships":{
+            "negative":{
+                "title": "Negative",
+                "icon": "HandThumbDownIcon",
+                "bgColor": "orange-400",
+                "textColor": "white"
+            },
+            "positive":{
+                "title": "Positive",
+                "icon": "HandThumbUpIcon",
+                "bgColor": "green-100",
+                "textColor": "green-800"
+            },
+        },
+        "icon": "ChatBubbleBottomCenterTextIcon"
+    },
+    {
+        "id": 4,
+        "title": "User need",
+        "description": "A specific user need",
+        "type": "qualitative",
+        "relationships":{
+            "negative":{
+                "title": "Negative",
+                "icon": "HandThumbDownIcon",
+                "bgColor": "orange-400",
+                "textColor": "white"
+            },
+            "positive":{
+                "title": "Positive",
+                "icon": "HandThumbUpIcon",
+                "bgColor": "green-100",
+                "textColor": "green-800"
+            },
+        },
+        "icon": "ExclamationTriangleIcon"
+    },
+    {
+        "id": 5,
+        "title": "Solution fit",
+        "description": "Indication that a solution is a good fit",
+        "type": "qualitative",
+        "relationships":{
+            "negative":{
+                "title": "Negative",
+                "icon": "HandThumbDownIcon",
+                "bgColor": "orange-400",
+                "textColor": "white"
+            },
+            "positive":{
+                "title": "Positive",
+                "icon": "HandThumbUpIcon",
+                "bgColor": "green-100",
+                "textColor": "green-800"
+            },
+        },
+        "icon": "PuzzlePieceIcon"
+    },
+    {
+        "id": 6,
+        "title": "Survey",
+        "description": "Survey undertaken with target audience",
+        "parameters":{
+            "anonymous": {"type": "boolean", "title": "Anonymous", "description": "Survey conducted under anonymous conditions"},
+            "sample": {"type": "integer", "title": "Sample size", "description": "Size of audience"},
+            "geography": {"type": "countries", "title": "Geographies", "description": "Geogrpahies audience was sourced from"},
+        },
+        "icon": "UserGroupIcon",
+        "evidenceCategories": [1,2]
+    },
+    {
+        "id": 7,
+        "title": "User interviews",
+        "description": "Traget user interview campaign",
+        "parameters":{
+            "sample": {"type": "integer", "title": "Sample size", "description": "Number of planned interviews"},
+            "source": {"type": "text", "title": "Source", "description": "Where the interviewees will be sourced from"},
+        },
+        "metrics":{
+            "conversion": {"type": "integer", "title": "Conversion", "description": "Track conversion metrics"},
+            "count": {"type": "integer", "title": "Count", "description": "A count of interviews in a particular state"},
+        },
+        "icon": "UserGroupIcon",
+        "resultCategories": [
+            {"id" :0, 
+                "title": "Interview", 
+                "plurals": "Interviews", 
+                "resultCategoryId": 1, 
+                "relationships": {
+                    "identified": {"order":0, "title":"Identified", "color": "orange"}, 
+                    "contacted": {"order":1, "title":"Contacted", "color": "yellow"},  
+                    "scheduled": {"order":2, "title":"Scheduled", "color": "green"}, 
+                    "completed": {"order":3, "title":"Completed", "color": "cyan"}, 
+                },
+                "views": {
+                    "list":{
+                        "cards": ["contact","role","company"]
+                    },
+                    "default": "cards"
+                }},
+        ],
+        "evidenceCategories": [3,4,5]
+    },
+    {
+        "id": 8,
+        "title": "Internal artefact",
+        "description": "Internal artefact",
+        "parameters":{
+            "link": {"type": "link", "title": "Document", "decription": "Document"},
+            "audio": {"type": "link", "title": "Audio", "decription": "Audio recording"},
+            "video": {"type": "link", "title": "Video", "decription": "Video recording"},
+        },
+        "icon": "UserGroupIcon"
+    },
+    {
+        "id": 9,
+        "title": "User Interview",
+        "description": "Interview with member of target audience",
+        "parameters":{
+            "contact": {"type": "contact", "title": "Name", "description": "Name of interviewee"},
+            "role": {"type": "string", "title": "Role", "description": "Role of interviewee"},
+            "company": {"type": "string", "title": "Company", "description": "Company interviewee works at"},
+            "geography": {"type": "countries", "title": "Location", "description": "Location of interviewee"},
+            "interviewee": {"type": "user", "title": "Interviewee", "description": "Interviewer" },
+            "notes": {"type": "link", "title": "Notes", "decription": "Interview notes"},
+            "transcript": {"type": "link", "title": "Notes", "decription": "Transcript of interview"},
+            "audio": {"type": "link", "title": "Audio", "decription": "Audio recording of interview"},
+            "video": {"type": "link", "title": "Video", "decription": "Video recording of interview"},
+        },
+        "icon": "ChatBubbleBottomCenterTextIcon",
+    }
+]

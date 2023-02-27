@@ -55,7 +55,7 @@ export function RelationshipTable({relationships, ...props}){
                 <div 
                     key='title-p'
                     onClick={props.sortable ? ()=>sortByColumn(-1) : undefined}
-                    className={`${props.sortable && sortColumn === -1 ? "text-black" : "text-slate-400"} flex place-items-center col-start-1 row-start-1 border-b-[1px] border-gray-200 bg-white row-start-1 sticky top-0`}>
+                    className={`${props.sortable && sortColumn === -1 ? "text-black" : "text-slate-400"} flex z-10 place-items-center col-start-1 row-start-1 border-b-[1px] border-gray-200 bg-white row-start-1 sticky top-0`}>
                         {props.sortable && sortColumn === -1 && <ChevronDownIcon className={`w-3 h-3 ${reverseSort ? "rotate-180" : ""}`}/>}
                         {props.sortable ? 'Item' : ""}
                 </div>
@@ -65,7 +65,7 @@ export function RelationshipTable({relationships, ...props}){
                     key={`title-${idx}`}
                     onClick={props.sortable ? ()=>sortByColumn(idx ) : undefined}
                     style={{gridColumnStart: idx + 2}}
-                    className={`flex ${props.sortable && sortColumn === idx ? "text-black" : "text-slate-400"} font-medium place-items-center bg-white row-start-1 sticky top-0 z-2 text-sm justify-center px-2 py-px border-b-[1px] border-gray-200`}>
+                    className={`flex ${props.sortable && sortColumn === idx ? "text-black" : "text-slate-400"} z-10 font-medium place-items-center bg-white row-start-1 sticky top-0 z-2 text-sm justify-center px-2 py-px border-b-[1px] border-gray-200`}>
                         {props.sortable && sortColumn === idx && <ChevronDownIcon className={`w-3 h-3 ${reverseSort ? "rotate-180" : ""}`}/>}
                       {set.title}
                       {props.showCounts && 
@@ -95,7 +95,7 @@ export function RelationshipTable({relationships, ...props}){
                         >
                           {highlight && <div style={{height: 'calc(100% - 4px)'}} className={`border-ccgreen-600 border-2 pointer-events-none border-l-0 col-span-3 left-0 top-[2px] absolute w-full ${idx === max ? "rounded-r-xl" : "border-r-0 "}`}/>}
                           {idx === wrapped.relIdx && <HeroIcon icon={wrapped.set.icon} style={{gridColumnStart: wrapped.relIdx + 2}} className={`place-self-center mr-0.5 p-1 max-w-6 w-6 h-6 m-0.5 rounded-[4em] bg-${wrapped.set.bgColor} text-${wrapped.set.textColor}`}/>}
-                          {idx !== wrapped.relIdx && <div className={`max-w-2 w-2 h-2 rounded-[4em] bg-slate-200`}/>}
+                          {idx !== wrapped.relIdx && <div onClick={props.updateRelationship ? (e)=>{e.stopPropagation();props.updateRelationship(wrapped.item, set)} :undefined} className={props.updateRelationship ? "max-w-5 w-5 h-5 border-[7px] border-white rounded-[4em] bg-slate-200 hover:border-[4px] active:bg-slate-300" : "max-w-4 w-2 h-2 rounded-[4em] bg-slate-200"}/>}
                         </div>
 
                       ))}

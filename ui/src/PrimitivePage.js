@@ -20,8 +20,6 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';*/
 
 let mainstore = MainStore()
 
-let user = mainstore.user(1)
-
 const comments = [
   {
     id: 1,
@@ -69,7 +67,6 @@ export function PrimitivePage({primitive, ...props}) {
       }
     }
     useEffect(()=>{
-      console.log(`first close`)
       if( props.selectPrimitive ){
         props.selectPrimitive(null)
       }
@@ -180,12 +177,10 @@ export function PrimitivePage({primitive, ...props}) {
                             return m
                           }else{
                             const open = {
-                              scaleY: 2,
                               zIndex: 100
                             };
                             
                             const closed = {
-                              scaleY: 1,
                               transitionEnd: { zIndex: 0 }
                             };
                             const id = `m${metric.id}`
@@ -213,8 +208,8 @@ export function PrimitivePage({primitive, ...props}) {
                             {primitive.primitives.results[category.id].map((p,idx)=>{
                                 return (
                                     <motion.div 
-                                        key={p.id}
-                                        layoutId={p.id} onClick={() => setSelected(p)}
+                                        key={p.plainId}
+                                        layoutId={p.plainId} onClick={() => setSelected(p)}
                                     >
                                     <PrimitiveCard 
                                         key={p.id}
@@ -246,10 +241,10 @@ export function PrimitivePage({primitive, ...props}) {
                       {primitive.comments && 
                     <div className="px-4 py-6 sm:px-6">
                       <ul role="list" className="space-y-8">
-                        {primitive.comments?.map((comment) => {
+                        {primitive.comments?.map((comment,idx) => {
                           let user = mainstore.user( comment.userId)
                           return (
-                          <li key={comment.id}>
+                          <li key={idx}>
                             <div className="flex space-x-3">
                               <div className="flex-shrink-0">
                                 <img
@@ -284,7 +279,7 @@ export function PrimitivePage({primitive, ...props}) {
                   <div className="bg-gray-50 px-4 py-6 sm:px-6">
                     <div className="flex space-x-3">
                       <div className="flex-shrink-0">
-                        <img className="h-10 w-10 rounded-full" src={user.avatarUrl} alt="" referrerPolicy="no-referrer"/>            
+                        <img className="h-10 w-10 rounded-full" src={mainstore.activeUser.avatarUrl} alt="" referrerPolicy="no-referrer"/>            
                       </div>
                       <div className="min-w-0 flex-1">
                         <form action="#">

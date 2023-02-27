@@ -1,6 +1,6 @@
 import './App.css';
 import MainStore from './MainStore';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useParams } from "react-router-dom";
 import { ComponentView } from './ComponentView';
 import { Sidebar } from './Sidebar';
@@ -26,14 +26,21 @@ window.mainstore_tests = MainStoreTests
 
 const PrimitiveCardWrapper = (props) => {
   const { id } = useParams();
-  return <PrimitivePage primitive={mainstore.primitive(parseInt(id))} selectPrimitive={props.selectPrimitive} />;
+  return <PrimitivePage primitive={mainstore.primitiveByPlain(parseInt(id))} selectPrimitive={props.selectPrimitive} />;
 };
 
 function App() {
   
+  const [loaded, setLoaded] = React.useState(false)
   const [open, setOpen] = React.useState(false)
   const [overlay, setOverlay] = React.useState(false)
   const [primitive, setPrimitive] = React.useState(undefined)
+
+  useEffect(()=>{
+    mainstore.loadData().then(res => {
+      setLoaded(true)
+    })
+  }, [])
 
   const selectPrimitive = (primitive, overlay = false)=>{
     if( primitive === null){
@@ -47,6 +54,7 @@ function App() {
   }
 
   return (
+    !loaded ? <p>Loading</p> : 
     <div className = 'w-full mx-auto flex h-screen'>
       <BrowserRouter>
         <Routes>

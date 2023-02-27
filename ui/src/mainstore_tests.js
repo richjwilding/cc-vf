@@ -339,5 +339,54 @@ export default function MainStoreTests(){
         console.assert( arrayEquals(test.fromPath({4: "a"}), [4,5,6]))
         console.assert( test.map((d)=>d).length == 9)
     }
+    {
+        let data = {
+            id: 1,
+            primitives: {
+                null: [
+                    2,
+                    4,
+                    4,
+                    3,
+                    {
+                        a: [4,5,6],
+                        b:  [7,8]
+                    }
+                ],
+                test2: [
+                    9,
+                    10,
+                    {
+                        a: [11,5,6],
+                        b:  [12,8]
+                    }
+                ],
+                test3: {
+                    a: {
+                        b: [13,14],
+                        c: [15,4]
+                    },
+                    b: {
+                        b: [16,17],
+                        c: [18]
+                    }
+                }
+            }
+        }
+        let test = new Proxy(data.primitives, teststore.structure)
+        window.test_data = test
+        console.assert( arrayEquals(test.add( 99, {test2: "a"}).allIds, [11,5,6,99]))
+        console.assert( arrayEquals(test.uniqueAllIds, [2, 4, 3, 5, 6, 7, 8, 9, 10, 11, 99, 12, 13, 14, 15, 16, 17, 18]) )
+        console.assert( arrayEquals(test.add( 100, "test2").allIds, [9,10,11,5,6,99,12,8,100]))
+        console.assert( arrayEquals(test.uniqueAllIds,  [2, 4, 3, 5, 6, 7, 8, 9, 10, 11, 99, 12, 100, 13, 14, 15, 16, 17, 18]) )
+        console.assert( arrayEquals(test.add( 101).allIds, [2, 4, 4, 3, 4, 5, 6, 7, 8, 101, 9, 10, 11, 5, 6, 99, 12, 8, 100, 13, 14, 15, 4, 16, 17, 18]))
+        console.assert( arrayEquals(test.remove( 101).allIds, [2, 4, 4, 3, 4, 5, 6, 7, 8, 9, 10, 11, 5, 6, 99, 12, 8, 100, 13, 14, 15, 4, 16, 17, 18]))
+        console.assert( arrayEquals(test.add( 99, {test2: "a"}).allIds, [11,5,6,99,99]))
+        console.assert( arrayEquals(test.remove( 99, {test2: "a"}).allIds, [11,5,6]))
+
+        test.move( 5, {test2: "a"},{test2: "b"})
+        console.assert( arrayEquals(test.test2.a.allIds, [11,6]))
+        console.assert( arrayEquals(test.test2.b.allIds, [12,8,5]))
+    }
     console.log("Done")
 }

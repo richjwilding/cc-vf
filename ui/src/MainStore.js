@@ -1,3 +1,5 @@
+import PrimitiveParser from "./PrimitivesParser";
+
 let instance = undefined
 function MainStore (prims){
     if( !prims && instance ){
@@ -15,187 +17,6 @@ function MainStore (prims){
             default: {
                 "open": {title: "Open"},
                 "closed": {title: "Closed"},
-            }
-        },
-        structure:{
-            get(target, prop, receiver) {
-                if( prop === "includes" ){
-                    return function(){
-                        let value = arguments[0]
-                        const find = (v)=>{
-                            return Object.values(v).reduce((r, d)=>{
-                                if( d instanceof(Object) ){
-                                    return r || find(d) 
-                                }else{
-                                    return r || (d === value)
-                                }
-                            },false)
-                        }
-                        return find( target )
-                    }
-                }
-                if( prop === "paths" ){
-                    return function(){
-                        let id = arguments[0]
-                        const find = (v, path)=>{
-                            let out = []
-                            if( v instanceof(Array) ){
-                                if( v.includes( id )){
-                                    out.push( path )
-                                }
-                                v.filter((d)=>d instanceof(Object) ).forEach((d)=>{
-                                    out.push( Object.keys(d).map((k)=>{
-                                        return find( d[k], path + "." + k)
-                                    }))
-                                })
-                            }else{
-                                out.push( Object.keys(v).map((k)=>{
-                                    return find( v[k], path + "." + k)
-                                }))
-                            }
-                            out = out.flat(2).filter((d)=>d !== undefined)
-                            return out.length > 0 ? out : undefined
-                        }
-                        let result = find( target, "" )
-                        if( arguments.length == 2){
-                            let str = arguments[1] instanceof(Array) ? `.${arguments[1].join('.')}.` : arguments[1]
-                            let len = str.length
-                            result = result.filter((p)=>p.slice(0, len) === str)
-                        }
-                        if( result ){
-                            result = result.map((p)=>p.replace(/^\.null/,""))
-                        }
-                        return result
-                    }
-                }
-                if( prop === "relationships"){
-                    return function(){
-                        let path = receiver.paths(...arguments)
-                        return path?.map((p)=>p.split('.').slice(-1)[0])
-                    }
-                }
-                
-                if( prop === "all"){
-                    return target
-                }
-                if( prop === "ids" && target instanceof(Array)){
-                    return target.map((d)=>{
-                        if( d instanceof(Object)){
-                            return undefined
-                        }else{
-                            return d
-                        }}).filter((d)=>d)
-                }
-                if( prop === "uniqueIds" && target instanceof(Array)){
-                    return uniqueArray( receiver.ids )
-                }
-
-                if( prop === "allIds"){
-                    const flatten = (v)=>{
-                        return Object.values(v).map((d)=>{
-                            if( d instanceof(Object) ){
-                                return flatten(d) 
-                            }else{
-                                return d
-                            }
-                        }).flat()
-                    }
-                    return flatten( target )
-                }
-                if( prop === "uniqueAllIds"){
-                    return uniqueArray( receiver.allIds )
-                }
-                if( prop === "filter" || prop === "length" || prop === "map"){
-                    const base = receiver.allItems
-                    const value = base[prop];
-                    if (value instanceof Function) {
-                        return function (...args) {
-                            return value.apply(base, args);
-                        };
-                    }
-                }
-                if( Array.isArray(target) ){
-                    let out
-                    target.forEach((d)=>{
-                        if( d instanceof(Object) ){
-                            if( prop in d){
-                                out = d[prop]
-                            }
-                        }
-                    })
-                    if( out ){
-                        return new Proxy(out, obj.structure)
-                    }
-                    if( prop in target ){
-                        const value = target[prop];
-                        if (value instanceof Function) {
-                        return function (...args) {
-                            return value.apply(this === receiver ? target : this, args);
-                        };
-                        }
-                        return value;
-                    }
-                }
-                if( prop in target ){
-                    return new Proxy(target[prop], obj.structure)
-                }else {
-                    let s = prop.toString()
-                    if( s in target ){
-                        return new Proxy(target[s], obj.structure)
-                    }
-                }
-                // was here
-                if( prop === "items"){
-                    return receiver.ids.map((d)=>obj.primitive(d))
-                }
-                if( prop === "allItems"){
-                    return receiver.allIds.map((d)=>obj.primitive(d))
-                }
-                if( prop === "uniqueAllItems"){
-                    return receiver.uniqueAllIds.map((d)=>obj.primitive(d))
-                }
-                if( prop === "uniqueItems"){
-                    return receiver.uniqueIds.map((d)=>obj.primitive(d))
-                }
-                if( prop === "fromPath"){
-                    return function(){
-                        let path = arguments[0]
-                        let node = receiver                        
-
-                        while( path instanceof(Object) ){
-                            let step = Object.keys(path)[0]
-                            path = path[step]
-                            node = node[step]
-                            if( node === undefined){return undefined}
-                        }
-                        return node[path]
-
-                    }
-                }
-                if( obj.types.includes(prop)){
-                    return receiver.items.filter((p)=>p.type===prop)
-                }
-                if( prop.slice(0,6) === 'unique' ){
-                    let type = prop.slice(6).toLowerCase()
-                    if( obj.types.includes(type)){
-                        return receiver.uniqueItems.filter((p)=>p.type === type)
-                    }
-                }
-                if( prop.slice(0,9) === 'allUnique' ){
-                    let type = prop.slice(9).toLowerCase()
-                    if( obj.types.includes(type)){
-                        return receiver.uniqueAllItems.filter((p)=>p.type === type)
-                    }
-                }
-                if( prop.slice(0,3) === 'all' ){
-                    let type = prop.slice(3).toLowerCase()
-                    if( obj.types.includes(type)){
-                        return receiver.allItems.filter((p)=>p.type === type)
-                    }
-                }
-                if( target[null]){
-                    return new Proxy(target[null], obj.structure)[prop]
-                }
             }
         },
         metricResolver:{
@@ -393,37 +214,38 @@ function MainStore (prims){
         },
         primitives:function(){
             if( obj._cache_prim === undefined){
-                obj._cache_prim = (prims || primitive_temp).map((p)=>primitive_access(p,"primitive"))
+                obj._cache_prim = (prims || obj.data.primitives).map((p)=>primitive_access(p,"primitive"))
             }
             return obj._cache_prim
         },
-        primitive:function(id){
-            let data = obj.primitives().find((p)=>p.id === id)
+        primitiveByPlain:function(id){
+            let data = obj.primitives().find((p)=>p.plainId === id)
             return data
         },
-        get defaultRelationships(){
-            return defaultRelationships
+        primitive:function(id){
+            let data = obj.primitives().find((p)=>p.id === id)
+            if( !data ){
+                data = this.primitiveByPlain(id)
+                if( data ){
+                    console.warn(`Primitive lookup ${id} by plainId`)
+                }
+            }
+            return data
         },
-        resultsCategories:function(){
-            return result_category_temp
+        categories:function(){
+            return obj.data.categories
         },
-        evidenceCategory:function(id){
-            return obj.evidenceCategories().find((e)=>e.id === id)
-        },
-        evidenceCategories:function(){
-            return evidence_category_temp
-        },
-        taskCategories:function(){
-            return activity_category_temp
+        category:function(id){
+            return this.categories().find((d)=>d.id === id)
         },
         companies:function(){
-            return companies
+            return this.data.companies
         },
         company:function(id){
             return this.companies().find((d)=>d.id === id)
         },
         contacts:function(){
-            return contacts
+            return this.data.contacts
         },
         contact:function(id){
             return this.contacts().find((d)=>d.id === id)
@@ -432,34 +254,12 @@ function MainStore (prims){
             return this.users().find((d)=>d.id === id)
         },
         users:function(){
-            return [
-                {
-                    id:1,
-                    name: "Richard Wilding",
-                    email: "rich@co-created.com",
-                    avatarUrl: "https://lh3.googleusercontent.com/a/AEdFTp7yUic9UISOBWcL1e_jTTvbq8U-L3NaEhbvgRM=s96-c"
-                },
-                {
-                    "id": 2,
-                    "name": "Daniel Shani",
-                    "email": "daniel@co-created.com",
-                    "avatarUrl": "https://lh3.googleusercontent.com/a/ALm5wu2rpbVFXVTHad3xzDaj_E_2tMwAsb4E96sRns_U=s96-c",
-                },
-                {
-                    "id": 3,
-                    "name": "Jason Brooks",
-                    "email": "jason@co-created.com",
-                    "avatarUrl": "https://lh3.googleusercontent.com/a-/AOh14GjF28AU7uRRX9M51xz7qDyClXwm_Z6YgiuDU2f1",
-                },
-                {
-                    "id": 4,
-                    "name": "Ron J Williams",
-                    "email": "ron@co-created.com",
-                    "avatarUrl": "https://lh3.googleusercontent.com/a-/AFdZucqRIC8mcgq2A0xtWB2iXq4cTqM34G4V1UqoGIs5=s96-c",
-                }
-            ]
+            return this.data.users
         },
     }
+
+    obj.structure = PrimitiveParser(obj)
+
     if( !prims ){
         instance = obj
     }
@@ -473,14 +273,20 @@ function MainStore (prims){
         })
     }
     const primitive_access = (d, type)=>{
+        if( d._id){
+            d.id = d._id
+        }
         return new Proxy(d, {
             get(d, prop, receiver) {
                 if( prop === "primitives"){
                     return new Proxy( d.primitives || [], obj.structure )
                 }
-                if( prop === "id"){
-                    return d.id
+                if( prop === "plainId"){
+                    return d.plainId
                 }
+/*                if( prop === "id"){
+                    return d._id
+                }*/
                 if( prop === "master_type"){
                     return type
                 }
@@ -492,15 +298,7 @@ function MainStore (prims){
                 }
 
                 if( prop === "metadata"){
-                    if( receiver.isTask ){
-                        return obj.taskCategories().find((p)=>p.id === d.referenceId )
-                    }
-                    if( d.type === "evidence" ){
-                        return obj.evidenceCategories().find((p)=>p.id === d.referenceId )
-                    }
-                    if( d.type === "result" ){
-                        return obj.resultsCategories().find((p)=>p.id === d.referenceId )
-                    }
+                    return obj.categories().find((p)=>p.id === d.referenceId )
                 }
 
                 if( prop in obj.types){
@@ -514,8 +312,8 @@ function MainStore (prims){
                         })
                     }
                     if( prop === "users"){
-                        if( d.userIds === undefined){return []}
-                        let id_list = Object.values(d.userIds).flat()
+                        if( d.users === undefined){return []}
+                        let id_list = Object.values(d.users).flat()
                         return obj.users().filter((d)=>id_list.includes(d.id))
                     }
                     if( prop === "origin"){
@@ -602,157 +400,37 @@ function MainStore (prims){
             }
         })
     }    
+    obj.data = {}
+
+    obj.loadData = async function(){
+        return new Promise((resolve)=>{
+            const users = fetch('/api/users').then(response => response.json())
+            const companies = fetch('/api/companies').then(response => response.json())
+            const contacts = fetch('/api/contacts').then(response => response.json())
+            const categories = fetch('/api/categories').then(response => response.json())
+            const primitives = fetch('/api/primitives').then(response => response.json())
+            
+            Promise.all([users,companies,contacts,categories,primitives]).then(([users, companies,contacts, categories,primitives])=>{
+                obj.data.users = users
+                obj.data.companies = companies
+                obj.data.contacts = contacts
+                obj.data.categories = categories
+                obj.data.primitives = primitives
+
+                obj.activeUser = obj.data.users[0]
+                resolve(true)
+            })
+        })
+    }
+    
     return obj
 }
 
-const uniqueArray = (a)=>{
-    return a.filter((v,i)=>a.indexOf(v) === i)
-}
 
 
 export default MainStore
 
 
-
-
-const defaultRelationships = {
-            negative:{
-                title: "Negative",
-                icon: "HandThumbDownIcon",
-                bgColor: 'orange-400',
-                textColor: 'white'
-            },
-            positive:{
-                title: "Positive",
-                icon: "HandThumbUpIcon",
-                bgColor: 'green-100',
-                textColor: 'green-800'
-            },
-        }
-
-const evidence_category_temp = 
-[
-    {
-        id: 1,
-        title: 'NPS score',
-        description: "Measure of customer satisfaction",
-        type: 'quantitative',
-        relationships:defaultRelationships,
-        icon: 'FaceSmileIcon'
-    },
-    {
-        id: 2,
-        title: 'Survey analysis',
-        description: "Insights from a survey",
-        type: 'qualitative',
-        relationships:defaultRelationships,
-        icon: 'BeakerIcon'
-    },
-    {
-        id: 3,
-        title: 'User quote',
-        description: "Quote from a target user",
-        type: 'qualitative',
-        relationships:defaultRelationships,
-        icon: 'ChatBubbleBottomCenterTextIcon'
-    },
-    {
-        id: 4,
-        title: 'User need',
-        description: "A specific user need",
-        type: 'qualitative',
-        relationships:defaultRelationships,
-        icon: 'ExclamationTriangleIcon'
-    },
-    {
-        id: 5,
-        title: 'Solution fit',
-        description: "Indication that a solution is a good fit",
-        type: 'qualitative',
-        relationships:defaultRelationships,
-        icon: 'PuzzlePieceIcon'
-    }
-]
-const activity_category_temp = 
-[
-    {
-        id: 1,
-        title: 'Survey',
-        description: "Survey undertaken with target audience",
-        parameters:{
-            "anonymous": {type: "boolean", title: "Anonymous", description: "Survey conducted under anonymous conditions"},
-            "sample": {type: "integer", title: "Sample size", description: "Size of audience"},
-            "geography": {type: "countries", title: "Geographies", description: "Geogrpahies audience was sourced from"},
-        },
-        icon: 'UserGroupIcon',
-        evidenceCategories: [1,2]
-    },
-    {
-        id: 2,
-        title: 'User interviews',
-        description: "Traget user interview campaign",
-        parameters:{
-            "sample": {type: "integer", title: "Sample size", description: "Number of planned interviews"},
-            "source": {type: "text", title: "Source", description: "Where the interviewees will be sourced from"},
-        },
-        metrics:{
-            "conversion": {type: "integer", title: "Conversion", description: "Track conversion metrics"},
-            "count": {type: "integer", title: "Count", description: "A count of interviews in a particular state"},
-        },
-        icon: 'UserGroupIcon',
-        resultCategories: [
-            {id :0, 
-                title: "Interview", 
-                plurals: "Interviews", 
-                resultCategoryId: 1, 
-                relationships: {
-                    "identified": {order:0, title:"Identified", color: "orange"}, 
-                    "contacted": {order:1, title:"Contacted", color: "yellow"},  
-                    "scheduled": {order:2, title:"Scheduled", color: "green"}, 
-                    "completed": {order:3, title:"Completed", color: "cyan"}, 
-                },
-                views: {
-                    list:{
-                        'kaban': undefined,
-                        cards: ['contact','role','company']
-                    },
-                    default: 'cards'
-                }},
-        ],
-        evidenceCategories: [3,4,5]
-    }
-]
-const result_category_temp = 
-[
-    {
-        id: 0,
-        title: 'Internal artefact',
-        description: "Internal artefact",
-        parameters:{
-            "link": {type: "link", title: "Document", decription: "Document"},
-            "audio": {type: "link", title: "Audio", decription: "Audio recording"},
-            "video": {type: "link", title: "Video", decription: "Video recording"},
-        },
-        icon: 'UserGroupIcon'
-    },
-    {
-        id: 1,
-        title: 'User Interview',
-        description: "Interview with member of target audience",
-        parameters:{
-            "contact": {type: "contact", title: "Name", description: "Name of interviewee"},
-            "role": {type: "string", title: "Role", description: "Role of interviewee"},
-            "company": {type: "string", title: "Company", description: "Company interviewee works at"},
-            "geography": {type: "countries", title: "Location", description: "Location of interviewee"},
-            "interviewee": {type: "user", title: "Interviewee", description: "Interviewer" },
-            "notes": {type: "link", title: "Notes", decription: "Interview notes"},
-            "transcript": {type: "link", title: "Notes", decription: "Transcript of interview"},
-            "audio": {type: "link", title: "Audio", decription: "Audio recording of interview"},
-            "video": {type: "link", title: "Video", decription: "Video recording of interview"},
-        },
-        icon: 'ChatBubbleBottomCenterTextIcon',
-    },
-]
 
 const vf_temp = 
 [
@@ -1562,709 +1240,4 @@ const vf_temp =
         ]
     }
 ]
-let primitive_temp = [
-    {
-        "id": 4417,
-        "type": "hypothesis",
-        "title": "Financial wellbeing encompasses delaing with the past, managing todays finances and preparing for the future.  It is different to financial advice and is an unserved market",
-        "primitives": {
-            null: [4421],
-            levels: {
-                3891: {
-                    "negative": [4444],
-                    "positive": [4446,4448]
-                },
-                3892:{
-                    "positive": [4444],
-                }
-            }
-        }
-    },
-    {
-        "id": 4418,
-        "type": "hypothesis",
-        "title": "In order to prepare for the future, and to deal with the past, Co-workers first to need to have a solid foundation for today's financial needs",
-        "primitives": [
-            4421,
-            {}
-        ]
-    },
-    {
-        "id": 4421,
-        "type": "experiment",
-        "state": "closed",
-        "referenceId": 1,
-        "refereceParameters": {
-            "anonymous": true,
-            "sample": 250,
-            "geography": "USA",
-            "sourced": "3rd party"
-        },
-        "userIds": {
-            "owner": [
-                1
-            ],
-            "other": [
-                2,
-                3
-            ]
-        },
-        "title": "High level survey of 2000 people across 7 markets",
-        "primitives": [
-            4445,
-            {
-                "origin": [
-                    4444
-                ]
-            }
-        ]
-    },
-    {
-        "id": 4425,
-        "type": "hypothesis",
-        "title": "Low earners, gen-z and millenials working in retail have the strongest need",
-        "primitives": [
-            4421,
-            {}
-        ]
-    },
-    {
-        "id": 4430,
-        "type": "hypothesis",
-        "title": "Poor employee financial wellness costs enterprises big $$$ (lost productivity, employee retention issues, employee recruitment)",
-        "primitives": {
-            null: [4421],
-            levels: {
-                3891:{
-                    "positive": [4444],
-                }
-            }
-        }
-    },
-    {
-        "id": 4444,
-        "type": "evidence",
-        "title": "A significant portion of the respondents scored the proposed solution highly",
-        "referenceId": 1,
-        "refereceParameters": {
-            "value": 8.6
-        },
-        "primitives": [
-            {}
-        ]
-    },
-    {
-        "id": 4445,
-        "type": "result",
-        "title": "Survey analysis - US batch 4",
-        "referenceId": 0,
-        "refereceParameters": {
-            "link": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y"
-        },
-        "primitives": [
-            {
-                "origin": [
-                    4446
-                ]
-            }
-        ]
-    },
-    {
-        "id": 4446,
-        "type": "evidence",
-        "title": "Quicker access to earned wages is a top 3 priority",
-        "referenceId": 2,
-        "refereceParameters": {},
-        "primitives": [
-            {}
-        ]
-    },
-    {
-        "id": 4447,
-        "type": "result",
-        "title": "Discussion with ConEd",
-        "referenceId": 1,
-        "refereceParameters": {
-            "contact": "Eric Davis",
-            contactId: 0,
-            "company": "ConEd",
-            "notes": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y",
-            "interviewee": 1
-        },
-        "primitives": [
-            {
-                "origin": [
-                    4448, 4468,4469,4470
-                ]
-            }
-        ]
-    },
-    {
-        "id": 4448,
-        "type": "evidence",
-        "title": "A lot of people jump to feasibility and viability too quickly - we think you should start at desirability.",
-        "referenceId": 3,
-        "refereceParameters": {},
-        "primitives": [
-            {}
-        ]
-    },
-    {
-        "id": 4468,
-        "type": "evidence",
-        "title": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla eget est purus. Mauris ultrices, leo eu porta volutpat, ante risus varius neque, in posuere sapien justo ac sem.",
-        "referenceId": 4,
-        "refereceParameters": {},
-        "primitives": [
-            {}
-        ]
-    },
-    {
-        "id": 4469,
-        "type": "evidence",
-        "title": "Fusce sagittis placerat mi sed rhoncus.",
-        "referenceId": 4,
-        "refereceParameters": {},
-        "primitives": [
-            {}
-        ]
-    },
 
-    {
-        "id": 4470,
-        "type": "evidence",
-        "title": "Quisque in sem posuere, condimentum nulla ac, feugiat eros. Nam vel fermentum odio. Nam in odio sit amet purus placerat pretium sed a ipsum.",
-        "referenceId": 4,
-        "refereceParameters": {},
-        "primitives": [
-            {}
-        ]
-    },
-    {
-        "id": 4449,
-        "type": "experiment",
-        "state": "active",
-        "referenceId": 2,
-        "resources": [
-            {type: "google_drive", url: "https://docs.google.com/presentation/d/1-jUnT29d6qgdBMwtq4BONE-AZZzRH0RM7VAu9eDBTGk/edit#slide=id.g15a01a96490_0_419", title: "Co-Created - Value of a Venture Studio", document_tpye: "slides"},
-            {type: "google_drive", url: "https://docs.google.com/presentation/d/1LRFzQexjdwSML66bauNeGuQe5Sq77AsU_iZ4FyuwO3A/edit#slide=id.g12fbcd42ff2_0_1455", title: "Co-Created Venture Fundamentals", document_tpye: "slides"}
-        ],
-        "primitives": {
-            results:{
-                0: {
-                    contacted: [4462,4463],
-                    scheduled: [4471],
-                    completed: [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467]
-                }
-            },
-            origin: [4462,4463,4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467,4471],
-            evidence: {
-                positive: [4448]
-            },
-            metrics:{
-                1: {
-                    negative: [],
-                    positive: [4450,4451,4452,4454,4451,4466,4467],
-                },
-                2: [4455,4453,4455,4456,4466,4465,4460,4461,4465,4466],
-                3: [4450,4466,4467],
-                4: [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467,4471],
-                5: [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467],
-            }
-        },
-        "metrics":[
-            {id: 0, path: {results: 0}, title: "Progress through pipeline", type: "conversion", targets: [{relationship: "identified", value: 40},{relationship: "completed", value: 20}, {relationship: "contacted", value: 40},{relationship: "scheduled", value: 20}]},
-            {id: 4, path: {metrics: 4}, title: "Open to discussing", type: "count"},
-            {id: 5, path: {metrics: 5}, title: "Topic resonates", type: "count"},
-            {id: 1, path: {metrics: 1}, title: "Interested in a trial", type: "count", targets: [{relationship: "positive", value: 5}]},
-            {id: 2, path: {metrics: 2}, title: "Making an intro", type: "count"},
-            {id: 3, path: {metrics: 3}, title: "Asked for a proposal", type: "count"}
-        ],
-        "refereceParameters": {
-            "sample": "20",
-            "source": "Network"
-        },
-        "userIds": {
-            "owner": [
-                1
-            ],
-            "other": [
-                2,
-                4
-            ]
-        },
-        "title": "Test if VFs is a topic of interest to our network",
-        comments:[
-            {
-                userId: 1,
-                date: '2023-02-17T19:31:55.757Z',
-                body: "This is the first experiment with VFs, testing first with friendlies"
-            }
-        ]
-    },
-    {
-        "id": 4450,
-        "type": "result",
-        "title": "Discussion with Southerno Co",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Stacey Lusk",
-            "contactId": 1,
-            "company": "Southern Co",
-            "companyId": 1,
-            "notes": "https://docs.google.com/document/d/1mSUzM-upmrSIeGJO3SkzRTe31e-LytU9BJ0ETvvmcHA",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4451,
-        "type": "result",
-        "title": "Discussion with F-Secure",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Markku Makkonen",
-            "contactId": 2,
-            role:"New Business Development",
-            "company": "F-Secure",
-            "companyId": 2,
-            "notes": "https://docs.google.com/document/d/1r2dpufaNOvWI4WqmaG-YgIno_kFarfP9iJ7bBGYLlxc",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4452,
-        "type": "result",
-        "title": "Discussion with Wayra",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Susana",
-            "contactId": 3,
-            "company": "Wayra (builder)",
-            "companyId": 3,
-            "notes": "https://docs.google.com/document/d/1c83tAV50ATujd_Lff5gwe5Ot6m9qlmchR_Z2ALlAVdA",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4453,
-        "type": "result",
-        "title": "Discussion with Standard Chartered",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Premila",
-            "contactId": 4,
-            "company": "Standard Chartered Ventures",
-            "companyId": 4,
-            "notes": "https://docs.google.com/document/d/1Ed916f_SbGGKUK2zOiezNKzqysXbVWiANH8GvhwfXOg",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4454,
-        "type": "result",
-        "title": "Discussion with Admiral Pioneer",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Emma Huntington",
-            "contactId": 5,
-            "company": "Admiral Pioneer",
-            "companyId": 5,
-            "notes": "https://docs.google.com/document/d/1ds6Zx5B4w51JxTkqSwSvOPL3tr-0Fi_cPd_6WK5YF-k",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4455,
-        "type": "result",
-        "title": "Discussion with Snow Software",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Steve Tait",
-            "contactId": 6,
-            "company": "Snow Software",
-            "companyId": 6,
-            "notes": "https://docs.google.com/document/d/1A4jl1mHrOm4bpNiYChQgNrThjMOP7yIEZI4WxKiTpDc",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4456,
-        "type": "result",
-        "title": "Discussion with BOTW",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "John Finley",
-            "contactId": 7,
-            "company": "Bank of the West",
-            "companyId": 7,
-            "notes": "https://docs.google.com/document/d/1SqH4Gmdd3NEpvWwMoU9MuNEIglHATQacOJUBzNEx85M",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4457,
-        "type": "result",
-        "title": "Discussion with State Farm",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Dana Enger",
-            "contactId": 8,
-            "company": "State Farm",
-            "companyId": 8,
-            "notes": "https://docs.google.com/document/d/16Y8P9QN664OeSdOVP-GhvN5t9Xbs0Jaef2xwVTteQvg",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4458,
-        "type": "result",
-        "title": "Vanguard",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Mark",
-            "company": "Vanguard",
-            "notes": "https://docs.google.com/document/d/18tCOnxKBChH_fQv-J6mcL090ba48gjU2ALeU8WJTLrM",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4459,
-        "type": "result",
-        "title": "Discussion with RBS",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Jeremey Smith",
-            "contactId": 9,
-            "company": "RBS",
-            "companyId": 9,
-            "notes": "https://docs.google.com/document/d/1YpopfkuLPJFGBCWyXESgrWEbpiodBsrat0GKmdrENGA",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4460,
-        "type": "result",
-        "title": "Discussion with OSF Healthcare",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Brent",
-            "company": "OSF Healthcare",
-            "notes": "https://docs.google.com/document/d/17lSA_u3Bahk2SB80D6XOogV5Gbi_4xWDAlJggKOyAvM",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4461,
-        "type": "result",
-        "title": "Discussion with JPM",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "JOhn Mazzara",
-            "contactId": 11,
-            "company": "JP Morgan",
-            "notes": "https://docs.google.com/document/d/17lSA_u3Bahk2SB80D6XOogV5Gbi_4xWDAlJggKOyAvM",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4462,
-        "type": "result",
-        "title": "Discussion with GSK",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Nick Tate",
-            "company": "GSK",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4463,
-        "type": "result",
-        "title": "Discussion with BT",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Tom Guy",
-            "company": "BT",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4464,
-        "type": "result",
-        "title": "Discussion with Amex Ventures",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Andrew Lei",
-            "company": "AMEX",
-            notes: "https://docs.google.com/document/d/1Pd9Y7-kBUX8lfickIngmxMnTQIHr7jPcf8yZxQ65SoA",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4465,
-        "type": "result",
-        "title": "Discussion with Hyundai",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Guillaume",
-            "contactId": 15,
-            "company": "Hyundai",
-            notes: "https://docs.google.com/document/d/1eTVhHP0QCWFZXxGdCazr69wgnGNl-9m425l8hSLWvY4",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4466,
-        "type": "result",
-        "title": "Discussion with Cemex",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Juan",
-            "company": "Cemex",
-            notes: "https://docs.google.com/document/d/1N6oz_UNr74KC8cFD8JoHsa5vvqwi0SvMtRFTC66DQi0",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4467,
-        "type": "result",
-        "title": "Discussion with Crowley",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Sean Fortener",
-            "contactId": 16,
-            "company": "Crowley",
-            "interviewee": 1,
-        },
-    },
-    {
-        "id": 4471,
-        "type": "result",
-        "title": "Discussion with JPM",
-        referenceId: 1,
-        refereceParameters:{
-            "contact": "Sarit Amir",
-            "company": "JP Morgan",
-            "interviewee": 1,
-        },
-    }
-]
-
-const contacts = [
-    {
-        id: 0,
-        name: "Eric Davis",
-        profile: "https://www.linkedin.com/in/ericbdavis/",
-        avatarUrl: "https://media.licdn.com/dms/image/C5603AQGFiG9IuqnE6g/profile-displayphoto-shrink_200_200/0/1516871251799?e=1682553600&v=beta&t=tCNLMWTPl_83Nf_dVYl5OuYfoSsnCBI59mGzc3b0Xhw",
-        expertise: ["Innovation"],
-        domains: ["Mining", "Engineering", "Energy"]
-    },
-    {
-        id: 1,
-        name: "Stacey Lusk",
-        profile: "https://www.linkedin.com/in/stacey-lusk-a251624/",
-        avatarUrl: "https://media.licdn.com/dms/image/C4E03AQF1hdsHQYyNZA/profile-displayphoto-shrink_200_200/0/1517672808852?e=1682553600&v=beta&t=UM3EkH7d_4ArPbbpH2fYZCvx-kD255qC-pboxAOzx0Q",
-        expertise: ["Product", "Sales"]
-    },
-    {
-        "id": 2,
-        "name": "Markku Makkonen",
-        title:"New Business Development",
-        "profile": "https://www.linkedin.com/in/markkumakkonen/",
-        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQG01YxwMA84xQ/profile-displayphoto-shrink_200_200/0/1642673643192?e=1682553600&v=beta&t=TdCksLG-_QSPm5rr_n_o7oGbTEU0hG7BGCSMGJkLUW4",
-        "expertise": ["Product", "New Business"],
-        domains: ["Wireless", "Mobile"]
-    },
-    {
-        "id": 3,
-        "name": "Susana",
-        "profile": "https://www.linkedin.com/in/susana-jurado/",
-        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQHr1E7hqyuRnw/profile-displayphoto-shrink_200_200/0/1646214003279?e=1682553600&v=beta&t=fME3sf5n7bXS3pXcD2MsLJcD1QSfcfK3yLKj0wP680s",
-        "expertise": ["Innovation" ,"Strategy", "Venture"]
-    },
-    {
-        "id": 4,
-        "name": "Premila",
-        "profile": "https://www.linkedin.com/in/pstampe/",
-        "avatarUrl": "https://media.licdn.com/dms/image/D4E03AQFW81e_bfBW1Q/profile-displayphoto-shrink_200_200/0/1664362634237?e=1682553600&v=beta&t=M_7mjJpTgzVn4IKxr73NgtxAr0_LJPS0U8kRioKxMM0",
-        "expertise": ['Banking', 'Innovation']
-    },
-    {
-        "id": 5,
-        "name": "Emma Huntington",
-        "profile": "https://www.linkedin.com/in/emma-huntington-52a2591/",
-        "avatarUrl": "https://media.licdn.com/dms/image/C5103AQHaO0p48x5lEg/profile-displayphoto-shrink_200_200/0/1516242232350?e=1682553600&v=beta&t=eD4jwtGW5_0gUrU1sP-RFUTpAQfj3p-fzNd66QgSjRQ",
-        "expertise": ['Venture', 'Strategy'],
-        title: "CEO of Admiral Pioneer",
-        seniority: ["CEO", "MD", "CXO"]
-    },
-    {
-        "id": 6,
-        "name": "Steve Tait",
-        "profile": "https://www.linkedin.com/in/steve-tait-588a804/",
-        "avatarUrl": "https://media.licdn.com/dms/image/C4E03AQENmH8mg2BQtQ/profile-displayphoto-shrink_200_200/0/1634726504466?e=1682553600&v=beta&t=Q0zN2d6M5uuXuVC49qH4Nc__gvnj8X27gLdSVFgNliE",
-        seniority: ["CTO", "CXO"],
-        "expertise": ['Engineering Manager', 'CTO', 'Software']
-    },
-    {
-        "id": 7,
-        "name": "John Finley",
-        "profile": "https://www.linkedin.com/in/johnfinley/",
-        "avatarUrl": "https://media.licdn.com/dms/image/C4D03AQGe8x9sAfbZDQ/profile-displayphoto-shrink_200_200/0/1516258052680?e=1682553600&v=beta&t=moSKoSx_vbvGSuGVNVzUSXeSHIonHR94Ef-dcWQPGls",
-        seniority: ["Head of"],
-        "expertise": ['Product', 'Innovation'],
-        domains: ["Banking"]
-    },
-    {
-        "id": 8,
-        "name": "Dana Enger",
-        "profile": "https://www.linkedin.com/in/dana-enger-a17b4869/",
-        "avatarUrl": "https://media.licdn.com/dms/image/C5603AQEuDpZRrZk8Uw/profile-displayphoto-shrink_200_200/0/1517438571628?e=1682553600&v=beta&t=7Iudfk3-HfVn_4dRRFyI8ISGrBB5FtIKUCJqELPPEoc",
-        seniority: ["Manager"],
-        "expertise": ['Innovation']
-    },
-    {
-        "id": 9,
-        "name": "Jeremey Smith",
-        "profile": "https://www.linkedin.com/in/jeremy-e-smith/",
-        "avatarUrl": "https://media.licdn.com/dms/image/C5103AQGgsiIdCMm33Q/profile-displayphoto-shrink_200_200/0/1517024970577?e=1682553600&v=beta&t=tWSZsho5nsAcGY2gwi8if_1dErTi-CI4ofBz6eGhKZ4",
-        seniority: ["Head of"],
-        "expertise": ['Innovation'],
-        domains: ["Banking"]
-    },
-    {
-        "id": 11,
-        "name": "John Mazzara",
-        "profile": "https://www.linkedin.com/in/johndmazzara/",
-        "avatarUrl": "https://media.licdn.com/dms/image/D4D03AQG7kT2j9eSXWQ/profile-displayphoto-shrink_200_200/0/1675935532024?e=1682553600&v=beta&t=gYVgMrSLMBSahXrP3rOx6QVrYjEF2ThatOYOkdt3JyA",
-        "expertise": ['Banking', 'Coprporate Finance', 'Innovation']
-    },
-    {
-        "id": 15,
-        "name": "Guillaume Parvaix",
-        "profile": "https://www.linkedin.com/in/guillaumeparvaix/",
-        "avatarUrl": "https://media.licdn.com/dms/image/C5103AQGWblcmF12iVw/profile-displayphoto-shrink_200_200/0/1531397326673?e=1682553600&v=beta&t=eV-5EvZOewwjLT3YhigfAOe8G39Bu9uFTPtxwfPjuD8",
-        "expertise": ['Start-up collaboration', 'Innovation']
-    },
-    {
-        id: 16,
-        name: "Sean Fortener",
-        profile: "https://www.linkedin.com/in/sean-fortener-34444a95/",
-        avatarUrl: "https://media.licdn.com/dms/image/C4E03AQHZT6ykBZDCbw/profile-displayphoto-shrink_200_200/0/1533226802120?e=1682553600&v=beta&t=sr9g_ht0Of8xuA20rCpkMZXDZxYGJd7BgyXczrtwh-E",
-        expertise: ["Innovation", "Change Management"],
-        title: "Innovation & Change leader",
-        seniority: ["Head of"],
-        domains: ["Petroleum", "Chartering"]
-    },
-]
-
-const companies = [
-    {
-        id: 1,
-        name: "Southern Company",
-        logoUrl: "https://media.licdn.com/dms/image/C4D0BAQEgnEjF5Fdghw/company-logo_200_200/0/1534876925295?e=1684972800&v=beta&t=ZXAP5dSt10R9mJEgSp4NVGOZ9hlX0vhdYir76YztcIc",
-        employees: 29000,
-        turnover: {
-            amount: 23000000000,
-            currency: "USD"
-        },
-        sector: ["Energy"],
-        region: ["USA"]
-    },
-    {
-        id: 2,
-        name: "F-Secure",
-        logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/F-Secure_Logo.png/220px-F-Secure_Logo.png",
-        employees: 350,
-        turnover: {
-            amount: 111000000,
-            currency: "EURO"
-        },
-        sector: ["Cyber security"],
-        region: ["Global"]
-    },
-    {
-        id: 3,
-        name: "Telefonica",
-        logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Telef%C3%B3nica_2021_logo.svg/250px-Telef%C3%B3nica_2021_logo.svg.png",
-        employees: 105000,
-        turnover: {
-            amount: 39200000000,
-            currency: "EURO"
-        },
-        sector: ["Telco"],
-        region: ["Global"]
-    },
-    {
-        id: 4,
-        name: "Standard Chartered",
-        logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Standard_Chartered_%282021%29.svg/250px-Standard_Chartered_%282021%29.svg.png",
-        employees: 85000,
-        turnover: {
-            amount: 16000000000,
-            currency: "USD"
-        },
-        sector: ["Banking"],
-        region: ["Global"]
-    },
-    {
-        id: 5,
-        name: "Admiral Group",
-        logoUrl: "https://upload.wikimedia.org/wikipedia/en/3/3b/Admiral_Group_logo.png",
-        employees: 11000,
-        turnover: {
-            amount: 1550000000,
-            currency: "GBP"
-        },
-        sector: ["Insurance"],
-        region: ["UK"]
-    },
-    {
-        id: 6,
-        name: "Snow Software",
-        logoUrl: "https://www.snowsoftware.com/wp-content/themes/snow-software/dist/svg/snow-brand/snow-logo.svg",
-        employees: 800,
-        turnover: {
-            amount: 80000000,
-            currency: "GBP"
-        },
-        sector: ["Insurance"],
-        region: ["UK"]
-    },
-    {
-        id: 7,
-        name: "Bank of the West",
-        logoUrl: "https://upload.wikimedia.org/wikipedia/en/thumb/4/48/Bank_of_the_West_2017_Logo.jpg/250px-Bank_of_the_West_2017_Logo.jpg",
-        employees: 9200,
-        turnover: {
-            amount: 2750000000,
-            currency: "USD"
-        },
-        sector: ["Banking"],
-        region: ["USA"]
-    },
-    {
-        id: 8,
-        name: "State Farm",
-        logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/State_Farm_logo.svg/250px-State_Farm_logo.svg.png",
-        employees: 58000,
-        turnover: {
-            amount: 79000000000,
-            currency: "USD"
-        },
-        sector: ["Insurance"],
-        region: ["USA"]
-    },
-    {
-        id: 9,
-        name: "RBS",
-        logoUrl: "https://upload.wikimedia.org/wikipedia/en/thumb/e/ef/Royal_Bank_of_Scotland_logo.svg/220px-Royal_Bank_of_Scotland_logo.svg.png",
-        employees: 71000,
-        turnover: {
-            amount: 10000000000,
-            currency: "GBP"
-        },
-        sector: ["Banking"],
-        region: ["Global"]
-    },
-]

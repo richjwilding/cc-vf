@@ -1,0 +1,110 @@
+[
+    {
+        "id": 1,
+        "name": "Southern Company",
+        "logoUrl": "https://media.licdn.com/dms/image/C4D0BAQEgnEjF5Fdghw/company-logo_200_200/0/1534876925295?e=1684972800&v=beta&t=ZXAP5dSt10R9mJEgSp4NVGOZ9hlX0vhdYir76YztcIc",
+        "employees": 29000,
+        "turnover": {
+            "amount": 23000000000,
+            "currency": "USD"
+        },
+        "sector": ["Energy"],
+        "region": ["USA"]
+    },
+    {
+        "id": 2,
+        "name": "F-Secure",
+        "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/F-Secure_Logo.png/220px-F-Secure_Logo.png",
+        "employees": 350,
+        "turnover": {
+            "amount": 111000000,
+            "currency": "EURO"
+        },
+        "sector": ["Cyber security"],
+        "region": ["Global"]
+    },
+    {
+        "id": 3,
+        "name": "Telefonica",
+        "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Telef%C3%B3nica_2021_logo.svg/250px-Telef%C3%B3nica_2021_logo.svg.png",
+        "employees": 105000,
+        "turnover": {
+            "amount": 39200000000,
+            "currency": "EURO"
+        },
+        "sector": ["Telco"],
+        "region": ["Global"]
+    },
+    {
+        "id": 4,
+        "name": "Standard Chartered",
+        "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Standard_Chartered_%282021%29.svg/250px-Standard_Chartered_%282021%29.svg.png",
+        "employees": 85000,
+        "turnover": {
+            "amount": 16000000000,
+            "currency": "USD"
+        },
+        "sector": ["Banking"],
+        "region": ["Global"]
+    },
+    {
+        "id": 5,
+        "name": "Admiral Group",
+        "logoUrl": "https://upload.wikimedia.org/wikipedia/en/3/3b/Admiral_Group_logo.png",
+        "employees": 11000,
+        "turnover": {
+            "amount": 1550000000,
+            "currency": "GBP"
+        },
+        "sector": ["Insurance"],
+        "region": ["UK"]
+    },
+    {
+        "id": 6,
+        "name": "Snow Software",
+        "logoUrl": "https://www.snowsoftware.com/wp-content/themes/snow-software/dist/svg/snow-brand/snow-logo.svg",
+        "employees": 800,
+        "turnover": {
+            "amount": 80000000,
+            "currency": "GBP"
+        },
+        "sector": ["Insurance"],
+        "region": ["UK"]
+    },
+    {
+        "id": 7,
+        "name": "Bank of the West",
+        "logoUrl": "https://upload.wikimedia.org/wikipedia/en/thumb/4/48/Bank_of_the_West_2017_Logo.jpg/250px-Bank_of_the_West_2017_Logo.jpg",
+        "employees": 9200,
+        "turnover": {
+            "amount": 2750000000,
+            "currency": "USD"
+        },
+        "sector": ["Banking"],
+        "region": ["USA"]
+    },
+    {
+        "id": 8,
+        "name": "State Farm",
+        "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/State_Farm_logo.svg/250px-State_Farm_logo.svg.png",
+        "employees": 58000,
+        "turnover": {
+            "amount": 79000000000,
+            "currency": "USD"
+        },
+        "sector": ["Insurance"],
+        "region": ["USA"]
+    },
+    {
+        "id": 9,
+        "name": "RBS",
+        "logoUrl": "https://upload.wikimedia.org/wikipedia/en/thumb/e/ef/Royal_Bank_of_Scotland_logo.svg/220px-Royal_Bank_of_Scotland_logo.svg.png",
+        "employees": 71000,
+        "turnover": {
+            "amount": 10000000000,
+            "currency": "GBP"
+        },
+        "sector": ["Banking"],
+        "region": ["Global"]
+    }
+]

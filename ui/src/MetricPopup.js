@@ -6,15 +6,14 @@ import {
   XMarkIcon
 } from '@heroicons/react/20/solid'
 import { RelationshipTable } from "./RelationshipTable";
+import React from 'react';
 import MainStore from "./MainStore";
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
-
-export function MetricPopup({contextOf, selected, setSelected, ...props}){
-    const Overlay = ({ isSelected }) => {
+    const Overlay = ({ isSelected, setSelected }) => {
         return (<motion.div
             initial={{opacity: 0}}
             animate={{ opacity: 1}}
@@ -24,6 +23,9 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
         >
         </motion.div>)
     };
+
+export function MetricPopup({contextOf, selected, setSelected, ...props}){
+    const [forceUpdate, setForceUpdate] =  React.useState(0)
     if( !selected ){return <></>}
     let id = `m${selected}`
 
@@ -62,11 +64,32 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
         },
     ]
 
+
+    const updateRelationship = (target, set)=>{
+        let anchor = contextOf.primitives 
+        let path = metric.path
+        let targetList = contextOf.primitives.fromPath(path)
+
+        if( ! (targetList instanceof Array) ){
+            let k = 'positive' //Object.keys(targetList)[0]
+            anchor = targetList[k]
+            path = undefined
+        }
+
+        const oldRelationship = targetList.includes( target.id )
+        if( oldRelationship ){
+            anchor.remove( target.id, path ) 
+        }else{
+            anchor.add( target.id, path ) 
+        }
+        setForceUpdate(forceUpdate + 1)
+    }
+
     return (
         <AnimatePresence>
             {selected && 
             <>
-            <Overlay key='overlay' isSelected={selected}/>
+            <Overlay key='overlay' isSelected={selected} setSelected={setSelected}/>
             <motion.div 
                 key='frame' 
                 layoutId={id} 
@@ -74,7 +97,7 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
                 >
                 <div className='p-4 bg-white rounded-2xl shadow-xl w-full '>
                     <button className="flex ml-auto text-gray-400 hover:text-gray-500" onClick={() => setSelected(null)} ><XMarkIcon className="h-6 w-6" aria-hidden="true" /></button>
-                    <RelationshipTable highlight={props.highlight} sortable={true} major={true} title={metric.title} fields={fields} inline={true} relationships={relationships} showCounts={true} maxHeightClass='max-h-[50vh]'/>
+                    <RelationshipTable count={forceUpdate} updateRelationship={updateRelationship} highlight={props.highlight} sortable={true} major={true} title={metric.title} fields={fields} inline={true} relationships={relationships} showCounts={true} maxHeightClass='max-h-[50vh]'/>
                     <div className="flex flex-shrink-0 justify-end pt-4 border-t border-gray-200 mt-1">
                         <button
                             type="button"

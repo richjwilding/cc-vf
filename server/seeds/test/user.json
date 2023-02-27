@@ -1,0 +1,26 @@
+[
+    {
+        "id":1,
+        "name": "Richard Wilding",
+        "email": "rich@co-created.com",
+        "avatarUrl": "https://lh3.googleusercontent.com/a/AEdFTp7yUic9UISOBWcL1e_jTTvbq8U-L3NaEhbvgRM=s96-c"
+    },
+    {
+        "id": 2,
+        "name": "Daniel Shani",
+        "email": "daniel@co-created.com",
+        "avatarUrl": "https://lh3.googleusercontent.com/a/ALm5wu2rpbVFXVTHad3xzDaj_E_2tMwAsb4E96sRns_U=s96-c",
+    },
+    {
+        "id": 3,
+        "name": "Jason Brooks",
+        "email": "jason@co-created.com",
+        "avatarUrl": "https://lh3.googleusercontent.com/a-/AOh14GjF28AU7uRRX9M51xz7qDyClXwm_Z6YgiuDU2f1",
+    },
+    {
+        "id": 4,
+        "name": "Ron J Williams",
+        "email": "ron@co-created.com",
+        "avatarUrl": "https://lh3.googleusercontent.com/a-/AFdZucqRIC8mcgq2A0xtWB2iXq4cTqM34G4V1UqoGIs5=s96-c",
+    }
+]

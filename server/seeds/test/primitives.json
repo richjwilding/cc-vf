@@ -1,0 +1,487 @@
+[
+    {        
+        "plainId": 4417,
+        "type": "hypothesis",
+        "title": "Financial wellbeing encompasses delaing with the past, managing todays finances and preparing for the future.  It is different to financial advice and is an unserved market",
+        "primitives": {
+            "null": [4421],
+            "levels": {
+                "3891": {
+                    "negative": [4444],
+                    "positive": [4446,4448]
+                },
+                "3892":{
+                    "positive": [4444]
+                }
+            }
+        }
+    },
+    {
+        "plainId": 4418,
+        "type": "hypothesis",
+        "title": "In order to prepare for the future, and to deal with the past, Co-workers first to need to have a solid foundation for today's financial needs",
+        "primitives": [
+            4421,
+            {}
+        ]
+    },
+    {
+        "plainId": 4421,
+        "type": "experiment",
+        "state": "closed",
+        "referenceId": 6,
+        "refereceParameters": {
+            "anonymous": true,
+            "sample": 250,
+            "geography": "USA",
+            "sourced": "3rd party"
+        },
+        "userIds": {
+            "owner": [
+                1
+            ],
+            "other": [
+                2,
+                3
+            ]
+        },
+        "title": "High level survey of 2000 people across 7 markets",
+        "primitives": [
+            4445,
+            {
+                "origin": [
+                    4444
+                ]
+            }
+        ]
+    },
+    {
+        "plainId": 4425,
+        "type": "hypothesis",
+        "title": "Low earners, gen-z and millenials working in retail have the strongest need",
+        "primitives": [
+            4421,
+            {}
+        ]
+    },
+    {
+        "plainId": 4430,
+        "type": "hypothesis",
+        "title": "Poor employee financial wellness costs enterprises big $$$ (lost productivity, employee retention issues, employee recruitment)",
+        "primitives": {
+            "null": [4421],
+            "levels": {
+                "3891":{
+                    "positive": [4444],
+                }
+            }
+        }
+    },
+    {
+        "plainId": 4444,
+        "type": "evidence",
+        "title": "A significant portion of the respondents scored the proposed solution highly",
+        "referenceId": 1,
+        "refereceParameters": {
+            "value": 8.6
+        },
+        "primitives": [
+            {}
+        ]
+    },
+    {
+        "plainId": 4445,
+        "type": "result",
+        "title": "Survey analysis - US batch 4",
+        "referenceId": 8,
+        "refereceParameters": {
+            "link": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y"
+        },
+        "primitives": [
+            {
+                "origin": [
+                    4446
+                ]
+            }
+        ]
+    },
+    {
+        "plainId": 4446,
+        "type": "evidence",
+        "title": "Quicker access to earned wages is a top 3 priority",
+        "referenceId": 2,
+        "refereceParameters": {},
+        "primitives": [
+            {}
+        ]
+    },
+    {
+        "plainId": 4447,
+        "type": "result",
+        "title": "Discussion with ConEd",
+        "referenceId": 9,
+        "refereceParameters": {
+            "contact": "Eric Davis",
+            "contactId": 0,
+            "company": "ConEd",
+            "notes": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y",
+            "interviewee": 1
+        },
+        "primitives": [
+            {
+                "origin": [
+                    4448, 4468,4469,4470
+                ]
+            }
+        ]
+    },
+    {
+        "plainId": 4448,
+        "type": "evidence",
+        "title": "A lot of people jump to feasibility and viability too quickly - we think you should start at desirability.",
+        "referenceId": 3,
+        "refereceParameters": {},
+        "primitives": [
+            {}
+        ]
+    },
+    {
+        "plainId": 4468,
+        "type": "evidence",
+        "title": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla eget est purus. Mauris ultrices, leo eu porta volutpat, ante risus varius neque, in posuere sapien justo ac sem.",
+        "referenceId": 4,
+        "refereceParameters": {},
+        "primitives": [
+            {}
+        ]
+    },
+    {
+        "plainId": 4469,
+        "type": "evidence",
+        "title": "Fusce sagittis placerat mi sed rhoncus.",
+        "referenceId": 4,
+        "refereceParameters": {},
+        "primitives": [
+            {}
+        ]
+    },
+
+    {
+        "plainId": 4470,
+        "type": "evidence",
+        "title": "Quisque in sem posuere, condimentum nulla ac, feugiat eros. Nam vel fermentum odio. Nam in odio sit amet purus placerat pretium sed a ipsum.",
+        "referenceId": 4,
+        "refereceParameters": {},
+        "primitives": [
+            {}
+        ]
+    },
+    {
+        "plainId": 4449,
+        "type": "experiment",
+        "state": "active",
+        "referenceId": 7,
+        "resources": [
+            {"type": "google_drive", "url": "https://docs.google.com/presentation/d/1-jUnT29d6qgdBMwtq4BONE-AZZzRH0RM7VAu9eDBTGk/edit#slide=id.g15a01a96490_0_419", "title": "Co-Created - Value of a Venture Studio", "document_tpye": "slides"},
+            {"type": "google_drive", "url": "https://docs.google.com/presentation/d/1LRFzQexjdwSML66bauNeGuQe5Sq77AsU_iZ4FyuwO3A/edit#slide=id.g12fbcd42ff2_0_1455", "title": "Co-Created Venture Fundamentals", "document_tpye": "slides"}
+        ],
+        "primitives": {
+            "results":{
+                "0": {
+                    "contacted": [4462,4463],
+                    "scheduled": [4471],
+                    "completed": [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467]
+                }
+            },
+            "origin": [4462,4463,4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467,4471],
+            "evidence": {
+                "positive": [4448]
+            },
+            "metrics":{
+                "1": {
+                    "negative": [],
+                    "positive": [4450,4451,4452,4454,4451,4466,4467],
+                },
+                "2": [4455,4453,4455,4456,4466,4465,4460,4461,4465,4466],
+                "3": [4450,4466,4467],
+                "4": [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467,4471],
+                "5": [4447,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459,4460,4461,4464,4465,4466,4467],
+            }
+        },
+        "metrics":[
+            {"plainId": 0, "path": {"results": 0}, "title": "Progress through pipeline", "type": "conversion", "targets": [{"relationship": "identified", "value": "40"},{"relationship": "completed", "value": 20}, {"relationship": "contacted", "value": "40"},{"relationship": "scheduled", "value": 20}]},
+            {"plainId": 4, "path": {"metrics": 4}, "title": "Open to discussing", "type": "count"},
+            {"plainId": 5, "path": {"metrics": 5}, "title": "Topic resonates", "type": "count"},
+            {"plainId": 1, "path": {"metrics": 1}, "title": "Interested in a trial", "type": "count", "targets": [{"relationship": "positive", "value": 5}]},
+            {"plainId": 2, "path": {"metrics": 2}, "title": "Making an intro", "type": "count"},
+            {"plainId": 3, "path": {"metrics": 3}, "title": "Asked for a proposal", "type": "count"}
+        ],
+        "refereceParameters": {
+            "sample": "20",
+            "source": "Network"
+        },
+        "users": {
+            "owner": [
+                1
+            ],
+            "other": [
+                2,
+                4
+            ]
+        },
+        "title": "Test if VFs is a topic of interest to our network",
+        "comments":[
+            {
+                "userId": 1,
+                "date": "2023-02-17T19:31:55.757Z",
+                "body": "This is the first experiment with VFs, testing first with friendlies"
+            }
+        ]
+    },
+    {
+        "plainId": 4450,
+        "type": "result",
+        "title": "Discussion with Southerno Co",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Stacey Lusk",
+            "contactId": 1,
+            "company": "Southern Co",
+            "companyId": 1,
+            "notes": "https://docs.google.com/document/d/1mSUzM-upmrSIeGJO3SkzRTe31e-LytU9BJ0ETvvmcHA",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4451,
+        "type": "result",
+        "title": "Discussion with F-Secure",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Markku Makkonen",
+            "contactId": 2,
+            "role":"New Business Development",
+            "company": "F-Secure",
+            "companyId": 2,
+            "notes": "https://docs.google.com/document/d/1r2dpufaNOvWI4WqmaG-YgIno_kFarfP9iJ7bBGYLlxc",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4452,
+        "type": "result",
+        "title": "Discussion with Wayra",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Susana",
+            "contactId": 3,
+            "company": "Wayra (builder)",
+            "companyId": 3,
+            "notes": "https://docs.google.com/document/d/1c83tAV50ATujd_Lff5gwe5Ot6m9qlmchR_Z2ALlAVdA",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4453,
+        "type": "result",
+        "title": "Discussion with Standard Chartered",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Premila",
+            "contactId": 4,
+            "company": "Standard Chartered Ventures",
+            "companyId": 4,
+            "notes": "https://docs.google.com/document/d/1Ed916f_SbGGKUK2zOiezNKzqysXbVWiANH8GvhwfXOg",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4454,
+        "type": "result",
+        "title": "Discussion with Admiral Pioneer",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Emma Huntington",
+            "contactId": 5,
+            "company": "Admiral Pioneer",
+            "companyId": 5,
+            "notes": "https://docs.google.com/document/d/1ds6Zx5B4w51JxTkqSwSvOPL3tr-0Fi_cPd_6WK5YF-k",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4455,
+        "type": "result",
+        "title": "Discussion with Snow Software",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Steve Tait",
+            "contactId": 6,
+            "company": "Snow Software",
+            "companyId": 6,
+            "notes": "https://docs.google.com/document/d/1A4jl1mHrOm4bpNiYChQgNrThjMOP7yIEZI4WxKiTpDc",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4456,
+        "type": "result",
+        "title": "Discussion with BOTW",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "John Finley",
+            "contactId": 7,
+            "company": "Bank of the West",
+            "companyId": 7,
+            "notes": "https://docs.google.com/document/d/1SqH4Gmdd3NEpvWwMoU9MuNEIglHATQacOJUBzNEx85M",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4457,
+        "type": "result",
+        "title": "Discussion with State Farm",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Dana Enger",
+            "contactId": 8,
+            "company": "State Farm",
+            "companyId": 8,
+            "notes": "https://docs.google.com/document/d/16Y8P9QN664OeSdOVP-GhvN5t9Xbs0Jaef2xwVTteQvg",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4458,
+        "type": "result",
+        "title": "Vanguard",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Mark",
+            "company": "Vanguard",
+            "notes": "https://docs.google.com/document/d/18tCOnxKBChH_fQv-J6mcL090ba48gjU2ALeU8WJTLrM",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4459,
+        "type": "result",
+        "title": "Discussion with RBS",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Jeremey Smith",
+            "contactId": 9,
+            "company": "RBS",
+            "companyId": 9,
+            "notes": "https://docs.google.com/document/d/1YpopfkuLPJFGBCWyXESgrWEbpiodBsrat0GKmdrENGA",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4460,
+        "type": "result",
+        "title": "Discussion with OSF Healthcare",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Brent",
+            "company": "OSF Healthcare",
+            "notes": "https://docs.google.com/document/d/17lSA_u3Bahk2SB80D6XOogV5Gbi_4xWDAlJggKOyAvM",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4461,
+        "type": "result",
+        "title": "Discussion with JPM",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "JOhn Mazzara",
+            "contactId": 11,
+            "company": "JP Morgan",
+            "notes": "https://docs.google.com/document/d/17lSA_u3Bahk2SB80D6XOogV5Gbi_4xWDAlJggKOyAvM",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4462,
+        "type": "result",
+        "title": "Discussion with GSK",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Nick Tate",
+            "company": "GSK",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4463,
+        "type": "result",
+        "title": "Discussion with BT",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Tom Guy",
+            "company": "BT",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4464,
+        "type": "result",
+        "title": "Discussion with Amex Ventures",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Andrew Lei",
+            "company": "AMEX",
+            "notes": "https://docs.google.com/document/d/1Pd9Y7-kBUX8lfickIngmxMnTQIHr7jPcf8yZxQ65SoA",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4465,
+        "type": "result",
+        "title": "Discussion with Hyundai",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Guillaume",
+            "contactId": 15,
+            "company": "Hyundai",
+            "notes": "https://docs.google.com/document/d/1eTVhHP0QCWFZXxGdCazr69wgnGNl-9m425l8hSLWvY4",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4466,
+        "type": "result",
+        "title": "Discussion with Cemex",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Juan",
+            "company": "Cemex",
+            "notes": "https://docs.google.com/document/d/1N6oz_UNr74KC8cFD8JoHsa5vvqwi0SvMtRFTC66DQi0",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4467,
+        "type": "result",
+        "title": "Discussion with Crowley",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Sean Fortener",
+            "contactId": 16,
+            "company": "Crowley",
+            "interviewee": 1
+        }
+    },
+    {
+        "plainId": 4471,
+        "type": "result",
+        "title": "Discussion with JPM",
+        "referenceId": 9,
+        "refereceParameters":{
+            "contact": "Sarit Amir",
+            "company": "JP Morgan",
+            "interviewee": 1
+        }
+    }
+]
