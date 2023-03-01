@@ -15,8 +15,8 @@ export function EvidenceCard({evidence, ...props}) {
   let value = undefined
 
 
-  if( config.type === "quantitative" && evidence.refereceParameters ){
-    value = evidence.refereceParameters.value
+  if( config.type === "quantitative" && evidence.referenceParameters ){
+    value = evidence.referenceParameters.value
   }
   if(props.sentiment === "positive"){
     icon = "HandThumbUpIcon"      

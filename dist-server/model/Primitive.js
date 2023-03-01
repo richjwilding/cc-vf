@@ -15,7 +15,7 @@ var primitiveSchema = new Schema({
   "resources": Schema.Types.Mixed,
   "primitives": Schema.Types.Mixed,
   "metrics": Schema.Types.Mixed,
-  "refereceParameters": Schema.Types.Mixed,
+  "referenceParameters": Schema.Types.Mixed,
   "users": Schema.Types.Mixed,
   "title": String,
   comments: [{

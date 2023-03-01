@@ -302,7 +302,8 @@ export function MetricCard({primitive, metric, ...props}) {
       const newSlot = findContainer(over.id)
 
       if( oldSlot !== newSlot ){
-        primitive.primitives.move( activeDrag.id, {results: {[metric.id]:oldSlot}}, {results: {[metric.id]:newSlot}})
+        //primitive.primitives.move( activeDrag.id, {results: {[metric.id]:oldSlot}}, {results: {[metric.id]:newSlot}})
+        primitive.moveRelationship( activeDrag, {results: {[metric.id]:oldSlot}}, {results: {[metric.id]:newSlot}})
       }
     }
     

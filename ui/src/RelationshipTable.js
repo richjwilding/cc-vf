@@ -1,6 +1,7 @@
 import { HeroIcon, SolidHeroIcon } from './HeroIcon';
 import { PrimitiveCard } from './PrimitiveCard'
 import { Transition } from '@headlessui/react'
+import { motion } from 'framer-motion';
 import React from 'react';
 import {
   ChevronDownIcon,
@@ -17,8 +18,8 @@ export function RelationshipTable({relationships, ...props}){
             if( sortColumn == -1){
                 if(props.fields)
                 {
-                    let va = a.item.refereceParameters[props.fields[0]]
-                    let vb = b.item.refereceParameters[props.fields[0]]
+                    let va = a.item.referenceParameters[props.fields[0]]
+                    let vb = b.item.referenceParameters[props.fields[0]]
                     if( va && vb ){
                         return va.localeCompare(vb)
                     }
@@ -49,8 +50,9 @@ export function RelationshipTable({relationships, ...props}){
             <div 
                 key='grid'
                 id='grid'
-                className={`grid ${scroll} ${props.major ? "mt-6 mx-2" : ""}`}
-                style={{gridTemplateColumns: `100% repeat(${relationships.length},minmax(min-content, '1fr') mt-2`}}
+                className={`grid ${scroll} ${props.major ? "mt-6 mx-2" : "mt-2"}`}
+                style={{gridTemplateColumns: `fit-content(80%) repeat(2, 1fr)`}}
+                //style={{gridTemplateColumns: `100% repeat(${relationships.length},minmax(min-content, '1fr') mt-2`}}
               >
                 <div 
                     key='title-p'
@@ -93,9 +95,14 @@ export function RelationshipTable({relationships, ...props}){
                           className='place-items-center justify-center flex w-full h-full border-b-[1px] border-gray-200 relative'
                           style={{gridColumnStart: idx + 2}}
                         >
-                          {highlight && <div style={{height: 'calc(100% - 4px)'}} className={`border-ccgreen-600 border-2 pointer-events-none border-l-0 col-span-3 left-0 top-[2px] absolute w-full ${idx === max ? "rounded-r-xl" : "border-r-0 "}`}/>}
-                          {idx === wrapped.relIdx && <HeroIcon icon={wrapped.set.icon} style={{gridColumnStart: wrapped.relIdx + 2}} className={`place-self-center mr-0.5 p-1 max-w-6 w-6 h-6 m-0.5 rounded-[4em] bg-${wrapped.set.bgColor} text-${wrapped.set.textColor}`}/>}
-                          {idx !== wrapped.relIdx && <div onClick={props.updateRelationship ? (e)=>{e.stopPropagation();props.updateRelationship(wrapped.item, set)} :undefined} className={props.updateRelationship ? "max-w-5 w-5 h-5 border-[7px] border-white rounded-[4em] bg-slate-200 hover:border-[4px] active:bg-slate-300" : "max-w-4 w-2 h-2 rounded-[4em] bg-slate-200"}/>}
+                            {highlight && <div style={{height: 'calc(100% - 4px)'}} className={`border-ccgreen-600 border-2 pointer-events-none border-l-0 col-span-3 left-0 top-[2px] absolute w-full ${idx === max ? "rounded-r-xl" : "border-r-0 "}`}/>}
+                          <div 
+                            onClick={props.updateRelationship ? (e)=>{e.stopPropagation();props.updateRelationship(wrapped.item, set)} :undefined} 
+                            className='min-w-[1.25em] min-h-[1.25em] relative  p-1 group flex place-items-center justify-center'
+                            >
+                            {idx === wrapped.relIdx && <HeroIcon icon={wrapped.set.icon} style={{gridColumnStart: wrapped.relIdx + 2}} className={`z-20 place-self-center mr-0.5 p-1 max-w-6 w-6 h-6 m-0.5 rounded-[4em] text-${wrapped.set.textColor} bg-${wrapped.set.bgColor}`}/>}
+                            {idx !== wrapped.relIdx && <div className={props.updateRelationship ? "z-20 max-w-3 w-3 h-3 border-[0.2rem] border-white rounded-[4em] bg-slate-200 group-hover:border-[0.1rem] active:bg-slate-300" : "z-20 max-w-4 w-2 h-2 rounded-[4em] bg-slate-200"}/>}
+                          </div>
                         </div>
 
                       ))}

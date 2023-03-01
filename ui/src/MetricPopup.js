@@ -26,6 +26,7 @@ function classNames(...classes) {
 
 export function MetricPopup({contextOf, selected, setSelected, ...props}){
     const [forceUpdate, setForceUpdate] =  React.useState(0)
+    const [showHighlights, setShowHighlights] =  React.useState(true)
     if( !selected ){return <></>}
     let id = `m${selected}`
 
@@ -49,39 +50,25 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
         {
             key: "not_present",
             title: "Negative",
-            icon: "HandThumbDownIcon",
-            bgColor: 'orange-400',
-            textColor: 'white',
+            icon: "XMarkIcon",
+            bgColor: 'amber-100',
+            textColor: 'amber-600',
             items: missing_list
         },
         {
             key: "present",
             title: "Positive",
-            icon: "HandThumbUpIcon",
+            icon: "CheckIcon",
             bgColor: 'green-100',
-            textColor: 'green-800',
+            textColor: 'green-500',
             items: metric_list
         },
     ]
 
 
     const updateRelationship = (target, set)=>{
-        let anchor = contextOf.primitives 
-        let path = metric.path
-        let targetList = contextOf.primitives.fromPath(path)
+        contextOf.toggleRelationship(target,metric)
 
-        if( ! (targetList instanceof Array) ){
-            let k = 'positive' //Object.keys(targetList)[0]
-            anchor = targetList[k]
-            path = undefined
-        }
-
-        const oldRelationship = targetList.includes( target.id )
-        if( oldRelationship ){
-            anchor.remove( target.id, path ) 
-        }else{
-            anchor.add( target.id, path ) 
-        }
         setForceUpdate(forceUpdate + 1)
     }
 
@@ -97,7 +84,7 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
                 >
                 <div className='p-4 bg-white rounded-2xl shadow-xl w-full '>
                     <button className="flex ml-auto text-gray-400 hover:text-gray-500" onClick={() => setSelected(null)} ><XMarkIcon className="h-6 w-6" aria-hidden="true" /></button>
-                    <RelationshipTable count={forceUpdate} updateRelationship={updateRelationship} highlight={props.highlight} sortable={true} major={true} title={metric.title} fields={fields} inline={true} relationships={relationships} showCounts={true} maxHeightClass='max-h-[50vh]'/>
+                    <RelationshipTable showHighlights={showHighlights} count={forceUpdate} updateRelationship={updateRelationship} highlight={props.highlight} sortable={true} major={true} title={metric.title} fields={fields} inline={true} relationships={relationships} showCounts={true} maxHeightClass='max-h-[50vh]'/>
                     <div className="flex flex-shrink-0 justify-end pt-4 border-t border-gray-200 mt-1">
                         <button
                             type="button"

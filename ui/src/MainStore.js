@@ -7,7 +7,14 @@ function MainStore (prims){
     }
     let obj = {
         id:  Math.floor(Math.random() * 99999),
+        callbacks: {},
         types: ["hypothesis", "learning","activity","experiment","question", "evidence"],
+        ajaxResponseHandler(result){
+            if( result.success){
+                return true
+            }            
+            console.warn(result)
+        },
         stateInfo: {
             "experiment":{
                 "open": {title: "Not started", colorBase: "blue"},
@@ -17,6 +24,116 @@ function MainStore (prims){
             default: {
                 "open": {title: "Open"},
                 "closed": {title: "Closed"},
+            }
+        },
+        controller: {
+            async createPrimitive(object, parent, paths){
+                const data = {
+                    parent: parent.id,
+                    data: object,
+                    paths: paths
+                }
+                let newId
+
+                await fetch("/api/add_primitive",{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(res => res.json())
+                .then(
+                  (result) => {
+                    if( obj.ajaxResponseHandler( result )){
+                        console.log(result)
+                        newId = result.id
+                    }
+                  },
+                  (error) => {
+                    console.warn(error)
+                  }
+                )
+               return newId 
+            },
+            updateTitle( receiver, title){
+                const data = {
+                    receiver: receiver.id,
+                    title: title
+                }
+                fetch("/api/set_title",{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(res => res.json())
+                .then(
+                  (result) => {
+                    if( obj.ajaxResponseHandler( result )){
+                        obj.triggerCallback("set_title", [receiver])
+                    }
+                  },
+                  (error) => {
+                    console.warn(error)
+                  }
+                )
+
+            },
+            moveRelationship( receiver, target, from, to ){
+                const data = {
+                    receiver: receiver.id,
+                    target: target.id,
+                    from: from,
+                    to: to
+                }
+                console.log(data)
+                console.log( JSON.stringify(data) )
+                fetch("/api/move_relationship",{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(res => res.json())
+                .then(
+                  (result) => {
+                    if( obj.ajaxResponseHandler( result )){
+                        obj.triggerCallback("relationship_update", [receiver, target])
+                    }
+                  },
+                  (error) => {
+                    console.warn(error)
+                  }
+                )
+            },
+            setRelationship( receiver, target, path, set ){
+                const data = {
+                    receiver: receiver.id,
+                    target: target.id,
+                    path: path,
+                    set: set
+                }
+                fetch("/api/set_relationship",{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(res => res.json())
+                .then(
+                  (result) => {
+                    if( obj.ajaxResponseHandler( result )){
+                        obj.triggerCallback("relationship_update", [receiver, target])
+                    }
+                  },
+                  (error) => {
+                    console.warn(error)
+                  }
+                )
             }
         },
         metricResolver:{
@@ -35,7 +152,7 @@ function MainStore (prims){
                         const options = [
                             {
                                 default: "Unknown", id: "contactExpertise", title: "By expertise", project: (item)=>{
-                                    const contactId = item.refereceParameters?.contactId
+                                    const contactId = item.referenceParameters?.contactId
                                     if( contactId === undefined){
                                         return undefined
                                     }
@@ -45,7 +162,7 @@ function MainStore (prims){
                             },
                             {
                                 id: "contactDomain", title: "By domain expertise", project: (item)=>{
-                                    const contactId = item.refereceParameters?.contactId
+                                    const contactId = item.referenceParameters?.contactId
                                     if( contactId === undefined){
                                         return undefined
                                     }
@@ -55,7 +172,7 @@ function MainStore (prims){
                             },
                             {
                                 id: "companySector", title: "By company sector", project: (item)=>{
-                                    const companyId = item.refereceParameters?.companyId
+                                    const companyId = item.referenceParameters?.companyId
                                     if( companyId === undefined){
                                         return undefined
                                     }
@@ -65,7 +182,7 @@ function MainStore (prims){
                             },
                             {
                                 default: "Unknown", id: "companyTurnover", title: "By company turnover", project: (item)=>{
-                                    const companyId = item.refereceParameters?.companyId
+                                    const companyId = item.referenceParameters?.companyId
                                     if( companyId === undefined){
                                         return undefined
                                     }
@@ -212,6 +329,14 @@ function MainStore (prims){
             }
             return obj._cache_vf
         },
+        addPrimitive:function(data){
+            if( obj._cache_prim === undefined){
+                obj.primitives()                
+            }
+            obj.data.primitives.push(data)
+            obj._cache_prim.push(primitive_access(data,"primitive"))
+
+        },
         primitives:function(){
             if( obj._cache_prim === undefined){
                 obj._cache_prim = (prims || obj.data.primitives).map((p)=>primitive_access(p,"primitive"))
@@ -230,6 +355,9 @@ function MainStore (prims){
                     console.warn(`Primitive lookup ${id} by plainId`)
                 }
             }
+                if( data === undefined){
+                    console.warn(`Primitive lookup ${id} found nothing`)
+                }
             return data
         },
         categories:function(){
@@ -256,6 +384,91 @@ function MainStore (prims){
         users:function(){
             return this.data.users
         },
+        deregisterCallback:function(id){
+            let store = this
+            Object.keys(store.callbacks).forEach((key)=>{
+                store.callbacks[key] = store.callbacks[key].filter((e)=>e.id !== id)
+            })
+        },     
+        registerCallback:function(id, events, cb, idList){
+            let store = this
+            if( id === null || id === undefined){
+                this.callback_tracker = (this.callback_tracker || 0) + 1
+                id = this.callback_tracker
+            }
+            ;[events].flat().forEach((e)=>{
+                if( store.callbacks[e] === undefined){
+                    store.callbacks[e] = []
+                }
+                store.callbacks[e] = store.callbacks[e].filter((d)=>d.id !== id)
+                store.callbacks[e].push({callback: cb, filterIds: [idList].flat(), id: id})
+               // console.log(`registered ${e} for ${id} (${store.callbacks[e].length}) / ${[idList].flat().join(", ")}`)
+            })
+            return id
+        },
+        triggerCallback:function(e, items){
+            let store = this
+            if( this.callbacks[e] === undefined){
+                return
+            }
+            items = [items].flat()//.map((id)=>store.primitive(id))
+            this.callbacks[e].forEach((e)=>{
+                if( e.filterIds ){
+                    items = items.filter((item)=>e.filterIds.includes(item.id))
+                    if( items.length === 0){
+                        return
+                    }
+                }
+                e.callback(items, e)
+            })
+
+        },
+        createPrimitive:function( options ){
+            let {title = "New item", type = "result", state = undefined, parent = undefined, parentPath = undefined, categoryId = undefined } = options
+            let category = categoryId ? this.category( categoryId ) : undefined
+
+            let paths = [
+                "origin"
+            ]
+
+            if( type === "result"){
+                if( category && parent && parent.metadata){
+                    const match = parent.metadata.resultCategories.find((d)=>d.resultCategoryId === categoryId) 
+                    if( match === undefined){
+                        throw new Error(`Cant add result with category ${categoryId} to Prim #${parent.plainId}`)
+                    }                    
+                    if( match.relationships ){
+                        paths.push({results: {[match.id]: Object.keys(match.relationships)[0]}})
+                    }else{
+                        paths.push({results: match.id})
+                    }
+                }else{
+                    throw new Error(`Cant add result with category ${categoryId} to Prim #${parent.plainId}`)
+                }
+            }
+            console.log(`paths: `, paths)
+
+            let data = {
+                plainId:  Math.floor(Math.random() * 99999),
+                title: title,
+                type: type,
+                state: state,
+                primitives: [],
+                referenceId: categoryId,
+                referenceParameters: {},
+                users: {owner: [this.activeUser.id], other: []}
+            }
+            const newId = this.controller.createPrimitive(data, parent, paths)
+            data._id = newId
+            this.addPrimitive( data )
+            
+            if( parent ){
+                paths.forEach((p)=>{
+                    parent.addRelationship( data, p, true)
+                })
+            }
+
+        }
     }
 
     obj.structure = PrimitiveParser(obj)
@@ -277,6 +490,12 @@ function MainStore (prims){
             d.id = d._id
         }
         return new Proxy(d, {
+            set(d, prop, value, receiver) {
+                if( prop === "title"){
+                    d.title = value
+                    obj.controller.updateTitle( receiver, value)
+                }
+            },
             get(d, prop, receiver) {
                 if( prop === "primitives"){
                     return new Proxy( d.primitives || [], obj.structure )
@@ -284,9 +503,64 @@ function MainStore (prims){
                 if( prop === "plainId"){
                     return d.plainId
                 }
-/*                if( prop === "id"){
-                    return d._id
-                }*/
+                if( prop === "referenceParameters"){
+                    return d.referenceParameters || {}
+                }
+                if( prop === "addRelationship"){
+                    return function( target, path, skip = false ){
+                        if( receiver.primitives.add( target.id, path )){
+                            if( !skip ){
+                                obj.controller.setRelationship( receiver, target, path, true )
+                            }
+                        }
+                    }
+                }
+                if( prop === "moveRelationship"){
+                    return function( target, from, to ){
+                        if( receiver.primitives.move( target.id, from, to) ){
+                            obj.controller.moveRelationship( receiver, target, from, to)
+                        }
+                    }
+                }
+                if( prop === "toggleRelationship"){
+                    return function( target, metric ){
+                        let anchor = receiver.primitives.fromPath(metric.path)
+                        let result
+                        let path = metric.path
+
+                        if( ! (anchor instanceof Array) ){
+                            let k = 'positive' //Object.keys(targetList)[0]
+                            anchor = anchor[k]
+                            if( !anchor ){
+                                console.warn(`Cant find 'positive' in list`)
+                                return undefined
+                            }
+                            const rebuild = (node, k)=>{
+                                let o = {}
+                                if( node instanceof Object ){
+                                    let tk = Object.keys(node)[0]
+                                    o[tk] = rebuild( node[tk], k )
+                                }else{
+                                    o[node] = k
+                                }
+                                return o
+                            }
+                            path = rebuild(path, k)
+                        }
+
+                        const oldRelationship = anchor.includes( target.id )
+                        if( oldRelationship ){
+                            result = anchor.remove( target.id ) 
+                        }else{
+                            result = anchor.add( target.id) 
+                        }
+                        if( result ){
+                            obj.controller.setRelationship( receiver, target, path, !oldRelationship )
+
+                        }
+                        return anchor
+                    }
+                }
                 if( prop === "master_type"){
                     return type
                 }

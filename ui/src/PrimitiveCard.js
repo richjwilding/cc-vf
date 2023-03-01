@@ -1,13 +1,13 @@
 import MainStore from './MainStore';
 import { RelationshipTable } from './RelationshipTable';
-import React from 'react';
+import React, { useEffect } from 'react';
 import Panel from './Panel';
 import {ContactPopover} from './ContactCard';
 import DropdownButton from './DropdownButton';
 import {
   ArrowTopRightOnSquareIcon,
   PencilIcon,
-  UserCircleIcon,
+  CheckIcon,
   UserIcon,
   PaperClipIcon,
 } from '@heroicons/react/20/solid'
@@ -47,15 +47,15 @@ let mainstore = MainStore()
       )
 
     }else if( item.type === "contact"){
-        icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> //
+        icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> 
       if( item.autoId !== undefined ){
         icon = <ContactPopover icon={<UserIcon className='w-5 h-5 pr-0.5 text-blue-200 hover:text-blue-400'/>} contactId={item.autoId}/>
       }
     }
     return (
-      <dd className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : "text-gray-500  font-medium"}`}>
+      <dd className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}>
         {icon}
-        {item.value}
+        {item.value || item.default }
       </dd>
     )
   }
@@ -155,7 +155,15 @@ const Banner = function({primitive, ...props}){
         </div>
       }
       <div className='flex-grow w-full'>
-        <h1 className={`text-lg ${!props.small && "md:text-2xl"} font-bold text-gray-900`}><p className='hidden xs:inline'> {primitive.displayType} </p>#{primitive.plainId}</h1>
+        <h1 className={`flex place-items-center text-lg ${!props.small && "md:text-2xl"} font-bold text-gray-900`}><p className='hidden xs:inline'> {primitive.displayType} #{primitive.plainId}</p>
+          {props.showLink &&
+            <button
+                type="button"
+                className="ml-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>
+            </button>}
+        </h1>
         <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>
       </div>
       {props.showStateAction &&
@@ -172,11 +180,11 @@ const Parameters = function({primitive, ...props}){
     fields = fields.filter((f)=>props.fields.includes(f))
   }
   let details = fields.reduce((h, k)=>{
-    h[k] = {...parameters[k], value: primitive.refereceParameters[k], autoId: primitive.refereceParameters[`${k}Id`], key: k}
+    h[k] = {...parameters[k], value: primitive.referenceParameters[k], autoId: primitive.referenceParameters[`${k}Id`], key: k}
     return h
   }, {})
   return (
-    Object.values(details).filter((item)=>item.value !== undefined).map((item, idx)=>(
+    Object.values(details).filter((item)=>item.value !== undefined || item.default).map((item, idx)=>(
       <div key={idx} className={`flex justify-between py-3 text-sm place-items-center ${props.className || ''}`}>
         {(props.showTitles === undefined || props.showTitles === true) && <dt>{item.title}</dt>}
         <RenderItemValue item={item} secondary={(props.inline || props.showAsSecondary) && idx > 0}/>
@@ -332,13 +340,12 @@ const Title = function({primitive, ...props}){
         }
         {relationshipRender}
         {metadataRender}
-        {(props.compact && (props.showLink || props.showEdit)) &&
+        {(props.compact && props.showLink) &&
           <button
               type="button"
               className="ml-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-              {props.showLink && !props.showEdit && <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>}
-              {props.showEdit && <PencilIcon className="h-4 w-4" aria-hidden="true" />}
+            {props.showLink && <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>}
           </button>
         }
       </h3>
@@ -349,6 +356,24 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   let ring = !disableHover
   let mainTextSize = props.compact ? 'sm' : 'md' 
   let margin = props.bigMargin ? (ring ? 'px-4 py-6' : 'px-2 py-3') : (ring ? 'px-2 py-3' : 'px-0.5 py-1')
+
+  const [editing, setEditing] = React.useState(false)
+  const editBox = React.useRef()
+  const editAny = React.useRef()
+  const editOld = React.useRef()
+  
+  const [eventTracker, updateForEvent] = React.useReducer( (x)=>x+1, 0)
+  const callbackId = React.useRef(null)
+  React.useEffect(()=>{
+    if( !props.noEvents ){
+      callbackId.current = mainstore.registerCallback(callbackId.current, "set_title", updateForEvent, primitive.id )
+      return ()=>{
+        mainstore.deregisterCallback(callbackId.current )
+      }
+    }
+  }, [])
+
+
 
   let smallMeta
   let metadata
@@ -370,19 +395,79 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     ring = false
   }
 
+  React.useEffect(()=>{
+    if( editBox.current && editing){
+      editBox.current.focus()
+      //editBox.current.select()
+
+      const range = document.createRange();
+      range.selectNodeContents(editBox.current );
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+
+      editAny.current = false
+      editOld.current = editBox.current.textContent.trim()
+    }
+  }, [editing])
+
+  const cancelEdit = ()=>{
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      setEditing(false)
+  }
+
+  const keyHandler = (e)=>{
+    if(e.key === "Enter"){
+      if( !editAny.current ){
+        e.preventDefault()
+        cancelEdit()
+        return
+      }
+    }
+    if( e.key === "Escape"){
+      cancelEdit()
+      return
+    }
+
+    editAny.current = true
+
+  }
+  const toggleEditing = ()=>{
+    if( editing ){
+      let newTitle = editBox.current.textContent.trim()
+      if( editOld.current !== newTitle ){
+        console.log(`will update >${newTitle}`)
+        primitive.title = newTitle
+      }else{
+        console.log(`no changes`)
+      }      
+      setEditing(false)
+    }else{
+      setEditing(true)
+    }
+  }
 
   let content = fields ? undefined : 
       <>
-        <p className={`text-slate-700 text-${mainTextSize}`}>
-          {primitive.title}
+        <p 
+          ref={editBox} 
+          contentEditable={editing}
+          onKeyDown={keyHandler}
+          onBlur={toggleEditing}
+          suppressContentEditableWarning={true}
+          className={`text-slate-700 text-${mainTextSize} ${editing ? "min-h-[2em] w-full bg-gray-50 focus:ring-blue-500" : ""}`}>
+            {primitive.title}
         </p>
         {(!props.compact && (props.showLink || props.showEdit)) &&
           <button
               type="button"
+              onClick={ props.showEdit ? ()=>toggleEditing() : undefined}
               className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
               {props.showLink && !props.showEdit && <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" /></Link>}
-              {props.showEdit && <PencilIcon className="h-5 w-5" aria-hidden="true" />}
+              {props.showEdit && !editing && <PencilIcon className="h-5 w-5" aria-hidden="true" />}
+              {props.showEdit && editing && <CheckIcon className="h-5 w-5" aria-hidden="true" />}
           </button>
         }
       </>
@@ -395,13 +480,13 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           <div className={`flex items-start justify-between space-x-3`}>
             {content}
           </div>
-          {!titleAtBase && <Title primitive={primitive} {...props} showMetadataTitle={true} className='mt-1'/>} 
+          {!titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} showMetadataTitle={true} className='mt-1'/>} 
         </div>
       </div>
 
   }else{
     header = <>
-              {!titleAtBase && !metadata && <Title primitive={primitive} {...props}/>} 
+              {!titleAtBase && !metadata && !props.hideTitle && <Title primitive={primitive} {...props}/>} 
               {content && <div className={`flex items-start justify-between space-x-3 ${props.compact ? 'mt-2' : 'mt-3'}`}>
                 {content}
               </div>}
@@ -437,7 +522,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {(props.showEvidence  === true) && <PrimitiveCard.Evidence primitive={primitive}/>}
         {(props.showEvidence  === "compact") && <PrimitiveCard.Evidence primitive={primitive} hideTitle={true} compact={true} aggregate={true}/>}
         {props.children}
-        {titleAtBase && <Title primitive={primitive} {...props} className='grow-0 mt-1'/>}
+        {titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} className='grow-0 mt-1'/>}
         {smallMeta}
     </div>
   )

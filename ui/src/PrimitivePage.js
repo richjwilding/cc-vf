@@ -1,7 +1,7 @@
 import { PrimitiveCard } from './PrimitiveCard'
 import { MetricCard } from './MetricCard'
 import { HeroIcon } from './HeroIcon'
-import {Fragment, useEffect, useRef, useState} from 'react';
+import {Fragment, useEffect, useReducer, useRef, useState} from 'react';
 import Panel from './Panel';
 import { Tab } from '@headlessui/react'
 import {
@@ -52,10 +52,16 @@ export function PrimitivePage({primitive, ...props}) {
     let task = primitive.originTask
     let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
 
+    const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
+    const callbackId = useRef(null)
     const [selected, setSelected] = useState(null)
     const [selectedMetric, setSelectedMetric] = useState(null)
     const [groupMetricsOpen, setGroupMetricsOpen] = useState(false)
     const [activePrim, setActivePrim] = useState(primitive.id)
+
+    const registerCallbacks = ()=>{
+      callbackId.current = mainstore.registerCallback(callbackId.current, "relationship_update", updateRelationships, primitive.id )
+    }
 
     if( activePrim !== primitive.id ){
       setActivePrim(primitive.id)
@@ -65,12 +71,15 @@ export function PrimitivePage({primitive, ...props}) {
       if( props.selectPrimitive ){
         props.selectPrimitive(null)
       }
+      registerCallbacks()
     }
     useEffect(()=>{
       if( props.selectPrimitive ){
         props.selectPrimitive(null)
       }
+      registerCallbacks()
     },[])
+
 
 
     const setLocalMetric = (id)=>{
@@ -130,17 +139,7 @@ export function PrimitivePage({primitive, ...props}) {
               <section aria-labelledby="applicant-information-title">
                 <div className="bg-white shadow sm:rounded-lg grid grid-cols-1 md:grid-cols-5 ">
                   <div className="px-4 py-5 sm:px-6 md:col-span-5">
-                    <div className={`flex items-start justify-between space-x-3 mt-3'`}>
-                        <p className={`text-slate-700 text-lg`}>
-                        {primitive.title}
-                        </p>
-                        <button
-                            type="button"
-                            className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        >
-                            <PencilIcon className="h-5 w-5" aria-hidden="true" />
-                        </button>
-                    </div>
+                    <PrimitiveCard primitive={primitive} showEdit={true} hideTitle={true} major={true}/>
                   </div>
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 md:col-span-3">
                     <PrimitiveCard.Details primitive={primitive} title={`${primitive.displayType} details`} hideFooter={true}/>
@@ -189,7 +188,7 @@ export function PrimitivePage({primitive, ...props}) {
                                           selectedMetric?.metric === metric.id ? open : closed
                                         }
                                       key={id} layoutId={id}>
-                                        {m}
+                                        {selectedMetric?.metric !== metric.id && m}
                                   </motion.div> 
                           }
                         })}
@@ -201,11 +200,36 @@ export function PrimitivePage({primitive, ...props}) {
                 let view = category.views?.default
                 let cardConfig = view ? category.views.list[view] : undefined
                 let showState = view !== "kaban"
+                
+                let list = primitive.primitives.results[category.id].map((d)=>d)
+                /*const rels = primitive.metadata.resultCategories[0].relationships
+                if( rels ){
+                  const order = Object.keys(rels)
+                  list = list.sort((a,b)=>{
+                    const aR = (primitive.primitives.relationships(a.id, ["results", category.id]) || [])[0]
+                    const bR = (primitive.primitives.relationships(b.id, ["results", category.id]) || [])[0]
+                    console.log(aR, bR)
+                    return order.indexOf(aR) - order.indexOf(bR)
+                    
+                  })
+                }*/
+
+                if( cardConfig ){
+                  list = list.sort((a,b)=>{
+                    let va = a.referenceParameters[cardConfig[0]]
+                    let vb = b.referenceParameters[cardConfig[0]]
+                    if( va && vb ){
+                        return va.localeCompare(vb)
+                    }
+                  })
+                }
+
+                
                 return (
                   <Panel key={category.title} title={primitive.metadata.title} titleClassName='text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
                         <div 
                             className="gap-3 space-y-3 no-break-children sm:columns-2 md:columns-3 xl:columns-4">
-                            {primitive.primitives.results[category.id].map((p,idx)=>{
+                            {list.map((p,idx)=>{
                                 return (
                                     <motion.div 
                                         key={p.plainId}
@@ -220,6 +244,7 @@ export function PrimitivePage({primitive, ...props}) {
                                         showState={showState} 
                                         showAsSecondary={true}
                                         showEvidence="compact"
+                                        noEvents = {true}
                                         relationships={category.relationships} 
                                         relationship={primitive.primitives.relationships(p.id, ["results", category.id])}/>
                                     </motion.div>
@@ -387,8 +412,14 @@ export function PrimitivePage({primitive, ...props}) {
 
                                             return (
                                               <>
-                                                {included && <p className={`p-2 text-sm grow-0 text-gray-900`}><CheckIcon className='w-5 h-5 text-green-500'/></p>}
-                                                {!included && <p className={`p-2 text-sm grow-0 text-gray-900`}><XMarkIcon className='w-5 h-5 text-amber-600'/></p>}
+                                                <button
+                                                    type="button"
+                                                    onClick={()=>task.toggleRelationship(primitive, metric)}
+                                                    className="ml-1 flex p-1 m-1 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none active:ring-2 active:ring-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                                                >
+                                                  {included && <CheckIcon className='w-5 h-5 text-green-500'/>}
+                                                  {!included && <XMarkIcon className='w-5 h-5 text-amber-600'/>}
+                                                </button>
                                                 <a href='#' onClick={()=>setSelectedMetric({primitive: task, metric: metric.id, highlight: primitive.id})}>
                                                   <p className='p-2 text-sm truncate text-gray-500 hover:text-indigo-600 hover:underline'>{metric.title}</p>
                                                 </a>

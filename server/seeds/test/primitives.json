@@ -30,7 +30,7 @@
         "type": "experiment",
         "state": "closed",
         "referenceId": 6,
-        "refereceParameters": {
+        "referenceParameters": {
             "anonymous": true,
             "sample": 250,
             "geography": "USA",
@@ -82,7 +82,7 @@
         "type": "evidence",
         "title": "A significant portion of the respondents scored the proposed solution highly",
         "referenceId": 1,
-        "refereceParameters": {
+        "referenceParameters": {
             "value": 8.6
         },
         "primitives": [
@@ -94,7 +94,7 @@
         "type": "result",
         "title": "Survey analysis - US batch 4",
         "referenceId": 8,
-        "refereceParameters": {
+        "referenceParameters": {
             "link": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y"
         },
         "primitives": [
@@ -110,7 +110,7 @@
         "type": "evidence",
         "title": "Quicker access to earned wages is a top 3 priority",
         "referenceId": 2,
-        "refereceParameters": {},
+        "referenceParameters": {},
         "primitives": [
             {}
         ]
@@ -120,7 +120,7 @@
         "type": "result",
         "title": "Discussion with ConEd",
         "referenceId": 9,
-        "refereceParameters": {
+        "referenceParameters": {
             "contact": "Eric Davis",
             "contactId": 0,
             "company": "ConEd",
@@ -140,7 +140,7 @@
         "type": "evidence",
         "title": "A lot of people jump to feasibility and viability too quickly - we think you should start at desirability.",
         "referenceId": 3,
-        "refereceParameters": {},
+        "referenceParameters": {},
         "primitives": [
             {}
         ]
@@ -150,7 +150,7 @@
         "type": "evidence",
         "title": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla eget est purus. Mauris ultrices, leo eu porta volutpat, ante risus varius neque, in posuere sapien justo ac sem.",
         "referenceId": 4,
-        "refereceParameters": {},
+        "referenceParameters": {},
         "primitives": [
             {}
         ]
@@ -160,7 +160,7 @@
         "type": "evidence",
         "title": "Fusce sagittis placerat mi sed rhoncus.",
         "referenceId": 4,
-        "refereceParameters": {},
+        "referenceParameters": {},
         "primitives": [
             {}
         ]
@@ -171,7 +171,7 @@
         "type": "evidence",
         "title": "Quisque in sem posuere, condimentum nulla ac, feugiat eros. Nam vel fermentum odio. Nam in odio sit amet purus placerat pretium sed a ipsum.",
         "referenceId": 4,
-        "refereceParameters": {},
+        "referenceParameters": {},
         "primitives": [
             {}
         ]
@@ -216,7 +216,7 @@
             {"plainId": 2, "path": {"metrics": 2}, "title": "Making an intro", "type": "count"},
             {"plainId": 3, "path": {"metrics": 3}, "title": "Asked for a proposal", "type": "count"}
         ],
-        "refereceParameters": {
+        "referenceParameters": {
             "sample": "20",
             "source": "Network"
         },
@@ -243,7 +243,7 @@
         "type": "result",
         "title": "Discussion with Southerno Co",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Stacey Lusk",
             "contactId": 1,
             "company": "Southern Co",
@@ -257,7 +257,7 @@
         "type": "result",
         "title": "Discussion with F-Secure",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Markku Makkonen",
             "contactId": 2,
             "role":"New Business Development",
@@ -272,7 +272,7 @@
         "type": "result",
         "title": "Discussion with Wayra",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Susana",
             "contactId": 3,
             "company": "Wayra (builder)",
@@ -286,7 +286,7 @@
         "type": "result",
         "title": "Discussion with Standard Chartered",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Premila",
             "contactId": 4,
             "company": "Standard Chartered Ventures",
@@ -300,7 +300,7 @@
         "type": "result",
         "title": "Discussion with Admiral Pioneer",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Emma Huntington",
             "contactId": 5,
             "company": "Admiral Pioneer",
@@ -314,7 +314,7 @@
         "type": "result",
         "title": "Discussion with Snow Software",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Steve Tait",
             "contactId": 6,
             "company": "Snow Software",
@@ -328,7 +328,7 @@
         "type": "result",
         "title": "Discussion with BOTW",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "John Finley",
             "contactId": 7,
             "company": "Bank of the West",
@@ -342,7 +342,7 @@
         "type": "result",
         "title": "Discussion with State Farm",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Dana Enger",
             "contactId": 8,
             "company": "State Farm",
@@ -356,7 +356,7 @@
         "type": "result",
         "title": "Vanguard",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Mark",
             "company": "Vanguard",
             "notes": "https://docs.google.com/document/d/18tCOnxKBChH_fQv-J6mcL090ba48gjU2ALeU8WJTLrM",
@@ -368,7 +368,7 @@
         "type": "result",
         "title": "Discussion with RBS",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Jeremey Smith",
             "contactId": 9,
             "company": "RBS",
@@ -382,7 +382,7 @@
         "type": "result",
         "title": "Discussion with OSF Healthcare",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Brent",
             "company": "OSF Healthcare",
             "notes": "https://docs.google.com/document/d/17lSA_u3Bahk2SB80D6XOogV5Gbi_4xWDAlJggKOyAvM",
@@ -394,7 +394,7 @@
         "type": "result",
         "title": "Discussion with JPM",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "JOhn Mazzara",
             "contactId": 11,
             "company": "JP Morgan",
@@ -407,7 +407,7 @@
         "type": "result",
         "title": "Discussion with GSK",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Nick Tate",
             "company": "GSK",
             "interviewee": 1
@@ -418,7 +418,7 @@
         "type": "result",
         "title": "Discussion with BT",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Tom Guy",
             "company": "BT",
             "interviewee": 1
@@ -429,7 +429,7 @@
         "type": "result",
         "title": "Discussion with Amex Ventures",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Andrew Lei",
             "company": "AMEX",
             "notes": "https://docs.google.com/document/d/1Pd9Y7-kBUX8lfickIngmxMnTQIHr7jPcf8yZxQ65SoA",
@@ -441,7 +441,7 @@
         "type": "result",
         "title": "Discussion with Hyundai",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Guillaume",
             "contactId": 15,
             "company": "Hyundai",
@@ -454,7 +454,7 @@
         "type": "result",
         "title": "Discussion with Cemex",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Juan",
             "company": "Cemex",
             "notes": "https://docs.google.com/document/d/1N6oz_UNr74KC8cFD8JoHsa5vvqwi0SvMtRFTC66DQi0",
@@ -466,7 +466,7 @@
         "type": "result",
         "title": "Discussion with Crowley",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Sean Fortener",
             "contactId": 16,
             "company": "Crowley",
@@ -478,7 +478,7 @@
         "type": "result",
         "title": "Discussion with JPM",
         "referenceId": 9,
-        "refereceParameters":{
+        "referenceParameters":{
             "contact": "Sarit Amir",
             "company": "JP Morgan",
             "interviewee": 1

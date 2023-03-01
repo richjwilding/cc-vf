@@ -8,7 +8,7 @@ export default function PrimitiveParser(obj){
                     return function(){
                         let item = arguments[0]
                         if( arguments[1] ){
-                            const path = receiver.fromPath(arguments[1])
+                            const path = receiver.fromPath(arguments[1], true)
                             
                             if( !path){
                                 console.warn(`Path not found`)
@@ -18,6 +18,9 @@ export default function PrimitiveParser(obj){
                             return path.add(item)
                         }
                         if( !(target instanceof Array) ){
+                            if( !(null in target) ){
+                                target[null] = []
+                            }
                             target = target.null
                         }
                         target.push( item )
@@ -53,9 +56,11 @@ export default function PrimitiveParser(obj){
                     return function(){
                         let item = arguments[0]
                         let from =  receiver.fromPath(arguments[1])
-                        let to =  receiver.fromPath(arguments[2])
+                        let to =  receiver.fromPath(arguments[2], true)
                         if( from && to ){
                             from.remove(item)
+                        }
+                        if( to ){
                             to.add(item)
                         }
                         return to
@@ -188,15 +193,25 @@ export default function PrimitiveParser(obj){
                     }
                 }
                 if( prop === "fromPath"){
-                    return function(){
-                        let path = arguments[0]
+                    return function(path, create = false){
                         let node = receiver                        
 
                         while( path instanceof(Object) ){
                             let step = Object.keys(path)[0]
+                            let last = node
                             path = path[step]
                             node = node[step]
-                            if( node === undefined){return undefined}
+                            if( node === undefined){
+                                if( create ){
+                                    last[step] = {}
+                                    node = last[step]
+                                }else{
+                                    return undefined
+                                }
+                            }
+                        }
+                        if( !node[path] && create ){
+                            node[path] = []
                         }
                         return node[path]
 
@@ -205,16 +220,16 @@ export default function PrimitiveParser(obj){
                 if( obj ){
                     // was here
                     if( prop === "items"){
-                        return receiver.ids.map((d)=>obj.primitive(d))
+                        return receiver.ids.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
                     if( prop === "allItems"){
-                        return receiver.allIds.map((d)=>obj.primitive(d))
+                        return receiver.allIds.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
                     if( prop === "uniqueAllItems"){
-                        return receiver.uniqueAllIds.map((d)=>obj.primitive(d))
+                        return receiver.uniqueAllIds.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
                     if( prop === "uniqueItems"){
-                        return receiver.uniqueIds.map((d)=>obj.primitive(d))
+                        return receiver.uniqueIds.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
                     if( obj.types.includes(prop)){
                         return receiver.items.filter((p)=>p.type===prop)

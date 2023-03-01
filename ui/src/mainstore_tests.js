@@ -34,7 +34,7 @@ let teststore = MainStore(
             "type": "experiment",
             "state": "closed",
             "referenceId": 1,
-            "refereceParameters": {
+            "referenceParameters": {
                 "anonymous": true,
                 "sample": 250,
                 "geography": "USA",
@@ -85,7 +85,7 @@ let teststore = MainStore(
             "type": "evidence",
             "title": "A significant portion of the respondents scored the proposed solution highly",
             "referenceId": 1,
-            "refereceParameters": {
+            "referenceParameters": {
                 "value": 8.6
             },
             "primitives": [
@@ -97,7 +97,7 @@ let teststore = MainStore(
             "type": "result",
             "title": "Survey analysis - US batch 4",
             "referenceId": 0,
-            "refereceParameters": {
+            "referenceParameters": {
                 "link": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y"
             },
             "primitives": [
@@ -113,7 +113,7 @@ let teststore = MainStore(
             "type": "evidence",
             "title": "Quicker access to earned wages is a top 3 priority",
             "referenceId": 2,
-            "refereceParameters": {},
+            "referenceParameters": {},
             "primitives": [
                 {}
             ]
@@ -123,7 +123,7 @@ let teststore = MainStore(
             "type": "result",
             "title": "Discussion with ConEd",
             "referenceId": 1,
-            "refereceParameters": {
+            "referenceParameters": {
                 "contact": "Eric Davis",
                 "company": "ConEd",
                 "notes": "https://docs.google.com/document/d/1V383HJ0GbJ1FQNYtcfHxK_lJjAJpugr8g0l9ckGbh_Y",
@@ -142,7 +142,7 @@ let teststore = MainStore(
             "type": "evidence",
             "title": "A lot of people jump to feasibility and viability too quickly - we think you should start at desirability.",
             "referenceId": 3,
-            "refereceParameters": {},
+            "referenceParameters": {},
             "primitives": [
                 {}
             ]
@@ -152,7 +152,7 @@ let teststore = MainStore(
             "type": "experiment",
             "state": "active",
             "referenceId": 2,
-            "refereceParameters": {
+            "referenceParameters": {
                 "sample": "20",
                 "source": "Network"
             },
@@ -383,6 +383,10 @@ export default function MainStoreTests(){
         console.assert( arrayEquals(test.remove( 101).allIds, [2, 4, 4, 3, 4, 5, 6, 7, 8, 9, 10, 11, 5, 6, 99, 12, 8, 100, 13, 14, 15, 4, 16, 17, 18]))
         console.assert( arrayEquals(test.add( 99, {test2: "a"}).allIds, [11,5,6,99,99]))
         console.assert( arrayEquals(test.remove( 99, {test2: "a"}).allIds, [11,5,6]))
+
+
+        console.assert( test.fromPath({test3: "z"}) === undefined)
+        console.assert( arrayEquals(test.add( 102, {test3: "z"}).allIds, [102]))
 
         test.move( 5, {test2: "a"},{test2: "b"})
         console.assert( arrayEquals(test.test2.a.allIds, [11,6]))
