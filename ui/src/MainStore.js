@@ -56,12 +56,19 @@ function MainStore (prims){
                 )
                return newId 
             },
-            updateTitle( receiver, title){
+            updateTitle:function( receiver, title){
+                this.updateField(receiver, "title", title, "set_title")
+            },
+            updateParameter:function( receiver, parameterName, value ){
+                this.updateField(receiver, `referenceParameters.${parameterName}`, value, "set_parameter")
+            },
+            updateField( receiver, field, value, callback_name){
                 const data = {
                     receiver: receiver.id,
-                    title: title
+                    value: value,
+                    field: field
                 }
-                fetch("/api/set_title",{
+                fetch("/api/set_field",{
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -72,7 +79,7 @@ function MainStore (prims){
                 .then(
                   (result) => {
                     if( obj.ajaxResponseHandler( result )){
-                        obj.triggerCallback("set_title", [receiver])
+                        obj.triggerCallback(callback_name, [receiver])
                     }
                   },
                   (error) => {
@@ -402,7 +409,7 @@ function MainStore (prims){
                 }
                 store.callbacks[e] = store.callbacks[e].filter((d)=>d.id !== id)
                 store.callbacks[e].push({callback: cb, filterIds: [idList].flat(), id: id})
-               // console.log(`registered ${e} for ${id} (${store.callbacks[e].length}) / ${[idList].flat().join(", ")}`)
+                //console.log(`registered ${e} for ${id} (${store.callbacks[e].length}) / ${[idList].flat().join(", ")}`)
             })
             return id
         },
@@ -411,11 +418,10 @@ function MainStore (prims){
             if( this.callbacks[e] === undefined){
                 return
             }
-            items = [items].flat()//.map((id)=>store.primitive(id))
+            items = [items].flat()
             this.callbacks[e].forEach((e)=>{
                 if( e.filterIds ){
-                    items = items.filter((item)=>e.filterIds.includes(item.id))
-                    if( items.length === 0){
+                    if( items.filter((item)=>e.filterIds.includes(item.id)).length === 0){
                         return
                     }
                 }
@@ -494,6 +500,7 @@ function MainStore (prims){
                 if( prop === "title"){
                     d.title = value
                     obj.controller.updateTitle( receiver, value)
+                    return true
                 }
             },
             get(d, prop, receiver) {
@@ -502,6 +509,32 @@ function MainStore (prims){
                 }
                 if( prop === "plainId"){
                     return d.plainId
+                }
+                if( prop === "validateParameter"){
+                    return function( parameterName, value ){
+                        const metadata = receiver.metadata
+                        if( !metadata ){
+                            return false
+                        }
+                        if( ! (parameterName in metadata.parameters) ){
+                            return false
+                        }
+                        const pConfig = metadata.parameters[ parameterName ]
+                        switch( pConfig.type ){
+                            case "string": return pConfig.optional || value !== ""
+                        }
+                        return true
+                    }
+                }
+                if( prop === "setParameter"){
+                    return function( parameterName, value ){
+                        if( receiver.validateParameter(parameterName, value)){
+                            d.referenceParameters[parameterName] = value
+                            obj.controller.updateParameter( receiver, parameterName, value  )
+                            return true
+                        }
+                        return false
+                    }
                 }
                 if( prop === "referenceParameters"){
                     return d.referenceParameters || {}

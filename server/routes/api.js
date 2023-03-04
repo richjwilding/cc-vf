@@ -103,18 +103,22 @@ router.get('/primitives', async function(req, res, next) {
 
 })*/
 
-router.post('/set_title', async function(req, res, next) {
+router.post('/set_field', async function(req, res, next) {
     let data = req.body
 
     try {
-        let primitive = await Primitive.findById(data.receiver)
-        if( primitive !== null ){
-            primitive.title = data.title
-            primitive.save()
-            res.json({success: true})
-        }else{
-            throw new Error(`Couldnt update title for ${data.receiver}`)
-        }
+
+        Primitive.findOneAndUpdate(
+            {
+                    "_id": new ObjectId(data.receiver),
+            }, 
+            {
+                $set: { [data.field]: data.value },
+            },
+            {new: true},
+            (err,doc)=>{
+            })
+        res.json({success: true})
       } catch (err) {
         res.json(400, {error: err.message})
     }

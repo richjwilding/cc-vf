@@ -100,8 +100,8 @@ export function RelationshipTable({relationships, ...props}){
                             onClick={props.updateRelationship ? (e)=>{e.stopPropagation();props.updateRelationship(wrapped.item, set)} :undefined} 
                             className='min-w-[1.25em] min-h-[1.25em] relative  p-1 group flex place-items-center justify-center'
                             >
-                            {idx === wrapped.relIdx && <HeroIcon icon={wrapped.set.icon} style={{gridColumnStart: wrapped.relIdx + 2}} className={`z-20 place-self-center mr-0.5 p-1 max-w-6 w-6 h-6 m-0.5 rounded-[4em] text-${wrapped.set.textColor} bg-${wrapped.set.bgColor}`}/>}
-                            {idx !== wrapped.relIdx && <div className={props.updateRelationship ? "z-20 max-w-3 w-3 h-3 border-[0.2rem] border-white rounded-[4em] bg-slate-200 group-hover:border-[0.1rem] active:bg-slate-300" : "z-20 max-w-4 w-2 h-2 rounded-[4em] bg-slate-200"}/>}
+                            {idx === wrapped.relIdx && <HeroIcon icon={wrapped.set.icon} style={{gridColumnStart: wrapped.relIdx + 2}} className={`place-self-center mr-0.5 p-1 max-w-6 w-6 h-6 m-0.5 rounded-[4em] text-${wrapped.set.textColor} bg-${wrapped.set.bgColor}`}/>}
+                            {idx !== wrapped.relIdx && <div className={props.updateRelationship ? "max-w-3 w-3 h-3 border-[0.2rem] border-white rounded-[4em] bg-slate-200 group-hover:border-[0.1rem] active:bg-slate-300" : "z-20 max-w-4 w-2 h-2 rounded-[4em] bg-slate-200"}/>}
                           </div>
                         </div>
 

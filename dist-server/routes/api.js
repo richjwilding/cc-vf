@@ -229,45 +229,34 @@ router.get('/primitives', /*#__PURE__*/function () {
 
 })*/
 
-router.post('/set_title', /*#__PURE__*/function () {
+router.post('/set_field', /*#__PURE__*/function () {
   var _ref7 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee7(req, res, next) {
-    var data, primitive;
+    var data;
     return _regeneratorRuntime().wrap(function _callee7$(_context7) {
       while (1) switch (_context7.prev = _context7.next) {
         case 0:
           data = req.body;
-          _context7.prev = 1;
-          _context7.next = 4;
-          return _Primitive["default"].findById(data.receiver);
-        case 4:
-          primitive = _context7.sent;
-          if (!(primitive !== null)) {
-            _context7.next = 11;
-            break;
+          try {
+            _Primitive["default"].findOneAndUpdate({
+              "_id": new ObjectId(data.receiver)
+            }, {
+              $set: _defineProperty({}, data.field, data.value)
+            }, {
+              "new": true
+            }, function (err, doc) {});
+            res.json({
+              success: true
+            });
+          } catch (err) {
+            res.json(400, {
+              error: err.message
+            });
           }
-          primitive.title = data.title;
-          primitive.save();
-          res.json({
-            success: true
-          });
-          _context7.next = 12;
-          break;
-        case 11:
-          throw new Error("Couldnt update title for ".concat(data.receiver));
-        case 12:
-          _context7.next = 17;
-          break;
-        case 14:
-          _context7.prev = 14;
-          _context7.t0 = _context7["catch"](1);
-          res.json(400, {
-            error: _context7.t0.message
-          });
-        case 17:
+        case 2:
         case "end":
           return _context7.stop();
       }
-    }, _callee7, null, [[1, 14]]);
+    }, _callee7);
   }));
   return function (_x19, _x20, _x21) {
     return _ref7.apply(this, arguments);

@@ -1,5 +1,4 @@
 import { motion, AnimatePresence } from "framer-motion"
-import { Dialog, Transition } from '@headlessui/react'
 import {Fragment, useEffect, useRef} from 'react';
 import { Tab } from '@headlessui/react'
 import { PrimitiveCard } from './PrimitiveCard'
@@ -20,6 +19,7 @@ export function PrimitivePopup({contextOf, selected, setSelected, ...props}){
        selected = selected.primitive
     }
 
+    const dialog = useRef()
 
     const keyHandler = (e)=>{
         console.log(e.key)
@@ -28,37 +28,38 @@ export function PrimitivePopup({contextOf, selected, setSelected, ...props}){
         setSelected(null)
       }
     }
-    if( !selected ){ return <></>}
+
+    useEffect(()=>{
+        if( dialog.current ){
+            dialog.current.focus()
+        }
+    },[id])
 
     return (
-    <Transition.Root show={selected !== undefined} as={Fragment}  appear>
-      <Dialog as="div" className="relative z-50" onClose={()=>setSelected(null)} >
-        <Transition.Child
-          as={Fragment}
-          enter="ease-out duration-300"
-          enterFrom="opacity-0"
-          enterTo="opacity-100"
-          leave="ease-in duration-200"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
-        >
-          <div className="fixed inset-0 bg-gray-500 bg-opacity-25 transition-opacity" />
-        </Transition.Child>
+        <AnimatePresence>
+            {selected && 
+            <Fragment key='wrap'>
+        <motion.div
+            initial={{opacity: 0}}
+            animate={{ opacity: 1}}
+            transition ={{duration: 0.2, delay:0.1} }
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+            onClick={()=>setSelected(null)}
 
-        <div className="fixed inset-0 z-50 overflow-y-auto sm:py-24 ">
-          <Transition.Child
-            as={Fragment}
-            enter="ease-out duration-300"
-            enterFrom="opacity-0 scale-95"
-            enterTo="opacity-100 scale-100"
-            leave="ease-in duration-200"
-            leaveFrom="opacity-100 scale-100"
-            leaveTo="opacity-0 scale-95"
-          >
-            <Dialog.Panel 
-                className='flex z-30 w-max max-w-[100vw] top-0 mx-auto '
-                >
-                    <div className='p-4 bg-white rounded-2xl shadow-xl w-full' >
+            className="overlay h-screen w-full absolute left-0 top-0 backdrop-blur-sm bg-gray-500/30  z-20"
+        >
+        </motion.div>)
+        <motion.div 
+            key='frame' 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+            transition ={{duration: 0.2, delay:0.1} }
+            //className='grid place-items-center absolute z-30 w-[100vw] h-[100vh] top-0 left-0 sm:w-[90vw] sm:h-[90vh] sm:top-[5vh] sm:left-[5vw]  md:w-[80vw] md:h-[80vh] md:top-[10vh] md:left-[10vw] lg:w-[70vw] lg:h-[70vh] lg:top-[15vh] lg:left-[15vw]'
+            className='flex absolute z-30 w-[100vw] top-0 left-0 sm:w-[90vw] sm:top-[5vh] sm:left-[5vw]  md:w-[80vw] md:top-[10vh] md:left-[10vw] lg:w-[70vw] lg:top-[15vh] lg:left-[15vw] '
+            onKeyDown={keyHandler}
+            >
+                    <div className='p-4 bg-white rounded-2xl shadow-xl w-full' ref={dialog} tabIndex='0'>
                         <button className="flex ml-auto text-gray-400 hover:text-gray-500" onClick={() => setSelected(null)} ><XMarkIcon className="h-6 w-6" aria-hidden="true" /></button>
                             <motion.div 
                                 layoutId={id} 
@@ -79,7 +80,7 @@ export function PrimitivePopup({contextOf, selected, setSelected, ...props}){
                                     selected
                                     ? 'border-indigo-500 text-indigo-600'
                                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
-                                    'w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm ring-offset-0 focus:outline-none focus:ring-2 mt-0.5')}
+                                    'w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm ring-offset-0 focus:outline-none focus:ring-2')}
                                     aria-current={selected ? 'page' : undefined}
                                     >
                                     Evidence
@@ -92,7 +93,7 @@ export function PrimitivePopup({contextOf, selected, setSelected, ...props}){
                                     selected
                                     ? 'border-indigo-500 text-indigo-600'
                                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
-                                    'w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm ring-offset-0 focus:outline-none focus:ring-2 mt-0.5'
+                                    'w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm ring-offset-0 focus:outline-none focus:ring-2'
                                     )}
                                     aria-current={selected ? 'page' : undefined}
                                     >
@@ -102,10 +103,10 @@ export function PrimitivePopup({contextOf, selected, setSelected, ...props}){
                                 </Tab.List>
                                 <Tab.Panels>
                                     <Tab.Panel>
-                                        <PrimitiveCard.EvidenceList relationshipTo={contextOf} relationshipMode="presence" primitive={selected} hideTitle={true} className='w-[50vw] max-h-[40vh] h-[40vh]' frameClassName='sm:columns-2 md:columns-3 xl:columns-4'/>
+                                        <PrimitiveCard.EvidenceList relationshipTo={contextOf} relationshipMode="presence" primitive={selected} hideTitle={true} className='max-h-[40vh] h-[40vh]' frameClassName='sm:columns-2 md:columns-3 xl:columns-4'/>
                                     </Tab.Panel>
                                     <Tab.Panel>
-                                        <PrimitiveCard.Details primitive={selected} hideTitle={true} editing={props.editing} className='w-full max-w-full md:w-[48rem]' />
+                                        <PrimitiveCard.Details primitive={selected} hideTitle={true} editing={props.editing}/>
                                     </Tab.Panel>
                                 </Tab.Panels>
                             </Tab.Group>
@@ -119,10 +120,8 @@ export function PrimitivePopup({contextOf, selected, setSelected, ...props}){
                         </button>
                         </div>
                     </div>
-                </Dialog.Panel>
-            </Transition.Child>
-            </div>
-        </Dialog>
-    </Transition.Root>
+        </motion.div>
+        </Fragment>}
+        </AnimatePresence>
     )
 }

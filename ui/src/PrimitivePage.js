@@ -14,6 +14,7 @@ import { MetricPopup } from './MetricPopup';
 import MainStore from './MainStore';
 import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon } from '@heroicons/react/24/outline';
 import { formatDistance, subDays } from 'date-fns'
+import ContactPicker from './ContactPicker';
 /*import { Document, Page } from 'react-pdf/dist/esm/entry.webpack5';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';*/
@@ -233,14 +234,17 @@ export function PrimitivePage({primitive, ...props}) {
                                 return (
                                     <motion.div 
                                         key={p.plainId}
-                                        layoutId={p.plainId} onClick={() => setSelected(p)}
+                                        layoutId={p.plainId} onDoubleClick={(e) =>{e.preventDefault();setSelected(p)}}
                                     >
                                     <PrimitiveCard 
                                         key={p.id}
                                         compact={true} primitive={p} 
-                                        className='h-full flex flex-col justify-between'
+                                        onClick={(e)=>e.currentTarget.focus()}
+                                        onEnter={()=>setSelected(p)}
+                                        className={`h-full select-none flex flex-col justify-between ${selected && selected.id === p.id ? "bg-white opacity-50 blur-50" : ""}`}
                                         fields={cardConfig} 
                                         border={true} 
+                                        showExpand={true}
                                         showState={showState} 
                                         showAsSecondary={true}
                                         showEvidence="compact"
@@ -441,7 +445,7 @@ export function PrimitivePage({primitive, ...props}) {
               </div>
             </section>
           </div>
-        <PrimitivePopup selected={selected} contextOf={primitive} setSelected={setSelected}/>
+        <PrimitivePopup selected={selected} contextOf={primitive} editing={true} setSelected={setSelected}/>
         <MetricPopup selected={selectedMetric?.metric} contextOf={selectedMetric?.primitive} highlight={selectedMetric?.highlight} setSelected={setSelectedMetric}/>
       </div>
     </>

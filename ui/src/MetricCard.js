@@ -99,7 +99,7 @@ const Item = function(props){
   )
 }
 const SortableItem = function(props) {
-  const {
+  let {
     attributes,
     isDragging,
     listeners,
@@ -113,25 +113,30 @@ const SortableItem = function(props) {
    transition: "200ms ease"
   };
 
+  attributes = {...attributes, tabIndex: undefined}
+
   return (
-    <SortablePrimitive key={props.primitive.plainId} ref={setNodeRef} style={style} {...attributes} {...listeners} primitive={props.primitive} isDragging={isDragging} onClick={props.onClick} selectId={props.selectId}/>
+    <SortablePrimitive key={props.primitive.plainId} ref={setNodeRef} style={style} {...attributes} {...listeners} primitive={props.primitive} isDragging={isDragging} onEnter={props.onEnter} selectId={props.selectId}/>
   );
 
 }
 
 
-  const SortablePrimitive = React.forwardRef(({primitive, isDragging, selectId, onClick,...props}, ref) => {
+  const SortablePrimitive = React.forwardRef(({primitive, isDragging, selectId, onEnter,...props}, ref) => {
     return (
-      <div id={primitive.plainId}  ref={ref} {...props} className={`px-2 py-1 ${isDragging ? "opacity-25" : ""}`}>
-                <motion.div key={selectId} layoutId={selectId}>
+      <div id={primitive.plainId} ref={ref} {...props} className={`px-2 py-1 ${isDragging ? "opacity-25" : ""}`}>
+      <motion.div key={selectId} layoutId={selectId} 
+            onDoubleClick={onEnter ? ()=>onEnter({primitive: primitive, plainId: selectId}) : undefined}>
         <PrimitiveCard 
             primitive={primitive} 
             compact={true} 
             flatBorder={true}
+            showExpand={true}
             fields={['contact','company']} 
             className='border-b-[1px] border-gray-200 '
-            onClick={onClick ? ((e)=>{e.stopPropagation(); onClick({primitive: primitive, plainId: selectId})}) : undefined}
-            bg='hover:bg-white'/>
+            onEnter={onEnter ? ()=>onEnter({primitive: primitive, plainId: selectId}) : undefined}
+            onClick={(e)=>e.currentTarget.focus()}
+            bg='hover:bg-white focus:bg-white'/>
                 </motion.div>
       </div>
     )
@@ -160,7 +165,7 @@ const List = function(props){
             {props.list && props.list.length > 0 && props.list.map((p)=>{
               let selectId = props.txPrefix ? `${props.txPrefix}_${p.plainId}` : p.plainId
               return (
-                <SortableItem id={p.plainId} key={p.plainId} primitive={p} selectId={selectId} onClick={props.onCardClick}/>
+                <SortableItem id={p.plainId} key={p.plainId} primitive={p} selectId={selectId} onEnter={props.onCardClick}/>
               )
             })}
             {!props.list || (props.list && props.list.length === 0) && <div className='p-2 w-full h-full'><div className='place-items-center justify-center border-2 border-dashed flex w-full h-full'><p className='text-xs uppercase text-gray-500/50'>None</p></div></div>}
@@ -281,7 +286,7 @@ export function MetricCard({primitive, metric, ...props}) {
   const sensors = useSensors(
     useSensor(PointerSensor,{
       activationConstraint: {
-        delay: 180,
+        delay: 120,
         tolerance: 15,
       },
     }),

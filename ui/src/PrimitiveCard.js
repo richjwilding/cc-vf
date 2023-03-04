@@ -1,6 +1,6 @@
 import MainStore from './MainStore';
 import { RelationshipTable } from './RelationshipTable';
-import React, { useEffect } from 'react';
+import React, { useEffect, useReducer } from 'react';
 import Panel from './Panel';
 import {ContactPopover} from './ContactCard';
 import DropdownButton from './DropdownButton';
@@ -15,50 +15,103 @@ import { HeroIcon, SolidHeroIcon } from './HeroIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { EvidenceCard } from './EvidenceCard';
 import { Link } from "react-router-dom";
+import EditableTextField from './EditableTextField';
+import EditableContactField from './EditableContactField';
+import useDataEvent from './CustomHook';
+import EditableUserField from './EditableUserField';
 
+const ExpandArrow = function(props) {
+  return (
+      <svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" {...props}>
+        <path clipRule="evenodd" fillRule="evenodd" d="M15 3.75a.75.75 0 01.75-.75h4.5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0V5.56l-3.97 3.97a.75.75 0 11-1.06-1.06l3.97-3.97h-2.69a.75.75 0 01-.75-.75zM9.53 14.47A.75.75 0 019.53 15.53L5.56 19.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75v-4.5a.75.75 0 011.5 0v2.69l3.97-3.97a.75.75 0 011.06 0z" />
+      </svg>
+  
+  );
+}
 
 let mainstore = MainStore()
 
-  const RenderItemValue = ({item, ...props})=>{
-
-
+  const RenderItem = ({item, ...props})=>{
     let icon = item.icon && typeof(item.icon) === "object" && item.icon.library === "fa" && <FontAwesomeIcon icon={item.icon.icon} className='mr-1 text-slate-500'/>
+      if( item.type === "boolean"){
+        return (
+          <dd className="text-gray-500 font-medium">{item.value ? "Yes" : "No"}</dd>
+        )
 
-    if( item.type === "boolean"){
-      return (
-        <dd className="text-gray-500 font-medium">{item.value ? "Yes" : "No"}</dd>
-      )
+      }else if( item.type === "link"){
+        return (
+          <a key={item.id} href={item.value} target="_blank" className="rounded-full hover:opacity-75 text-blue-500 hover:text-blue-600">
+            <HeroIcon icon='DocumentTextIcon' className='w-6 h-6'/>
+          </a>
+        )
 
-    }else if( item.type === "link"){
-      return (
-        <a key={item.id} href={item.value} target="_blank" className="rounded-full hover:opacity-75 text-blue-500 hover:text-blue-600">
-          <HeroIcon icon='DocumentTextIcon' className='w-6 h-6'/>
-        </a>
-      )
+      }else if( item.type === "user"){
+        let user = mainstore.user( item.value )
+        if( user === undefined){
+          return <></>
+        }
+        return <EditableUserField 
+                title={item.title} 
+                asList={true} 
+                submitOnEnter={true} 
+                users={user} 
+                compact={props.compact} 
+                editable={props.editing} 
+                showTitles={props.showTitles} 
+                primitive={props.primitive}
+                fieldClassName={props.compact ? "" :'text-end grow'}
+                onSelect={(value)=>{
+                  props.primitive.setParameter(item.key, value.id )
+                }}
+                className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
+              />
 
-    }else if( item.type === "user"){
-      let user = mainstore.user( item.value )
-      return (
-          <img
-            referrerPolicy="no-referrer"
-            className="inline-block h-6 w-6 rounded-full"
-            src={user.avatarUrl}
-            alt={user.name} />
-      )
-
-    }else if( item.type === "contact"){
-        icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> 
-      if( item.autoId !== undefined ){
-        icon = <ContactPopover icon={<UserIcon className='w-5 h-5 pr-0.5 text-blue-200 hover:text-blue-400'/>} contactId={item.autoId}/>
+      }else if( item.type === "contact"){
+          icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> 
+        if( item.autoId !== undefined ){
+          icon = <ContactPopover icon={<UserIcon className='w-5 h-5 pr-0.5 text-blue-200 hover:text-blue-400'/>} contactId={item.autoId}/>
+        }
+        return <EditableContactField 
+          title={item.title} 
+          asList={true} 
+          submitOnEnter={true} 
+          value={item.value} 
+          default={item.default} 
+          icon={icon} 
+          multiple={false}
+          compact={props.compact} 
+          editable={props.editing} 
+          showTitles={props.showTitles} 
+          primitive={props.primitive}
+          fieldClassName={props.compact ? "" :'text-end grow'}
+          onSelect={(value)=>{
+            props.primitive.setParameter("contactId", value.id )
+            return props.primitive.setParameter("contact", value.name )
+          }}
+          className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
+        />
       }
-    }
-    return (
-      <dd className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}>
-        {icon}
-        {item.value || item.default }
-      </dd>
-    )
+      
+      return <EditableTextField 
+        title={item.title} 
+        asList={true} 
+        submitOnEnter={true} 
+        value={item.value} 
+        default={item.default} 
+        icon={icon} 
+        compact={props.compact} 
+        editable={props.editing} 
+        showTitles={props.showTitles} 
+        primitive={props.primitive}
+        fieldClassName={props.compact ? "" :'text-end grow'}
+        callback={(value)=>{
+            return props.primitive.setParameter(item.key, value)
+        }}
+        className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
+      />
+
   }
+
 
 const Resources = function({primitive, ...props}){
   let resources = primitive.resources
@@ -173,21 +226,39 @@ const Banner = function({primitive, ...props}){
   )
 }
 const Parameters = function({primitive, ...props}){
+
+  const [eventTracker, updateForEvent] = React.useReducer( (x)=>x+1, 0)
+  const callbackId = React.useRef(null)
+  React.useEffect(()=>{
+    if( !props.noEvents ){
+      callbackId.current = mainstore.registerCallback(callbackId.current, "parameter_update", updateForEvent, primitive.id )
+      return ()=>{
+        mainstore.deregisterCallback(callbackId.current )
+      }
+    }
+  }, [])
+
+
   let parameters = primitive.metadata?.parameters || undefined
   if( !parameters ){ return <></> }
   let fields = Object.keys(parameters)
   if( props.fields ){
     fields = fields.filter((f)=>props.fields.includes(f))
   }
-  let details = fields.reduce((h, k)=>{
-    h[k] = {...parameters[k], value: primitive.referenceParameters[k], autoId: primitive.referenceParameters[`${k}Id`], key: k}
-    return h
-  }, {})
+  let details = fields.map((k)=>{
+    return {...parameters[k], value: primitive.referenceParameters[k], autoId: primitive.referenceParameters[`${k}Id`], key: k}
+  })
+
+  if( !props.editing ){
+    details = details.filter((item)=>item.value !== undefined || item.default) 
+  }else{
+    details = details.filter((item)=>item.value || !item.extra) 
+  }
+
   return (
-    Object.values(details).filter((item)=>item.value !== undefined || item.default).map((item, idx)=>(
-      <div key={idx} className={`flex justify-between py-3 text-sm place-items-center ${props.className || ''}`}>
-        {(props.showTitles === undefined || props.showTitles === true) && <dt>{item.title}</dt>}
-        <RenderItemValue item={item} secondary={(props.inline || props.showAsSecondary) && idx > 0}/>
+    details.map((item, idx)=>(
+      <div key={idx} className={`flex justify-between text-sm place-items-center ${props.className || ''}`}>
+        <RenderItem primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} secondary={(props.inline || props.showAsSecondary) && idx > 0} editing={props.editing}/>
         {props.inline && <p className='pl-1 text-slate-400'>•</p> }
       </div>
     )))
@@ -276,13 +347,14 @@ const Evidence = function({primitive, ...props}){
 }
 
 const Details = function({primitive, ...props}){
+  const eventTracker = useDataEvent(props.noEvents ? undefined : "set_parameter", primitive.id )
   let metadata = primitive.metadata
   let parameters = primitive.metadata?.parameters || undefined
   if( !parameters ){ return <></> }
   return (
         <Panel {...props} title={props.title || "Details"} hideTitle={props.hideTitle} >
           <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200`}>
-            <Parameters primitive={primitive}/>
+            <Parameters primitive={primitive} editing={props.editing}/>
           </dl>
           {!props.hideFooter && 
             <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
@@ -357,11 +429,6 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   let mainTextSize = props.compact ? 'sm' : 'md' 
   let margin = props.bigMargin ? (ring ? 'px-4 py-6' : 'px-2 py-3') : (ring ? 'px-2 py-3' : 'px-0.5 py-1')
 
-  const [editing, setEditing] = React.useState(false)
-  const editBox = React.useRef()
-  const editAny = React.useRef()
-  const editOld = React.useRef()
-  
   const [eventTracker, updateForEvent] = React.useReducer( (x)=>x+1, 0)
   const callbackId = React.useRef(null)
   React.useEffect(()=>{
@@ -395,74 +462,27 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     ring = false
   }
 
-  React.useEffect(()=>{
-    if( editBox.current && editing){
-      editBox.current.focus()
-      //editBox.current.select()
-
-      const range = document.createRange();
-      range.selectNodeContents(editBox.current );
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-
-      editAny.current = false
-      editOld.current = editBox.current.textContent.trim()
-    }
-  }, [editing])
-
-  const cancelEdit = ()=>{
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      setEditing(false)
+  const updateTitle = (newTitle )=>{
+    primitive.title = newTitle
+    console.log(`TITLE UPDAATED`)
+    return true
   }
-
-  const keyHandler = (e)=>{
-    if(e.key === "Enter"){
-      if( !editAny.current ){
-        e.preventDefault()
-        cancelEdit()
-        return
-      }
-    }
-    if( e.key === "Escape"){
-      cancelEdit()
-      return
-    }
-
-    editAny.current = true
-
-  }
-  const toggleEditing = ()=>{
-    if( editing ){
-      let newTitle = editBox.current.textContent.trim()
-      if( editOld.current !== newTitle ){
-        console.log(`will update >${newTitle}`)
-        primitive.title = newTitle
-      }else{
-        console.log(`no changes`)
-      }      
-      setEditing(false)
-    }else{
-      setEditing(true)
-    }
-  }
+  let editing = false
 
   let content = fields ? undefined : 
       <>
-        <p 
-          ref={editBox} 
-          contentEditable={editing}
-          onKeyDown={keyHandler}
-          onBlur={toggleEditing}
-          suppressContentEditableWarning={true}
-          className={`text-slate-700 text-${mainTextSize} ${editing ? "min-h-[2em] w-full bg-gray-50 focus:ring-blue-500" : ""}`}>
-            {primitive.title}
-        </p>
+        <EditableTextField 
+          callback={updateTitle}
+          editable={props.showEdit}
+          value = {primitive.title}
+          className='w-full'
+          compact={true}
+          fieldClassName={`grow text-slate-700 text-${mainTextSize}`}>
+        </EditableTextField>
         {(!props.compact && (props.showLink || props.showEdit)) &&
           <button
               type="button"
-              onClick={ props.showEdit ? ()=>toggleEditing() : undefined}
+              onClick={ props.showEdit ? props.toggleEditing : undefined}
               className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
               {props.showLink && !props.showEdit && <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" /></Link>}
@@ -493,25 +513,44 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
             </>
   }
 
+  const handleEnter = (e)=>{
+    if( e.key === "Enter"){
+      e.preventDefault();
+      e.stopPropagation()
+      props.onEnter()
+    }
+  }
+
   return (
     <div 
         onClick={props.onClick }
+        onKeyDown={props.onEnter ? handleEnter : undefined}
+        tabIndex='0'
         className={
         [
-          "group",
+          "group relative",
           props.bg ? props.bg : 'bg-white',
           margin,
           props.flatBorder ? '' : 'rounded-lg',
-          ring ? `hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
+          ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
           props.border ? "shadow border-[1px]" : '',
           props.inline ? "flex space-x-2" : "",
           props.dragShadow ? "shadow-xl rotate-[-5deg]" : "",
           className].filter((d)=>d).join(' ')
         }>
+        {props.showExpand && 
+
+          <div 
+            onClick={props.onEnter}
+            className='absolute flex place-items-center justify-center right-0 top-0 mr-0.5 mt-0.5 w-5 h-5 text-slate-300 invisible group-hover:visible hover:text-blue-500 rounded-lg hover:bg-gray-100 active:bg-blue-500 active:text-gray-100'>
+            <ExpandArrow 
+              className='w-4 h-4'
+            />
+          </div>}
         {header}
       {fields &&  
         <div className={props.inline ? `flex items-start justify-between space-x-1` : ``}>
-          <Parameters primitive={primitive} inline={props.inline} showAsSecondary={props.showAsSecondary} asMain={true} fields={fields} showTitles={false} className='!py-1'/>
+          <Parameters primitive={primitive} noEvents={props.noEvents} inline={props.inline} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={fields} showTitles={false} className='!py-1'/>
         </div>
       }
 
