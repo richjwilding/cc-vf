@@ -1,18 +1,51 @@
 import React, { useEffect } from 'react';
 import ContactPicker from './ContactPicker';
+import {ContactPopover} from './ContactCard';
 import EditableTextField from './EditableTextField';
 import Select, { components } from "react-select";
 import MainStore from './MainStore';
   
-export default function EditableUserField ({users, ...props}){
+export default function EditablePersonField ({...props}){
   const [open, setOpen] = React.useState(false)
-  const [editing, setEditing] = React.useState(false)
+  const [editing, setEditing] = React.useState(props.editing)
+  const startValues = ()=>[props.value].flat().filter((d)=>d).map((d)=>({value: d.id, label: d.name, avatarUrl: d.avatarUrl}))
+  const [value, setValue] = React.useState( startValues() );
   const field = React.useRef()
-  const parentRow = React.useRef()
+
+  React.useEffect(()=>{
+    const localEditing = props.editing === undefined ? editing : props.editing 
+    if( editing !== localEditing){
+        setEditing(localEditing)
+    }
+    if( localEditing ){
+      field.current.focus()
+    }
+  }, [props.editing, editing])
+
+  const BadgeComponent = (props) => { 
+    const value = props.data
+
+    let img = <img referrerPolicy="no-referrer" className="mr-1 inline-block h-6 w-6 rounded-full" src={value.avatarUrl}/>
+
+    if( !editing && props.mode !== "user"){
+      img = <ContactPopover icon={img} contactId={value.value}/>
+    }
+
+    return ( <div className='flex place-items-center'>
+      {img} 
+      <p className={`text-gray-800 text-md ${editing ? "" : "pr-2"}`}>{value.label}</p>
+    </div> ); };
+
+  if( props.compact ){
+    return <BadgeComponent data={value[0]}/>
+  }
+  
+  const stopEdit = ()=>props.stopEditing(field?.current?.controlRef.parentElement) || (()=>setEditing(false))
 
   const trigger = ()=>{
     setOpen(true)
   }
+
 
   const handleClose = ()=>{
     setOpen(false)
@@ -24,7 +57,6 @@ export default function EditableUserField ({users, ...props}){
   const addPerson = (user) =>{
     if(value.find((d)=>d.value === user.id )){return}
     if( props.mutliple ){
-
       setValue(
         [...value,
           {value:user.id, label: user.name, avatarUrl: user.avatarUrl}]
@@ -36,56 +68,34 @@ export default function EditableUserField ({users, ...props}){
     }
   }
 
-  const options = MainStore().users().map((user)=>({value:user.id, label: user.name, avatarUrl: user.avatarUrl}))
-  const startValues = ()=>[users].flat().filter((d)=>d).map((d)=>options.find((o)=>o.value === d.id))
-  const [value, setValue] = React.useState( startValues() );
-  console.log(startValues())
-
   const handleChange = value => {
       console.log("value:", value);
       setValue(value);
   };
 
-  const listKeyHandler = (e)=>{
-    if(e.key === "Enter"){
-        e.preventDefault()
-        setEditing( !editing )
-        setTimeout(() => {
-          field.current && field.current.inputRef?.focus()
-        }, 50);
-    }
-      if (e.key === 'ArrowDown') {
-        let cn = e.currentTarget.parentElement.nextSibling && e.currentTarget.parentElement.nextSibling.childNodes
-        if( cn && cn[0]){
-          cn[0].focus()
-        }
-    }
-    if (e.key === 'ArrowUp') {
-        let cn = e.currentTarget.parentElement.previousSibling && e.currentTarget.parentElement.previousSibling.childNodes
-        if( cn && cn[0]){
-          cn[0].focus()
-        }
-    }
-  }
   const mainKeyHandler = (e)=>{
+    if(!editing ){
+        e.preventDefault()
+        e.stopPropagation()
+        return
+
+    }
       if(["ArrowUp", "ArrowDown"].includes(e.key) ){
         e.preventDefault()
         e.stopPropagation()
         return
       }
       if( e.key === "Escape"){
-        setEditing(false)
         setValue( startValues() )
-        parentRow.current.focus()
+        field.current.blur()
         return
       }
       if( e.key === "Enter"){
-        setEditing(false)
-        parentRow.current.focus()
-
-        const out = value.map((v)=>({id: v.value, name: v.name}))
-
+        const out = value.map((v)=>({id: v.value, name: v.label}))
+        e.preventDefault()
+        e.stopPropagation()
         props.onSelect( props.muliple ? out : out[0])
+        field.current.blur()
         return
       }
       if(["Tab", "ArrowUp", "Backspace", "ArrowDown", "ArrowRight", "ArrowLeft" ,"Shift","Meta","Alt","Control"].includes(e.key) ){
@@ -95,21 +105,15 @@ export default function EditableUserField ({users, ...props}){
   }
   const blur = ()=>{
       if( !open ){
-        setEditing(false)
+        stopEdit()
       }
   }
 
-  const BadgeComponent = (props) => { 
-    const value = props.data
-    return ( <div className='flex place-items-center'> 
-      <img referrerPolicy="no-referrer" className="mr-1 inline-block h-6 w-6 rounded-full" src={value.avatarUrl}/>
-      <p className={`text-gray-800 text-md ${editing ? "" : "pr-2"}`}>{value.label}</p>
-    </div> ); };
 
 
   const classes = {
-    multiValue: (state) => "flex border-2 border-gray-200 bg-white px-1 p-px mb-0.5 rounded-2xl ml-1 place-items-center",
-    container: (state) => state.isFocused ? "flex w-full bg-gray-50 ring-1 ring-blue-500 " : "flex w-full",
+    multiValue: (state) => `flex ${editing ? "border-gray-200" : "border-transparent"} border-2 bg-white px-1 p-px mb-0.5 rounded-2xl ml-1 place-items-center`,
+    container: (state) => state.isFocused && editing ? "flex w-full bg-gray-50 ring-1 ring-blue-500 " : "flex w-full",
     control: (state) => editing ? "flex w-full" : "flex w-full ",
     valueContainer: (state) => "flex flex-wrap justify-end px-0 w-full",
     multiValueRemove: (state) => `flex w-6 h-6 border-[4px] rounded-2xl w-3 h-3 place-items-center justify-center bg-gray-200 border-white hover:bg-gray-400 hover:text-white`,
@@ -123,7 +127,7 @@ export default function EditableUserField ({users, ...props}){
 
   const style = {
     multiValue:()=>{{}},
-    constainer:()=>{{}},
+    container:()=>{{}},
     control:()=>{{}},
     valueContainer:()=>{{}},
     multiValueRemove:()=>{{}},
@@ -131,22 +135,11 @@ export default function EditableUserField ({users, ...props}){
     indicatorsContainer:()=>{},
     dropdownIndicator:()=>{},
   }
+
         
     return (<>
-      {open && <ContactPicker setOpen={handleClose} callback={addPerson} mode='user'/>}
-      <div 
-          tabIndex={props.editable ? 0 : undefined}
-          ref={parentRow}
-          onKeyDown={props.asList ? listKeyHandler : undefined}
-          className={[
-            props.compact ? "" : "flex px-1 py-1 w-full ",
-            props.editable ? "hover:bg-gray-50 hover:outline-indigo-500" : "",
-            props.className || ""
-          ].join(" ")}
-        >
-        {(props.showTitles === undefined || props.showTitles === true) && <p className='mr-2 grow-0'>{props.title}</p>}
+      {open && <ContactPicker allowNew={true} setOpen={handleClose} callback={addPerson} mode={props.mode}/>}
         <Select 
-              tabIndex={editing ? 1 : -1}
               components={components}
                 ref={field}
                 classNames={classes}
@@ -163,7 +156,5 @@ export default function EditableUserField ({users, ...props}){
                 onBlur={blur}
                 options={[]} 
               />
-
-      </div>
       </>)    
 }

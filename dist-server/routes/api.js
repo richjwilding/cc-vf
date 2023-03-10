@@ -191,44 +191,6 @@ router.get('/primitives', /*#__PURE__*/function () {
     return _ref6.apply(this, arguments);
   };
 }());
-/*router.get('/migrate', async function(req, res, next) {
-    const prims = await Primitive.find({})
-    const pm = prims.reduce((o,d)=>{o[d.plainId]=d._id.toHexString(); return o},{})
-
-    const remap = ((node)=>{
-        if( node instanceof Array){
-            return node.map((d)=>{
-                if( d instanceof Object ){
-                    return remap(d)
-                }
-                return pm[d]
-            })
-        }else{
-            return Object.keys(node).reduce((o, k)=>{
-                o[k] = remap(node[k])
-                return o
-            }, {})
-        }
-    })
-
-    prims.forEach((p)=>{
-        if( p.primitives ){
-
-            console.log(` Starting --- ${p.plainId}`)
-            console.log( p.primitives )
-            let remapped = remap(p.primitives)
-            console.log( remapped )
-
-            p.primitives = remapped
-            p.markModified('primitives')
-            p.save()
-        }
-    })
-
-    res.json(pm)
-
-})*/
-
 router.post('/set_field', /*#__PURE__*/function () {
   var _ref7 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee7(req, res, next) {
     var data;
@@ -351,9 +313,9 @@ router.post('/move_relationship', /*#__PURE__*/function () {
     return _ref9.apply(this, arguments);
   };
 }());
-router.post('/add_primitive', /*#__PURE__*/function () {
+router.post('/add_contact', /*#__PURE__*/function () {
   var _ref10 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee10(req, res, next) {
-    var data, newPrimitive, newId, paths;
+    var data, newPrimitive, newId;
     return _regeneratorRuntime().wrap(function _callee10$(_context10) {
       while (1) switch (_context10.prev = _context10.next) {
         case 0:
@@ -361,9 +323,44 @@ router.post('/add_primitive', /*#__PURE__*/function () {
           console.log(data);
           _context10.prev = 2;
           _context10.next = 5;
-          return _Primitive["default"].create(data.data);
+          return _Contact["default"].create(data.data);
         case 5:
           newPrimitive = _context10.sent;
+          newId = newPrimitive._id.toString();
+          res.json({
+            success: true,
+            id: newId
+          });
+          _context10.next = 13;
+          break;
+        case 10:
+          _context10.prev = 10;
+          _context10.t0 = _context10["catch"](2);
+          res.json(400, {
+            error: _context10.t0.message
+          });
+        case 13:
+        case "end":
+          return _context10.stop();
+      }
+    }, _callee10, null, [[2, 10]]);
+  }));
+  return function (_x28, _x29, _x30) {
+    return _ref10.apply(this, arguments);
+  };
+}());
+router.post('/add_primitive', /*#__PURE__*/function () {
+  var _ref11 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee11(req, res, next) {
+    var data, newPrimitive, newId, paths;
+    return _regeneratorRuntime().wrap(function _callee11$(_context11) {
+      while (1) switch (_context11.prev = _context11.next) {
+        case 0:
+          data = req.body;
+          _context11.prev = 1;
+          _context11.next = 4;
+          return _Primitive["default"].create(data.data);
+        case 4:
+          newPrimitive = _context11.sent;
           newId = newPrimitive._id.toString();
           paths = data.paths.forEach(function (pathObj) {
             var path = flattenPath(pathObj);
@@ -385,22 +382,22 @@ router.post('/add_primitive', /*#__PURE__*/function () {
             success: true,
             id: newId
           });
-          _context10.next = 14;
+          _context11.next = 13;
           break;
-        case 11:
-          _context10.prev = 11;
-          _context10.t0 = _context10["catch"](2);
+        case 10:
+          _context11.prev = 10;
+          _context11.t0 = _context11["catch"](1);
           res.json(400, {
-            error: _context10.t0.message
+            error: _context11.t0.message
           });
-        case 14:
+        case 13:
         case "end":
-          return _context10.stop();
+          return _context11.stop();
       }
-    }, _callee10, null, [[2, 11]]);
+    }, _callee11, null, [[1, 10]]);
   }));
-  return function (_x28, _x29, _x30) {
-    return _ref10.apply(this, arguments);
+  return function (_x31, _x32, _x33) {
+    return _ref11.apply(this, arguments);
   };
 }());
 var flattenPath = function flattenPath(path) {
@@ -418,10 +415,10 @@ var flattenPath = function flattenPath(path) {
   return nest(path).join(".");
 };
 router.post('/set_relationship', /*#__PURE__*/function () {
-  var _ref11 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee11(req, res, next) {
+  var _ref12 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee12(req, res, next) {
     var data, path;
-    return _regeneratorRuntime().wrap(function _callee11$(_context11) {
-      while (1) switch (_context11.prev = _context11.next) {
+    return _regeneratorRuntime().wrap(function _callee12$(_context12) {
+      while (1) switch (_context12.prev = _context12.next) {
         case 0:
           data = req.body;
           try {
@@ -471,12 +468,12 @@ router.post('/set_relationship', /*#__PURE__*/function () {
           }
         case 2:
         case "end":
-          return _context11.stop();
+          return _context12.stop();
       }
-    }, _callee11);
+    }, _callee12);
   }));
-  return function (_x31, _x32, _x33) {
-    return _ref11.apply(this, arguments);
+  return function (_x34, _x35, _x36) {
+    return _ref12.apply(this, arguments);
   };
 }());
 var _default = router;

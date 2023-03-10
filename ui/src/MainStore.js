@@ -27,6 +27,36 @@ function MainStore (prims){
             }
         },
         controller: {
+            async createContact(object){
+                if( !object.name ||  object.name.trim() === "" ){
+                    return undefined
+                }
+                const data = {
+                    data: object,
+                }
+                let newId
+
+                await fetch("/api/add_contact",{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(res => res.json())
+                .then(
+                  (result) => {
+                    if( obj.ajaxResponseHandler( result )){
+                        console.log(result)
+                        newId = result.id
+                    }
+                  },
+                  (error) => {
+                    console.warn(error)
+                  }
+                )
+               return newId 
+            },
             async createPrimitive(object, parent, paths){
                 const data = {
                     parent: parent.id,
@@ -383,7 +413,15 @@ function MainStore (prims){
             return this.data.contacts
         },
         contact:function(id){
-            return this.contacts().find((d)=>d.id === id)
+            if( id === undefined || id === null){return undefined}
+            let out = this.contacts().find((d)=>d.id === id) 
+            if( out === undefined){
+                out = this.contacts().find((d)=>d.plainId === id)
+                if( out ){
+                    console.log(`Found contact by old id`)
+                }
+            }
+            return out
         },
         user:function(id){
             return this.users().find((d)=>d.id === id)
@@ -428,6 +466,13 @@ function MainStore (prims){
                 e.callback(items, e)
             })
 
+        },
+        createContact:async function(data){
+            const newId = await this.controller.createContact(data)
+            data.id = newId
+            this.data.contacts = this.data.contacts.filter((d)=>d.id !== newId)
+            this.data.contacts.push(data)
+            return data
         },
         createPrimitive:function( options ){
             let {title = "New item", type = "result", state = undefined, parent = undefined, parentPath = undefined, categoryId = undefined } = options
@@ -478,6 +523,22 @@ function MainStore (prims){
     }
 
     obj.structure = PrimitiveParser(obj)
+    obj.referenceParametersParser = {
+        set(d, prop, value, receiver) {
+            if( prop in d){
+                d[prop] = value
+                return receiver[prop]
+            }
+        },
+        get(d, prop, receiver) {
+            if( prop === "contact" && ("contactId" in d)){
+                return obj.contact(d.contactId)?.name
+            }
+            if( prop in d){
+                return d[prop]
+            }
+        }
+    }
 
     if( !prims ){
         instance = obj
@@ -516,7 +577,14 @@ function MainStore (prims){
                         if( !metadata ){
                             return false
                         }
-                        if( ! (parameterName in metadata.parameters) ){
+                        if( !(parameterName in metadata.parameters) ){
+                            if( parameterName.slice(-2) === "Id"){
+                                if( (parameterName.slice(0, -2) in metadata.parameters) ){
+                                    if( value !== undefined){
+                                        return true
+                                    }
+                                }
+                            }
                             return false
                         }
                         const pConfig = metadata.parameters[ parameterName ]
@@ -537,7 +605,11 @@ function MainStore (prims){
                     }
                 }
                 if( prop === "referenceParameters"){
-                    return d.referenceParameters || {}
+                    if( !d._referenceParameters){
+                        d._referenceParameters = d.referenceParameters || {}
+                        d.referenceParameters = new Proxy( d._referenceParameters, obj.referenceParametersParser)
+                    }
+                    return d.referenceParameters
                 }
                 if( prop === "addRelationship"){
                     return function( target, path, skip = false ){
@@ -711,23 +783,34 @@ function MainStore (prims){
 
     obj.loadData = async function(){
         return new Promise((resolve)=>{
+            const status = fetch('/api/status').then(response => response.json())
             const users = fetch('/api/users').then(response => response.json())
             const companies = fetch('/api/companies').then(response => response.json())
             const contacts = fetch('/api/contacts').then(response => response.json())
             const categories = fetch('/api/categories').then(response => response.json())
             const primitives = fetch('/api/primitives').then(response => response.json())
             
-            Promise.all([users,companies,contacts,categories,primitives]).then(([users, companies,contacts, categories,primitives])=>{
+            Promise.all([status, users,companies,contacts,categories,primitives]).then(([status, users, companies,contacts, categories,primitives])=>{
                 obj.data.users = users
                 obj.data.companies = companies
-                obj.data.contacts = contacts
+                obj.data.contacts = contacts.map((d)=>{d.id = d.id !== undefined ? d.id : d._id; return d} )
                 obj.data.categories = categories
                 obj.data.primitives = primitives
 
-                obj.activeUser = obj.data.users[0]
+                obj.activeUser = status.user
+                obj.env = status.env
                 resolve(true)
             })
         })
+    }
+    obj.refreshUser = async function(){
+        const status = await fetch('/api/refresh')
+            .then(response => response.json())
+            .then((response)=>{
+            console.log(`user refersh`)
+            console.log(response)
+                obj.activeUser = response.user
+            })
     }
     
     return obj

@@ -65,44 +65,6 @@ router.get('/primitives', async function(req, res, next) {
       }
 
 })
-/*router.get('/migrate', async function(req, res, next) {
-    const prims = await Primitive.find({})
-    const pm = prims.reduce((o,d)=>{o[d.plainId]=d._id.toHexString(); return o},{})
-
-    const remap = ((node)=>{
-        if( node instanceof Array){
-            return node.map((d)=>{
-                if( d instanceof Object ){
-                    return remap(d)
-                }
-                return pm[d]
-            })
-        }else{
-            return Object.keys(node).reduce((o, k)=>{
-                o[k] = remap(node[k])
-                return o
-            }, {})
-        }
-    })
-
-    prims.forEach((p)=>{
-        if( p.primitives ){
-
-            console.log(` Starting --- ${p.plainId}`)
-            console.log( p.primitives )
-            let remapped = remap(p.primitives)
-            console.log( remapped )
-
-            p.primitives = remapped
-            p.markModified('primitives')
-            p.save()
-        }
-    })
-
-    res.json(pm)
-
-})*/
-
 router.post('/set_field', async function(req, res, next) {
     let data = req.body
 
@@ -168,9 +130,20 @@ router.post('/move_relationship', async function(req, res, next) {
         res.json(400, {error: err.message})
     }
 })
-router.post('/add_primitive', async function(req, res, next) {
+router.post('/add_contact', async function(req, res, next) {
     let data = req.body
     console.log(data)
+
+    try {
+        let newPrimitive = await Contact.create(data.data)
+        const newId = newPrimitive._id.toString()
+        res.json({success: true, id: newId})
+      } catch (err) {
+        res.json(400, {error: err.message})
+    }
+})
+router.post('/add_primitive', async function(req, res, next) {
+    let data = req.body
 
     try {
         let newPrimitive = await Primitive.create(data.data)

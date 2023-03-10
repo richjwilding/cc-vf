@@ -102,7 +102,7 @@ export function PrimitivePopup({contextOf, selected, setSelected, ...props}){
                                 </Tab.List>
                                 <Tab.Panels>
                                     <Tab.Panel>
-                                        <PrimitiveCard.EvidenceList relationshipTo={contextOf} relationshipMode="presence" primitive={selected} hideTitle={true} className='w-[50vw] max-h-[40vh] h-[40vh]' frameClassName='sm:columns-2 md:columns-3 xl:columns-4'/>
+                                        <PrimitiveCard.EvidenceList relationshipTo={contextOf} relationshipMode="presence" primitive={selected} hideTitle={true} className='w-full max-w-[80vw] lg:max-w-[70vw] max-h-[40vh] h-[40vh]' frameClassName='sm:columns-2 md:columns-3 xl:columns-4'/>
                                     </Tab.Panel>
                                     <Tab.Panel>
                                         <PrimitiveCard.Details primitive={selected} hideTitle={true} editing={props.editing} className='w-full max-w-full md:w-[48rem]' />

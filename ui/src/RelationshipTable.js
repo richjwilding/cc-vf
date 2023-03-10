@@ -16,15 +16,14 @@ export function RelationshipTable({relationships, ...props}){
         let sorted = list.sort((a,b)=>{
 
             if( sortColumn == -1){
+              let va =  a.item.id.toString()
+              let vb =  b.item.id.toString()
                 if(props.fields)
                 {
-                    let va = a.item.referenceParameters[props.fields[0]]
-                    let vb = b.item.referenceParameters[props.fields[0]]
-                    if( va && vb ){
-                        return va.localeCompare(vb)
-                    }
+                  va = a.item.referenceParameters[props.fields[0]] || va
+                  vb = b.item.referenceParameters[props.fields[0]] || vb
                 }
-                return a.item.id - b.item.id
+                return va.localeCompare(vb)
             }
             return (b.relIdx == sortColumn) - (a.relIdx == sortColumn) 
         })

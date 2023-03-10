@@ -132,6 +132,7 @@ const SortableItem = function(props) {
             compact={true} 
             flatBorder={true}
             showExpand={true}
+            showAsSecondary={true}
             fields={['contact','company']} 
             className='border-b-[1px] border-gray-200 '
             onEnter={onEnter ? ()=>onEnter({primitive: primitive, plainId: selectId}) : undefined}

@@ -4,17 +4,13 @@ import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useParams } from "react-router-dom";
 import { ComponentView } from './ComponentView';
 import { Sidebar } from './Sidebar';
-
 import { library } from '@fortawesome/fontawesome-svg-core'
 import { fas } from '@fortawesome/free-solid-svg-icons'
 import { faLinkedin } from '@fortawesome/free-brands-svg-icons'
 import { PrimitivePage } from './PrimitivePage';
-
-
 import MainStoreTests from './mainstore_tests';
 
 library.add(fas, faLinkedin)
-
 
 
 

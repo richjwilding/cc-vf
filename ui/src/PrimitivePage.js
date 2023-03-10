@@ -143,7 +143,7 @@ export function PrimitivePage({primitive, ...props}) {
                     <PrimitiveCard primitive={primitive} showEdit={true} hideTitle={true} major={true}/>
                   </div>
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 md:col-span-3">
-                    <PrimitiveCard.Details primitive={primitive} title={`${primitive.displayType} details`} hideFooter={true}/>
+                    <PrimitiveCard.Details allowEdit={true} primitive={primitive} title={`${primitive.displayType} details`} hideFooter={true}/>
                   </div>
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 md:col-span-2">
                     { primitive.isTask && <PrimitiveCard.Users primitive={primitive} title={`Team members`} asTable={true}/>}

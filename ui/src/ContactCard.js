@@ -1,9 +1,10 @@
 import { EnvelopeIcon, PhoneIcon } from '@heroicons/react/20/solid'
 import { Popover } from '@headlessui/react'
-import { useState, Fragment } from 'react'
+import { useState, Fragment, useEffect } from 'react'
 import { usePopper } from 'react-popper'
 import MainStore from './MainStore';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import {UserIcon} from '@heroicons/react/20/solid';
 
 export function ContactPopover({contact, ...props}) {
     const [referenceElement, setReferenceElement] = useState(null);
@@ -57,6 +58,18 @@ export function ContactPopover({contact, ...props}) {
 export default function ContactCard({contact, contactId, context, ...props}) {
     contact = contact || MainStore().contact(contactId)
 
+    const value = contact
+
+    const select = (e)=>{
+        e.target.select()
+    }
+    const updateField = (e, field)=>{
+        let newValue = e.target.value
+        props.updateContact({
+            ...value,
+            [field]: newValue
+        })
+    }
 
     const listToPills = ( list, title )=> {
         if(!list){return <></>}
@@ -74,18 +87,40 @@ export default function ContactCard({contact, contactId, context, ...props}) {
 
   return (
         <>
-            <img className="mx-auto h-28 w-28 flex-shrink-0 rounded-full mb-2 border-4 border-white" src={contact.avatarUrl} alt="" />
+            {value.avatarUrl && <img className="mx-auto h-28 w-28 flex-shrink-0 rounded-full mb-2 border-4 border-white" src={value.avatarUrl} alt="" />}
+            {!value.avatarUrl && <UserIcon className="border-slate-500 text-slate-500 mx-auto h-28 w-28 flex-shrink-0 rounded-full mb-2 border-4 border-white"/>}
             <div className='w-full place-items-center text-center'>
-                <h3 className="text-lg font-medium text-gray-900">
-                    {contact.name}
-                    {contact.profile && <a href={contact.profile} onClick={(e)=>e.stopPropagation()} target="_blank" className="rounded-full hover:opacity-75 text-slate-500 hover:text-blue-600"><FontAwesomeIcon icon="fa-brands fa-linkedin" className='ml-1'/></a>}
+                {!props.editable && 
+                <h3 className={`text-lg font-medium ${props.editable && !value.name ? 'text-gray-500' : 'text-gray-900'}`}>
+                    {value.name ? value.name : "Name"}
+                    {value.profile && <a href={value.profile} onClick={(e)=>e.stopPropagation()} target="_blank" className="rounded-full hover:opacity-75 text-slate-500 hover:text-blue-600"><FontAwesomeIcon icon="fa-brands fa-linkedin" className='ml-1'/></a>}
                 </h3>
-                {contact.title && <p className="text-sm text-gray-500 justify-center">{contact.title}</p>}
-                {listToPills(contact.seniority)}
+                }
+                {props.editable && 
+                <input 
+                        onFocus={select}
+                        onChange={(e)=>updateField(e, "name")}
+                        className={`text-lg font-medium text-gray-900`}
+                        value = {value.name}
+                        placeholder = "Name"
+                    >
+                </input>
+                }
+                {!props.editable && value.title && <p className="text-sm text-gray-500 justify-center">{value.title}</p>}
+                {props.editable && 
+                    <input 
+                        onFocus={select}
+                        onChange={(e)=>updateField(e, "title")}
+                        className={`text-sm text-gray-900 justify-center`}
+                        value = {value.title}
+                        placeholder = "Title"
+                        >
+                    </input>}
+                {listToPills(value.seniority)}
             </div>
           <div className="px-3 justify-center pt-4 pb-2">
-            {listToPills(contact.expertise, "Expertise")}
-            {listToPills(contact.domains, "Domains")}
+            {listToPills(value.expertise, "Expertise")}
+            {listToPills(value.domains, "Domains")}
         </div>
         </>
 

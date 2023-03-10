@@ -32,7 +32,7 @@ export function Sidebar({primitive, ...props}) {
             className={`${props.overlay ? "absolute right-0 z-10 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen`}>
         <div className='min-w-max'>
         <div className='max-w-[24rem] sm:max-w-[28rem]'>
-            <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky top-0 bg-white">
+            <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky z-10 top-0 bg-white">
                 <div className="flex items-start justify-between space-x-3">
                     <div className='flex place-items-center'>
                         <HeroIcon icon={metadata.icon} className='w-20 h-20'/>

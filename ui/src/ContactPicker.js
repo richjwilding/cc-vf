@@ -15,6 +15,8 @@ function classNames(...classes) {
 export default function ContactPicker({mode, ...props}) {
   const [query, setQuery] = useState(props.startText || "")
   const [open, setOpen] = useState(true)
+  const contactFromQuery =() => query !== '' ? {name: query.split(" ").map((p)=>p ? (p[0].toUpperCase() + p.slice(1)) : p).join(" ")} : undefined
+  const [newContact, setNewContact] = useState(contactFromQuery())
   const inputbox = useRef()
 
   const people = useMemo(()=>mode === "user" ? MainStore().users() : MainStore().contacts(), [])
@@ -40,6 +42,10 @@ export default function ContactPicker({mode, ...props}) {
             setOpen(false)
         }
     }
+  
+    useEffect(()=>{
+      setNewContact( contactFromQuery )
+    }, [query])
 
   return (
     <Transition.Root show={props.setOpen ? true : open} as={Fragment} afterLeave={() => setQuery('')} appear>
@@ -85,7 +91,7 @@ export default function ContactPicker({mode, ...props}) {
                       />
                     </div>
 
-                    {(query === '' || filteredPeople.length > 0) && (
+                    {((query === '' || filteredPeople.length > 0) || props.allowNew) && (
                       <Combobox.Options as="div" static hold className="flex divide-x divide-gray-100">
                         <div
                           className={classNames(
@@ -139,10 +145,27 @@ export default function ContactPicker({mode, ...props}) {
                             </div>
                           </div>
                         )}
+                        {!activeOption && props.allowNew && newContact && (
+                          <div className="hidden h-96 w-1/2 flex-none flex-col overflow-y-auto sm:flex">
+                            <div className="flex flex-col py-2 px-6 border-t-[1px] border-gray-100 grow overflow-y-scroll">
+                                <ContactCard contact={newContact} editable={true} updateContact={setNewContact}/>
+                            </div>
+                            <div className="flex flex-auto p-6 border-t-[1px] border-gray-100 grow-0 shrink-0">
+                              <button
+                                type="button"
+                                disabled = {!newContact.name || newContact.name.trim === ""}
+                                onClick={()=>selected(newContact)}
+                                className="w-full rounded-md bg-indigo-600 py-2 px-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:bg-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                              >
+                                Create new contact
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </Combobox.Options>
                     )}
 
-                    {query !== '' && filteredPeople.length === 0 && (
+                    {query !== '' && filteredPeople.length === 0 && !props.allowNew  && 
                       <div className="py-14 px-6 text-center text-sm sm:px-14">
                         <UsersIcon className="mx-auto h-6 w-6 text-gray-400" aria-hidden="true" />
                         <p className="mt-4 font-semibold text-gray-900">No contacts found</p>
@@ -150,7 +173,7 @@ export default function ContactPicker({mode, ...props}) {
                           We couldn’t find anything with that term. Please try again.
                         </p>
                       </div>
-                    )}
+                    }
                   </>
                 )}
               </Combobox>

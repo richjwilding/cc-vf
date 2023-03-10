@@ -10,6 +10,10 @@ import bodyParser from 'body-parser'
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import * as dotenv from 'dotenv' 
 import mongoose from 'mongoose';
+import User from './model/User';
+import moment from 'moment';
+import * as refresh from 'passport-oauth2-refresh';
+
 dotenv.config()
 
 
@@ -24,18 +28,29 @@ passport.deserializeUser(function(user, done) {
         done(null, user);
 });
 
-console.log(`hello ${process.env.GOOGLE_CLIENT_ID}`)
-
-passport.use(new GoogleStrategy({
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret:process.env.GOOGLE_SECRET,
-        callbackURL: process.env.GOOGLE_CALLBACK,
-        passReqToCallback   : true
-    },
-    function(request, accessToken, refreshToken, profile, done) {
-            return done(null, profile);
+const strategy = new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret:process.env.GOOGLE_SECRET,
+    callbackURL: process.env.GOOGLE_CALLBACK,
+    passReqToCallback   : true
+},
+function(request, accessToken, refreshToken, params, profile, done) {
+    const expiry_date = moment().add(params.expires_in, "s").format("X");
+    
+    console.log( expiry_date )
+    const user = {
+        email: profile.emails[0].value,
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        expiry_date: expiry_date
     }
-));
+    
+    return done(null, user);
+}
+)
+
+passport.use(strategy);
+refresh.use(strategy);
 
 var app = express();
 
@@ -72,18 +87,13 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '../public')));
 
-app.get('/api/status', (req, res) => {
-    if (req.user) {
-        res.status(200).json( {logged_in: true})
-    } else {
-        res.status(200).json( {logged_in: false})
-    }
-})
 
 app.get('/google/login',
   passport.authenticate('google', {
-          scope:
-              ['email', 'profile']
+          scope: ['email', 'profile', 'https://www.googleapis.com/auth/drive'],
+            accessType: 'offline',
+            prompt: 'consent',
+            //prompt: 'select_account',
       }
   ));
 app.get('/google/callback',
@@ -96,10 +106,56 @@ app.get('/google/callback',
   }
 );
 
+var checkToken = async (req, res, next) => {
+    // check for user
+    if (!req.user) {
+        return next();
+    }
+    let user = req.user
 
-var ensureAuthenticated = function(req, res, next) {
+    var send401Response = function() {
+        return res.status(401).end();
+      };
+      
+    // subtract current time from stored expiry_date and see if less than 5 minutes (300s) remain
+    if (moment().subtract(user.expiry_date, "s").format("X") > -300) {
+        console.log(`NEED TO REFRESH with ${user.refreshToken}`)
+
+        await refresh.requestNewAccessToken('google', user.refreshToken, function(err, accessToken, refreshToken) {
+            if (err || !accessToken){
+                console.log(err)
+                return next(err);
+            } 
+            req.user.accessToken = accessToken
+            req.user.expiry_date = moment().add( 1000 * 60 * 60 * 24 * 7).format("X")
+            next();
+          });
+    }else{
+        next()
+    }
+  };
+  
+app.use(checkToken);
+
+app.get('/api/status', (req, res) => {
+    if (req.user) {
+        res.status(200).json( {
+            logged_in: true, 
+            user: req.user,
+            env:{
+                GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+                GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID
+            }            
+        })
+    } else {
+        res.status(200).json( {logged_in: false})
+    }
+})
+
+var ensureAuthenticated = async function(req, res, next) {
     if (req.isAuthenticated()){
-        if( [ 'rich@co-created.com','jason@co-created.com','daniel@co-created.com','stacey@co-created.com','ron@co-created.com'].includes( req.user.emails[0].value) ){
+        let user = await User.find({email: req.user.email})
+        if( user ){
             return next();
         }
         res.redirect('/google/login')
@@ -124,6 +180,27 @@ app.get("/google/logout", (req, res) => {
     if (err) { return next(err); }
     res.redirect('/google/login');
   });
+})
+
+app.get('/api/refresh', async (req, res) => {
+    let user = req.user
+    await refresh.requestNewAccessToken('google', user.refreshToken, function(err, accessToken, refreshToken) {
+        if (err || !accessToken){
+            console.log(err)
+            res.status(403).json( {
+                error: req.err,
+            })
+            return next(err);
+        } 
+        req.user.accessToken = accessToken
+        console.log(req.user.accessToken)
+        console.log(accessToken)
+        req.user.expiry_date = moment().add( 1000 * 60 * 60 * 24 * 7).format("X")
+        
+        res.status(200).json( {
+            user: req.user,
+        })
+    });
 })
 
 if (process.env.NODE_ENV === 'production') {

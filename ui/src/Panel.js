@@ -1,6 +1,7 @@
 import React from 'react';
 import { Disclosure, Transition } from '@headlessui/react'
 import {
+  PencilIcon,
   ChevronRightIcon,
 } from '@heroicons/react/20/solid'
 
@@ -8,10 +9,21 @@ export default function Panel({...props}){
     const ref = React.useRef()
   if( !props.collapsable ){
     return (
-        <div className={`${props.hideTitle ? "" : "mt-6"} ${props.className || ""}`}>
+        <div className={`group ${props.hideTitle ? "" : "mt-6"} ${props.className || ""}`}>
           {!props.hideTitle && 
-            <h3 className={props.titleClassName || "text-sm font-medium text-gray-500 flex"}>
+            <h3 className={props.titleClassName || "w-full justify-between text-sm font-medium text-gray-500 flex"}>
               {props.title || "Details"}
+              {props.editToggle &&
+              (props.editing 
+                ? <PencilIcon
+                  onClick={()=>props.editToggle(false)}
+                  className="h-4 w-4 text-indigo-500 hover:text-indigo-800 " aria-hidden="true"
+                  />
+                  : <PencilIcon
+                  onClick={()=>props.editToggle(true)}
+                  className="h-4 w-4 invisible text-slate-300 group-hover:visible hover:text-slate-500 " aria-hidden="true"
+                  />)
+              }
             </h3>}
             {props.children}
         </div>
