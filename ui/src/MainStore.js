@@ -58,6 +58,31 @@ function MainStore (prims){
                 )
                return newId 
             },
+            async removePrimitive(object){
+                const data = {
+                    id: object.id,
+                }
+                let result
+                await fetch("/api/remove_primitive",{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(res => res.json())
+                .then(
+                  (res) => {
+                    if( obj.ajaxResponseHandler( res )){
+                       result = res 
+                    }
+                  },
+                  (error) => {
+                    console.warn(error)
+                  }
+                )
+               return result 
+            },
             async createPrimitive(object, parent, paths){
                 const data = {
                     parent: parent.id,
@@ -508,7 +533,7 @@ function MainStore (prims){
                 title: title,
                 type: type,
                 state: state,
-                primitives: [],
+                primitives: {},
                 referenceId: categoryId,
                 referenceParameters: referenceParameters,
                 users: {owner: [this.activeUser.id], other: []}
@@ -783,6 +808,14 @@ function MainStore (prims){
                             parent = obj.primitive(parent)
                         }
                         return parent.primitives.relationships( d.id )
+                    }
+                }
+                if( prop === "parentPaths"){
+                    return function( parent ){
+                        if( !(parent instanceof(Object)) ){
+                            parent = obj.primitive(parent)
+                        }
+                        return parent.primitives.paths( d.id ).map((d)=>d.slice(1))
                     }
                 }
                 if( prop in d){

@@ -14,6 +14,9 @@ var _Category = _interopRequireDefault(require("../model/Category"));
 var _Primitive = _interopRequireDefault(require("../model/Primitive"));
 var _PrimitivesParser = _interopRequireDefault(require("../PrimitivesParser"));
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { "default": obj }; }
+function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
+function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
+function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
 function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
 function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
 function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
@@ -224,180 +227,337 @@ router.post('/set_field', /*#__PURE__*/function () {
     return _ref7.apply(this, arguments);
   };
 }());
-router.post('/move_relationshipOLD', /*#__PURE__*/function () {
+router.post('/move_relationship', /*#__PURE__*/function () {
   var _ref8 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee8(req, res, next) {
-    var data, primitive, relationships;
+    var data, _Primitive$findOneAnd, fromPath, toPath;
     return _regeneratorRuntime().wrap(function _callee8$(_context8) {
       while (1) switch (_context8.prev = _context8.next) {
         case 0:
           data = req.body;
           _context8.prev = 1;
-          _context8.next = 4;
-          return _Primitive["default"].findById(data.receiver);
-        case 4:
-          primitive = _context8.sent;
-          if (!(primitive !== null)) {
-            _context8.next = 10;
-            break;
-          }
-          relationships = new Proxy(primitive.primitives || [], parser);
-          if (relationships.move(data.target, data.from, data.to)) {
-            primitive.markModified('primitives');
-            primitive.save();
-            res.json({
-              success: true
-            });
-          }
-          _context8.next = 11;
+          fromPath = flattenPath(data.from);
+          toPath = flattenPath(data.to);
+          _context8.prev = 4;
+          _context8.next = 7;
+          return _Primitive["default"].findOneAndUpdate({
+            "_id": new ObjectId(data.target)
+          }, [{
+            $set: _defineProperty({}, "parentPrimitives.".concat(data.receiver), {
+              $function: {
+                body: "function(arr){ arr = (arr || []).filter((p)=>(p != '".concat(fromPath, "') && (p != '").concat(toPath, "') ); arr.push('").concat(toPath, "'); return arr }"),
+                args: ["$parentPrimitives.".concat(data.receiver)],
+                lang: "js"
+              }
+            })
+          }]);
+        case 7:
+          _context8.next = 12;
           break;
-        case 10:
-          throw new Error("Couldnt update title for ".concat(data.receiver));
-        case 11:
-          _context8.next = 16;
-          break;
-        case 13:
-          _context8.prev = 13;
-          _context8.t0 = _context8["catch"](1);
-          res.json(400, {
-            error: _context8.t0.message
+        case 9:
+          _context8.prev = 9;
+          _context8.t0 = _context8["catch"](4);
+          throw new Error(_context8.t0);
+        case 12:
+          _context8.next = 14;
+          return _Primitive["default"].findOneAndUpdate((_Primitive$findOneAnd = {
+            "_id": new ObjectId(data.receiver)
+          }, _defineProperty(_Primitive$findOneAnd, fromPath, {
+            $in: [data.target]
+          }), _defineProperty(_Primitive$findOneAnd, toPath, {
+            $nin: [data.target]
+          }), _Primitive$findOneAnd), {
+            $pull: _defineProperty({}, fromPath, data.target),
+            $push: _defineProperty({}, toPath, data.target)
           });
+        case 14:
+          _context8.next = 19;
+          break;
         case 16:
+          _context8.prev = 16;
+          _context8.t1 = _context8["catch"](1);
+          res.json(400, {
+            error: _context8.t1.message
+          });
+        case 19:
         case "end":
           return _context8.stop();
       }
-    }, _callee8, null, [[1, 13]]);
+    }, _callee8, null, [[1, 16], [4, 9]]);
   }));
   return function (_x22, _x23, _x24) {
     return _ref8.apply(this, arguments);
   };
 }());
-router.post('/move_relationship', /*#__PURE__*/function () {
+router.post('/add_contact', /*#__PURE__*/function () {
   var _ref9 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee9(req, res, next) {
-    var data, _Primitive$findOneAnd, fromPath, toPath;
+    var data, newPrimitive, newId;
     return _regeneratorRuntime().wrap(function _callee9$(_context9) {
       while (1) switch (_context9.prev = _context9.next) {
         case 0:
           data = req.body;
-          try {
-            fromPath = flattenPath(data.from);
-            toPath = flattenPath(data.to);
-            _Primitive["default"].findOneAndUpdate((_Primitive$findOneAnd = {
-              "_id": new ObjectId(data.receiver)
-            }, _defineProperty(_Primitive$findOneAnd, fromPath, {
-              $in: [data.target]
-            }), _defineProperty(_Primitive$findOneAnd, toPath, {
-              $nin: [data.target]
-            }), _Primitive$findOneAnd), {
-              $pull: _defineProperty({}, fromPath, data.target),
-              $push: _defineProperty({}, toPath, data.target)
-            }, {
-              "new": true
-            }, function (err, doc) {
-              var _doc$primitives;
-              console.log("remove");
-              console.log(err);
-              console.log(doc === null || doc === void 0 ? void 0 : (_doc$primitives = doc.primitives) === null || _doc$primitives === void 0 ? void 0 : _doc$primitives.metrics);
-            });
-          } catch (err) {
-            res.json(400, {
-              error: err.message
-            });
-          }
-        case 2:
-        case "end":
-          return _context9.stop();
-      }
-    }, _callee9);
-  }));
-  return function (_x25, _x26, _x27) {
-    return _ref9.apply(this, arguments);
-  };
-}());
-router.post('/add_contact', /*#__PURE__*/function () {
-  var _ref10 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee10(req, res, next) {
-    var data, newPrimitive, newId;
-    return _regeneratorRuntime().wrap(function _callee10$(_context10) {
-      while (1) switch (_context10.prev = _context10.next) {
-        case 0:
-          data = req.body;
           console.log(data);
-          _context10.prev = 2;
-          _context10.next = 5;
+          _context9.prev = 2;
+          _context9.next = 5;
           return _Contact["default"].create(data.data);
         case 5:
-          newPrimitive = _context10.sent;
+          newPrimitive = _context9.sent;
           newId = newPrimitive._id.toString();
           res.json({
             success: true,
             id: newId
           });
-          _context10.next = 13;
+          _context9.next = 13;
           break;
         case 10:
-          _context10.prev = 10;
-          _context10.t0 = _context10["catch"](2);
+          _context9.prev = 10;
+          _context9.t0 = _context9["catch"](2);
           res.json(400, {
-            error: _context10.t0.message
+            error: _context9.t0.message
           });
         case 13:
         case "end":
-          return _context10.stop();
+          return _context9.stop();
       }
-    }, _callee10, null, [[2, 10]]);
+    }, _callee9, null, [[2, 10]]);
   }));
-  return function (_x28, _x29, _x30) {
-    return _ref10.apply(this, arguments);
+  return function (_x25, _x26, _x27) {
+    return _ref9.apply(this, arguments);
   };
 }());
-router.post('/add_primitive', /*#__PURE__*/function () {
+var removeParentReference = /*#__PURE__*/function () {
+  var _ref10 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee10(target, parentId) {
+    var targetId, updates;
+    return _regeneratorRuntime().wrap(function _callee10$(_context10) {
+      while (1) switch (_context10.prev = _context10.next) {
+        case 0:
+          if (target instanceof Object) {
+            _context10.next = 4;
+            break;
+          }
+          _context10.next = 3;
+          return _Primitive["default"].findOne({
+            "_id": new ObjectId(target)
+          });
+        case 3:
+          target = _context10.sent;
+        case 4:
+          targetId = target.id;
+          _context10.prev = 5;
+          updates = target.parentPrimitives[parentId].reduce(function (o, pp) {
+            o[pp] = {
+              $function: {
+                body: "function(arr){ return arr ? arr.filter((p)=>p != '".concat(target.id, "') : undefined;}"),
+                args: ["$".concat(pp)],
+                lang: "js"
+              }
+            };
+            return o;
+          }, {});
+          _context10.next = 9;
+          return _Primitive["default"].findOneAndUpdate({
+            "_id": new ObjectId(parentId)
+          }, [{
+            $set: updates
+          }]);
+        case 9:
+          _context10.next = 14;
+          break;
+        case 11:
+          _context10.prev = 11;
+          _context10.t0 = _context10["catch"](5);
+          throw _context10.t0;
+        case 14:
+        case "end":
+          return _context10.stop();
+      }
+    }, _callee10, null, [[5, 11]]);
+  }));
+  return function removeParentReference(_x28, _x29) {
+    return _ref10.apply(this, arguments);
+  };
+}();
+router.post('/remove_primitive', /*#__PURE__*/function () {
   var _ref11 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee11(req, res, next) {
-    var data, newPrimitive, newId, paths;
+    var data, removed, _i, _Object$keys, parentId, childPrimitiveIds, _iterator, _step, childId;
     return _regeneratorRuntime().wrap(function _callee11$(_context11) {
       while (1) switch (_context11.prev = _context11.next) {
         case 0:
           data = req.body;
           _context11.prev = 1;
           _context11.next = 4;
-          return _Primitive["default"].create(data.data);
-        case 4:
-          newPrimitive = _context11.sent;
-          newId = newPrimitive._id.toString();
-          paths = data.paths.forEach(function (pathObj) {
-            var path = flattenPath(pathObj);
-            _Primitive["default"].findOneAndUpdate({
-              "_id": new ObjectId(data.parent)
-            }, {
-              $push: _defineProperty({}, path, newId)
-            }, {
-              "new": true
-            }, function (err, doc) {
-              if (err !== null) {
-                res.json(400, {
-                  error: err
-                });
-              }
-            });
+          return _Primitive["default"].findOneAndDelete({
+            "_id": new ObjectId(data.id)
           });
+        case 4:
+          removed = _context11.sent;
+          //const removed = await Primitive.findOne({"_id": new ObjectId(data.id)})
+          console.log(removed);
+          _context11.prev = 6;
+          if (!removed.parentPrimitives) {
+            _context11.next = 18;
+            break;
+          }
+          console.log("remove parents = ");
+          console.log(removed.parentPrimitives);
+          _i = 0, _Object$keys = Object.keys(removed.parentPrimitives);
+        case 11:
+          if (!(_i < _Object$keys.length)) {
+            _context11.next = 18;
+            break;
+          }
+          parentId = _Object$keys[_i];
+          _context11.next = 15;
+          return removeParentReference(removed, parentId);
+        case 15:
+          _i++;
+          _context11.next = 11;
+          break;
+        case 18:
+          console.log(removed.primitives);
+          if (!removed.primitives) {
+            _context11.next = 41;
+            break;
+          }
+          childPrimitiveIds = new Proxy(removed.primitives, parser).uniqueAllIds;
+          console.log("remove child refs = ");
+          console.log(childPrimitiveIds);
+          _iterator = _createForOfIteratorHelper(childPrimitiveIds);
+          _context11.prev = 24;
+          _iterator.s();
+        case 26:
+          if ((_step = _iterator.n()).done) {
+            _context11.next = 33;
+            break;
+          }
+          childId = _step.value;
+          console.log(childId);
+          _context11.next = 31;
+          return _Primitive["default"].findOneAndUpdate({
+            "_id": new ObjectId(childId)
+          }, {
+            $unset: _defineProperty({}, "parentPrimitives.".concat(removed.id), "")
+          });
+        case 31:
+          _context11.next = 26;
+          break;
+        case 33:
+          _context11.next = 38;
+          break;
+        case 35:
+          _context11.prev = 35;
+          _context11.t0 = _context11["catch"](24);
+          _iterator.e(_context11.t0);
+        case 38:
+          _context11.prev = 38;
+          _iterator.f();
+          return _context11.finish(38);
+        case 41:
+          _context11.next = 46;
+          break;
+        case 43:
+          _context11.prev = 43;
+          _context11.t1 = _context11["catch"](6);
+          throw _context11.t1;
+        case 46:
+          res.json({
+            success: true
+          });
+          _context11.next = 52;
+          break;
+        case 49:
+          _context11.prev = 49;
+          _context11.t2 = _context11["catch"](1);
+          res.status(400).json({
+            error: _context11.t2.message
+          });
+        case 52:
+        case "end":
+          return _context11.stop();
+      }
+    }, _callee11, null, [[1, 49], [6, 43], [24, 35, 38, 41]]);
+  }));
+  return function (_x30, _x31, _x32) {
+    return _ref11.apply(this, arguments);
+  };
+}());
+router.post('/add_primitive', /*#__PURE__*/function () {
+  var _ref12 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee12(req, res, next) {
+    var data, paths, newPrimitive, newId, _iterator2, _step2, path;
+    return _regeneratorRuntime().wrap(function _callee12$(_context12) {
+      while (1) switch (_context12.prev = _context12.next) {
+        case 0:
+          data = req.body;
+          console.log(data);
+          _context12.prev = 2;
+          paths = data.paths.map(function (p) {
+            return flattenPath(p);
+          });
+          console.log(paths);
+          data.data.parentPrimitives = _defineProperty({}, data.parent, paths);
+          _context12.next = 8;
+          return _Primitive["default"].create(data.data);
+        case 8:
+          newPrimitive = _context12.sent;
+          newId = newPrimitive._id.toString();
+          _context12.prev = 10;
+          _iterator2 = _createForOfIteratorHelper(paths);
+          _context12.prev = 12;
+          _iterator2.s();
+        case 14:
+          if ((_step2 = _iterator2.n()).done) {
+            _context12.next = 21;
+            break;
+          }
+          path = _step2.value;
+          console.log(path);
+          _context12.next = 19;
+          return _Primitive["default"].findOneAndUpdate({
+            "_id": new ObjectId(data.parent)
+          }, {
+            $push: _defineProperty({}, path, newId)
+          });
+        case 19:
+          _context12.next = 14;
+          break;
+        case 21:
+          _context12.next = 26;
+          break;
+        case 23:
+          _context12.prev = 23;
+          _context12.t0 = _context12["catch"](12);
+          _iterator2.e(_context12.t0);
+        case 26:
+          _context12.prev = 26;
+          _iterator2.f();
+          return _context12.finish(26);
+        case 29:
+          _context12.next = 34;
+          break;
+        case 31:
+          _context12.prev = 31;
+          _context12.t1 = _context12["catch"](10);
+          throw _context12.t1;
+        case 34:
           res.json({
             success: true,
             id: newId
           });
-          _context11.next = 13;
+          _context12.next = 40;
           break;
-        case 10:
-          _context11.prev = 10;
-          _context11.t0 = _context11["catch"](1);
-          res.json(400, {
-            error: _context11.t0.message
+        case 37:
+          _context12.prev = 37;
+          _context12.t2 = _context12["catch"](2);
+          res.status(400).json({
+            error: _context12.t2.message
           });
-        case 13:
+        case 40:
         case "end":
-          return _context11.stop();
+          return _context12.stop();
       }
-    }, _callee11, null, [[1, 10]]);
+    }, _callee12, null, [[2, 37], [10, 31], [12, 23, 26, 29]]);
   }));
-  return function (_x31, _x32, _x33) {
-    return _ref11.apply(this, arguments);
+  return function (_x33, _x34, _x35) {
+    return _ref12.apply(this, arguments);
   };
 }());
 var flattenPath = function flattenPath(path) {
@@ -415,65 +575,125 @@ var flattenPath = function flattenPath(path) {
   return nest(path).join(".");
 };
 router.post('/set_relationship', /*#__PURE__*/function () {
-  var _ref12 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee12(req, res, next) {
-    var data, path;
-    return _regeneratorRuntime().wrap(function _callee12$(_context12) {
-      while (1) switch (_context12.prev = _context12.next) {
+  var _ref13 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee14(req, res, next) {
+    var data, doRemove, path, parentPath, check;
+    return _regeneratorRuntime().wrap(function _callee14$(_context14) {
+      while (1) switch (_context14.prev = _context14.next) {
         case 0:
           data = req.body;
-          try {
-            path = flattenPath(data.path);
-            console.log(data);
-            console.log(path);
-            if (data.set) {
-              _Primitive["default"].findOneAndUpdate(_defineProperty({
-                "_id": new ObjectId(data.receiver)
-              }, path, {
-                $nin: [data.target]
-              }), {
-                $push: _defineProperty({}, path, data.target)
-              }, {
-                "new": true
-              }, function (err, doc) {
-                if (err !== null) {
-                  res.json(400, {
-                    error: err
-                  });
+          console.log(data);
+          doRemove = /*#__PURE__*/function () {
+            var _ref14 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee13(path) {
+              return _regeneratorRuntime().wrap(function _callee13$(_context13) {
+                while (1) switch (_context13.prev = _context13.next) {
+                  case 0:
+                    _context13.next = 2;
+                    return _Primitive["default"].findOneAndUpdate(_defineProperty({
+                      "_id": new ObjectId(data.receiver)
+                    }, path, {
+                      $in: [data.target]
+                    }), {
+                      $pull: _defineProperty({}, path, data.target)
+                    }, {
+                      "new": true
+                    });
+                  case 2:
+                  case "end":
+                    return _context13.stop();
                 }
-              });
-            } else {
-              _Primitive["default"].findOneAndUpdate(_defineProperty({
-                "_id": new ObjectId(data.receiver)
-              }, path, {
-                $in: [data.target]
-              }), {
-                $pull: _defineProperty({}, path, data.target)
-              }, {
-                "new": true
-              }, function (err, doc) {
-                if (err !== null) {
-                  res.json(400, {
-                    error: err
-                  });
-                }
-              });
-            }
-            res.json({
-              success: true
-            });
-          } catch (err) {
-            res.json(400, {
-              error: err.message
-            });
+              }, _callee13);
+            }));
+            return function doRemove(_x39) {
+              return _ref14.apply(this, arguments);
+            };
+          }();
+          _context14.prev = 3;
+          path = flattenPath(data.path);
+          parentPath = "parentPrimitives.".concat(data.receiver);
+          if (!data.set) {
+            _context14.next = 25;
+            break;
           }
-        case 2:
+          _context14.prev = 7;
+          _context14.next = 10;
+          return _Primitive["default"].findOneAndUpdate(_defineProperty({
+            "_id": new ObjectId(data.target)
+          }, parentPath, {
+            $nin: [path]
+          }), {
+            $push: _defineProperty({}, parentPath, path)
+          });
+        case 10:
+          _context14.next = 15;
+          break;
+        case 12:
+          _context14.prev = 12;
+          _context14.t0 = _context14["catch"](7);
+          throw new Error("Couldn't find target");
+        case 15:
+          _context14.next = 17;
+          return _Primitive["default"].findOneAndUpdate(_defineProperty({
+            "_id": new ObjectId(data.receiver)
+          }, path, {
+            $nin: [data.target]
+          }), {
+            $push: _defineProperty({}, path, data.target)
+          });
+        case 17:
+          _context14.next = 19;
+          return _Primitive["default"].find({
+            "_id": new ObjectId(data.target)
+          });
+        case 19:
+          check = _context14.sent;
+          if (!(check.length === 0)) {
+            _context14.next = 23;
+            break;
+          }
+          doRemove(path);
+          throw new Error("Couldn't find target");
+        case 23:
+          _context14.next = 34;
+          break;
+        case 25:
+          _context14.prev = 25;
+          _context14.next = 28;
+          return _Primitive["default"].findOneAndUpdate(_defineProperty({
+            "_id": new ObjectId(data.target)
+          }, parentPath, {
+            $in: [path]
+          }), {
+            $pull: _defineProperty({}, parentPath, path)
+          });
+        case 28:
+          _context14.next = 33;
+          break;
+        case 30:
+          _context14.prev = 30;
+          _context14.t1 = _context14["catch"](25);
+          throw new Error("Couldn't find target");
+        case 33:
+          doRemove(path);
+        case 34:
+          res.json({
+            success: true
+          });
+          _context14.next = 40;
+          break;
+        case 37:
+          _context14.prev = 37;
+          _context14.t2 = _context14["catch"](3);
+          res.status(400).json({
+            error: _context14.t2.message
+          });
+        case 40:
         case "end":
-          return _context12.stop();
+          return _context14.stop();
       }
-    }, _callee12);
+    }, _callee14, null, [[3, 37], [7, 12], [25, 30]]);
   }));
-  return function (_x34, _x35, _x36) {
-    return _ref12.apply(this, arguments);
+  return function (_x36, _x37, _x38) {
+    return _ref13.apply(this, arguments);
   };
 }());
 var _default = router;

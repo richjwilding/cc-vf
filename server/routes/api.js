@@ -85,32 +85,32 @@ router.post('/set_field', async function(req, res, next) {
         res.json(400, {error: err.message})
     }
 })
-router.post('/move_relationshipOLD', async function(req, res, next) {
-    let data = req.body
-
-    try {
-        let primitive = await Primitive.findById(data.receiver)
-        if( primitive !== null ){
-            let relationships = new Proxy(primitive.primitives || [], parser)
-            if( relationships.move( data.target, data.from, data.to) ){
-                primitive.markModified('primitives')
-                primitive.save()
-                res.json({success: true})
-            }
-        }else{
-            throw new Error(`Couldnt update title for ${data.receiver}`)
-        }
-      } catch (err) {
-        res.json(400, {error: err.message})
-    }
-})
 router.post('/move_relationship', async function(req, res, next) {
     let data = req.body
 
     try {
         const fromPath = flattenPath( data.from )
         const toPath = flattenPath( data.to )
-        Primitive.findOneAndUpdate(
+        try{
+            await Primitive.findOneAndUpdate(
+                {
+                    "_id": new ObjectId(data.target),
+                }, 
+                [{$set: { 
+                    [`parentPrimitives.${data.receiver}`]: 
+                        {$function: {
+                            body: `function(arr){ arr = (arr || []).filter((p)=>(p != '${fromPath}') && (p != '${toPath}') ); arr.push('${toPath}'); return arr }`,
+                            args: [`$parentPrimitives.${data.receiver}`],
+                            lang: "js"
+                        }}
+                    }
+                }]
+            )
+        }
+        catch(err){
+            throw new Error(err)
+        }
+        await Primitive.findOneAndUpdate(
             {
                     "_id": new ObjectId(data.receiver),
                     [fromPath]: {$in: [data.target]},
@@ -119,12 +119,6 @@ router.post('/move_relationship', async function(req, res, next) {
             {
                 $pull: { [fromPath]: data.target },
                 $push: { [toPath]: data.target }
-            },
-            {new: true},
-            (err,doc)=>{
-                console.log(`remove`)
-                console.log(err)
-                console.log(doc?.primitives?.metrics)
             })
       } catch (err) {
         res.json(400, {error: err.message})
@@ -142,33 +136,101 @@ router.post('/add_contact', async function(req, res, next) {
         res.json(400, {error: err.message})
     }
 })
-router.post('/add_primitive', async function(req, res, next) {
+
+
+const removeParentReference = async (target, parentId)=>{
+    if( !(target instanceof Object)){
+        target = await Primitive.findOne({"_id": new ObjectId(target)})
+    }
+    const targetId = target.id
+
+    try{
+        const updates = target.parentPrimitives[parentId].reduce((o,pp)=>{
+            o[pp] = {$function: {
+                    body: `function(arr){ return arr ? arr.filter((p)=>p != '${target.id}') : undefined;}`,
+                    args: [`$${pp}`],
+                    lang: "js"
+                }}
+            return o
+        }, {})
+
+        await Primitive.findOneAndUpdate(
+            {
+                "_id": new ObjectId(parentId),
+            }, 
+            [{
+                $set: updates
+            }]
+        )
+    }catch(err){
+        throw err
+    }
+
+}
+
+router.post('/remove_primitive', async function(req, res, next) {
     let data = req.body
 
     try {
+        const removed = await Primitive.findOneAndDelete({"_id": new ObjectId(data.id)})
+
+        try{
+            if( removed.parentPrimitives ){
+                for( const parentId of Object.keys(removed.parentPrimitives) ){
+                    await removeParentReference( removed, parentId)
+                }
+            }
+            console.log(removed.primitives)
+            if( removed.primitives ){
+                const childPrimitiveIds = new Proxy(removed.primitives, parser).uniqueAllIds
+                for( const childId of childPrimitiveIds ){
+                    await Primitive.findOneAndUpdate(
+                        {
+                            "_id": new ObjectId(childId),
+                        }, 
+                        {
+                            $unset: { [`parentPrimitives.${removed.id}`]:"" }
+                        })
+                }
+            }
+        }catch(err){
+            throw err
+        }
+        res.json({success: true})
+      } catch (err) {
+        res.status(400).json({error: err.message})
+    }
+})
+router.post('/add_primitive', async function(req, res, next) {
+    let data = req.body
+    console.log(data)
+
+    try {
+        const paths = data.paths.map((p)=>flattenPath( p ))
+
+        console.log( paths )
+        data.data.parentPrimitives = {[data.parent]: paths}
+        
         let newPrimitive = await Primitive.create(data.data)
         const newId = newPrimitive._id.toString()
 
-        const paths = data.paths.forEach((pathObj)=>{
-            const path = flattenPath( pathObj )
-            Primitive.findOneAndUpdate(
-                {
+        try{
+            for( const path of paths){
+                console.log(path)
+                await Primitive.findOneAndUpdate(
+                    {
                         "_id": new ObjectId(data.parent),
-                }, 
-                {
-                    $push: { [path]: newId }
-                },
-                {new: true},
-                (err,doc)=>{
-                    if( err !== null){
-                        res.json(400, {error: err})
-                    }
-                }
-            )
-        })
+                    }, 
+                    {
+                        $push: { [path]: newId }
+                    })
+            }
+        }catch(err){
+            throw err
+        }
         res.json({success: true, id: newId})
       } catch (err) {
-        res.json(400, {error: err.message})
+        res.status(400).json({error: err.message})
     }
 })
 
@@ -190,41 +252,65 @@ const flattenPath = (path)=>{
 
 router.post('/set_relationship', async function(req, res, next) {
     let data = req.body
+    console.log(data)
+
+    const doRemove = async (path)=>{
+        await Primitive.findOneAndUpdate(
+            {
+                    "_id": new ObjectId(data.receiver),
+                    [path]: {$in: [data.target]}
+            }, 
+            {$pull: { [path]: data.target }},
+            {new: true})
+    }
 
     try {
         const path = flattenPath( data.path )
-        console.log(data)
-        console.log(path)
+        const parentPath = `parentPrimitives.${data.receiver}`
+        
         if( data.set ){
-            Primitive.findOneAndUpdate(
+            try{
+                await Primitive.findOneAndUpdate(
+                    {
+                        "_id": new ObjectId(data.target),
+                        [parentPath]: {$nin: [path]}
+                    }, 
+                    {$push: { [parentPath]: path }})
+            }
+            catch{
+                throw new Error("Couldn't find target")
+            }
+            await Primitive.findOneAndUpdate(
                 {
                      "_id": new ObjectId(data.receiver),
                      [path]: {$nin: [data.target]}
                 }, 
-                {$push: { [path]: data.target }},
-                {new: true},
-                (err,doc)=>{
-                    if( err !== null){
-                        res.json(400, {error: err})
-                    }
-                })
+                {$push: { [path]: data.target }})
+
+            const check = await Primitive.find({"_id": new ObjectId(data.target)})
+            if( check.length === 0){
+                doRemove( path )
+                throw new Error("Couldn't find target")
+            }
+
         }else{
-            Primitive.findOneAndUpdate(
-                {
-                     "_id": new ObjectId(data.receiver),
-                     [path]: {$in: [data.target]}
-                }, 
-                {$pull: { [path]: data.target }},
-                {new: true},
-                (err,doc)=>{
-                    if( err !== null){
-                        res.json(400, {error: err})
-                    }
-                })
+            try{
+
+                await Primitive.findOneAndUpdate(
+                    {
+                        "_id": new ObjectId(data.target),
+                        [parentPath]: {$in: [path]}
+                    }, 
+                    {$pull: { [parentPath]: path }})
+            }
+            catch{
+                throw new Error("Couldn't find target")
+            }
+           doRemove(path)
         }
         res.json({success: true})
     } catch (err) {
-        res.json(400, {error: err.message})
+        res.status(400).json( {error: err.message})
     }
 
 })

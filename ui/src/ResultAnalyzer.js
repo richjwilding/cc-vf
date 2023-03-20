@@ -4,7 +4,7 @@ import OpenAIAnalysis from "./OpenAIAnalysis"
 export default function ResultAnalyzer(primitive){
     let obj ={
         buildPath:function(id){
-            const last = id ? {openai: id} : "openai"
+            const last = (id !== undefined) ? {openai: id} : "openai"
             return {processed: last}
         },
         init:function(){
@@ -29,27 +29,26 @@ export default function ResultAnalyzer(primitive){
             }
             return this._text
         },
-        evidence:async function(options = {force: false, complete: false}){
+        evidence:async function(options = {force: false, complete: true}){
             if( this.evidencePrompts === undefined){return undefined}
             const evidence = primitive.primitives.fromPath(obj.buildPath())
             let inscope = this.evidencePrompts
 
             if(evidence){
                 const present = Object.keys( evidence )
-                inscope = inscope.filter((d)=> !present.includes(`${d.id}`) )
+                inscope = inscope.filter((d)=> options.force || !present.includes(`${d.id}`) )
             }
             
             console.log(`${inscope.length} prompts incomplete`)
 
-            if( inscope > 0){
+            if( (inscope.length > 0 && options.complete) || (inscope.length === this.evidencePrompts.length )){ 
                 const result = await this.prompt( inscope )
                 const mainstore = MainStore()
                 console.log(result)
 
-                result.forEach(async (d)=>{
+                result.forEach(async (d,idx)=>{
                     const path = obj.buildPath(d.id)
-                    await d.details.forEach(async (item)=>{
-                        console.log(item)
+                    await d.details.forEach(async (item, idx)=>{
                         await mainstore.createPrimitive({
                             parent: primitive,
                             type: "evidence",
