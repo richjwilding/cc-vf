@@ -15,9 +15,11 @@ import MainStore from './MainStore';
 import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon } from '@heroicons/react/24/outline';
 import { formatDistance, subDays } from 'date-fns'
 import ContactPicker from './ContactPicker';
-/*import { Document, Page } from 'react-pdf/dist/esm/entry.webpack5';
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
-import 'react-pdf/dist/esm/Page/TextLayer.css';*/
+import ResultViewer from './ResultViewer';
+import useDataEvent from './CustomHook';
+import OpenAIAnalysis from './OpenAIAnalysis';
+import GoogleHelper from './GoogleHelper';
+
 
 let mainstore = MainStore()
 
@@ -59,10 +61,41 @@ export function PrimitivePage({primitive, ...props}) {
     const [selectedMetric, setSelectedMetric] = useState(null)
     const [groupMetricsOpen, setGroupMetricsOpen] = useState(false)
     const [activePrim, setActivePrim] = useState(primitive.id)
-
-    const registerCallbacks = ()=>{
-      callbackId.current = mainstore.registerCallback(callbackId.current, "relationship_update", updateRelationships, primitive.id )
+    const [plainText, setPlainText] = useState()
+    const resultViewer = useRef()
+    const [analysis, setAnalysis] = useState()
+    const test = ()=>{
+      console.log('helo')
+      updateRelationships()
     }
+    useDataEvent("relationship_update", primitive.id, test)
+
+    const hasDocumentViewer = primitive.type === "result" && primitive.referenceParameters?.notes
+
+      const analyzeText = async ()=>{
+        if( primitive.referenceParameters.notes.type === "google_drive"){
+          
+          const text = await GoogleHelper().getFileAsPdf( primitive.referenceParameters.notes.id, "text/plain")
+          setPlainText(text)
+
+          const thisAnalysis = OpenAIAnalysis({text: text})
+          window.analysis = thisAnalysis
+          await thisAnalysis.process()
+          setAnalysis(thisAnalysis)
+        }
+      }
+
+    useEffect(()=>{
+      if( hasDocumentViewer ){
+        setAnalysis(undefined)
+        console.log(`WILL READ NOW`)
+        analyzeText()
+      }
+    },[primitive.id])
+
+    /*const registerCallbacks = ()=>{
+      callbackId.current = mainstore.registerCallback(callbackId.current, "relationship_update", updateRelationships, primitive.id )
+    }*/
 
     if( activePrim !== primitive.id ){
       setActivePrim(primitive.id)
@@ -72,13 +105,13 @@ export function PrimitivePage({primitive, ...props}) {
       if( props.selectPrimitive ){
         props.selectPrimitive(null)
       }
-      registerCallbacks()
+      //registerCallbacks()
     }
     useEffect(()=>{
       if( props.selectPrimitive ){
         props.selectPrimitive(null)
       }
-      registerCallbacks()
+     // registerCallbacks()
     },[])
 
 
@@ -95,6 +128,31 @@ export function PrimitivePage({primitive, ...props}) {
     setNumPages(numPages);
   }
 
+  const createResult = async( category, open = false )=>{
+    const newObj = await mainstore.createPrimitive({
+      parent: primitive,
+      type: "result",
+      title: `New ${category.title}`,
+      categoryId: category.resultCategoryId,
+    })
+    setSelected( newObj )
+
+  }
+
+  const createEvidenceFromNote = async (note)=>{
+    await mainstore.createPrimitive({
+      parent: primitive,
+      type: "evidence",
+      title: note.content,
+      categoryId: 3,
+      referenceParameters:{
+        highlightAreas: note.highlightAreas,
+        quotedText: note.quote
+      }
+    })
+  }
+
+
     let page = useRef()
     let header = useRef()
 
@@ -102,14 +160,6 @@ export function PrimitivePage({primitive, ...props}) {
 
   return (
     <>
-      {/*
-        This example requires updating your template:
-
-        ```
-        <html class="h-full bg-gray-100">
-        <body class="h-full">
-        ```
-      */}
       <div className="min-h-full overflow-y-scroll overscroll-contain w-full"
         onScroll={()=>{
             let opacity = parseInt(Math.min(page.current.scrollTop, 60) / 6) * 10
@@ -130,22 +180,37 @@ export function PrimitivePage({primitive, ...props}) {
         }}
         ref={page}
       >
-          {/* Page header */}
-          <div ref={header} className="w-full mt-10 z-10 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100">
+          <div key='banner' ref={header} className="w-full mt-10 z-10 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100">
             <PrimitiveCard.Banner primitive={primitive} showStateAction={true} className='pl-4 pr-6 mx-auto w-full max-w-3xl lg:max-w-7xl'/>
           </div>
 
-          <div className="mx-auto mt-8 grid max-w-3xl grid-cols-1 gap-6 sm:px-6 lg:max-w-7xl lg:grid-flow-col-dense lg:grid-cols-3">
-            <div className="space-y-6 lg:col-span-2 lg:col-start-1">
-              <section aria-labelledby="applicant-information-title">
-                <div className="bg-white shadow sm:rounded-lg grid grid-cols-1 md:grid-cols-5 ">
-                  <div className="px-4 py-5 sm:px-6 md:col-span-5">
+          <div key='content' 
+            className={
+              [
+                'mx-auto mt-8 grid sm:px-6  gap-6 ',
+                hasDocumentViewer 
+                  ? "grid-cols-1 lg:grid-cols-[1fr_1fr_min-content] 2xl:grid-cols-[repeat(2,min-content)_auto_min-content] 2xl:grid-rows-[min-content_1fr] " 
+                  : "grid-cols-1 lg:grid-flow-col-dense lg:grid-cols-3 max-w-3xl lg:max-w-7xl",
+              ].join(" ")
+          }>
+            <div 
+              className={[
+                  "space-y-6 lg:col-span-2 lg:col-start-1",
+                  hasDocumentViewer ? "2xl:w-[30em] h-fit" : ""
+                ].join(" ")}
+              >
+              <section 
+                aria-labelledby="applicant-information-title"
+              
+                >
+                <div className="bg-white shadow sm:rounded-lg grid grid-cols-5 @container">
+                  <div className="px-4 py-5 sm:px-6 col-span-5">
                     <PrimitiveCard primitive={primitive} showEdit={true} hideTitle={true} major={true}/>
                   </div>
-                  <div className="border-gray-200 px-4 pb-5 sm:px-6 md:col-span-3">
+                  <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5 @lg:col-span-3">
                     <PrimitiveCard.Details allowEdit={true} primitive={primitive} title={`${primitive.displayType} details`} hideFooter={true}/>
                   </div>
-                  <div className="border-gray-200 px-4 pb-5 sm:px-6 md:col-span-2">
+                  <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5 @lg:col-span-2">
                     { primitive.isTask && <PrimitiveCard.Users primitive={primitive} title={`Team members`} asTable={true}/>}
                     { !primitive.isTask && task && 
                       <Panel title={`Related ${task.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
@@ -153,13 +218,32 @@ export function PrimitivePage({primitive, ...props}) {
                       </Panel>
                     }
                   </div>
-                  <div className="px-4 pt-2 pb-5 sm:px-6 md:col-span-5">
+                  <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
                     <PrimitiveCard.Resources primitive={primitive}/>
+                  </div>
+            {!hasDocumentViewer && 
+                <div className='px-4 sm:px-6 pt-2 pb-5 col-span-5 w-full'>
+                  <Panel key='analysis' title='Questions' collapsable={true}>
+                    <dd className="mt-1 text-sm text-gray-900">
+                      <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
+                        {OpenAIAnalysis({}).questions.map((question, idx) => (
+                          <li
+                            key={idx}
+                            className=" py-3 pl-3 pr-4 text-sm"
+                          >
+                              <p className="text-medium ml-2 flex-1 truncate">{question}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </dd>
+                  </Panel>
                 </div>
+            
+            }
                 </div>
               </section>
             {primitive.metrics &&
-                <section aria-labelledby="applicant-information-title">
+                <section key='metricss' aria-labelledby="applicant-information-title">
                     <h2 id="notes-title" className="text-md font-medium text-gray-500 pt-5 pb-2 px-0.5">Metrics</h2>
                     <div className="gap-3 grid-cols-2 grid md:grid-cols-3 lg:grid-cols-3">
                         {primitive.metrics.map((metric)=>{
@@ -203,17 +287,6 @@ export function PrimitivePage({primitive, ...props}) {
                 let showState = view !== "kaban"
                 
                 let list = primitive.primitives.results[category.id].map((d)=>d)
-                /*const rels = primitive.metadata.resultCategories[0].relationships
-                if( rels ){
-                  const order = Object.keys(rels)
-                  list = list.sort((a,b)=>{
-                    const aR = (primitive.primitives.relationships(a.id, ["results", category.id]) || [])[0]
-                    const bR = (primitive.primitives.relationships(b.id, ["results", category.id]) || [])[0]
-                    console.log(aR, bR)
-                    return order.indexOf(aR) - order.indexOf(bR)
-                    
-                  })
-                }*/
 
                 if( cardConfig ){
                   list = list.sort((a,b)=>{
@@ -227,7 +300,7 @@ export function PrimitivePage({primitive, ...props}) {
 
                 
                 return (
-                  <Panel key={category.title} title={primitive.metadata.title} titleClassName='text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                  <Panel key={category.title} title={primitive.metadata.title} titleButton={()=>createResult(category)} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
                         <div 
                             className="gap-3 space-y-3 no-break-children sm:columns-2 md:columns-3 xl:columns-4">
                             {list.map((p,idx)=>{
@@ -258,8 +331,36 @@ export function PrimitivePage({primitive, ...props}) {
                   </Panel>
                 )
             })}
+            {hasDocumentViewer  && 
+                  <Panel key='analysis' title='OpenAI analysis' collapsable={true}>
+                  <div className="bg-white shadow sm:overflow-hidden sm:rounded-lg mb-6 p-4 mt-2">
+                    <dd className="mt-1 text-sm text-gray-900">
+                      <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
+                        {!analysis && <p>Waiting....</p>}
+                        {analysis && analysis.questions.map((question, idx) => (
+                          <li
+                            key={idx}
+                            className=" py-3 pl-3 pr-4 text-sm"
+                          >
+                              <p className="text-medium ml-2 flex-1 truncate">{question}</p>
+                              <p className="text-gray-600 ml-4 mt-2 pl-2 flex-1 border-l-2 border-gray-200">{analysis.answers[idx]}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </dd>
+                  </div>
+                  </Panel>
+            
+            }
+            </div>
 
-              <section aria-labelledby="notes-title">
+              <section 
+                key='notes'
+                className={[
+                    'col-start-1 lg:col-span-2',
+                    hasDocumentViewer ? 'row-start-4 lg:row-start-3 2xl:row-start-2' :"row-start-3 lg:row-start-2"
+                  ].join(" ")}
+                >
                 <div className="bg-white shadow sm:overflow-hidden sm:rounded-lg mb-6">
                   <div className="divide-y divide-gray-200">
                     <div className="px-4 py-5 sm:px-6">
@@ -308,7 +409,7 @@ export function PrimitivePage({primitive, ...props}) {
                   <div className="bg-gray-50 px-4 py-6 sm:px-6">
                     <div className="flex space-x-3">
                       <div className="flex-shrink-0">
-                        <img className="h-10 w-10 rounded-full" src={mainstore.activeUser.avatarUrl} alt="" referrerPolicy="no-referrer"/>            
+                        <img className="h-10 w-10 rounded-full" src={mainstore.activeUser.info.avatarUrl} alt="" referrerPolicy="no-referrer"/>            
                       </div>
                       <div className="min-w-0 flex-1">
                         <form action="#">
@@ -346,13 +447,23 @@ export function PrimitivePage({primitive, ...props}) {
                   </div>
                 </div>
               </section>
-            </div>
+            {primitive?.referenceParameters?.notes && 
+              <div className='h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'>
+              <ResultViewer evidenceList={outcomesList} ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} createCallback={createEvidenceFromNote} GoogleDoc={primitive.referenceParameters.notes}/>
+              </div>
+              }
 
-            <section aria-labelledby="evidence-title" className="lg:col-span-1 lg:col-start-3">
-              <div className="bg-white px-4 py-5 shadow sm:rounded-lg sm:px-6">
+            <section key='rhs' 
+              className={
+                [
+                  "lg:col-span-1  ",
+                  hasDocumentViewer ? "min-w-[25em] lg:col-start-3 2xl:col-start-4 row-start-3 lg:row-start-1 2xl:row-span-2" : "lg:col-start-3 row-start-2 lg:row-start-1 "
+                ].join(" ")
+              }>
+              <div className="bg-white px-4 py-5 shadow sm:rounded-lg sm:px-6 sticky top-[6em]">
                             <Tab.Group>
-                                <Tab.List className="-mb-px flex space-x-8 border-b border-gray-200" aria-label="Tabs">
-                                <Tab as={Fragment}>
+                                <Tab.List key='tabs' className="-mb-px flex space-x-8 border-b border-gray-200" aria-label="Tabs">
+                                <Tab key='t1' as={Fragment}>
                                     {({ selected }) => ( 
                                     <button
                                     className={classNames(
@@ -366,7 +477,7 @@ export function PrimitivePage({primitive, ...props}) {
                                     </button>)}
                                     </Tab>
                                   {!primitive.isTask && task && 
-                                <Tab as={Fragment}>
+                                <Tab key='t2' as={Fragment}>
                                     {({ selected }) => ( 
                                     <button
                                     className={classNames(
@@ -380,12 +491,12 @@ export function PrimitivePage({primitive, ...props}) {
                                     </button>)}
                                     </Tab>}
                                 </Tab.List>
-                                <Tab.Panels>
+                                <Tab.Panels key='panels'>
                                     <Tab.Panel>
-                                      <div className="mt-6 flow-root">
+                                      <div key='evidence' className="mt-6 flow-root">
                                         <ul role="list" className="p-1 space-y-1">
                                           {outcomesList.map((p)=>(
-                                              <PrimitiveCard key={p.id} compact={true} primitive={p} showMeta="large"/>
+                                              <PrimitiveCard key={p.id} compact={true} primitive={p} showMeta="large" onClick={()=>resultViewer.current && resultViewer.current.showPrimitive(p.id)}/>
                                           ))}
                                         </ul>
                                       </div>
@@ -399,8 +510,9 @@ export function PrimitivePage({primitive, ...props}) {
                                       </div>
                                     </Tab.Panel>
                                     {!primitive.isTask && task && 
-                                      <Tab.Panel>
+                                      <Tab.Panel >
                                         <div 
+                                          key='metrics'
                                           style={{gridTemplateColumns: 'max-content 1fr'}}
                                           className='grid grid-cols-2 mt-6 mx-2'>
                                           {task.metrics.filter((m)=>m.type==="count").map((metric)=>{
@@ -415,7 +527,7 @@ export function PrimitivePage({primitive, ...props}) {
                                             included = list.map((d)=>d.id).includes( primitive.id )
 
                                             return (
-                                              <>
+                                              <Fragment key={metric.id}>
                                                 <button
                                                     type="button"
                                                     onClick={()=>task.toggleRelationship(primitive, metric)}
@@ -427,7 +539,7 @@ export function PrimitivePage({primitive, ...props}) {
                                                 <a href='#' onClick={()=>setSelectedMetric({primitive: task, metric: metric.id, highlight: primitive.id})}>
                                                   <p className='p-2 text-sm truncate text-gray-500 hover:text-indigo-600 hover:underline'>{metric.title}</p>
                                                 </a>
-                                              </>
+                                              </Fragment>
                                               )
                                           })}
                                         </div>

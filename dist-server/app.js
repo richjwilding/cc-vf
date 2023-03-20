@@ -99,6 +99,15 @@ app.get('/google/callback', _passport["default"].authenticate('google', {
 }), function (req, res) {
   res.redirect('/');
 });
+app.get("/google/logout", function (req, res) {
+  req.user = undefined;
+  req.logout(function (err) {
+    if (err) {
+      return next(err);
+    }
+    res.redirect('/google/login');
+  });
+});
 var checkToken = /*#__PURE__*/function () {
   var _ref = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee(req, res, next) {
     var user, send401Response;
@@ -111,16 +120,25 @@ var checkToken = /*#__PURE__*/function () {
           }
           return _context.abrupt("return", next());
         case 2:
+          if (req.user.refreshToken) {
+            _context.next = 7;
+            break;
+          }
+          console.log("no token");
+          console.log(req.user);
+          res.redirect('/google/logout');
+          return _context.abrupt("return");
+        case 7:
           user = req.user;
           send401Response = function send401Response() {
             return res.status(401).end();
           }; // subtract current time from stored expiry_date and see if less than 5 minutes (300s) remain
           if (!((0, _moment["default"])().subtract(user.expiry_date, "s").format("X") > -300)) {
-            _context.next = 10;
+            _context.next = 15;
             break;
           }
           console.log("NEED TO REFRESH with ".concat(user.refreshToken));
-          _context.next = 8;
+          _context.next = 13;
           return refresh.requestNewAccessToken('google', user.refreshToken, function (err, accessToken, refreshToken) {
             if (err || !accessToken) {
               console.log(err);
@@ -130,12 +148,12 @@ var checkToken = /*#__PURE__*/function () {
             req.user.expiry_date = (0, _moment["default"])().add(1000 * 60 * 60 * 24 * 7).format("X");
             next();
           });
-        case 8:
-          _context.next = 11;
+        case 13:
+          _context.next = 16;
           break;
-        case 10:
+        case 15:
           next();
-        case 11:
+        case 16:
         case "end":
           return _context.stop();
       }
@@ -152,6 +170,7 @@ app.get('/api/status', function (req, res) {
       logged_in: true,
       user: req.user,
       env: {
+        OPEN_API_KEY: process.env.OPEN_API_KEY,
         GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
         GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID
       }
@@ -203,15 +222,6 @@ app.use(ensureAuthenticated);
 app.use('/api', _api["default"]);
 app.get("/google/failed", function (req, res) {
   res.send("Failed");
-});
-app.get("/google/logout", function (req, res) {
-  // req.session = null;
-  req.logout(function (err) {
-    if (err) {
-      return next(err);
-    }
-    res.redirect('/google/login');
-  });
 });
 app.get('/api/refresh', /*#__PURE__*/function () {
   var _ref3 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee3(req, res) {

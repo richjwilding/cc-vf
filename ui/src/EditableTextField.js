@@ -1,6 +1,6 @@
     import React, { useEffect } from 'react';
   export default function EditableTextField ({item, ...props}){
-    const [editing, setEditing] = React.useState(false)
+    const [editing, setEditing] = React.useState(props.editing)
     const editBox = React.useRef()
     const editAny = React.useRef()
     const editOld = React.useRef()
@@ -8,40 +8,36 @@
     const [errors, setErrors] = React.useState(false)
 
     React.useEffect(()=>{
-      if( editBox.current && editing){
-        editBox.current.focus()
+        const localEditing = props.editing === undefined ? editing : props.editing 
+        if( editBox.current && localEditing){
+            editBox.current.focus()
 
-        const range = document.createRange();
-        range.selectNodeContents(editBox.current );
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
+            const range = document.createRange();
+            range.selectNodeContents(editBox.current );
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
 
-        editAny.current = false
-        editOld.current = editBox.current.textContent.trim()
+            editAny.current = false
+            editOld.current = editBox.current.textContent.trim()
+        }
+        if( editing !== localEditing){
+            setEditing(localEditing)
+        }
+    }, [props.editing, editing])
+
+    const stopEdit = props.stopEditing 
+      ? ()=>{
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+        props.stopEditing(editBox.current)
       }
-    }, [editing])
-
+      : (()=>setEditing(false))
     const cancelEdit = ()=>{
         const sel = window.getSelection();
         sel.removeAllRanges();
         editBox.current.textContent = editOld.current
-        setEditing(false)
-        if( props.asList && parentRow.current ){
-          parentRow.current.focus()
-        }
-    }
-    const onKeykeyHandler = (e)=>{
-        if(["Enter", "Tab", "Escape", "ArrowUp", "ArrowDown" ,"Shift","Meta","Alt","Control"].includes(e.key) ){
-            return
-        }
-        let current = undefined
-        if( editBox.current ){
-            current = editBox.current.textContent
-            editBox.current.textContent = editOld.current
-        }
-        e.stopPropagation();
-        props.onKey(e.key, current, parentRow)
+        stopEdit()
     }
 
     const keyHandler = (e)=>{
@@ -54,14 +50,17 @@
         }
         if( props.submitOnEnter ){
           e.preventDefault()
-          if( props.asList && parentRow.current ){
-            parentRow.current.focus()
+          if( props.stopEditing ){
+            props.stopEditing(editBox.current)
+          }else{
+            e.currentTarget.blur()
           }
           return
         }        
       }
       if( e.key === "Escape"){
         e.stopPropagation();
+        e.preventDefault();
         cancelEdit()
         return
       }
@@ -72,6 +71,7 @@
     const toggleEditing = ()=>{
       if( editing ){
         let newText = editBox.current.textContent.trim()
+        console.log(editOld.current, newText)
         if( editOld.current !== newText ){
           if( props.callback ){
             if( !props.callback( newText ) ){
@@ -81,65 +81,37 @@
             }
           }
         }      
-        setEditing(false)
+        stopEdit()
       }else{
         setEditing(true)
       }
     }
 
-    const listKeyHandler = (e)=>{
-      if(e.key === "Enter"){
-          e.preventDefault()
-        toggleEditing()
-      }
-        if (e.key === 'ArrowDown') {
-          let cn = e.currentTarget.parentElement.nextSibling && e.currentTarget.parentElement.nextSibling.childNodes
-          if( cn && cn[0]){
-            cn[0].focus()
-          }
-      }
-      if (e.key === 'ArrowUp') {
-          let cn = e.currentTarget.parentElement.previousSibling && e.currentTarget.parentElement.previousSibling.childNodes
-          if( cn && cn[0]){
-            cn[0].focus()
-          }
-      }
-    }
-
-
     return (
-      <div 
-          tabIndex={props.editable ? 0 : undefined}
-          ref={parentRow}
-          onKeyDown={props.asList ? listKeyHandler : undefined}
-          onKeyUp={props.onKey ? onKeykeyHandler : undefined}
-          onDoubleClick={props.editable && !editing ? toggleEditing : undefined}
-          className={[
-            props.compact ? "" : "flex px-1 py-2 w-full ",
-            props.editable ? "hover:bg-gray-50 hover:outline-indigo-500" : "",
-            props.className || ""
-          ].join(" ")}
-        >
-        {(props.showTitles === undefined || props.showTitles === true) && <p className='mr-2 grow-0'>{props.title}</p>}
+        <>
         <div
           ref={editBox} 
           contentEditable={editing}
-          onKeyDown={props.editable ? keyHandler : undefined}
-          onBlur={props.editable ? toggleEditing : undefined}
+          onDoubleClick={props.editable}
+          onKeyDown={editing ? keyHandler : undefined}
+          onBlur={editing ? toggleEditing : undefined}
+          tabIndex={editing ? 1 : -1}
           suppressContentEditableWarning={true}
           className={[
-            'place-items-center',
+            'place-items-center outline-none',
+            !props.compact && !editing ? "p-1 min-h-[2em]" : "",
             props.fieldClassName || '',
-            props.compact ? "" : "py-1",
+            props.compact ? "" : "px-1 py-1",
+            props.secondary ? "text-gray-400" : "text-gray-800",
             editing && !errors ? "px-1 bg-gray-50 focus:outline-none focus:ring-1  focus:ring-blue-500" : "",
             editing && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
           ].join(" ")}
           >
-          {props.value || ((props.editable && editing) ? undefined : props.default) }
+          {props.value || ((props.editable && editing) ? undefined : props.default)   }
           </div>
-          {props.icon && <div className='grow-0 place-items-center'>
+          {props.icon && <div className='grow-0 place-items-center ml-1'>
             {props.icon}
           </div>}
-      </div>
+          </>
     )    
   }

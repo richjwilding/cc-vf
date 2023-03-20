@@ -105,11 +105,24 @@ app.get('/google/callback',
 
   }
 );
+app.get("/google/logout", (req, res) => {
+req.user = undefined
+  req.logout(function(err) {
+    if (err) { return next(err); }
+    res.redirect('/google/login');
+  });
+})
 
 var checkToken = async (req, res, next) => {
     // check for user
-    if (!req.user) {
+    if (!req.user ){
         return next();
+    }
+    if (!req.user.refreshToken ){
+        console.log(`no token`)
+        console.log(req.user)
+      res.redirect('/google/logout')
+      return
     }
     let user = req.user
 
@@ -143,6 +156,7 @@ app.get('/api/status', (req, res) => {
             logged_in: true, 
             user: req.user,
             env:{
+                OPEN_API_KEY:process.env.OPEN_API_KEY,
                 GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
                 GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID
             }            
@@ -174,13 +188,6 @@ app.get("/google/failed", (req, res) => {
 
 
 
-app.get("/google/logout", (req, res) => {
- // req.session = null;
-  req.logout(function(err) {
-    if (err) { return next(err); }
-    res.redirect('/google/login');
-  });
-})
 
 app.get('/api/refresh', async (req, res) => {
     let user = req.user

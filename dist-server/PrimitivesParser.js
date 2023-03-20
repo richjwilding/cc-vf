@@ -236,7 +236,7 @@ function PrimitiveParser(obj) {
             }
           }
           if (!node[path] && create) {
-            node[path] = [];
+            node[path] = new Proxy([], structure);
           }
           return node[path];
         };

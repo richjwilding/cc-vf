@@ -16,9 +16,9 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { EvidenceCard } from './EvidenceCard';
 import { Link } from "react-router-dom";
 import EditableTextField from './EditableTextField';
-import EditableContactField from './EditableContactField';
+import EditablePersonField from './EditablePersonField';
+import EditableResourceField from './EditableResourceField';
 import useDataEvent from './CustomHook';
-import EditableUserField from './EditableUserField';
 
 const ExpandArrow = function(props) {
   return (
@@ -39,6 +39,13 @@ let mainstore = MainStore()
         )
 
       }else if( item.type === "link"){
+        return <EditableResourceField
+                {...props} 
+                onSelect={(value)=>{
+                    return props.primitive.setParameter(item.key, value ? value : null)
+                }}
+                  value = {item.value}
+            />
         return (
           <a key={item.id} href={item.value} target="_blank" className="rounded-full hover:opacity-75 text-blue-500 hover:text-blue-600">
             <HeroIcon icon='DocumentTextIcon' className='w-6 h-6'/>
@@ -47,62 +54,52 @@ let mainstore = MainStore()
 
       }else if( item.type === "user"){
         let user = mainstore.user( item.value )
-        if( user === undefined){
-          return <></>
-        }
-        return <EditableUserField 
-                title={item.title} 
-                asList={true} 
-                submitOnEnter={true} 
-                users={user} 
-                compact={props.compact} 
-                editable={props.editing} 
-                showTitles={props.showTitles} 
-                primitive={props.primitive}
-                fieldClassName={props.compact ? "" :'text-end grow'}
+        return <EditablePersonField 
+                {...props} 
+                mode = "user"
+                value ={user} 
                 onSelect={(value)=>{
-                  props.primitive.setParameter(item.key, value.id )
+                  props.primitive.setParameter(item.key, value ? value.id : null)
                 }}
                 className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
               />
 
       }else if( item.type === "contact"){
+        const contact = MainStore().contact( item.autoId )
+        if( props.compact ){
           icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> 
-        if( item.autoId !== undefined ){
-          icon = <ContactPopover icon={<UserIcon className='w-5 h-5 pr-0.5 text-blue-200 hover:text-blue-400'/>} contactId={item.autoId}/>
+          if( item.autoId !== undefined ){
+            icon = <ContactPopover icon={<UserIcon className='w-5 h-5 text-blue-200 hover:text-blue-400'/>} contactId={item.autoId}/>
+          }
+          let name = contact?.name || item.value
+          return <div className='flex'>{icon}{name}</div>
         }
-        return <EditableContactField 
-          title={item.title} 
-          asList={true} 
-          submitOnEnter={true} 
-          value={item.value} 
-          default={item.default} 
-          icon={icon} 
-          multiple={false}
-          compact={props.compact} 
-          editable={props.editing} 
-          showTitles={props.showTitles} 
-          primitive={props.primitive}
-          fieldClassName={props.compact ? "" :'text-end grow'}
-          onSelect={(value)=>{
-            props.primitive.setParameter("contactId", value.id )
-            return props.primitive.setParameter("contact", value.name )
-          }}
-          className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
-        />
+        return <EditablePersonField 
+                {...props} 
+                value ={ contact } 
+                onSelect={async function(value){
+                  console.log( value)
+                  if( value && value.id === undefined ){
+                    console.log('Create new contat')
+                    value = await MainStore().createContact(value)
+                    if( value.id === undefined){
+                      console.warn(`Couldnt add new contact ${value}`)
+                      return
+                    }
+                    console.log(`got new id ${value.id}`)
+                  }
+                  return props.primitive.setParameter("contactId", value ? value.id : null )
+                }}
+                className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
+              />
       }
       
-      return <EditableTextField 
-        title={item.title} 
-        asList={true} 
+      return <EditableTextField
+        {...props} 
         submitOnEnter={true} 
         value={item.value} 
         default={item.default} 
         icon={icon} 
-        compact={props.compact} 
-        editable={props.editing} 
-        showTitles={props.showTitles} 
-        primitive={props.primitive}
         fieldClassName={props.compact ? "" :'text-end grow'}
         callback={(value)=>{
             return props.primitive.setParameter(item.key, value)
@@ -227,8 +224,18 @@ const Banner = function({primitive, ...props}){
 }
 const Parameters = function({primitive, ...props}){
 
+  const [listEditable, setListEditable] = React.useState(props.editing)
+  const [editing, setEditing] = React.useState()
   const [eventTracker, updateForEvent] = React.useReducer( (x)=>x+1, 0)
   const callbackId = React.useRef(null)
+
+  React.useEffect(()=>{
+    setListEditable(props.editing)
+    if( !props.editing ){
+      setEditing(null)
+    }
+  }, [props.editing])
+
   React.useEffect(()=>{
     if( !props.noEvents ){
       callbackId.current = mainstore.registerCallback(callbackId.current, "parameter_update", updateForEvent, primitive.id )
@@ -255,10 +262,39 @@ const Parameters = function({primitive, ...props}){
     details = details.filter((item)=>item.value || !item.extra) 
   }
 
+  const listKeyHandler = (e, idx)=>{
+    if(e.key === "Enter"){
+      e.preventDefault()
+      setEditing( idx )
+    }
+    if (e.key === 'ArrowDown') {
+        e.currentTarget.nextSibling && e.currentTarget.nextSibling.focus()
+    }
+    if (e.key === 'ArrowUp') {
+        e.currentTarget.previousSibling && e.currentTarget.previousSibling.focus()
+    }
+  }
+
+  const stopEditing = (element)=>{
+    element?.parentElement?.focus()
+    setEditing( null )
+  }
+
   return (
     details.map((item, idx)=>(
-      <div key={idx} className={`flex justify-between text-sm place-items-center ${props.className || ''}`}>
-        <RenderItem primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} secondary={(props.inline || props.showAsSecondary) && idx > 0} editing={props.editing}/>
+      <div 
+        key={idx} 
+        tabIndex={listEditable ? 1 : undefined}
+        onDoubleClick={listEditable ? ()=>setEditing(idx) : undefined}
+        onKeyDown={listEditable ? (e)=>listKeyHandler(e,idx) : undefined}
+        className={[
+          "flex text-sm place-items-center py-2",
+          listEditable ? "hover:bg-gray-50 hover:outline-indigo-500" : "",
+          props.className || ""
+        ].join(" ")}
+        >
+        {(props.showTitles === undefined || props.showTitles === true) && <p className='pl-1 mr-2 grow-0'>{item.title}</p>}
+        <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} secondary={(props.inline || props.showAsSecondary) && idx > 0}/>
         {props.inline && <p className='pl-1 text-slate-400'>•</p> }
       </div>
     )))
@@ -347,14 +383,20 @@ const Evidence = function({primitive, ...props}){
 }
 
 const Details = function({primitive, ...props}){
+  const [editing, setEditing] = React.useState(props.editing)
+
+  useEffect(()=>{
+    setEditing(props.editing)
+  }, [primitive.id, props.editing])
+  
   const eventTracker = useDataEvent(props.noEvents ? undefined : "set_parameter", primitive.id )
   let metadata = primitive.metadata
   let parameters = primitive.metadata?.parameters || undefined
   if( !parameters ){ return <></> }
   return (
-        <Panel {...props} title={props.title || "Details"} hideTitle={props.hideTitle} >
+        <Panel {...props} title={props.title || "Details"} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
           <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200`}>
-            <Parameters primitive={primitive} editing={props.editing}/>
+            <Parameters primitive={primitive} editing={editing}/>
           </dl>
           {!props.hideFooter && 
             <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
@@ -430,6 +472,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   let margin = props.bigMargin ? (ring ? 'px-4 py-6' : 'px-2 py-3') : (ring ? 'px-2 py-3' : 'px-0.5 py-1')
 
   const [eventTracker, updateForEvent] = React.useReducer( (x)=>x+1, 0)
+  const [editing, setEditing] = React.useState(false)
   const callbackId = React.useRef(null)
   React.useEffect(()=>{
     if( !props.noEvents ){
@@ -467,13 +510,14 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     console.log(`TITLE UPDAATED`)
     return true
   }
-  let editing = false
 
   let content = fields ? undefined : 
       <>
         <EditableTextField 
           callback={updateTitle}
-          editable={props.showEdit}
+          editable={props.showEdit ? ()=> setEditing( true ) : undefined}
+          stopEditing={()=>setEditing(false)}
+          editing={editing}
           value = {primitive.title}
           className='w-full'
           compact={true}
@@ -482,7 +526,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {(!props.compact && (props.showLink || props.showEdit)) &&
           <button
               type="button"
-              onClick={ props.showEdit ? props.toggleEditing : undefined}
+              onClick={ props.showEdit ? ()=>setEditing(!editing) : undefined}
               className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
               {props.showLink && !props.showEdit && <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" /></Link>}

@@ -1,4 +1,5 @@
 import PrimitiveParser from "./PrimitivesParser";
+import ResultAnalyzer from "./ResultAnalyzer";
 
 let instance = undefined
 function MainStore (prims){
@@ -474,13 +475,16 @@ function MainStore (prims){
             this.data.contacts.push(data)
             return data
         },
-        createPrimitive:function( options ){
-            let {title = "New item", type = "result", state = undefined, parent = undefined, parentPath = undefined, categoryId = undefined } = options
+        createPrimitive:async function( options ){
+            let {title = "New item", type = "result", state = undefined, parent = undefined, parentPath = undefined, categoryId = undefined, referenceParameters = {} } = options
             let category = categoryId ? this.category( categoryId ) : undefined
 
             let paths = [
                 "origin"
             ]
+            if( parentPath){
+                paths.push( parentPath)
+            }
 
             if( type === "result"){
                 if( category && parent && parent.metadata){
@@ -506,10 +510,10 @@ function MainStore (prims){
                 state: state,
                 primitives: [],
                 referenceId: categoryId,
-                referenceParameters: {},
+                referenceParameters: referenceParameters,
                 users: {owner: [this.activeUser.id], other: []}
             }
-            const newId = this.controller.createPrimitive(data, parent, paths)
+            const newId = await this.controller.createPrimitive(data, parent, paths)
             data._id = newId
             this.addPrimitive( data )
             
@@ -518,17 +522,17 @@ function MainStore (prims){
                     parent.addRelationship( data, p, true)
                 })
             }
-
+            const newObj = obj.primitive(newId)
+            obj.triggerCallback("relationship_update", [parent, newObj])
+            return  newObj
         }
     }
 
     obj.structure = PrimitiveParser(obj)
     obj.referenceParametersParser = {
         set(d, prop, value, receiver) {
-            if( prop in d){
-                d[prop] = value
-                return receiver[prop]
-            }
+            d[prop] = value
+            return true
         },
         get(d, prop, receiver) {
             if( prop === "contact" && ("contactId" in d)){
@@ -556,6 +560,9 @@ function MainStore (prims){
         if( d._id){
             d.id = d._id
         }
+        if( !d.primitives ){
+            d.primitives = []
+        }
         return new Proxy(d, {
             set(d, prop, value, receiver) {
                 if( prop === "title"){
@@ -566,7 +573,7 @@ function MainStore (prims){
             },
             get(d, prop, receiver) {
                 if( prop === "primitives"){
-                    return new Proxy( d.primitives || [], obj.structure )
+                    return new Proxy( d.primitives , obj.structure )
                 }
                 if( prop === "plainId"){
                     return d.plainId
@@ -684,6 +691,11 @@ function MainStore (prims){
                     return receiver.primitives[type]
                 }
                 if( type === "primitive"){
+                    if( d.type === "result"){
+                        d.analyzer =  ()=>{
+                            return ResultAnalyzer(receiver).init()
+                        }
+                    }
                     if( prop === "metrics"){
                         if(!d.metrics){ return undefined}
                         return d.metrics.map((m)=>{
@@ -782,34 +794,42 @@ function MainStore (prims){
     obj.data = {}
 
     obj.loadData = async function(){
+            const status = await fetch('/api/status').then(response => response.json())
+            if( !status.logged_in ){
+                window.location.href = "/google/login"
+                return undefined
+            }
+                obj.activeUser = status.user
+
+                obj.env = status.env
+
+
         return new Promise((resolve)=>{
-            const status = fetch('/api/status').then(response => response.json())
             const users = fetch('/api/users').then(response => response.json())
             const companies = fetch('/api/companies').then(response => response.json())
             const contacts = fetch('/api/contacts').then(response => response.json())
             const categories = fetch('/api/categories').then(response => response.json())
             const primitives = fetch('/api/primitives').then(response => response.json())
             
-            Promise.all([status, users,companies,contacts,categories,primitives]).then(([status, users, companies,contacts, categories,primitives])=>{
+            Promise.all([users,companies,contacts,categories,primitives]).then(([users, companies,contacts, categories,primitives])=>{
                 obj.data.users = users
                 obj.data.companies = companies
                 obj.data.contacts = contacts.map((d)=>{d.id = d.id !== undefined ? d.id : d._id; return d} )
                 obj.data.categories = categories
                 obj.data.primitives = primitives
+                obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
 
-                obj.activeUser = status.user
-                obj.env = status.env
                 resolve(true)
             })
         })
     }
     obj.refreshUser = async function(){
-        const status = await fetch('/api/refresh')
+        await fetch('/api/refresh')
             .then(response => response.json())
             .then((response)=>{
-            console.log(`user refersh`)
-            console.log(response)
                 obj.activeUser = response.user
+                obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
+                console.log(`updated user`)
             })
     }
     

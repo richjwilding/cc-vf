@@ -30,20 +30,18 @@ export default function GoogleHelper(){
                     script.defer = true;
                     script.onload = ()=>{
                       gapi = window.gapi
-                      gapi.load('client:auth2',async  ()=>{
-                        gapi.client.setToken(instance.token)
-//                        gapi.client.setApiKey(instance.developerKey)
-
-                        await gapi.client.init({
-                          apiKey: instance.developerKey,
-                          clientId: instance.clientId,
-                          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-                          scope: instance.scope
+                      const script2 = document.createElement('script');
+                        
+                      script2.src = "https://accounts.google.com/gsi/client";
+                      script2.async = true;
+                      script2.defer = true;
+                      script2.onload = async ()=>{
+                        gapi.load('client', async ()=>{
+                          gapi.client.setToken(instance.token)
+                          resolve()
                         })
-
-                        console.log('gapi loaded')
-                        resolve()
-                      });
+                      };
+                      document.body.appendChild(script2);
                     };
             
                     document.body.appendChild(script);
@@ -53,11 +51,9 @@ export default function GoogleHelper(){
             picker:async function(){
                 await this.init();
                 if( !gapi.client.picker){
-                    console.log(`load picker`)
                     await new Promise((resolve,reject)=>{
                         gapi.load('picker', function (args)
                         { 
-                            console.log(`picker done`)
                             console.log(args)
                             resolve()
                         })
@@ -68,25 +64,29 @@ export default function GoogleHelper(){
             drive:async function(){
                 await this.init();
                 if( !gapi.client.drive){
-                    console.log(`load drive`)
                     await new Promise((resolve,reject)=>{
                         gapi.client.load('drive', 'v3', function (){ resolve()})
                     })
                 }                
             },
-            showPicker:async function(options={}){
+            showPicker:async function(options={}, callback){
                 let _this = this 
                 await this.picker();
-                console.log('back')
                 const google = {picker: gapi.picker.api}
                 
                 const callack_wrap = function(data){
-                    console.log(data)
+                  if( data.action === 'cancel'){
+                    callback(undefined)
                   }
+                  if( data.action === 'picked'){
+                    const item = data.docs[0]
+                    callback({id: item.id, name: item.name, mimeType: item.mimeType })
+                  }
+                }
 
 
 
-                  var view_shared = new google.picker.DocsView(google.picker.ViewId.DOCS)//.setParent('0AHX104bVkZE8Uk9PVA');
+                  var view_shared = new google.picker.DocsView(google.picker.ViewId.DOCS).setParent('1fWKPCc68RLFt9pe3a8sBUZt8Ue_q4GMA');
                   view_shared.setIncludeFolders(true)//.setLabel("Shared library")
                   view_shared.setEnableDrives(true)//.setLabel("Shared library")
                   
@@ -122,65 +122,102 @@ export default function GoogleHelper(){
 
 
             },
-            __showPicker:async function(options = {}, callback){
-                let _this = this 
-                await this.picker();
-
-                const google = {picker: gapi.picker.api}
-
-                const pickerCallback = function(data) {
-                    let url = 'nothing';
-                    if (data[google.picker.Response.ACTION] == google.picker.Action.PICKED) {
-                      let doc = data[google.picker.Response.DOCUMENTS][0];
-                      url = doc[google.picker.Document.URL];
-                    }
-                    let message = `You picked: ${url}`;
-                    console.log(message)
-                  }
-
-                const showPicker = () => {
-                    console.log(_this.token)
-                    console.log(_this.developerKey)
-                    const picker = new google.picker.PickerBuilder()
-                        .addView(google.picker.ViewId.DOCS)
-                        .setOAuthToken(_this.token)
-                        .setDeveloperKey(_this.developerKey)
-                        .setCallback(pickerCallback)
-                        .build();
-                    picker.setVisible(true);
-                  }
-                  showPicker()
-                  return
-            },
-            getFileInfo:async function(id){
+            getFileComments:async function(id){
               const _this = this
                 let out
-                let retries = 1
+                let retries = 2
                 const request = async ()=>{
-
                   try{
-
                     await this.drive()
-                    await gapi.client.drive.files
-                    .get({
-                      fileId:id,
-                      fields: 'id, name, mimeType, modifiedTime',
-                      supportsAllDrives: true,
-                      supportsSharedDrives:true,
-                    })
-                    .then(async function (response) {
+                    await gapi.client.request({
+                      'path': '/drive/v3/files/' + id + '/comments',
+                      'method': 'GET',
+                      'headers': {
+                        'Content-Type': 'media',           
+                        'Authorization': 'Bearer ' + instance.token
+                      },
+                      'params': {
+                        pageSize: 100,
+                        fields: '*',
+                        key: instance.developerKey
+                      }
+                    }).then(async function (response) {
                       out = await _this.checkAndRetry( response, request, retries--)
                     });
                   }catch( response ){
-                     console.log(response)
                       out = await _this.checkAndRetry( response, request, retries--)
                   }
                 }
                 await request()
                 return out
             },
+            getFileAsPdf:async function(id, format = 'application/pdf'){
+              const _this = this
+                let out
+                let retries = 2
+                const request = async ()=>{
+                  try{
+                    await this.drive()
+                    await gapi.client.request({
+                      'path': '/drive/v3/files/' + id + '/export',
+                      'method': 'GET',
+                      'headers': {
+                        'Content-Type': 'blob',           
+                        'Authorization': 'Bearer ' + instance.token
+                      },
+                      'params': {
+                        supportsAllDrives: true,
+                        mimeType: format,
+                        key: instance.developerKey
+                      }
+                    }).then(async function (response) {
+                      console.log(`check 1`)
+                    console.warn(response)
+                      out = await _this.checkAndRetry( response, request, retries--)
+                    });
+                  }catch( response ){
+                    console.log(`check 2`)
+                    console.warn(response)
+                      out = await _this.checkAndRetry( response, request, retries--)
+                  }
+                }
+                console.log(`FIRST CALL FOR PDF`)
+                await request()
+                return out
+            },
+            getFileInfo:async function(id){
+              return {name: "DISABLED"}
+              const _this = this
+              const request = async (retries = 2)=>{
+                  let out
+                  try{
+                    await this.drive()
+                    await gapi.client.request({
+                      'path': '/drive/v3/files/' + id,
+                      'method': 'GET',
+                      'headers': {
+                        'Content-Type': 'application/json',           
+                        'Authorization': 'Bearer ' + instance.token
+                      },
+                      'params': {
+                        supportsAllDrives: true,
+                        fields: 'id, name, mimeType, modifiedTime',
+                        key: instance.developerKey
+                      }
+                    }).then(async function (response) {
+                      out = await _this.checkAndRetry( response, request, retries--)
+                    });
+                  }catch( response ){
+                      out = await _this.checkAndRetry( response, request, retries--)
+                  }
+                  return out
+                }
+                
+                return await request()                
+            },
             checkAndRetry:async function( response, request, retries ){
-                if( response.status !== 200 ){
+              console.log(`checking ${retries}`)
+                if( response.status === 401 ){
                   console.log(`Response = ${response.status} - retries remaining = ${retries}`)
                   if( retries > 0 ){
                     const old = instance.token
@@ -188,10 +225,25 @@ export default function GoogleHelper(){
                     instance.token = MainStore().activeUser.accessToken
                     gapi.client.setToken(instance.token)
                     console.log(old === instance.token ? " - SAME" : " + NEW")
-                    await request()
+                    console.log(`requesting....`)
+                    const retry = await request(retries)
+                    return retry
+                  }
+                }
+                if( response.status === 200 ){
+                  console.log(`success @ ${retries}`)
+                  if( retries < 2){
+                    console.log(response)
+                  }
+                  try{
+                    return JSON.parse(response.body);
+                  }catch{
+                    return response.body
                   }
                 }else{
-                  return JSON.parse(response.body);
+                  console.warn( `STATUS: ${response.status}`) 
+                  console.warn( response ) 
+                  throw new Error(response.body)
                 }
             }
     }

@@ -1,4 +1,3 @@
-import useDrivePicker from 'react-google-drive-picker'
 import React, { useState } from 'react'
 import MainStore from './MainStore';
 import GoogleHelper from './GoogleHelper';
@@ -9,16 +8,21 @@ import {
 
 
 export default function EditableResourceField ({...props}){
-
+    const tempLoading = "Loading..."
     const [open, setOpen] = React.useState(false)
-    const [title, setTitle] = useState("Loading...")
+    const [title, setTitle] = useState(tempLoading)
     const [value, setValue] = useState(props.value)
     const [editing, setEditing] = React.useState(props.editing)
     const field = React.useRef()
 
     const stopEdit = ()=>props.stopEditing(field?.current) || (()=>setEditing(false))
 
-    const blur = ()=>{
+    const blur = (e)=>{
+        if( e.target.contains(e.relatedTarget)){
+            return
+        }
+        if(e.target !== field.current){return}
+        //if(e.target.type !== 'button'){return}
         if( !open ){
             stopEdit()
         }
@@ -53,6 +57,15 @@ export default function EditableResourceField ({...props}){
             return
         }
     }
+    const pickGoogleDocument = ()=>{
+        GoogleHelper().showPicker({}, (item)=>{
+            if( item ){
+                setValue({type: "google_drive", id: item.id})
+                setTitle(item.name)
+                field.current.focus()
+            }
+        })
+    }
 
     const clearValue = ()=>{
         setValue(undefined)
@@ -69,12 +82,13 @@ export default function EditableResourceField ({...props}){
     }, [props.editing, editing])
 
     React.useEffect(()=>{
-        if( props.value && props.value.type === "google_drive" ){
-            const wrap = async function(){
-                console.log(`request for ${props.value.id}` )
-                setTitle( (await GoogleHelper().getFileInfo( props.value.id )).name )
+        if( value && value.type === "google_drive" ){
+            if( title === tempLoading ){
+                const wrap = async function(){
+                    setTitle( (await GoogleHelper().getFileInfo( props.value.id )).name )
+                }
+                wrap()
             }
-            wrap()
         }else{
             setTitle("Link")
         }
@@ -86,6 +100,7 @@ export default function EditableResourceField ({...props}){
                         onKeyDown={mainKeyHandler}
                         tabIndex={editing ? "1" : "-1"}
                         className={[
+                            editing ? '' : 'pointer-events-none', 
                             'flex w-full justify-end pt-0.5 pb-0.5 ',
                             editing ? "bg-gray-50 ring-1 ring-blue-500 pr-1" : ""
                         ].join(' ')}
@@ -111,14 +126,13 @@ export default function EditableResourceField ({...props}){
                            (editing ? 
                                 <button
                                     type="button"
-                                // className="rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
                                     className="my-1 rounded bg-white py-1 px-2 text-sm text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                                    onClick={() => console.log('done')}
+                                    onClick={pickGoogleDocument}
                                 >
                                     Google Drive Document
                                 </button> 
                             :
-                            <p className='text-gray-500 mr-1'>None</p>)
+                            <p className='text-gray-500 mr-1 '>None</p>)
                         }
                     </div> );
 

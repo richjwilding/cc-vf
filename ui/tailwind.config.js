@@ -75,9 +75,7 @@ module.exports = {
     },
   },
   plugins: [
-
-
-
+    require('@tailwindcss/container-queries'),
     plugin(function({ addUtilities, addComponents }) {
       addUtilities({
         '.subtle-shadow-bottom_old':{
