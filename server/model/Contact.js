@@ -4,9 +4,11 @@ const { Schema, model } = mongoose;
 const contactSchema = new Schema({
     "name": String,
     "profile": String,
+    "profileInfo": Object,
     "avatarUrl": String,
+    "avatarPresent": Boolean,
     "expertise": [String],
     "domains": [String]
-});
+},{timestamps: true});
 const Contact = model('Contact', contactSchema);
 export default Contact;

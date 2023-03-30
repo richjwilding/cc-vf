@@ -13,9 +13,11 @@ import mongoose from 'mongoose';
 import User from './model/User';
 import moment from 'moment';
 import * as refresh from 'passport-oauth2-refresh';
+import {Miro} from '@mirohq/miro-api'
 
 dotenv.config()
 
+const miro = new Miro()
 
 mongoose.set('strictQuery', false);
 mongoose.connect("mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000&appName=mongosh+1.7.1")
@@ -101,7 +103,10 @@ app.get('/google/callback',
       failureRedirect: '/failed',
   }),
   function (req, res) {
-      res.redirect('/')
+    console.log(req.session)
+    console.log(`CHECKIN TO ${req.session.returnTo}`)
+    res.redirect(req.session.returnTo || '/');
+    delete req.session.returnTo;
 
   }
 );
@@ -112,6 +117,22 @@ req.user = undefined
     res.redirect('/google/login');
   });
 })
+app.get('/miro/callback', async (req, res) => {
+    let code
+    try{
+        const id = req?.session?.passport?.user?.email
+        console.log(req.session)
+        console.log(id)
+        await miro.exchangeCodeForAccessToken(id, req.query.code)
+        code = await miro.getAccessToken(id )
+        console.log(code)
+
+    }catch(error){
+        console.log(error)
+    }
+    res.redirect("/miro/catch/?code=" + encodeURIComponent(code))
+  })
+
 
 var checkToken = async (req, res, next) => {
     // check for user
@@ -158,7 +179,11 @@ app.get('/api/status', (req, res) => {
             env:{
                 OPEN_API_KEY:process.env.OPEN_API_KEY,
                 GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
-                GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID
+                GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+                MIRO_CLIENT_ID: process.env.MIRO_CLIENT_ID,
+                MIRO_CLIENT_SECRET: process.env.MIRO_CLIENT_SECRET,
+                MIRO_REDIRECT_URL: process.env.MIRO_REDIRECT_URL,
+                PROXYCURL_KEY: process.env.PROXYCURL_KEY
             }            
         })
     } else {
@@ -172,9 +197,13 @@ var ensureAuthenticated = async function(req, res, next) {
         if( user ){
             return next();
         }
+        req.session.returnTo = req.originalUrl; 
+        console.log(`SET TO ${req.session.returnTo}`)
         res.redirect('/google/login')
     } 
     else{
+        console.log(`SET TO ${req.session.returnTo}`)
+        req.session.returnTo = req.originalUrl; 
         res.redirect('/google/login')
     }
 }
@@ -186,7 +215,27 @@ app.get("/google/failed", (req, res) => {
   res.send("Failed")
 })
 
+app.get('/miro/catch', async (req, res) => {
+    console.log( req.query.code )
+    if( req.user ){
+        req.user.miro = req.query.code
+    }
+    res.redirect('/')
+    
+})
 
+app.get('/miro/login', async (req, res) => {
+    const id = req?.session?.passport?.user?.email
+    console.log(id)
+    if( !id){
+        res.redirect('/')
+        return
+    }
+    if (!(await miro.isAuthorized(id))) {
+        res.redirect(miro.getAuthUrl())
+        return
+      }
+})
 
 
 app.get('/api/refresh', async (req, res) => {
@@ -218,5 +267,6 @@ if (process.env.NODE_ENV === 'production') {
       res.sendFile(path.resolve(__dirname, 'ui', 'build', 'index.html'))
     })
   }
+
 
 export default app;

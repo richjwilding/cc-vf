@@ -1,15 +1,18 @@
 import PrimitiveParser from "./PrimitivesParser";
 import ResultAnalyzer from "./ResultAnalyzer";
+import ExperimentAnalyzer from "./ExperimentAnalyzer";
+import ContactHelper from "./ContactHelper";
 
 let instance = undefined
 function MainStore (prims){
     if( !prims && instance ){
         return instance
     }
+    window.contactHelper = ContactHelper()
     let obj = {
         id:  Math.floor(Math.random() * 99999),
         callbacks: {},
-        types: ["hypothesis", "learning","activity","experiment","question", "evidence"],
+        types: ["hypothesis", "learning","activity","result","experiment","question", "evidence"],
         ajaxResponseHandler(result){
             if( result.success){
                 return true
@@ -62,7 +65,7 @@ function MainStore (prims){
                 const data = {
                     id: object.id,
                 }
-                let result
+                let result = false
                 await fetch("/api/remove_primitive",{
                     method: 'POST',
                     headers: {
@@ -74,7 +77,7 @@ function MainStore (prims){
                 .then(
                   (res) => {
                     if( obj.ajaxResponseHandler( res )){
-                       result = res 
+                       result = true
                     }
                   },
                   (error) => {
@@ -85,7 +88,7 @@ function MainStore (prims){
             },
             async createPrimitive(object, parent, paths){
                 const data = {
-                    parent: parent.id,
+                    parent: parent ? parent.id : undefined,
                     data: object,
                     paths: paths
                 }
@@ -392,6 +395,12 @@ function MainStore (prims){
             }
             return obj._cache_vf
         },
+        deletePrimitive:function(id){
+            delete obj.data.primitives[ id ]
+            if( obj._cache_prim ){
+                obj._cache_prim = obj._cache_prim.filter((d)=>d.id !== id)
+            }
+        },
         addPrimitive:function(data){
             if( obj._cache_prim === undefined){
                 obj.primitives()                
@@ -467,6 +476,9 @@ function MainStore (prims){
                 this.callback_tracker = (this.callback_tracker || 0) + 1
                 id = this.callback_tracker
             }
+            if( typeof(events) === "string"){
+                events = events.split(" ")
+            }
             ;[events].flat().forEach((e)=>{
                 if( store.callbacks[e] === undefined){
                     store.callbacks[e] = []
@@ -483,9 +495,13 @@ function MainStore (prims){
                 return
             }
             items = [items].flat()
+
+            items = items.map((d)=> d instanceof Object ? d.id : d)
+
+            const name = e
             this.callbacks[e].forEach((e)=>{
-                if( e.filterIds ){
-                    if( items.filter((item)=>e.filterIds.includes(item.id)).length === 0){
+                if( e.filterIds.length > 0 ){
+                    if( items.filter((item)=>e.filterIds.includes(item)).length === 0){
                         return
                     }
                 }
@@ -500,13 +516,36 @@ function MainStore (prims){
             this.data.contacts.push(data)
             return data
         },
+        removePrimitive:async function(primitive){
+            if( !(primitive instanceof Object)){
+                primitive = this.primitive(primitive)
+            }
+            if( this.controller.removePrimitive(primitive) ){
+                const ids = []
+                primitive.parentPrimitives.forEach((parent)=>{
+                    const rels = primitive.parentPaths(parent.id)
+                    ids.push(parent.id)
+                    rels.forEach((path)=>{
+                        parent.primitives.remove( primitive.id, path)
+                    })
+                })
+                this.deletePrimitive( primitive.id )
+                console.log(ids)
+                obj.triggerCallback("relationship_update", ids )
+            }else{
+                console.warn(`Couldn't remove ${primitive.id}`)
+                throw new Error("Error removing")
+            }
+        },
         createPrimitive:async function( options ){
-            let {title = "New item", type = "result", state = undefined, parent = undefined, parentPath = undefined, categoryId = undefined, referenceParameters = {} } = options
+            let {title = "New item", type = "result", state = undefined, extraFields = {}, parent = undefined, parentPath = undefined, categoryId = undefined, referenceParameters = {} } = options
             let category = categoryId ? this.category( categoryId ) : undefined
 
-            let paths = [
-                "origin"
-            ]
+            let paths = []
+            if( parent ){
+                paths.push( "origin" )
+
+            }
             if( parentPath){
                 paths.push( parentPath)
             }
@@ -536,7 +575,8 @@ function MainStore (prims){
                 primitives: {},
                 referenceId: categoryId,
                 referenceParameters: referenceParameters,
-                users: {owner: [this.activeUser.id], other: []}
+                users: {owner: [this.activeUser.id], other: []},
+                ...extraFields
             }
             const newId = await this.controller.createPrimitive(data, parent, paths)
             data._id = newId
@@ -557,11 +597,20 @@ function MainStore (prims){
     obj.referenceParametersParser = {
         set(d, prop, value, receiver) {
             d[prop] = value
+            if( prop === "contact" || prop === "contactId" ){
+                d._contact = undefined
+            }
             return true
         },
         get(d, prop, receiver) {
+            if( prop === "contactName" ){
+                return receiver.contact?.name
+            }
             if( prop === "contact" && ("contactId" in d)){
-                return obj.contact(d.contactId)?.name
+                if( d._contact === undefined){
+                    d._contact = obj.contact(d.contactId)
+                }
+                return d._contact
             }
             if( prop in d){
                 return d[prop]
@@ -588,7 +637,7 @@ function MainStore (prims){
         if( !d.primitives ){
             d.primitives = []
         }
-        return new Proxy(d, {
+        const primObj = new Proxy(d, {
             set(d, prop, value, receiver) {
                 if( prop === "title"){
                     d.title = value
@@ -626,10 +675,23 @@ function MainStore (prims){
                         return true
                     }
                 }
+                if( prop === "setLocalFlag"){
+                    return function( fieldName, value ){
+                        d['_' + fieldName] = value
+                        return true
+                    }
+                }
+                if( prop === "setField"){
+                    return function( fieldName, value ){
+                        d[fieldName] = value
+                        obj.controller.updateField( receiver, fieldName, value, `set_${fieldName}`  )
+                        return true
+                    }
+                }
                 if( prop === "setParameter"){
                     return function( parameterName, value ){
                         if( receiver.validateParameter(parameterName, value)){
-                            d.referenceParameters[parameterName] = value
+                            receiver.referenceParameters[parameterName] = value
                             obj.controller.updateParameter( receiver, parameterName, value  )
                             return true
                         }
@@ -648,6 +710,15 @@ function MainStore (prims){
                         if( receiver.primitives.add( target.id, path )){
                             if( !skip ){
                                 obj.controller.setRelationship( receiver, target, path, true )
+                            }
+                        }
+                    }
+                }
+                if( prop === "removeRelationship"){
+                    return function( target, path, skip = false ){
+                        if( receiver.primitives.remove( target.id, path )){
+                            if( !skip ){
+                                obj.controller.setRelationship( receiver, target, path, false )
                             }
                         }
                     }
@@ -721,6 +792,11 @@ function MainStore (prims){
                             return ResultAnalyzer(receiver).init()
                         }
                     }
+                    if( d.type === "experiment" || d.type === "task"){
+                        d.analyzer =  ()=>{
+                            return ExperimentAnalyzer(receiver).init()
+                        }
+                    }
                     if( prop === "metrics"){
                         if(!d.metrics){ return undefined}
                         return d.metrics.map((m)=>{
@@ -733,8 +809,12 @@ function MainStore (prims){
                         return obj.users().filter((d)=>id_list.includes(d.id))
                     }
                     if( prop === "origin"){
+                        if( d._origin){
+                           return d._origin 
+                        }
                         let origin = receiver.parentPrimitiveRelationships["origin"]
                         if( origin ){
+                            d._origin = origin[0]
                             return origin[0]
                         }
                     }
@@ -823,8 +903,25 @@ function MainStore (prims){
                 }
             }
         })
+        return primObj
     }    
     obj.data = {}
+
+    obj.processOutstandingDiscovery = async function(){
+        obj.primitives().forEach((primObj)=>{
+
+            if( primObj.type === "result"){
+                if( primObj.referenceParameters.notes !== undefined ){
+                    if( primObj.origin && primObj.origin.doDiscovery ){
+                        if(primObj.discoveryDone !== true ){
+                            primObj.setLocalFlag("doingDiscovery", true)
+                            primObj.analyzer().doDiscovery()
+                        }
+                    }
+                }
+            }
+        })
+    }
 
     obj.loadData = async function(){
             const status = await fetch('/api/status').then(response => response.json())
@@ -847,11 +944,17 @@ function MainStore (prims){
             Promise.all([users,companies,contacts,categories,primitives]).then(([users, companies,contacts, categories,primitives])=>{
                 obj.data.users = users
                 obj.data.companies = companies
-                obj.data.contacts = contacts.map((d)=>{d.id = d.id !== undefined ? d.id : d._id; return d} )
+                obj.data.contacts = contacts.map((d)=>{
+                    d.id = d.id !== undefined ? d.id : d._id; 
+                    if( !d.avatarUrl && d.avatarPresent){
+                        d.avatarUrl = `/api/avatarImage/${d.id}?${d.updatedAt ? new Date(d.updatedAt).getTime() : ""}`
+                    }
+                    return d} )
                 obj.data.categories = categories
                 obj.data.primitives = primitives
                 obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
 
+                obj.processOutstandingDiscovery()
                 resolve(true)
             })
         })

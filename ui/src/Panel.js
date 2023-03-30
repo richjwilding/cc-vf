@@ -4,6 +4,7 @@ import {
   PencilIcon,
   ChevronRightIcon,
 } from '@heroicons/react/20/solid'
+import DropdownButton from './DropdownButton';
 
 
 const Title = (props)=>(
@@ -43,15 +44,21 @@ export default function Panel({...props}){
             <Disclosure.Button className='flex w-full'>
               <Title {...props} open={open}/>
             </Disclosure.Button>
-              {props.titleButton &&
-                  <button
-                    type="button"
-                    className="shrink-0 grow-0 h-10 self-center rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                    onClick={props.titleButton}
-                  >
-                    {props.titleButton.text || "Create new"}
-                  </button>
-              }
+              {props.titleButton && (
+                props.titleButton instanceof Array
+                ? 
+                  <DropdownButton items={props.titleButton} className='shrink-0 grow-0 h-10' />
+                :
+                    <button
+                      type="button"
+                      className="shrink-0 grow-0 h-10 self-center rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                      onClick={props.titleButton.action}
+                    >
+                      {props.titleButton.icon ? props.titleButton.icon : 
+                        (props.titleButton.title || "Create new")
+                      }
+                    </button>
+              )}
           </div>
           <Transition
             enter="transition duration-100 ease-out"

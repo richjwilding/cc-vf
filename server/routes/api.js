@@ -6,14 +6,160 @@ import Contact from '../model/Contact';
 import Category from '../model/Category';
 import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
-var ObjectId = require('mongoose').Types.ObjectId;
+import { Storage } from '@google-cloud/storage';
+import { Readable } from 'stream';
+import { finished } from 'stream/promises';
 
+var ObjectId = require('mongoose').Types.ObjectId;
 
 const parser = PrimitiveParser()
 var router = express.Router();
 
 router.get('/', async function(req, res, next) {
     res.json({up: true})
+})
+router.get('/avatarImage/:id', async function(req, res, next) {
+    const contactId = req.params.id
+    const bucketName = 'bucket-profiles-vf-cc'
+    const storage = new Storage({
+        projectId: process.env.GOOGLE_PROJECT_ID,
+      });
+    try{
+
+        const bucket = storage.bucket(bucketName);
+        const file = bucket.file(contactId)
+        const remoteReadStream = file.createReadStream()
+                                    .on('error', function(err) {
+                                        console.log(err)
+                                        res.status(501).json({message: "Not found"})
+                                        return
+                                    });
+        res.set('Cache-Control', 'public, max-age=31557600');
+        remoteReadStream.pipe(res);
+    }catch(error){
+        res.status(501).json({message: "Error"})
+    }
+})
+router.get('/enrichContact', async function(req, res, next) {
+    const contactId = req.query.contactId
+    try {
+        const contact = await Contact.findOne({_id:  new ObjectId(contactId)})
+
+        if( !contact.profile ){
+            const company = req.query.company
+            if( company ){
+                let [first_name, last_name, other] = contact.name.split(" ")
+                if( other ){
+                    first_name = last_name
+                    last_name = other
+                }
+                console.log(first_name)
+                console.log(last_name)
+                console.log(company)
+                    const query = new URLSearchParams({ 
+                        'enrich_profile': "skip",
+                        'company_domain': company,
+                        'first_name': first_name,
+                        'lasst_name': last_name
+                    }).toString()
+                    const url = `https://nubela.co/proxycurl/api/linkedin/profile/resolve?${query}`
+                    const response = await fetch(url,{
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
+                        },
+                    });
+                
+                console.log('send')
+                console.log(query)
+                const data = await response.json();
+                if( data.url ){
+                    contact.profile = data.url
+                    contact.markModified("profile")
+                    await contact.save()
+                }else{
+                    res.json({success: false, reason: "No profile url and no company url found"})
+                    return
+                }
+
+            }else{
+                res.json({success: false, reason: "No profile url or company name"})
+                return
+            }
+        }
+        if( !contact.profileInfo && contact.profile){
+            try{
+                
+                const query = new URLSearchParams({ 
+                    url: contact.profile,
+                    fallback_to_cache: 'on-error',
+                    'use_cache':'if-present',
+                    'skills':'include',
+                    'inferred_salary':'include',
+                    'personal_email':'include',
+                    'personal_contact_number':'include',
+                    'twitter_profile_id':'include',
+                    'facebook_profile_id':'include',
+                    'github_profile_id':'include',
+                    'extra':'include'
+                }).toString()
+                const url = `https://nubela.co/proxycurl/api/v2/linkedin?${query}`
+                const response = await fetch(url,{
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
+                    },
+                });
+                
+                const data = await response.json();
+                console.log(data)
+                res.json({result: data})
+                contact.profileInfo = data
+                contact.avatarPresent = await replicateURLtoStorage( data.profile_pic_url, contact.id )
+                contact.avatarUrl = avatarUrl
+                contact.markModified("profileInfo")
+                contact.markModified("avatarUrl")
+                contact.markModified("avatarPresent")
+                await contact.save()
+                return
+            }catch(error){
+                console.log(error)    
+                res.json({success: false, reason: error.message})
+                return
+            }
+        }
+        if( !contact.avatarUrl){
+            try{
+                
+                const query = new URLSearchParams({ linkedin_person_profile_url: contact.profile  }).toString()
+                const url = `https://nubela.co/proxycurl/api/linkedin/person/profile-picture?${query}`
+                const response = await fetch(url,{
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
+                    },
+                });
+                
+                const data = await response.json();
+                console.log(data)
+                if( data.tmp_profile_pic_url ){
+                    contact.avatarPresent = await replicateURLtoStorage( data.tmp_profile_pic_url, contact.id )
+                    contact.markModified("avatarPresent")
+                    await contact.save()
+                }
+                res.json({result: data})
+                return
+            }catch(error){
+                console.log(error)    
+                res.json({success: false, reason: error.message})
+                return
+            }
+        }
+            
+    } catch (err) {
+        res.json({error: err.message})
+    }
+
 })
 router.get('/users', async function(req, res, next) {
 
@@ -142,7 +288,7 @@ const removeParentReference = async (target, parentId)=>{
     if( !(target instanceof Object)){
         target = await Primitive.findOne({"_id": new ObjectId(target)})
     }
-    const targetId = target.id
+
 
     try{
         const updates = target.parentPrimitives[parentId].reduce((o,pp)=>{
@@ -180,7 +326,6 @@ router.post('/remove_primitive', async function(req, res, next) {
                     await removeParentReference( removed, parentId)
                 }
             }
-            console.log(removed.primitives)
             if( removed.primitives ){
                 const childPrimitiveIds = new Proxy(removed.primitives, parser).uniqueAllIds
                 for( const childId of childPrimitiveIds ){
@@ -203,13 +348,13 @@ router.post('/remove_primitive', async function(req, res, next) {
 })
 router.post('/add_primitive', async function(req, res, next) {
     let data = req.body
-    console.log(data)
 
     try {
         const paths = data.paths.map((p)=>flattenPath( p ))
 
-        console.log( paths )
-        data.data.parentPrimitives = {[data.parent]: paths}
+        if( data.parent ){
+            data.data.parentPrimitives = {[data.parent]: paths}
+        }
         
         let newPrimitive = await Primitive.create(data.data)
         const newId = newPrimitive._id.toString()
@@ -314,5 +459,31 @@ router.post('/set_relationship', async function(req, res, next) {
     }
 
 })
+
+
+async function replicateURLtoStorage(url, id, bucketName){
+    console.log(`replicating`)
+    if(!url || !id){return false}
+    if( url.slice(0,4) !== "http"){return false}
+    const storage = new Storage({
+        projectId: process.env.GOOGLE_PROJECT_ID,
+      });
+
+    bucketName = 'bucket-profiles-vf-cc'
+
+    const bucket = storage.bucket(bucketName);
+    const file = bucket.file(id)
+    if( await file.exists()[0] ){
+        await file.delete()
+    }
+    const stream = file.createWriteStream()
+
+
+    const response = await fetch(url)
+    await finished(Readable.fromWeb(response.body).pipe(stream));
+    return true
+
+}
+
 
 export default router;

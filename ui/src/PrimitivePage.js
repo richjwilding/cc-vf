@@ -1,24 +1,26 @@
 import { PrimitiveCard } from './PrimitiveCard'
 import { MetricCard } from './MetricCard'
 import { HeroIcon } from './HeroIcon'
-import {Fragment, useEffect, useReducer, useRef, useState} from 'react';
+import {Fragment, useEffect, useReducer, useRef, useState, useMemo} from 'react';
 import Panel from './Panel';
 import { Tab } from '@headlessui/react'
 import {
   PencilIcon,
+  ArrowsPointingOutIcon,
   QuestionMarkCircleIcon,
 } from '@heroicons/react/20/solid'
 import { motion, AnimatePresence } from "framer-motion"
 import { PrimitivePopup } from './PrimitivePopup';
 import { MetricPopup } from './MetricPopup';
 import MainStore from './MainStore';
-import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon } from '@heroicons/react/24/outline';
+import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon, GifIcon } from '@heroicons/react/24/outline';
 import { formatDistance, subDays } from 'date-fns'
 import ContactPicker from './ContactPicker';
 import ResultViewer from './ResultViewer';
 import useDataEvent from './CustomHook';
 import OpenAIAnalysis from './OpenAIAnalysis';
 import GoogleHelper from './GoogleHelper';
+import EvidenceExplorer from './EvidenceExplorer';
 
 
 let mainstore = MainStore()
@@ -55,6 +57,7 @@ export function PrimitivePage({primitive, ...props}) {
     let task = primitive.originTask
     let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
 
+    const hasDocumentViewer = primitive.type === "result" && primitive.referenceParameters?.notes
     const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
     const callbackId = useRef(null)
     const [selected, setSelected] = useState(null)
@@ -64,13 +67,16 @@ export function PrimitivePage({primitive, ...props}) {
     const [plainText, setPlainText] = useState()
     const resultViewer = useRef()
     const [analysis, setAnalysis] = useState()
+    const [showWorkingPane, setShowWorkingPane] = useState(hasDocumentViewer)
     const test = ()=>{
       console.log('helo')
       updateRelationships()
     }
+
     useDataEvent("relationship_update", primitive.id, test)
 
-    const hasDocumentViewer = primitive.type === "result" && primitive.referenceParameters?.notes
+    const hasNestedEvidence = primitive.isTask
+    const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
 
       const analyzeText = async ()=>{
         if( primitive.referenceParameters.notes.type === "google_drive"){
@@ -127,15 +133,31 @@ export function PrimitivePage({primitive, ...props}) {
   function onDocumentLoadSuccess({ numPages }) {
     setNumPages(numPages);
   }
+  const createNewResultFromDocument = async( category )=>{
+    GoogleHelper().showPicker({}, (items)=>{
+      for( const item of items){
 
-  const createResult = async( category, open = false )=>{
+        createResult( category, {
+          title: item.name,
+          referenceParameters: {
+            notes: {type: "google_drive", id: item.id, mimeType: item.mimeType, name: item.name}
+          }
+        } )
+      }
+    })
+  }
+
+  const createResult = async( category, options = {}, open = false )=>{
     const newObj = await mainstore.createPrimitive({
       parent: primitive,
       type: "result",
-      title: `New ${category.title}`,
+      title: options.title || `New ${category.title}`,
       categoryId: category.resultCategoryId,
+      referenceParameters: options.referenceParameters
     })
-    setSelected( newObj )
+    if(open){
+      setSelected( newObj )
+    }
 
   }
 
@@ -156,7 +178,7 @@ export function PrimitivePage({primitive, ...props}) {
     let page = useRef()
     let header = useRef()
 
-    let outcomesList = primitive.primitives.filter((p)=>p.type === "evidence")
+    let outcomesList = primitive.primitives.allUniqueEvidence
 
   return (
     <>
@@ -188,7 +210,7 @@ export function PrimitivePage({primitive, ...props}) {
             className={
               [
                 'mx-auto mt-8 grid sm:px-6  gap-6 ',
-                hasDocumentViewer 
+                showWorkingPane 
                   ? "grid-cols-1 lg:grid-cols-[1fr_1fr_min-content] 2xl:grid-cols-[repeat(2,min-content)_auto_min-content] 2xl:grid-rows-[min-content_1fr] " 
                   : "grid-cols-1 lg:grid-flow-col-dense lg:grid-cols-3 max-w-3xl lg:max-w-7xl",
               ].join(" ")
@@ -196,7 +218,7 @@ export function PrimitivePage({primitive, ...props}) {
             <div 
               className={[
                   "space-y-6 lg:col-span-2 lg:col-start-1",
-                  hasDocumentViewer ? "2xl:w-[30em] h-fit" : ""
+                  showWorkingPane ? "2xl:w-[30em] h-fit" : ""
                 ].join(" ")}
               >
               <section 
@@ -221,7 +243,7 @@ export function PrimitivePage({primitive, ...props}) {
                   <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
                     <PrimitiveCard.Resources primitive={primitive}/>
                   </div>
-            {!hasDocumentViewer && 
+            {!showWorkingPane && 
                 <div className='px-4 sm:px-6 pt-2 pb-5 col-span-5 w-full'>
                   <Panel key='analysis' title='Questions' collapsable={true}>
                     <dd className="mt-1 text-sm text-gray-900">
@@ -242,11 +264,9 @@ export function PrimitivePage({primitive, ...props}) {
             }
                 </div>
               </section>
-            {primitive.metrics &&
-                <section key='metricss' aria-labelledby="applicant-information-title">
-                    <h2 id="notes-title" className="text-md font-medium text-gray-500 pt-5 pb-2 px-0.5">Metrics</h2>
+                  <Panel key='metrics' title='Metrics' titleButton={{action:()=>alert("HI")}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
                     <div className="gap-3 grid-cols-2 grid md:grid-cols-3 lg:grid-cols-3">
-                        {primitive.metrics.map((metric)=>{
+                        {primitive.metrics && primitive.metrics.map((metric)=>{
                           let wide = metric.type === "conversion"
                           const m = <MetricCard 
                               key={metric.id} 
@@ -278,20 +298,25 @@ export function PrimitivePage({primitive, ...props}) {
                           }
                         })}
                     </div>
-                </section>
-            }
+                  </Panel>
+
+            {hasNestedEvidence && !showWorkingPane &&
+                  <Panel key='evidence_panel' title="Evidence" titleButton={{icon: <ArrowsPointingOutIcon className='w-4 h-4 -mx-1'/>, action:()=>setShowWorkingPane(!showWorkingPane)}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                    <PrimitiveCard.EvidenceList evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
+                  </Panel>}
 
             {primitive.metadata.resultCategories && primitive.metadata.resultCategories.map((category)=>{
                 let view = category.views?.default
                 let cardConfig = view ? category.views.list[view] : undefined
+                let cardSort =  view ? category.views.sort[view] : undefined
                 let showState = view !== "kaban"
                 
-                let list = primitive.primitives.results[category.id].map((d)=>d)
+                let list = primitive.primitives.results ?  primitive.primitives.results[category.id].map((d)=>d) : []
 
                 if( cardConfig ){
                   list = list.sort((a,b)=>{
-                    let va = a.referenceParameters[cardConfig[0]]
-                    let vb = b.referenceParameters[cardConfig[0]]
+                    let va = a.referenceParameters[cardSort]
+                    let vb = b.referenceParameters[cardSort]
                     if( va && vb ){
                         return va.localeCompare(vb)
                     }
@@ -300,9 +325,12 @@ export function PrimitivePage({primitive, ...props}) {
 
                 
                 return (
-                  <Panel key={category.title} title={primitive.metadata.title} titleButton={()=>createResult(category)} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                  <Panel key={category.title} title={primitive.metadata.title} titleButton={[{title:"Create new", action: ()=>createResult(category, undefined, true)},{title: "Create from document", action: ()=>createNewResultFromDocument(category)}]} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
                         <div 
-                            className="gap-3 space-y-3 no-break-children sm:columns-2 md:columns-3 xl:columns-4">
+                            className={
+                              [`gap-3 space-y-3 no-break-children sm:columns-2`,
+                                showWorkingPane ? "" : `md:columns-3 xl:columns-4`].join(" ")
+                            }>
                             {list.map((p,idx)=>{
                                 return (
                                     <motion.div 
@@ -313,7 +341,7 @@ export function PrimitivePage({primitive, ...props}) {
                                         key={p.id}
                                         compact={true} primitive={p} 
                                         onClick={(e)=>e.currentTarget.focus()}
-                                        onEnter={()=>setSelected(p)}
+                                        onEnter={()=>{setSelected({list: list, idx: idx})}}
                                         className={`h-full select-none flex flex-col justify-between ${selected && selected.id === p.id ? "bg-white opacity-50 blur-50" : ""}`}
                                         fields={cardConfig} 
                                         border={true} 
@@ -321,7 +349,6 @@ export function PrimitivePage({primitive, ...props}) {
                                         showState={showState} 
                                         showAsSecondary={true}
                                         showEvidence="compact"
-                                        noEvents = {true}
                                         relationships={category.relationships} 
                                         relationship={primitive.primitives.relationships(p.id, ["results", category.id])}/>
                                     </motion.div>
@@ -331,21 +358,15 @@ export function PrimitivePage({primitive, ...props}) {
                   </Panel>
                 )
             })}
-            {hasDocumentViewer  && 
-                  <Panel key='analysis' title='OpenAI analysis' collapsable={true}>
+            {hasDocumentViewer && task?.doDiscovery &&
+                  <Panel key='analysis' title='Auto analysis' collapsable={true}>
                   <div className="bg-white shadow sm:overflow-hidden sm:rounded-lg mb-6 p-4 mt-2">
                     <dd className="mt-1 text-sm text-gray-900">
                       <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
-                        {!analysis && <p>Waiting....</p>}
-                        {analysis && analysis.questions.map((question, idx) => (
-                          <li
-                            key={idx}
-                            className=" py-3 pl-3 pr-4 text-sm"
-                          >
-                              <p className="text-medium ml-2 flex-1 truncate">{question}</p>
-                              <p className="text-gray-600 ml-4 mt-2 pl-2 flex-1 border-l-2 border-gray-200">{analysis.answers[idx]}</p>
+                          <li key='sumamry' className=" py-3 pl-3 pr-4 text-sm">
+                              <p className="text-medium ml-2 flex-1 truncate">Summary</p>
+                              <p className="text-gray-600 ml-4 mt-2 pl-2 flex-1 border-l-2 border-gray-200">{primitive.summary}</p>
                           </li>
-                        ))}
                       </ul>
                     </dd>
                   </div>
@@ -358,7 +379,7 @@ export function PrimitivePage({primitive, ...props}) {
                 key='notes'
                 className={[
                     'col-start-1 lg:col-span-2',
-                    hasDocumentViewer ? 'row-start-4 lg:row-start-3 2xl:row-start-2' :"row-start-3 lg:row-start-2"
+                    showWorkingPane ? 'row-start-4 lg:row-start-3 2xl:row-start-2' :"row-start-3 lg:row-start-2"
                   ].join(" ")}
                 >
                 <div className="bg-white shadow sm:overflow-hidden sm:rounded-lg mb-6">
@@ -447,17 +468,23 @@ export function PrimitivePage({primitive, ...props}) {
                   </div>
                 </div>
               </section>
-            {primitive?.referenceParameters?.notes && 
-              <div className='h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'>
-              <ResultViewer evidenceList={outcomesList} ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} createCallback={createEvidenceFromNote} GoogleDoc={primitive.referenceParameters.notes}/>
+            {showWorkingPane && 
+              <div style={{minWidth:0, minHeight:0}} className='h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'>
+                <div className='bg-white rounded-lg shadow h-full flex flex-col py-4'>
+                    {!hasDocumentViewer &&                       
+                      hasNestedEvidence && 
+                          <EvidenceExplorer evidenceList={nestedEvidence}  showOriginInfo={[{contact: 'contactName'}, 'company']} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
+                    }
+                    {hasDocumentViewer && <ResultViewer evidenceList={outcomesList} ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} createCallback={createEvidenceFromNote} GoogleDoc={primitive.referenceParameters.notes}/>}
+                </div>
               </div>
               }
 
             <section key='rhs' 
               className={
                 [
-                  "lg:col-span-1  ",
-                  hasDocumentViewer ? "min-w-[25em] lg:col-start-3 2xl:col-start-4 row-start-3 lg:row-start-1 2xl:row-span-2" : "lg:col-start-3 row-start-2 lg:row-start-1 "
+                  "col-start-1 col-span-1  ",
+                  showWorkingPane ? "min-w-[25em] lg:col-start-3 2xl:col-start-4 row-start-3 row-span-4 lg:row-start-1 2xl:row-span-2" : "lg:row-span-4 lg:col-start-3 row-start-2 lg:row-start-1 "
                 ].join(" ")
               }>
               <div className="bg-white px-4 py-5 shadow sm:rounded-lg sm:px-6 sticky top-[6em]">
@@ -509,7 +536,7 @@ export function PrimitivePage({primitive, ...props}) {
                                         </button>
                                       </div>
                                     </Tab.Panel>
-                                    {!primitive.isTask && task && 
+                                    {!primitive.isTask && task && task.metrics && 
                                       <Tab.Panel >
                                         <div 
                                           key='metrics'
@@ -557,7 +584,7 @@ export function PrimitivePage({primitive, ...props}) {
               </div>
             </section>
           </div>
-        <PrimitivePopup selected={selected} contextOf={primitive} editing={true} setSelected={setSelected}/>
+        <PrimitivePopup primitive={selected} contextOf={primitive} editing={true} setPrimitive={setSelected}/>
         <MetricPopup selected={selectedMetric?.metric} contextOf={selectedMetric?.primitive} highlight={selectedMetric?.highlight} setSelected={setSelectedMetric}/>
       </div>
     </>

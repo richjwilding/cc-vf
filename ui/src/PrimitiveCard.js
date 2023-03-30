@@ -56,6 +56,7 @@ let mainstore = MainStore()
         let user = mainstore.user( item.value )
         return <EditablePersonField 
                 {...props} 
+                key={user ? user.id : "user"}
                 mode = "user"
                 value ={user} 
                 onSelect={(value)=>{
@@ -64,19 +65,42 @@ let mainstore = MainStore()
                 className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
               />
 
+      }else if( item.type === "scale"){
+        const length = 6.28 * 40 
+        const perc = item.value / 9
+        const array = length * perc
+        const color = ["#f472b6","#f87171","#fbbf24","#22d3ee","#4ade80"][Math.floor(perc * 5)]
+          return <div className='relative'>
+              <svg className='w-6 h-6'>
+                <circle cx='50%' cy='50%' r='40%' fill='none' stroke='#dedede' strokeWidth='4'/>
+                <circle cx='50%' cy='50%' r='40%' fill='none' stroke={color} strokeWidth='4' strokeDasharray={`${array}%`}/>
+              </svg>
+              <p className='top-0 left-0 absolute text-center font-sm pt-0.5 w-full' style={{color: color}}>{item.value}</p>
+          </div>
+      }else if( item.type === "contactName"){
+        const contact = props.primitive.referenceParameters.contact
+        if( props.compact ){
+          icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> 
+          let name = contact?.name || item.value
+          return <div 
+            className={`flex ${props.secondary ? "text-slate-400" : ""}`}
+          >{icon}{name}</div>
+        }
       }else if( item.type === "contact"){
-        const contact = MainStore().contact( item.autoId )
+        const contact = props.primitive.referenceParameters.contact
         if( props.compact ){
           icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> 
           if( item.autoId !== undefined ){
-            icon = <ContactPopover icon={<UserIcon className='w-5 h-5 text-blue-200 hover:text-blue-400'/>} contactId={item.autoId}/>
+            //icon = <ContactPopover icon={<UserIcon className='w-5 h-5 text-blue-200 hover:text-blue-400'/>} contactId={contact?.id}/>
+            icon = <ContactPopover contact={contact}/>
           }
           let name = contact?.name || item.value
-          return <div className='flex'>{icon}{name}</div>
+          return <div className='flex space-x-1'>{icon}<p className='ml-1'>{name}</p></div>
         }
         return <EditablePersonField 
                 {...props} 
                 value ={ contact } 
+                key={contact ? contact.id : "contact"}
                 onSelect={async function(value){
                   console.log( value)
                   if( value && value.id === undefined ){
@@ -250,7 +274,19 @@ const Parameters = function({primitive, ...props}){
   if( !parameters ){ return <></> }
   let fields = Object.keys(parameters)
   if( props.fields ){
-    fields = fields.filter((f)=>props.fields.includes(f))
+    let remap = props.fields.reduce((o,f)=>{
+      if( f instanceof Object){
+        o = {...o,...f}
+        Object.keys(f).forEach((k)=>{
+          parameters[k].type = f[k]
+        })
+      }else{
+        o[f] = f
+      }
+      return o
+    },{})
+    let keyNames = Object.keys(remap)
+    fields = fields.filter((f)=>keyNames.includes(f))
   }
   let details = fields.map((k)=>{
     return {...parameters[k], value: primitive.referenceParameters[k], autoId: primitive.referenceParameters[`${k}Id`], key: k}
@@ -293,18 +329,19 @@ const Parameters = function({primitive, ...props}){
           props.className || ""
         ].join(" ")}
         >
-        {(props.showTitles === undefined || props.showTitles === true) && <p className='pl-1 mr-2 grow-0'>{item.title}</p>}
-        <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} secondary={(props.inline || props.showAsSecondary) && idx > 0}/>
-        {props.inline && <p className='pl-1 text-slate-400'>•</p> }
+        {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 mr-2 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
+        <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+        {props.inline && (idx < (details.length - 1)) && <p className='pl-1 text-slate-400'>•</p> }
       </div>
     )))
   
 }
 const EvidenceList = function({primitive, ...props}){
-  let evidence = primitive.primitives.allEvidence
-  let relatedTask = primitive.findParentPrimitives({type: ["experiment", "activity"]})
+  let evidence = props.evidenceList || primitive?.primitives.allUniqueEvidence
+  if( evidence === undefined || evidence === null || evidence.length === 0){return <></>} 
+  let relatedTask = props.relatedTask || primitive?.findParentPrimitives({type: ["experiment", "activity"]})
 
-  if( relatedTask ){
+  if( relatedTask && Array.isArray(relatedTask)){
     if( relatedTask.length > 1){
       console.warn(`Primitive ${primitive.id} has multiple tasks - defualting to first`)
     }
@@ -313,12 +350,14 @@ const EvidenceList = function({primitive, ...props}){
 
   let evidenceCategories = relatedTask.metadata.evidenceCategories?.map((id)=>mainstore.category(id))
 
-  let evidenceGroups = evidence.reduce((o, c)=>{
-      let evidenceType = c.metadata.id
-
-      o[evidenceType] = o[evidenceType] || []
-      o[evidenceType].push( c )
-
+  let evidenceGroups = evidence.reduce((o, d)=>{
+      let c = d._packed ? d.primitive : d
+      if( c.metadata ){
+        let evidenceType = c.metadata.id
+        
+        o[evidenceType] = o[evidenceType] || []
+        o[evidenceType].push( d )
+      }
       return o
     },{})
 
@@ -340,9 +379,14 @@ const EvidenceList = function({primitive, ...props}){
               }
               {(evidenceGroups[e.id] &&  evidenceGroups[e.id].length > 0) && 
                 <div className={`p-2 w-full gap-3 ${props.frameClassName || ""} space-y-3 no-break-children`}>
-                  {evidenceGroups[e.id].map((item)=>(
-                    <PrimitiveCard key={item.id} primitive={item} compact={true} border={true} relationshipTo={props.relationshipTo || primitive} relationshipMode={props.relationshipMode}/>
-                  ))}
+                  {evidenceGroups[e.id].map((item)=>{
+                    let origin
+                    if( item._packed ){
+                      origin = item.origin
+                      item = item.primitive
+                    }
+                    return <PrimitiveCard key={item.id} primitive={item} compact={true} border={true} origin={props.showOriginInfo && (origin || item.origin)} showOriginInfo={props.showOriginInfo} relationshipTo={props.relationshipTo || primitive} relationshipMode={props.relationshipMode} relationshipPath='outcomes' fields={props.cardFields}/>
+                  })}
                 </div>
               }
             </div>
@@ -354,15 +398,18 @@ const EvidenceList = function({primitive, ...props}){
 
 
 const Evidence = function({primitive, ...props}){
-  let evidence = primitive.primitives.allEvidence
-  if( evidence === null || evidence.length === 0){return <></>} 
+  let evidence = props.evidenceList || primitive?.primitives.allUniqueEvidence
+  if( evidence === undefined || evidence === null || evidence.length === 0){return <></>} 
 
   if( props.aggregate ){
     evidence = Object.values(evidence.reduce((o, c)=>{
-      let evidenceType = c.metadata.id
+      if( c.metadata ){
 
-      o[evidenceType] = o[evidenceType] || {e:c , count: 0}
-      o[evidenceType].count++
+        let evidenceType = c.metadata.id
+        
+        o[evidenceType] = o[evidenceType] || {e:c , count: 0}
+        o[evidenceType].count++
+      }
 
       return o
     },{}))
@@ -424,12 +471,20 @@ const Title = function({primitive, ...props}){
 
   let relationshipRender
   if( props.relationshipMode === "presence"){
-    if( relationship ){
-      relationshipRender = <HeroIcon icon='StarIcon' className='ml-auto w-6 h-6 stroke-width-[0.5px] text-gray-600 hover:text-gray-900 fill-yellow-300 hover:fill-yellow-400'/>
-    }else{
-      relationshipRender = <HeroIcon icon='StarIcon' className='ml-auto w-6 h-6 text-gray-300 hover:text-gray-600'/>
+    const toggleRelationship = ()=>{
+      if( props.relationshipTo ){
+        if( relationship ){
+          props.relationshipTo.removeRelationship( primitive, props.relationshipPath )
+        }else{
+          props.relationshipTo.addRelationship( primitive, props.relationshipPath )
+        }
+      }
     }
-
+    if( relationship ){
+      relationshipRender = <HeroIcon onClick={toggleRelationship} icon='StarIcon' className='ml-auto w-6 h-6 stroke-width-[0.5px] text-gray-600 hover:text-gray-900 fill-yellow-300 hover:fill-yellow-400'/>
+    }else{
+      relationshipRender = <HeroIcon onClick={toggleRelationship} icon='StarIcon' className='ml-auto w-6 h-6 text-gray-300 hover:text-gray-600'/>
+    }
   }else{
     if( relationshipConfig ){
       relationshipRender = <span className={`inline-flex items-center rounded-full bg-${relationshipConfig.color}-100 px-2 py-0.5 text-xs font-medium text-${relationshipConfig.color}-800 ml-auto`}>
@@ -468,7 +523,7 @@ const Title = function({primitive, ...props}){
 
 export function PrimitiveCard({primitive, className, showDetails, showUsers, showRelationships, showResources, major, disableHover, fields,...props}) {
   let ring = !disableHover
-  let mainTextSize = props.compact ? 'sm' : 'md' 
+  let mainTextSize = props.textSize || (props.compact ? 'sm' : 'md' )
   let margin = props.bigMargin ? (ring ? 'px-4 py-6' : 'px-2 py-3') : (ring ? 'px-2 py-3' : 'px-0.5 py-1')
 
   const [eventTracker, updateForEvent] = React.useReducer( (x)=>x+1, 0)
@@ -476,7 +531,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   const callbackId = React.useRef(null)
   React.useEffect(()=>{
     if( !props.noEvents ){
-      callbackId.current = mainstore.registerCallback(callbackId.current, "set_title", updateForEvent, primitive.id )
+      callbackId.current = mainstore.registerCallback(callbackId.current, "set_title set_parameter", updateForEvent, primitive.id )
       return ()=>{
         mainstore.deregisterCallback(callbackId.current )
       }
@@ -511,7 +566,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     return true
   }
 
-  let content = fields ? undefined : 
+  let content = (fields && !fields.includes('title')) ? undefined : 
       <>
         <EditableTextField 
           callback={updateTitle}
@@ -521,7 +576,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           value = {primitive.title}
           className='w-full'
           compact={true}
-          fieldClassName={`grow text-slate-700 text-${mainTextSize}`}>
+          fieldClassName={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-slate-700 text-${mainTextSize}`}>
         </EditableTextField>
         {(!props.compact && (props.showLink || props.showEdit)) &&
           <button
@@ -570,9 +625,10 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         onClick={props.onClick }
         onKeyDown={props.onEnter ? handleEnter : undefined}
         tabIndex='0'
+        id={primitive.plainId}
         className={
         [
-          "group relative",
+          "pcard group relative",
           props.bg ? props.bg : 'bg-white',
           margin,
           props.flatBorder ? '' : 'rounded-lg',
@@ -593,11 +649,18 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           </div>}
         {header}
       {fields &&  
-        <div className={props.inline ? `flex items-start justify-between space-x-1` : ``}>
-          <Parameters primitive={primitive} noEvents={props.noEvents} inline={props.inline} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={fields} showTitles={false} className='!py-1'/>
+        <div className={[
+          props.inline ? `flex items-start justify-between space-x-1` : ``,
+          props.fieldsInline ? `flex -ml-1 space-x-1 py-2` : ``, 
+          ].join(" ")}>
+            <Parameters primitive={primitive} noEvents={props.noEvents} inline={props.inline || props.fieldsInline} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={fields} showTitles={props.fieldsInline === true} className='!py-1'/>
         </div>
       }
 
+        {props.showOriginInfo && 
+          <div className='flex items-start space-x-1'>
+            <PrimitiveCard.Parameters primitive={props.origin || primitive.origin} inline={true} showAsSecondary={true} noEvents={props.noEvents}  compact={true} showTitles={false} fields={props.showOriginInfo} />
+          </div>}
         {showRelationships && <PrimitiveCard.Relationships primitive={primitive}/>}
         {showDetails && <PrimitiveCard.Details primitive={primitive}/>}
         {showUsers && <PrimitiveCard.Users primitive={primitive}/>}
@@ -607,6 +670,8 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {props.children}
         {titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} className='grow-0 mt-1'/>}
         {smallMeta}
+        {primitive._doingDiscovery && !primitive.discoveryDone && <div className='w-2 h-2 absolute bg-amber-500 rounded-lg right-1 top-1'/>}
+        {primitive.openai_token_limit && <div className='w-2 h-2 absolute bg-red-500 rounded-lg right-1 top-1'/>}
     </div>
   )
 }

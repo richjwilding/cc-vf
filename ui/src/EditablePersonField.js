@@ -33,8 +33,9 @@ export default function EditablePersonField ({...props}){
 
     return ( <div className='flex place-items-center'>
       {img} 
-      <p className={`text-gray-800 text-md ${editing ? "" : "pr-2"}`}>{value.label}</p>
-    </div> ); };
+      <p className={`text-gray-800 text-md ${editing ? "pl-1" : "pl-1 pr-2"}`}>{value.label}</p>
+    </div> );
+    };
 
   if( props.compact ){
     return <BadgeComponent data={value[0]}/>

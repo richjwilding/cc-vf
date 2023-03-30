@@ -79,15 +79,14 @@ export default function GoogleHelper(){
                     callback(undefined)
                   }
                   if( data.action === 'picked'){
-                    const item = data.docs[0]
-                    callback({id: item.id, name: item.name, mimeType: item.mimeType })
+                    callback(data.docs.map((item)=>{return {id: item.id, name: item.name, mimeType: item.mimeType }}))
                   }
                 }
 
 
 
-                  var view_shared = new google.picker.DocsView(google.picker.ViewId.DOCS).setParent('1fWKPCc68RLFt9pe3a8sBUZt8Ue_q4GMA');
-                  view_shared.setIncludeFolders(true)//.setLabel("Shared library")
+                  var view_shared = new google.picker.DocsView(google.picker.ViewId.DOCS)
+                  view_shared.setIncludeFolders(true)
                   view_shared.setEnableDrives(true)//.setLabel("Shared library")
                   
                   if( options.type == 'folder'){
@@ -99,13 +98,14 @@ export default function GoogleHelper(){
                       .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
                       .enableFeature(options.disable_multi_select ? false : google.picker.Feature.MULTISELECT_ENABLED)
                       .setOAuthToken(instance.token)
-                      .addView(view_shared)
                       .setDeveloperKey(instance.developerKey)
                       .setOrigin(window.location.protocol + '//' + window.location.host)
                       .setCallback(callack_wrap)
-          
+
+                      
                   var upload_view = new google.picker.DocsUploadView();
-                  var venture = {folder: undefined}
+
+                  var venture = {folder: '1fWKPCc68RLFt9pe3a8sBUZt8Ue_q4GMA'}
                   if(venture.folder )
                   {
                     upload_view.setParent(venture.folder )
@@ -118,7 +118,10 @@ export default function GoogleHelper(){
                         }
                     picker.addView(view_folder);
                   }
-                  picker.addView(upload_view).build().setVisible(true);
+                  
+                  picker.addView(view_shared)
+                  picker.addView(upload_view)
+                  picker.build().setVisible(true);
 
 
             },
@@ -151,14 +154,110 @@ export default function GoogleHelper(){
                 await request()
                 return out
             },
-            getFileAsPdf:async function(id, format = 'application/pdf'){
+            getDocument:async function(file, format = 'application/pdf'){
+              if( file.type === "google_drive"){
+                if( file.mimeType === "application/pdf" ){
+                  if( format === "text/plain")
+                  {
+                    return await this.downloadGoogleFileAsText( file.id,  (file.name || "unknown").replace(/pdf$/, 'gdoc') )
+                  }
+                  return await this.downloadGoogleFile( file.id )
+                }else{
+                  return await this.exportGoogleDoc( file.id, format)
+                }
+              }
+            },
+            downloadGoogleFileAsText:async function(id, title ){
               const _this = this
-                let out
-                let retries = 2
-                const request = async ()=>{
+              const request = async (retries = 2)=>{
+                  let out
                   try{
                     await this.drive()
                     await gapi.client.request({
+                      'path': '/drive/v3/files/' + id + '/copy',
+                      'method': 'POST',
+                      'headers': {
+                        'Content-Type': 'application/json',           
+                        'Authorization': 'Bearer ' + instance.token
+                      },
+                      'params': {
+                        supportsAllDrives: true,
+                      },
+                      body: {
+                        "name": title,
+                        "mimeType": "application/vnd.google-apps.document"
+                      },
+                    }).then(async function (response) {
+                      out = await _this.checkAndRetry( response, request, retries--)
+                    });
+                  }catch( response ){
+                      out = await _this.checkAndRetry( response, request, retries--)
+                  }
+                  if( out && out.kind === "drive#file"){
+                    const final = await this.exportGoogleDoc( out.id, "text/plain")
+                    console.log(`GOT FINAL`)
+                    
+                    try{
+                      await this.drive()
+                      await gapi.client.request({
+                        'path': '/drive/v3/files/' + out.id,
+                        'method': 'DELETE',
+                        'headers': {
+                          'Content-Type': 'application/json',           
+                          'Authorization': 'Bearer ' + instance.token
+                        },
+                        'params': {
+                          supportsAllDrives: true,
+                        },
+                      })
+                    }catch( error ){
+                      console.warn(error)
+                    }
+
+
+                    return final
+                  }
+                  return out
+                }
+                
+                return await request()                
+            },
+            downloadGoogleFile:async function(id){
+              const _this = this
+              const request = async (retries = 2)=>{
+                  let out
+                  try{
+                    await this.drive()
+                    await gapi.client.request({
+                      'path': '/drive/v3/files/' + id,
+                      'method': 'GET',
+                      'headers': {
+                        'Content-Type': 'application/json',           
+                        'Authorization': 'Bearer ' + instance.token
+                      },
+                      'params': {
+                        supportsAllDrives: true,
+                        alt: 'media'
+                      }
+                    }).then(async function (response) {
+                      out = await _this.checkAndRetry( response, request, retries--)
+                    });
+                  }catch( response ){
+                      out = await _this.checkAndRetry( response, request, retries--)
+                  }
+                  return out
+                }
+                
+                return await request()                
+            },
+            exportGoogleDoc:async function(id, format = 'application/pdf'){
+              const _this = this
+                let retries = 2
+
+                const request = async ()=>{
+                  try{
+                    await this.drive()
+                    return await gapi.client.request({
                       'path': '/drive/v3/files/' + id + '/export',
                       'method': 'GET',
                       'headers': {
@@ -172,21 +271,20 @@ export default function GoogleHelper(){
                       }
                     }).then(async function (response) {
                       console.log(`check 1`)
-                    console.warn(response)
-                      out = await _this.checkAndRetry( response, request, retries--)
+                    const o = await _this.checkAndRetry( response, request, retries--)
+                    console.log(o.length)
+                      return o
                     });
                   }catch( response ){
                     console.log(`check 2`)
-                    console.warn(response)
-                      out = await _this.checkAndRetry( response, request, retries--)
+                    console.log(response.length)
+                    return  await _this.checkAndRetry( response, request, retries--)
                   }
                 }
                 console.log(`FIRST CALL FOR PDF`)
-                await request()
-                return out
+                return await request()
             },
             getFileInfo:async function(id){
-              return {name: "DISABLED"}
               const _this = this
               const request = async (retries = 2)=>{
                   let out
@@ -238,6 +336,7 @@ export default function GoogleHelper(){
                   try{
                     return JSON.parse(response.body);
                   }catch{
+                    console.log(response.body.slice(0,10))
                     return response.body
                   }
                 }else{

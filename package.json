@@ -6,7 +6,8 @@
     "start": "npm run prod",
     "build": "npm-run-all clean transpile",
     "server": "node ./dist-server/bin/www",
-    "dev": "NODE_ENV=development npm-run-all build server",
+    "server-debug": "node --inspect ./dist-server/bin/www",
+    "dev": "NODE_ENV=development npm-run-all build server-debug ",
     "prod": "NODE_ENV=production npm-run-all build server",
     "transpile": "babel ./server --out-dir dist-server",
     "heroku-postbuild": "cd ui && npm install && npm run build",
@@ -29,6 +30,8 @@
     "@babel/cli": "^7.20.7",
     "@babel/core": "^7.20.12",
     "@babel/preset-env": "^7.20.2",
+    "@google-cloud/storage": "^6.9.4",
+    "@mirohq/miro-api": "^1.0.4",
     "cookie-parser": "~1.4.4",
     "cookie-session": "^2.0.0",
     "dayjs": "^1.11.7",
@@ -51,6 +54,8 @@
   "babel": {
     "presets": [
       "@babel/preset-env"
-    ]
+    ],
+    "sourceMaps": "inline",
+    "retainLines": true
   }
 }

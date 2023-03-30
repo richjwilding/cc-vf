@@ -13,6 +13,7 @@ export function ContactPopover({contact, ...props}) {
     const { styles, attributes } = usePopper(referenceElement, popperElement, { strategy: 'fixed',placement: "bottom",
       modifiers: [{ name: 'arrow', options: { element: arrowElement } }],
     });
+    contact = contact || MainStore().contact(props.contactId)
 
 
     const angle = attributes.popper ? {
@@ -35,7 +36,7 @@ export function ContactPopover({contact, ...props}) {
           {({ open }) => (
             <>
               <Popover.Button ref={setReferenceElement} className='flex place-items-center' tabIndex='-1'>
-                {props.icon}
+                {props.icon || contact ? <ContactCard.Avatar contact={contact} size="small"/> : undefined}
               </Popover.Button>
               <Popover.Panel
                       ref={setPopperElement}
@@ -46,7 +47,7 @@ export function ContactPopover({contact, ...props}) {
                         style={tx}
                         className='w-4 h-4 bg-white absolute border-blue-500 border-r-[1px] border-b-[1px]' ref={setArrowElement}/>
                     <div className='bg-white rounded-lg shadow-xl p-4 ring-1 ring-blue-500 min-w-[16em] max-w-[32em] '>
-                        <ContactCard {...props}/>
+                        <ContactCard contact={contact} {...props}/>
                     </div>
                 </Popover.Panel>
                 </>
@@ -55,8 +56,28 @@ export function ContactPopover({contact, ...props}) {
     )
 }
 
+const Avatar = function ({contact, ...props}){
+    const dim = {"large": "14em", "small":"1.5em"}[props.size] || "7em"
+    const border = {"large": "border-4 mb-2 ", "small":"border-0"}[props.size] || "border-4 mb-2 "
+   
+    if( contact === undefined){
+        return "!!"
+    }
+    const avatarUrl = contact.avatarUrl 
+
+    if(avatarUrl){
+        return <img style={{width: dim, height:dim }} className={`mx-auto flex-shrink-0 rounded-full ${border} border-white`} src={avatarUrl} alt="" />
+    }else{
+        return <UserIcon style={{width: dim, height:dim }} className={`border-slate-500 text-slate-500 mx-auto flex-shrink-0 rounded-full ${border} border-white`}/>
+    }
+
+            
+
+}
+
 export default function ContactCard({contact, contactId, context, ...props}) {
     contact = contact || MainStore().contact(contactId)
+    contactId = contactId || contact?.id
 
     const value = contact
 
@@ -85,10 +106,10 @@ export default function ContactCard({contact, contactId, context, ...props}) {
                 </div>)
     }
 
+
   return (
         <>
-            {value.avatarUrl && <img className="mx-auto h-28 w-28 flex-shrink-0 rounded-full mb-2 border-4 border-white" src={value.avatarUrl} alt="" />}
-            {!value.avatarUrl && <UserIcon className="border-slate-500 text-slate-500 mx-auto h-28 w-28 flex-shrink-0 rounded-full mb-2 border-4 border-white"/>}
+            <Avatar contact={value} {...props}/>
             <div className='w-full place-items-center text-center'>
                 {!props.editable && 
                 <h3 className={`text-lg font-medium ${props.editable && !value.name ? 'text-gray-500' : 'text-gray-900'}`}>
@@ -126,3 +147,4 @@ export default function ContactCard({contact, contactId, context, ...props}) {
 
   )
 }
+ContactCard.Avatar = Avatar

@@ -17,7 +17,7 @@ export default function useDataEvent(fields, ids, callback){
                 MainStore().deregisterCallback(callbackId.current )
             }
         }
-    }, [])
+    }, [ids])
 
     return callbackId
 }

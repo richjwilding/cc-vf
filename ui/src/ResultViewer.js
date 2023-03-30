@@ -7,6 +7,8 @@ import { MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, ChevronDownIcon, Che
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
 import { toolbarPlugin, ToolbarSlot } from '@react-pdf-viewer/toolbar';
+import { searchPlugin } from '@react-pdf-viewer/search';
+
 //import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/default-layout/lib/styles/index.css';
@@ -73,9 +75,117 @@ const MyToolBar = ( props ) => {
   )];
 };
 
+const findAutoExtractedTextPlugin = () => {
+    const findAutoExtractedText = (e) => {
+        if (e.status !== 1) {
+            return;
+        }
+
+        const oText = "Its tough for us to make decisions."// We talk about this - but we can"
+        const text = oText.replaceAll(/\s/g,'')
+
+        const elements = e.ele.querySelectorAll('.rpv-core__text-layer-text')
+        let range = new Range()
+        let endOffset = elements[elements.length - 1].childNodes.length;
+
+        let startIdx = 0
+        let endIdx = elements.length - 1
+        
+        let found 
+        let lastFound
+        do{
+            lastFound = found
+            range.setStart(elements[startIdx], 0)
+            range.setEnd(elements[endIdx], endOffset)            
+            const extracted = range.toString().replaceAll(/\s/g,'')
+            found = extracted.search(text) 
+            console.log(`found at position ${found} starting with ${startIdx}`)
+            startIdx++
+        }while( (found > -1) && startIdx <= endIdx )
+        
+        if( lastFound ){
+            startIdx--
+            if( found === -1){
+                found = lastFound
+                startIdx--
+            }
+        }
+        if( lastFound !== undefined){
+            range.setStart(elements[startIdx], 0)
+
+            found = false
+            do{
+                lastFound = found
+                endOffset = elements[endIdx].childNodes.length;
+                range.setEnd(elements[endIdx], endOffset)            
+                const extracted = range.toString().replaceAll(/\s/g,'')
+                found = extracted.search(text) 
+                console.log(`found up to ${found} starting with ${endIdx}`)
+                endIdx--
+            }while( (found > -1) && endIdx >= startIdx )
+            
+            endIdx++
+            
+            if( lastFound !== undefined){
+                if( found === -1){
+                    endIdx++
+                }
+                endOffset = elements[endIdx].childNodes.length;
+                range.setEnd(elements[endIdx], endOffset)            
+
+                const extracted = range.toString()
+                const max = elements[startIdx].firstChild.length;
+                let startOffset = 0
+                let comp, extract
+                do{
+                    comp = oText.substring(0, max - startOffset)
+                    extract = extracted.substring(startOffset, comp.length + startOffset)
+                    startOffset++
+
+                }while( startOffset < max && (comp !== extract))
+
+                let rExtracted = extracted.split('').reverse().join('')
+                let rText = oText.slice(0, rExtracted.length).split('').reverse().join('')
+                const rMax = elements[endIdx].firstChild.length;
+                endOffset = 0
+                do{
+                    comp = rText.substring(0, max - endOffset)
+                    extract = rExtracted.substring(endOffset, comp.length + endOffset)
+                    endOffset++
+
+                }while( endOffset < rMax && (comp !== extract))
+                
+
+                startOffset--
+                endOffset--
+                range.setStart(elements[startIdx].firstChild, startOffset)            
+                range.setEnd(elements[endIdx].firstChild, rMax - endOffset)            
+
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+
+            }
+        }
+
+    };
+    console.log("++++++ PLUGIN")
+
+    return {
+        onTextLayerRender: findAutoExtractedText,
+    };
+};
+
+
 
 const ResultViewer = forwardRef(function ResultViewer({evidenceList, createCallback, ...props}, ref){
     
+    const searchPluginInstance = searchPlugin();
+    const { highlight, search } = searchPluginInstance;
+
+  window.pdfsearch = search
+  window.pdfhighlight = highlight
+
     const processNotesFromEvidence = ()=>{
         if( !evidenceList ){ return []}
         let id = 0
@@ -119,7 +229,7 @@ const ResultViewer = forwardRef(function ResultViewer({evidenceList, createCallb
   if( !url && props.GoogleDoc ){
     if( props.GoogleDoc.type === "google_drive"){
         const fetchDoc = async function(){
-          const docAsString = await GoogleHelper().getFileAsPdf( props.GoogleDoc.id )
+          const docAsString = await GoogleHelper().getDocument( props.GoogleDoc )
           if( docAsString === undefined){debugger}
           const data = new Uint8Array(docAsString.length )
           data.forEach((d,idx)=>data[idx] = docAsString.charCodeAt(idx))
@@ -309,7 +419,6 @@ const highlightPluginInstance = props.enableEvidence ? highlightPlugin({
 
   return (
     <Worker workerUrl="https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.js">
-    <div className='bg-white rounded-lg shadow h-full flex flex-col py-4'>
       <div className='h-full flex flex-col divide-y divide-gray-200'>
           {toolbar}
         <div ref={viewer} className='flex-1 overflow-y-scroll pt-2 bg-gray-200 shadow-inner'>
@@ -317,13 +426,13 @@ const highlightPluginInstance = props.enableEvidence ? highlightPlugin({
               fileUrl={url.data}
               plugins={[
                 toolbarPluginInstance,
-                highlightPluginInstance
+                highlightPluginInstance,
+                findAutoExtractedTextPlugin()
               ].filter((d)=>d)}
           />
           </div>
       </div>
       <div className='bg-gray-200 rounded-b-lg shadow-lg flex flex-col py-2'/>
-    </div>
   </Worker>)
 
 /*

@@ -20,8 +20,10 @@ export function RelationshipTable({relationships, ...props}){
               let vb =  b.item.id.toString()
                 if(props.fields)
                 {
-                  va = a.item.referenceParameters[props.fields[0]] || va
-                  vb = b.item.referenceParameters[props.fields[0]] || vb
+                  let sort = props.fields[0]
+                  if( sort === "contact"){sort = "contactName"}
+                  va = a.item.referenceParameters[sort] || va
+                  vb = b.item.referenceParameters[sort] || vb
                 }
                 return va.localeCompare(vb)
             }

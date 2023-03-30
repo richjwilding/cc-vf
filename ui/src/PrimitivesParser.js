@@ -195,6 +195,18 @@ export default function PrimitiveParser(obj){
                 if( prop === "fromPath"){
                     return function(path, create = false){
                         let node = receiver                        
+                        if( typeof(path) === "string"){
+                            path = path.split('.')
+                            const last = path.pop()
+                            if( path.length === 0){
+                                path = last
+                            }else{
+
+                                path = path.reverse().reduce((o, c, idx)=>{
+                                    return {[c]: idx === 0 ? last : o}
+                                },{})
+                            }
+                        }
 
                         while( path instanceof(Object) ){
                             let step = Object.keys(path)[0]

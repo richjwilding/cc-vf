@@ -58,9 +58,10 @@ export default function EditableResourceField ({...props}){
         }
     }
     const pickGoogleDocument = ()=>{
-        GoogleHelper().showPicker({}, (item)=>{
-            if( item ){
-                setValue({type: "google_drive", id: item.id})
+        GoogleHelper().showPicker({}, (items)=>{
+            if( items ){
+                const item = items[0]
+                setValue({type: "google_drive", id: item.id, mimeType: item.mimeType, name: item.name})
                 setTitle(item.name)
                 field.current.focus()
             }

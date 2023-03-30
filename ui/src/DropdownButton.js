@@ -35,7 +35,7 @@ export default function DropdownButton({...props}) {
         {(items.find((d)=>d.selected) || props.items[0]).title}
       </button>
       <Menu as="div" className="relative -ml-px block">
-        <Menu.Button className={`relative inline-flex items-center rounded-r-md border px-2 py-2 text-sm font-medium focus:z-10 focus:outline-none  ${colors}`}>
+        <Menu.Button className={`h-full relative inline-flex items-center rounded-r-md border px-2 py-2 text-sm font-medium focus:z-10 focus:outline-none  ${colors}`}>
           <span className="sr-only">Open options</span>
           <ChevronDownIcon className="h-5 w-5" aria-hidden="true" />
         </Menu.Button>
@@ -53,10 +53,11 @@ export default function DropdownButton({...props}) {
               {items.map((item) => {
                 let baseColor =  props.colorKey ? (item[props.colorKey] || "gray") : "gray"
                 return (
-                <Menu.Item key={item.key}>
+                <Menu.Item key={item.key || item.title}>
                   {({ active }) => (
                     <a
                       href={item.href}
+                      onClick={item.action}
                       className={classNames(
                         active ? `bg-${baseColor}-100 text-${baseColor}-900` : `text-${baseColor}-700 bg-${props.colorKey ? `${baseColor}-50` : 'white' }`,
                         props.colorKey ? 'my-2 mx-1 rounded-md' : '',
