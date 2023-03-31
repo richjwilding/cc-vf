@@ -31,6 +31,37 @@ function MainStore (prims){
             }
         },
         controller: {
+            async createMetric(primitive, object){
+                if( !object.type ||  primitive === undefined){
+                    return undefined
+                }
+                const data = {
+                    ...object,
+                    primitive: primitive.id
+                }
+                let newId
+
+                await fetch("/api/add_metric",{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(res => res.json())
+                .then(
+                  (result) => {
+                    if( obj.ajaxResponseHandler( result )){
+                        console.log(result)
+                        newId = result.id
+                    }
+                  },
+                  (error) => {
+                    console.warn(error)
+                  }
+                )
+               return newId 
+            },
             async createContact(object){
                 if( !object.name ||  object.name.trim() === "" ){
                     return undefined
@@ -652,6 +683,30 @@ function MainStore (prims){
                 if( prop === "plainId"){
                     return d.plainId
                 }
+                if( prop === "addMetric"){
+                    return function( data ){  
+                        //let id = d.metrics ? Math.max(...d.metrics.map((d)=>d.id)) + 1 : 0
+                        let metric = {
+                            title: data.title,
+                            type: data.type,
+                            targets: data.targets,
+                        }
+                        let id = obj.controller.createMetric( receiver, metric )
+
+                        if( id ){
+                            metric.id = id
+                            metric.path = data.type === "conversion" ? {results: 0} : {metrics: id}
+                            if( d.metrics === undefined){
+                                d.metrics = []
+                            }
+                            d.metrics.push( metric )
+                            return metric
+                        }else{
+                            console.warn("Failed to create metric")
+                        }                        
+
+                    }
+                }
                 if( prop === "validateParameter"){
                     return function( parameterName, value ){
                         const metadata = receiver.metadata
@@ -732,7 +787,7 @@ function MainStore (prims){
                 }
                 if( prop === "toggleRelationship"){
                     return function( target, metric ){
-                        let anchor = receiver.primitives.fromPath(metric.path)
+                        let anchor = receiver.primitives.fromPath(metric.path, true)
                         let result
                         let path = metric.path
 

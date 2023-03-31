@@ -4,6 +4,7 @@ const { Schema, model } = mongoose;
 const primitiveSchema = new Schema({
     "type": String,
     "state": String,
+    "plainId": Schema.Types.Number,
     "referenceId": Number,
     "resources": Schema.Types.Mixed,
     "primitives": Schema.Types.Mixed,
@@ -11,6 +12,10 @@ const primitiveSchema = new Schema({
     "referenceParameters": Schema.Types.Mixed,
     "users": Schema.Types.Mixed,
     "title": String,
+    doDiscovery: Boolean,
+    metrics: Schema.Types.Mixed,
+    evidenceAggregate: Schema.Types.Mixed,
+    evidencePrompts: Schema.Types.Mixed,
     comments:[
         {
             user: {

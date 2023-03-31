@@ -21,6 +21,7 @@ import useDataEvent from './CustomHook';
 import OpenAIAnalysis from './OpenAIAnalysis';
 import GoogleHelper from './GoogleHelper';
 import EvidenceExplorer from './EvidenceExplorer';
+import MetricEditor from './MetricEditor';
 
 
 let mainstore = MainStore()
@@ -60,6 +61,7 @@ export function PrimitivePage({primitive, ...props}) {
     const hasDocumentViewer = primitive.type === "result" && primitive.referenceParameters?.notes
     const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
     const callbackId = useRef(null)
+    const [editMetric, setEditMetric] = useState({new: true})
     const [selected, setSelected] = useState(null)
     const [selectedMetric, setSelectedMetric] = useState(null)
     const [groupMetricsOpen, setGroupMetricsOpen] = useState(false)
@@ -586,6 +588,7 @@ export function PrimitivePage({primitive, ...props}) {
           </div>
         <PrimitivePopup primitive={selected} contextOf={primitive} editing={true} setPrimitive={setSelected}/>
         <MetricPopup selected={selectedMetric?.metric} contextOf={selectedMetric?.primitive} highlight={selectedMetric?.highlight} setSelected={setSelectedMetric}/>
+        {editMetric && <MetricEditor metric={editMetric} primitive={primitive}/> }
       </div>
     </>
   )

@@ -48,7 +48,7 @@ const Item = function(props){
             props.wide && props.color ? `bg-${props.color}-50/30` : ''
           )
         }>
-        {props.wide && <div className={`${props.open ? 'shadow-md' : ''} bg-${props.color}-200/30 absolute bottom-0 w-full left-0 `} style={{height: `${props.target ? (props.count / props.target * 100) : 100 }%`}}/>}
+        {props.wide && <div className={`${props.open ? 'shadow-md' : ''} bg-${props.color}-200/30 absolute bottom-0 w-full left-0 `} style={{height: `${props.target ? Math.min(100,(props.count / props.target * 100)) : 100 }%`}}/>}
         <dt>
           <p className={`truncate ${props.wide ? 'text-xs uppercase' : 'text-md'} font-medium text-${props.color ? `${props.color}-800` : "gray-500"}`}>
             {props.title}

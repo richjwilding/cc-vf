@@ -223,7 +223,8 @@ export default function PrimitiveParser(obj){
                             }
                         }
                         if( !node[path] && create ){
-                            node[path] = new Proxy([], structure)
+                            //node[path] = new Proxy([], structure)
+                            node[path] = []
                         }
                         return node[path]
 
