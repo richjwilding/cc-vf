@@ -265,7 +265,8 @@ if (process.env.NODE_ENV === 'production') {
   
     const path = require('path')
     app.get('*', function(req, res) {
-      res.sendFile(path.resolve(__dirname, 'ui', 'build', 'index.html'))
+      //res.sendFile(path.resolve(__dirname, 'ui', 'build', 'index.html'))
+      res.sendFile(path.resolve('dist-server', 'ui', 'build', 'index.html'))
     })
   }
 
