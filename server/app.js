@@ -20,7 +20,8 @@ dotenv.config()
 const miro = new Miro()
 
 mongoose.set('strictQuery', false);
-mongoose.connect("mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000&appName=mongosh+1.7.1")
+mongoose.connect(process.env.MONGOOSE_URL)
+
 
 passport.serializeUser(function(user, done) {
     done(null, user);

@@ -13,9 +13,9 @@ function classNames(...classes) {
 
 export default function MetricEditor({metric, primitive,...props}) {
   const [open, setOpen] = useState(true)
-  const [selected, setSelected] = useState(null)
-  const [title, setTitle] = useState('')
-  const [targets, setTargets] = useState()
+  const [selected, setSelected] = useState(metric?.type)
+  const [title, setTitle] = useState(metric?.title || '')
+  const [targets, setTargets] = useState( metric && metric.targets ? metric.targets.reduce((o, c)=>{o[c.relationship] = c.value;return o},{}) : undefined)
   if( !primitive ){
     if( !metric || metric.new ){
       return undefined
@@ -41,13 +41,14 @@ export default function MetricEditor({metric, primitive,...props}) {
     })
   }
 
-  const handleSave = function(){
+  const handleSave = async function(){
     const data = {
       title: title,
       type: selected,
       targets: Object.keys(targets).map((k)=>{
         if( targets[k]){
           return {
+            presence: relationships.find((r)=>r.key === k)?.presence,
             relationship: k,
             value: targets[k]
           }
@@ -55,7 +56,7 @@ export default function MetricEditor({metric, primitive,...props}) {
         return undefined
       }).filter((d)=>d)
     }
-    primitive.addMetric( data )
+    await primitive.addMetric( data )
 
       if( props.setOpen ){
           props.setOpen(false)
@@ -106,7 +107,7 @@ export default function MetricEditor({metric, primitive,...props}) {
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-gray-500 bg-opacity-25 transition-opacity" />
+          <div className="fixed inset-0 bg-gray-500 bg-opacity-25 transition-opacity backdrop-blur-sm " />
         </Transition.Child>
 
         <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 md:p-20">
@@ -241,7 +242,8 @@ export default function MetricEditor({metric, primitive,...props}) {
 
                     }
                     <div className="mt-6 flex items-center justify-end gap-x-6">
-                      <button type="button" className="text-sm font-semibold leading-6 text-gray-900" onClick={handleClose}>
+                      <button type="button" 
+                        className="text-sm font-semibold leading-6 text-gray-900"onClick={handleClose}>
                         Cancel
                       </button>
                       <button
@@ -249,7 +251,7 @@ export default function MetricEditor({metric, primitive,...props}) {
                         onClick={handleSave}
                         className="inline-flex justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm disabled:bg-gray-400 hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
                       >
-                        Create
+                        {metric ? "Update" : "Create"}
                       </button>
                     </div>
                     

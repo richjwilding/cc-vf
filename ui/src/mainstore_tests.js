@@ -190,6 +190,45 @@ export default function MainStoreTests(){
                 2,
                 3,
                 {
+                    b: [4,5,6],
+                    c:  [7,8]
+                }
+            ]
+        }
+
+        let test = new Proxy(data.primitives, teststore.structure)
+        test.add(9, {a: {b: "c"}})
+        console.assert( arrayEquals(test.a.b.c.allIds, [9]) )
+        test.add(11, {a: {b: {c: 4}}})
+        console.assert( arrayEquals(test.a.b.c[4].allIds, [11]) )
+        console.assert( arrayEquals(test.a.b.c.allIds, [9,11]) )
+    }
+    {
+        let data = {
+            id: 1,
+            primitives: [
+                2,
+                3,
+                {
+                    b: [4,5,6],
+                    c:  [7,8]
+                }
+            ]
+        }
+
+        let test = new Proxy(data.primitives, teststore.structure)
+        test.add(11, {a: {b: {c: 4}}})
+        console.assert( arrayEquals(test.a.b.c[4].allIds, [11]) )
+        test.add(9, {a: {b: "c"}})
+        console.assert( arrayEquals(test.a.b.c.allIds, [9,11]) )
+    }
+    {
+        let data = {
+            id: 1,
+            primitives: [
+                2,
+                3,
+                {
                     a: [4,5,6],
                     b:  [7,8]
                 }

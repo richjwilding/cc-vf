@@ -80,11 +80,23 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
             <motion.div 
                 key='frame' 
                 layoutId={id} 
-                className='grid place-items-center absolute z-30 w-[100vw] h-[100vh] top-0 left-0 sm:w-[90vw] sm:h-[90vh] sm:top-[5vh] sm:left-[5vw]  md:w-[80vw] md:h-[80vh] md:top-[10vh] md:left-[10vw] lg:w-[70vw] lg:h-[70vh] lg:top-[15vh] lg:left-[15vw]'
+                className='grid place-items-center absolute z-30 h-[100vh] top-0 left-0 sm:h-[90vh] sm:top-[5vh] sm:left-[5vw]  md:h-[80vh] md:top-[10vh] md:left-[10vw] w-[100vw] sm:w-[90vw] md:w-[80vw] lg:w-[70vw] lg:h-[70vh] lg:top-[15vh] lg:left-[15vw]'
                 >
                 <div className='p-4 bg-white rounded-2xl shadow-xl w-full '>
                     <button className="flex ml-auto text-gray-400 hover:text-gray-500" onClick={() => setSelected(null)} ><XMarkIcon className="h-6 w-6" aria-hidden="true" /></button>
-                    <RelationshipTable showHighlights={showHighlights} count={forceUpdate} updateRelationship={updateRelationship} highlight={props.highlight} sortable={true} major={true} title={metric.title} fields={fields} inline={true} relationships={relationships} showCounts={true} maxHeightClass='max-h-[50vh]'/>
+                    <RelationshipTable 
+                        showHighlights={showHighlights} 
+                        count={forceUpdate} 
+                        updateRelationship={updateRelationship} 
+                        highlight={props.highlight} 
+                        sortable={true} 
+                        major={true} 
+                        title={metric.title} 
+                        fields={fields} 
+                        inline={true} 
+                        relationships={relationships} 
+                        showCounts={true} 
+                        maxHeightClass='max-h-[50vh] max-w-[calc(100vw_-_3rem)] sm:max-w-[calc(90vw_-_3rem)] md:max-w-[calc(80vw_-_3rem)] lg:max-w-[calc(70vw_-_3rem)]'/>
                     <div className="flex flex-shrink-0 justify-end pt-4 border-t border-gray-200 mt-1">
                         <button
                             type="button"

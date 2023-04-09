@@ -30,6 +30,7 @@ export default function DropdownButton({...props}) {
     <div className={`inline-flex rounded-md shadow-sm ${props.className || ""}`}>
       <button
         type="button"
+        onClick={props.items[0]?.action}
         className={`relative inline-flex items-center rounded-l-md border  px-4 py-2 text-sm font-medium focus:z-10 focus:outline-none focus:ring-2  focus:ring-offset-2 ${colors}`}
       >
         {(items.find((d)=>d.selected) || props.items[0]).title}

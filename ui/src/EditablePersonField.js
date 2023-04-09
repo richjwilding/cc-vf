@@ -12,6 +12,8 @@ export default function EditablePersonField ({...props}){
   const [value, setValue] = React.useState( startValues() );
   const field = React.useRef()
 
+  const mode = props.mode
+
   React.useEffect(()=>{
     const localEditing = props.editing === undefined ? editing : props.editing 
     if( editing !== localEditing){
@@ -27,7 +29,7 @@ export default function EditablePersonField ({...props}){
 
     let img = <img referrerPolicy="no-referrer" className="mr-1 inline-block h-6 w-6 rounded-full" src={value.avatarUrl}/>
 
-    if( !editing && props.mode !== "user"){
+    if( mode !== "user"){
       img = <ContactPopover icon={img} contactId={value.value}/>
     }
 
@@ -35,7 +37,7 @@ export default function EditablePersonField ({...props}){
       {img} 
       <p className={`text-gray-800 text-md ${editing ? "pl-1" : "pl-1 pr-2"}`}>{value.label}</p>
     </div> );
-    };
+  };
 
   if( props.compact ){
     return <BadgeComponent data={value[0]}/>

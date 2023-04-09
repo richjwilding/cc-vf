@@ -10,6 +10,7 @@ import {
   CheckIcon,
   UserIcon,
   PaperClipIcon,
+  UserPlusIcon,
 } from '@heroicons/react/20/solid'
 import { HeroIcon, SolidHeroIcon } from './HeroIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -19,6 +20,7 @@ import EditableTextField from './EditableTextField';
 import EditablePersonField from './EditablePersonField';
 import EditableResourceField from './EditableResourceField';
 import useDataEvent from './CustomHook';
+import ContactPicker from './ContactPicker';
 
 const ExpandArrow = function(props) {
   return (
@@ -62,20 +64,31 @@ let mainstore = MainStore()
                 onSelect={(value)=>{
                   props.primitive.setParameter(item.key, value ? value.id : null)
                 }}
-                className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
+                className={`flex place-items-center ${props.inline ? "truncate" : ""} ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
               />
 
-      }else if( item.type === "scale"){
-        const length = 6.28 * 40 
-        const perc = item.value / 9
-        const array = length * perc
-        const color = ["#f472b6","#f87171","#fbbf24","#22d3ee","#4ade80"][Math.floor(perc * 5)]
+      }else if( item.type === "scale" || item.type === "progress"){
+        if( props.editing ){
+          return (
+                  <input type="range" min="0" max="9" value={item.value || 0} step='1' className="range" onChange={(e)=>{
+                    const value = e.currentTarget.value
+                    props.primitive.setParameter(item.key, value)
+                  }}/>
+          )
+        }
+        const size = item.type === "scale" ? "w-6 h-6" : "w-8 h-8"
+        const r = item.type === "scale" ? 19.2 : 25.6  
+        const length = 3.14 * r 
+        const thickness = item.type === "scale" ? 4 : 6
+        const perc = parseInt(item.value) / 9
+        const array = length * (1 - perc)
+        const color = item.color || ["#f472b6","#f87171","#fbbf24","#22d3ee","#4ade80"][Math.floor(perc * 5)]
           return <div className='relative'>
-              <svg className='w-6 h-6'>
-                <circle cx='50%' cy='50%' r='40%' fill='none' stroke='#dedede' strokeWidth='4'/>
-                <circle cx='50%' cy='50%' r='40%' fill='none' stroke={color} strokeWidth='4' strokeDasharray={`${array}%`}/>
+              <svg className={size}>
+                <circle cx='50%' cy='50%' r='40%' fill='none' stroke='#dedede' strokeWidth={thickness}/>
+                <circle className='origin-center	-rotate-90' cx='50%' cy='50%' r='40%' fill='none' stroke={color} strokeWidth={thickness} strokeDashoffset={array} strokeDasharray={length}/>
               </svg>
-              <p className='top-0 left-0 absolute text-center font-sm pt-0.5 w-full' style={{color: color}}>{item.value}</p>
+              {item.type === "scale" && <p className='top-0 left-0 absolute text-center font-sm pt-0.5 w-full' style={{color: color}}>{item.value}</p>}
           </div>
       }else if( item.type === "contactName"){
         const contact = props.primitive.referenceParameters.contact
@@ -83,23 +96,23 @@ let mainstore = MainStore()
           icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> 
           let name = contact?.name || item.value
           return <div 
-            className={`flex ${props.secondary ? "text-slate-400" : ""}`}
+            className={`flex ${props.inline ? "truncate" : ""} ${props.secondary ? "text-slate-400" : ""}`}
           >{icon}{name}</div>
         }
       }else if( item.type === "contact"){
         const contact = props.primitive.referenceParameters.contact
         if( props.compact ){
           icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> 
-          if( item.autoId !== undefined ){
+          if( typeof(contact) === "object" ){
             //icon = <ContactPopover icon={<UserIcon className='w-5 h-5 text-blue-200 hover:text-blue-400'/>} contactId={contact?.id}/>
             icon = <ContactPopover contact={contact}/>
           }
-          let name = contact?.name || item.value
-          return <div className='flex space-x-1'>{icon}<p className='ml-1'>{name}</p></div>
+          let name = contact?.name || item.value || item.default
+          return <div className='flex space-x-1'>{icon}<p className={`ml-1 ${props.inline ? "truncate" : ""}`}>{name}</p></div>
         }
         return <EditablePersonField 
                 {...props} 
-                value ={ contact } 
+                value ={ typeof(contact) === "object" ? contact : ""  } 
                 key={contact ? contact.id : "contact"}
                 onSelect={async function(value){
                   console.log( value)
@@ -114,8 +127,25 @@ let mainstore = MainStore()
                   }
                   return props.primitive.setParameter("contactId", value ? value.id : null )
                 }}
-                className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
+                className={`flex place-items-center ${props.inline ? "truncate" : ""} ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
               />
+      }else if( item.type === "currency" && !props.editing){
+        let val = item.value
+        let unit = ""
+        if( val > 1000 ){
+          val = val / 1000
+          unit = "K"
+        }
+        if( val > 1000 ){
+          val = val / 1000
+          unit = "M"
+        }
+        return <>
+              {item.key === "funding" && <HeroIcon icon="BanknotesIcon" className='w-5 h-5 mr-1'/>}
+              {item.key === "valuation" && <HeroIcon icon="ArrowTrendingUpIcon" className='w-5 h-5 mr-1'/>}
+                <p className='text-lg text-gray-800 font-semibold'>${val}{unit}</p>
+              </>
+
       }
       
       return <EditableTextField
@@ -124,7 +154,7 @@ let mainstore = MainStore()
         value={item.value} 
         default={item.default} 
         icon={icon} 
-        fieldClassName={props.compact ? "" :'text-end grow'}
+        fieldClassName={`${props.compact ? "" :'text-end grow'} ${props.inline ? "truncate" : ""}`}
         callback={(value)=>{
             return props.primitive.setParameter(item.key, value)
         }}
@@ -178,11 +208,21 @@ const Relationships = function({primitive, ...props}){
     return <RelationshipTable title='Significance' relationships={relationships}/>
 }
 const Users = function({primitive, ...props}){
+  const [editing, setEditing] = React.useState(props.editing)
+  const [addUser, setAddUser] = React.useState(false)
+
+
+  useEffect(()=>{
+    setEditing(props.editing)
+  }, [primitive.id, props.editing])
 
   let userContent
   if( props.asTable ){
     userContent = (
       <dl className="mt-2 mx-2 divide-y divide-gray-200 border-t border-b border-gray-200">
+        {!editing && primitive.users.length === 0 &&
+          <p className='py-3 text-center text-gray-400 text-sm'>Nothing to show</p>
+        }
         {primitive.users.map((user)=>(
           <div key={user.email} className="flex justify-between py-3 text-sm relative place-items-center">
             <dt>{user.name}</dt>
@@ -193,11 +233,22 @@ const Users = function({primitive, ...props}){
                 alt={user.name} />
           </div>
         ))}
+        {editing &&
+          <div key='adduser' className="flex justify-between py-3 text-sm relative place-items-center">
+            <dt className='text-transparent'>Add user</dt>
+              <UserPlusIcon
+                onClick={()=>setAddUser(true)}
+                className="inline-block h-7 w-7 p-1 rounded-full bg-gray-300 hover:bg-gray-500 text-white right-0 absolute"
+                />
+          </div>}
       </dl>
     )
   }else{
     userContent = 
     <div className="flex space-x-2 mt-2 mx-2">
+        {!editing && primitive.users.length === 0 &&
+          <p className='py-3 text-center text-gray-400 text-sm'>Nothing to show</p>
+        }
         {primitive.users.map((user) => (
           <a key={user.email} href={user.href} className="rounded-full hover:opacity-75">
             <img
@@ -212,8 +263,10 @@ const Users = function({primitive, ...props}){
   }
 
   return (<>
-    <h3 className="mt-6 text-sm font-medium text-gray-500">{props.title || "Team"}</h3>
-    {userContent}
+    <Panel {...props} title={props.title || "Team"} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
+      {userContent}
+      {addUser && <ContactPicker allowNew={false} setOpen={()=>setAddUser(false)} callback={(d)=>alert(d)} mode="user"/>}
+    </Panel>
   </>)
 }
 
@@ -272,7 +325,7 @@ const Parameters = function({primitive, ...props}){
 
   let parameters = primitive.metadata?.parameters || undefined
   if( !parameters ){ return <></> }
-  let fields = Object.keys(parameters)
+  let fields = Object.keys(parameters).sort((a,b)=>(parameters[a].order === undefined ? 99 : parameters[a].order ) - (parameters[b].order === undefined ? 99 : parameters[b].order) )
   if( props.fields ){
     let remap = props.fields.reduce((o,f)=>{
       if( f instanceof Object){
@@ -316,6 +369,10 @@ const Parameters = function({primitive, ...props}){
     setEditing( null )
   }
 
+  if( details.length === 0){
+    return <p className='py-3 text-center text-gray-400 text-sm'>Nothing to show</p>
+  }
+
   return (
     details.map((item, idx)=>(
       <div 
@@ -330,7 +387,7 @@ const Parameters = function({primitive, ...props}){
         ].join(" ")}
         >
         {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 mr-2 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
-        <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+        <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
         {props.inline && (idx < (details.length - 1)) && <p className='pl-1 text-slate-400'>•</p> }
       </div>
     )))
@@ -559,10 +616,14 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     mainTextSize = "lg"
     ring = false
   }
+  let withHero = props.enableHero && primitive.metadata?.title === "Venture"
+  if( withHero ){
+    mainTextSize = '2xl'
+
+  }
 
   const updateTitle = (newTitle )=>{
     primitive.title = newTitle
-    console.log(`TITLE UPDAATED`)
     return true
   }
 
@@ -576,7 +637,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           value = {primitive.title}
           className='w-full'
           compact={true}
-          fieldClassName={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-slate-700 text-${mainTextSize}`}>
+          fieldClassName={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-${mainTextSize} ${withHero ? "px-2 self-end text-slate-50 font-bold" : "text-slate-700"}`}>
         </EditableTextField>
         {(!props.compact && (props.showLink || props.showEdit)) &&
           <button
@@ -606,7 +667,13 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   }else{
     header = <>
               {!titleAtBase && !metadata && !props.hideTitle && <Title primitive={primitive} {...props}/>} 
-              {content && <div className={`flex items-start justify-between space-x-3 ${props.compact ? 'mt-2' : 'mt-3'}`}>
+              {content && 
+                <div 
+                  className={
+                    withHero
+                      ? "rounded-t-lg bg-gradient-to-br from-slate-900 to-slate-600 -mx-2 -mt-3 h-24 flex" 
+                      : `flex items-start justify-between space-x-3 ${props.compact ? 'mt-2' : 'mt-3'}`
+                  }>
                 {content}
               </div>}
             </>
@@ -619,6 +686,9 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
       props.onEnter()
     }
   }
+
+  const packedFields = fields ? fields.filter((d)=>d.indexOf(",") >= 0).map((d)=>d.split(",")).flat() : undefined
+  fields = fields ? fields.filter((d)=> (d !== "title") && (d.indexOf(",") === -1)) : undefined
 
   return (
     <div 
@@ -648,12 +718,17 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
             />
           </div>}
         {header}
-      {fields &&  
+      {fields && (packedFields === undefined || fields.length > 0) &&
         <div className={[
-          props.inline ? `flex items-start justify-between space-x-1` : ``,
+          props.inline ? `flex items-start justify-between space-x-1 w-max` : ``,
           props.fieldsInline ? `flex -ml-1 space-x-1 py-2` : ``, 
           ].join(" ")}>
             <Parameters primitive={primitive} noEvents={props.noEvents} inline={props.inline || props.fieldsInline} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={fields} showTitles={props.fieldsInline === true} className='!py-1'/>
+        </div>
+      }
+      {packedFields &&  (packedFields.length > 0) &&
+        <div className='flex -ml-1 space-x-1 py-2 justify-center'>
+            <Parameters primitive={primitive} noEvents={props.noEvents} inline={true} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={packedFields} showTitles={false} className='!py-1'/>
         </div>
       }
 
@@ -668,7 +743,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {(props.showEvidence  === true) && <PrimitiveCard.Evidence primitive={primitive}/>}
         {(props.showEvidence  === "compact") && <PrimitiveCard.Evidence primitive={primitive} hideTitle={true} compact={true} aggregate={true}/>}
         {props.children}
-        {titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} className='grow-0 mt-1'/>}
+        {titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} className={props.inline ? 'grow-0' : 'grow-0 mt-1'}/>}
         {smallMeta}
         {primitive._doingDiscovery && !primitive.discoveryDone && <div className='w-2 h-2 absolute bg-amber-500 rounded-lg right-1 top-1'/>}
         {primitive.openai_token_limit && <div className='w-2 h-2 absolute bg-red-500 rounded-lg right-1 top-1'/>}

@@ -7,6 +7,7 @@ import {
   ChevronLeftIcon,
   EyeIcon,
   ChevronDoubleRightIcon,
+  Cog6ToothIcon,
   CheckIcon
 } from '@heroicons/react/20/solid'
 import { PrimitiveCard } from './PrimitiveCard';
@@ -32,6 +33,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import {CSS} from '@dnd-kit/utilities';
+import MainStore from './MainStore';
+import useDataEvent from './CustomHook';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -67,7 +70,7 @@ const Item = function(props){
             {props.target && <span className={`ml-2 text-sm font-medium ${props.color ? `text-${props.color}-800/50 group-hover:text-${props.color}-800/80` : "text-gray-500 group-hover:text-gray-700"}`}>vs target of {props.target}</span>}
             {!props.wide && 
               <ChevronDoubleRightIcon 
-                className='w-5 h-5 ml-1 pb-1 self-end text-slate-300 invisible group-hover:visible hover:text-slate-600'/>
+                className='w-5 h-5 ml-1 pb-1 self-end text-slate-400 invisible group-hover:visible hover:text-slate-600'/>
               }
           </div>
           {props.met &&
@@ -82,11 +85,11 @@ const Item = function(props){
         show={props.open} 
         as='div'
         enter="ease-in-out duration-200"
-        enterFrom="max-h-0"
-        enterTo="max-h-[40vh]"
+        enterFrom="max-h-0 h-0"
+        enterTo="max-h-[40vh] h-[22em]"
         leave="ease-in-out duration-200"
-        leaveFrom="max-h-[40vh]"
-        leaveTo="max-h-0"
+        leaveFrom="max-h-[40vh] h-[22em]"
+        leaveTo="max-h-0 h-0"
         afterLeave={()=>props.txCallback(props.open)}
         className={classNames(
             "w-full flex h-full",
@@ -123,6 +126,10 @@ const SortableItem = function(props) {
 
 
   const SortablePrimitive = React.forwardRef(({primitive, isDragging, selectId, onEnter,...props}, ref) => {
+    const categories = primitive.origin?.metadata?.resultCategories
+    const thisCategory = categories.find((d)=>d.resultCategoryId === primitive.referenceId )
+    let fields = thisCategory ? thisCategory.views.list.cards : []
+
     return (
       <div id={primitive.plainId} ref={ref} {...props} className={`px-2 py-1 ${isDragging ? "opacity-25" : ""}`}>
       <motion.div key={selectId} layoutId={selectId} 
@@ -133,7 +140,7 @@ const SortableItem = function(props) {
             flatBorder={true}
             showExpand={true}
             showAsSecondary={true}
-            fields={['contact','company']} 
+            fields={fields} 
             className='border-b-[1px] border-gray-200 '
             onEnter={onEnter ? ()=>onEnter({primitive: primitive, plainId: selectId}) : undefined}
             onClick={(e)=>e.currentTarget.focus()}
@@ -236,10 +243,11 @@ export function MetricCard({primitive, metric, ...props}) {
   let count = value
   let subgridConfig = {}
   let mainTitle
-  let analysis = metric.analysis
 
   const [open, setOpen] = React.useState(false)
   const [fully, setFully] = React.useState(false)
+
+  let analysis = open ? metric.analysis : undefined
 
   React.useEffect(()=>{
     if( props.groupOpen !== undefined){
@@ -273,15 +281,32 @@ export function MetricCard({primitive, metric, ...props}) {
       value = value.map((v)=>({...v, id: metric.id, title: undefined}))
     }
   }else{
-    value = [{...value, id: metric.id, title: undefined, met: metric.met}]
+    if( metric.type === "sum"){
+        let val = value
+        let unit = ""
+        if( val > 1000 ){
+          val = val / 1000
+          unit = "K"
+        }
+        if( val > 1000 ){
+          val = val / 1000
+          unit = "M"
+        }
+
+      value = [{count: `$${val}${unit}`, id: metric.id, title: undefined, met: metric.met}]
+    }else{
+      value = [{...value, id: metric.id, title: undefined, met: metric.met}]
+    }
   }
 
-  const [items, setItems] = React.useState(
-    value.reduce((o, v,idx)=>{
+  const initList = ()=>{
+    return value.reduce((o, v,idx)=>{
       o[v.relationship] = v.list
       return o 
     }, {})
-  )
+  }
+
+  const [items, setItems] = React.useState(initList())
 
   const [activeDragId, setActiveDragId] = React.useState(null);
   const sensors = useSensors(
@@ -292,6 +317,10 @@ export function MetricCard({primitive, metric, ...props}) {
       },
     }),
   );
+  useDataEvent("relationship_update", primitive.id, ()=>{
+    value = metric.value
+    setItems( initList() )
+  })
 
 
   function handleDragStart(event) {
@@ -309,7 +338,7 @@ export function MetricCard({primitive, metric, ...props}) {
 
       if( oldSlot !== newSlot ){
         //primitive.primitives.move( activeDrag.id, {results: {[metric.id]:oldSlot}}, {results: {[metric.id]:newSlot}})
-        primitive.moveRelationship( activeDrag, {results: {[metric.id]:oldSlot}}, {results: {[metric.id]:newSlot}})
+        primitive.moveRelationship( activeDrag, MainStore().extendPath(metric.path, oldSlot), MainStore().extendPath(metric.path, newSlot))
       }
     }
     
@@ -377,11 +406,15 @@ export function MetricCard({primitive, metric, ...props}) {
       id={`m_${metric.id}`}
       key={metric.id}
       className={classNames(
-        "relative overflow-hidden md:rounded-lg bg-white shadow border-[1px] flex flex-col justify-between",
+        "relative overflow-hidden md:rounded-lg bg-white shadow border-[1px] flex flex-col justify-between group",
         props.className,
         wide ? "w-full md:divide-gray-200 divide-y col-start-1 col-span-2 md:col-start-1 md:col-span-3" : ''
       )}
     >
+      {props.editMetric && <Cog6ToothIcon
+        className='w-5 h-5 absolute z-10 right-2 top-2 invisible group-hover:visible text-gray-300 hover:text-gray-900'
+        onClick={()=>props.editMetric(metric)}
+        />}
       {mainTitle && 
         <p
           key='title' 

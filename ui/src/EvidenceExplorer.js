@@ -95,10 +95,10 @@ const options = <><option value="area">Focus area (defined by experiment)</optio
 
   return (
         <div className='w-full h-full overflow-x-scroll overflow-y-scroll overscroll-contain'>
-            <div key='control' className='z-20 bg-white w-full p-2 sticky top-0 left-0'>
+            <div key='control' className='z-20 bg-white w-full p-2 sticky top-0 left-0 space-x-3 place-items-center'>
                 <input key='zoom' type="range" min="10" max="200" value={scale} step='10' className="range" onChange={handleScale}/>
-                <select key='cols' id="cols" value={colSelection} onChange={(e)=>setColSelection(e.target.value)}>{options}</select>
-                <select key='rows' id="rows" value={rowSelection} onChange={(e)=>setRowSelection(e.target.value)}>{options}</select>
+                <select className='border rounded-sm' key='cols' id="cols" value={colSelection} onChange={(e)=>setColSelection(e.target.value)}>{options}</select>
+                <select className='border rounded-sm' key='rows' id="rows" value={rowSelection} onChange={(e)=>setRowSelection(e.target.value)}>{options}</select>
             </div>
             <div style = {{
                         width:`${scale}%`,
@@ -130,7 +130,7 @@ const options = <><option value="area">Focus area (defined by experiment)</optio
                                             if( item.origin.referenceParameters.company.search(/Munich Re/i)){
                                                 color = 'ccpurple'
                                             }
-                                            return <div style={{width: `${sz}em`, height: `${sz}em`, borderRadius:`${sz}em`}} className={`bg-${color}-400 border-4 border-white shade-lg m-1`}></div>
+                                           // return <div style={{width: `${sz}em`, height: `${sz}em`, borderRadius:`${sz}em`}} className={`bg-${color}-400 border-4 border-white shade-lg m-1`}></div>
                                             return <PrimitiveCard key={item.id} noEvents={true} showAsSecondary={"small"} fieldsInline={false} primitive={item} compact={true} border={true} showOriginInfo={originFields} fields={fields} className='min-w-[16em] max-w-[16em] m-2'/>
                                         })}
                                     </div>

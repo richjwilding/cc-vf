@@ -30,6 +30,39 @@ function MainStore (prims){
                 "closed": {title: "Closed"},
             }
         },
+        extendPath:function(path, ext){
+            return this.stringToPath(this.pathToString(path) + "." + ext)
+        },
+        pathToString:function(path){
+            let out = []
+            const nest = (node)=>{
+                if( node instanceof Object ){
+                    const k = Object.keys(node)[0]
+                    out.push(k)
+                    nest( node[k] )
+                    return out
+                }
+                out.push(node)
+                return out
+            }
+            return nest( path).join(".")
+        },
+        stringToPath:function(path){
+            if( typeof(path) !== "string"){return undefined}
+            let out = {}
+            let current = out
+            let nodes = path.split(".")
+            let last = nodes.pop()
+            if( nodes.length === 0){
+                return last
+            }
+            let prev = undefined
+            nodes.forEach((n,idx)=>{
+                current[n] = (idx === nodes.length - 1) ? last : {}
+                current = current[n]
+            })            
+            return out
+        },
         controller: {
             async createMetric(primitive, object){
                 if( !object.type ||  primitive === undefined){
@@ -195,16 +228,16 @@ function MainStore (prims){
                     body: JSON.stringify(data)
                 })
                 .then(res => res.json())
-                .then(
-                  (result) => {
-                    if( obj.ajaxResponseHandler( result )){
-                        obj.triggerCallback("relationship_update", [receiver, target])
+                    .then(
+                    (result) => {
+                        if( obj.ajaxResponseHandler( result )){
+                            obj.triggerCallback("relationship_update", [receiver, target])
+                        }
+                    },
+                    (error) => {
+                        console.warn(error)
                     }
-                  },
-                  (error) => {
-                    console.warn(error)
-                  }
-                )
+                    )
             },
             setRelationship( receiver, target, path, set ){
                 const data = {
@@ -372,12 +405,18 @@ function MainStore (prims){
                         let counts
                         let filter_empty = false
 
+
+                        if( metric.type === "sum"){
+                            if( prims === undefined){return 0}
+                            return prims.allItems.map((p)=>parseInt(p.referenceParameters[metric.parameter])).reduce((a, c)=>a + c,0)
+                        }
+
                         if( metric.type === "conversion" || metric.type === "count"){
-                            if( prims === undefined){
-                                counts = [{count: 0, list: []}]
-                            }else{
 
                                 if( metric.type === "conversion" ){
+                                    if( prims === undefined){
+                                        prims = {}
+                                    }
                                     if( Object.keys(metric.path)[0] !== "results"){return undefined}
                                     
                                     let relationships = target.parent.metadata?.resultCategories[Object.values(metric.path)[0]].relationships
@@ -395,15 +434,34 @@ function MainStore (prims){
                                         return v
                                     }).reverse()                            
                                 }else if( metric.type === "count" ){
+                                    if( prims === undefined){
+                                        prims = {allIds: {length: 0}, allItems: []}
+                                    }
+                                    if( metric.targets ){
+                                        counts = metric.targets.map((t)=>{
+                                            if( t.presence ){
+                                                return {presence: true, count: prims.allIds.length, list: prims.allItems}
+                                            }else{
+                                                if( !Array.isArray(prims) ){
+                                                    const k = t.relationship
+                                                    if( prims[k] ){
+                                                        return {relationship: k, list: prims[k].allItems, count: prims[k].length}
+
+                                                    }
+                                                }
+                                            }
+                                        }).filter((d)=>d)
+
+                                    }else{
+                                        counts = [{count: prims.allIds.length, list: prims.allItems}]
+                                    }
                                     let by_reln = metric.targets || metric.by_relationship
-                                    counts = by_reln ? Object.keys(prims).map((k)=>({relationship: k, list: prims[k].allItems, count: prims[k].length})) : {count: prims.allIds.length, list: prims.allItems}
                                     filter_empty = true
                                 }
                                 
-                            }
                             if( metric.targets ){
                                 counts = counts.filter((d)=>{
-                                    let mt = metric.targets.find((d2)=>d2.relationship === d.relationship)
+                                    let mt = metric.targets.find((d2)=>(d2.presence === d.presence && d2.presence !== undefined) || (d2.relationship === d.relationship))
                                     if( mt ){
                                         d.target = mt.value
                                         d.met = d.count >= d.target
@@ -684,14 +742,14 @@ function MainStore (prims){
                     return d.plainId
                 }
                 if( prop === "addMetric"){
-                    return function( data ){  
+                    return async function( data ){  
                         //let id = d.metrics ? Math.max(...d.metrics.map((d)=>d.id)) + 1 : 0
                         let metric = {
                             title: data.title,
                             type: data.type,
                             targets: data.targets,
                         }
-                        let id = obj.controller.createMetric( receiver, metric )
+                        let id = await obj.controller.createMetric( receiver, metric )
 
                         if( id ){
                             metric.id = id

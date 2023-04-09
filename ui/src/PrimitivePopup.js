@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion"
 import { Dialog, Transition } from '@headlessui/react'
-import {Fragment, useEffect, useRef} from 'react';
+import {Fragment, useEffect, useState} from 'react';
 import { Tab } from '@headlessui/react'
 import { PrimitiveCard } from './PrimitiveCard'
 import ContactCard from "./ContactCard";
@@ -12,6 +12,7 @@ import {
   XMarkIcon
 } from '@heroicons/react/20/solid'
 import MainStore from "./MainStore";
+import ConfirmationPopup from "./ConfirmationPopup";
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -19,6 +20,7 @@ function classNames(...classes) {
 
 
 export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
+  const [showDeletePrompt, setShowDeletePrompt] = useState(false)
     let id = primitive?.plainId
     let selectedList
     let selectedIdx
@@ -44,6 +46,21 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
         setPrimitive(null)
       }
     }
+    
+    const childrenForDeletion = ()=>{
+
+    }
+
+    const promptDelete = ()=>{
+
+      setShowDeletePrompt( true )
+     // setPrimitive(null)
+    }
+
+    const handleDelete = ()=>{
+      console.log("DELETING")
+      setShowDeletePrompt( null )
+    }
 
     const mainstore = MainStore()
 
@@ -54,6 +71,8 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
     ]
 
     return (
+    <>
+    {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
     <Transition.Root show={primitive !== undefined} as={Fragment}  appear>
       <Dialog as="div" className="relative z-50" onClose={()=>setPrimitive(null)} >
         <Transition.Child
@@ -201,7 +220,14 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
                                     </Tab.Panels>
                                   </>)}}
                             </Tab.Group>
-                    <div className="flex flex-shrink-0 justify-end pt-4 mt-1">
+                    <div className="flex flex-shrink-0 justify-between space-x-2 pt-4 mt-1">
+                      <button
+                      type="button"
+                      className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:ml-3 sm:w-auto"
+                      onClick={promptDelete}
+                    >
+                      Delete
+                    </button>
                         <button
                             type="button"
                             className="rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -209,12 +235,13 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
                         >
                             Close
                         </button>
-                        </div>
+                      </div>
                     </div>
                 </Dialog.Panel>
             </Transition.Child>
             </div>
         </Dialog>
     </Transition.Root>
+    </>
     )
 }

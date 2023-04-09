@@ -454,25 +454,10 @@ router.post('/add_metric', async function(req, res, next) {
     let data = req.body
 
     try {
-        /*
-        Primitive.findByIdAndUpdate(
-            ObjectId(data.primitive),
-            { $push: { metrics: { id: { $max: "$metrics.id" } + 1, title: data.title, type: data.type, path: data.type === "conversion" ? {results: 0} : {metrics: { $max: "$metrics.id" } + 1} } } },
-            {new: true},
-            (err,doc)=>{
-                if( err ){
-                    throw err
-                }
-                console.log(doc)
-
-                res.json({success: true})
-
-            })*/
 
             Primitive.findOneAndUpdate(
                 { _id: data.primitive },
                 [
-                  //{ "$project": { "maxIndex": { "$max": "$metrics.id" } } },
                   { "$addFields": { "newIndex": { "$add": [ { "$max": "$metrics.id" }, 1 ] } } },
                   { "$set": { "metrics": { 
                         "$concatArrays": [ 
@@ -485,7 +470,6 @@ router.post('/add_metric', async function(req, res, next) {
                                 path: data.type === "conversion" ? {results: 0} : {metrics: {$ifNull: ["$newIndex",0]}}
                             }] ] } } },
                   { "$unset": "newIndex"},
-                //  { "$replaceRoot": { "newRoot": { "_id": "$_id", "metrics": "$metrics" } } },
                 ],
                 { new: true, upsert: false },
                 (err, doc) => {

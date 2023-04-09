@@ -44,7 +44,7 @@ export function RelationshipTable({relationships, ...props}){
         setSortColumn(idx)
     }
 
-    const scroll = props.maxHeightClass ? `overflow-y-scroll ${props.maxHeightClass}` : ""
+    const scroll = props.maxHeightClass ? `overscroll-contain overflow-y-scroll ${props.maxHeightClass}` : ""
     return (
          <>
             <h3 key='title' className={`${props.major ? "text-lg font-bold" : "mt-6"} font-medium text-gray-900`}>{props.title || 'Signficance'}</h3>
@@ -85,10 +85,10 @@ export function RelationshipTable({relationships, ...props}){
                     <React.Fragment key={`${wrapped.item.id}_${row_id}`}>
                       <div
                         key='card'
-                        className={`col-start-1 text-xs p-1 border-b-[1px] border-gray-200 relative`}
+                        className={`col-start-1 overflow-x-scroll text-xs p-1 border-b-[1px] border-gray-200 relative`}
                       >
                         {highlight && <div style={{borderborderRadius: "12px 0px 0px 12px", height: 'calc(100% - 4px)'}} className='border-ccgreen-600 border-2 pointer-events-none	 border-r-0 rounded-l-xl col-span-3 left-0 top-[2px] absolute w-full'/>}
-                        <PrimitiveCard bg='bg-transparent' primitive={wrapped.item} fields={props.fields} inline={props.inline} showId={props.inline ? "number" : true} compact={true} disableHover={true} showLink={true}/>
+                        <PrimitiveCard bg='bg-transparent' className='w-fit' primitive={wrapped.item} fields={props.fields} inline={props.inline} showId={props.inline ? "number" : true} compact={true} disableHover={true} showLink={true}/>
                       </div>
                       {relationships.map((set,idx)=>(
                         <div 

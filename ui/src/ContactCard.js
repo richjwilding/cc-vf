@@ -35,7 +35,7 @@ export function ContactPopover({contact, ...props}) {
         <Popover as={Fragment}>
           {({ open }) => (
             <>
-              <Popover.Button ref={setReferenceElement} className='flex place-items-center' tabIndex='-1'>
+              <Popover.Button disabled={contact === undefined} ref={setReferenceElement} className='flex place-items-center' tabIndex='-1'>
                 {props.icon || contact ? <ContactCard.Avatar contact={contact} size="small"/> : undefined}
               </Popover.Button>
               <Popover.Panel
@@ -60,10 +60,7 @@ const Avatar = function ({contact, ...props}){
     const dim = {"large": "14em", "small":"1.5em"}[props.size] || "7em"
     const border = {"large": "border-4 mb-2 ", "small":"border-0"}[props.size] || "border-4 mb-2 "
    
-    if( contact === undefined){
-        return "!!"
-    }
-    const avatarUrl = contact.avatarUrl 
+    const avatarUrl = contact?.avatarUrl 
 
     if(avatarUrl){
         return <img style={{width: dim, height:dim }} className={`mx-auto flex-shrink-0 rounded-full ${border} border-white`} src={avatarUrl} alt="" />

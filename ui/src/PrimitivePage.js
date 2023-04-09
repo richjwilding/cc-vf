@@ -61,7 +61,7 @@ export function PrimitivePage({primitive, ...props}) {
     const hasDocumentViewer = primitive.type === "result" && primitive.referenceParameters?.notes
     const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
     const callbackId = useRef(null)
-    const [editMetric, setEditMetric] = useState({new: true})
+    const [editMetric, setEditMetric] = useState(null)
     const [selected, setSelected] = useState(null)
     const [selectedMetric, setSelectedMetric] = useState(null)
     const [groupMetricsOpen, setGroupMetricsOpen] = useState(false)
@@ -70,10 +70,11 @@ export function PrimitivePage({primitive, ...props}) {
     const resultViewer = useRef()
     const [analysis, setAnalysis] = useState()
     const [showWorkingPane, setShowWorkingPane] = useState(hasDocumentViewer)
+
     const test = ()=>{
-      console.log('helo')
       updateRelationships()
     }
+
 
     useDataEvent("relationship_update", primitive.id, test)
 
@@ -266,7 +267,7 @@ export function PrimitivePage({primitive, ...props}) {
             }
                 </div>
               </section>
-                  <Panel key='metrics' title='Metrics' titleButton={{action:()=>alert("HI")}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
+                  <Panel key='metrics' title='Metrics' titleButton={{action:()=>setEditMetric({new: true})}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
                     <div className="gap-3 grid-cols-2 grid md:grid-cols-3 lg:grid-cols-3">
                         {primitive.metrics && primitive.metrics.map((metric)=>{
                           let wide = metric.type === "conversion"
@@ -278,6 +279,7 @@ export function PrimitivePage({primitive, ...props}) {
                               onClick={setLocalMetric} 
                               primitive={primitive} 
                               metric={(metric)} 
+                              editMetric={setEditMetric}
                               onCardClick={(p)=>setSelected(p)}/>
                           if( wide ){
                             return m
@@ -316,9 +318,10 @@ export function PrimitivePage({primitive, ...props}) {
                 let list = primitive.primitives.results ?  primitive.primitives.results[category.id].map((d)=>d) : []
 
                 if( cardConfig ){
+                  console.log(cardSort)
                   list = list.sort((a,b)=>{
-                    let va = a.referenceParameters[cardSort]
-                    let vb = b.referenceParameters[cardSort]
+                    let va = cardSort === "title" ? a.title : a.referenceParameters[cardSort]
+                    let vb = cardSort === "title" ? b.title : b.referenceParameters[cardSort]
                     if( va && vb ){
                         return va.localeCompare(vb)
                     }
@@ -347,6 +350,7 @@ export function PrimitivePage({primitive, ...props}) {
                                         className={`h-full select-none flex flex-col justify-between ${selected && selected.id === p.id ? "bg-white opacity-50 blur-50" : ""}`}
                                         fields={cardConfig} 
                                         border={true} 
+                                        enableHero={true}
                                         showExpand={true}
                                         showState={showState} 
                                         showAsSecondary={true}
@@ -588,7 +592,7 @@ export function PrimitivePage({primitive, ...props}) {
           </div>
         <PrimitivePopup primitive={selected} contextOf={primitive} editing={true} setPrimitive={setSelected}/>
         <MetricPopup selected={selectedMetric?.metric} contextOf={selectedMetric?.primitive} highlight={selectedMetric?.highlight} setSelected={setSelectedMetric}/>
-        {editMetric && <MetricEditor metric={editMetric} primitive={primitive}/> }
+        {editMetric && <MetricEditor metric={editMetric} primitive={primitive} setOpen={()=>setEditMetric(null)}/> }
       </div>
     </>
   )

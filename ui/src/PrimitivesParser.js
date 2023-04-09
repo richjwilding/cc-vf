@@ -192,6 +192,9 @@ export default function PrimitiveParser(obj){
                         return new Proxy(target[s], structure)
                     }
                 }
+                if( prop === "underlying"){
+                    return target
+                }
                 if( prop === "fromPath"){
                     return function(path, create = false){
                         let node = receiver                        
@@ -208,6 +211,33 @@ export default function PrimitiveParser(obj){
                             }
                         }
 
+                        const addNode = ( last, step, prevLast, prevStep)=>{
+                            let underlying = last.underlying
+                            console.log(`adding ${step}`)
+                            if( Array.isArray(underlying ) ){
+                                if( underlying.length === 0 && prevLast ){
+                                    if( Array.isArray(prevLast) ){
+                                        const arr = prevLast.underlying.find((d)=>Object.keys(d)[0] == prevStep)
+                                        if( arr  ){
+                                            arr[prevStep] = {}
+                                        }
+                                    }else{
+                                        prevLast.underlying[prevStep] = {}
+                                    }
+                                    last = prevLast[prevStep]
+                                    underlying = last.underlying
+                                    underlying[step] = []
+                                }else{
+                                    underlying.push({[step]: []})
+                                }
+                            }else{
+                                underlying[step] = []
+                            }
+                            return last
+                        }
+
+                        let prevLast
+                        let prevStep
                         while( path instanceof(Object) ){
                             let step = Object.keys(path)[0]
                             let last = node
@@ -215,16 +245,17 @@ export default function PrimitiveParser(obj){
                             node = node[step]
                             if( node === undefined){
                                 if( create ){
-                                    last[step] = {}
+                                    last = addNode( last, step, prevLast, prevStep)
                                     node = last[step]
                                 }else{
                                     return undefined
                                 }
                             }
+                            prevLast = last
+                            prevStep = step
                         }
                         if( !node[path] && create ){
-                            //node[path] = new Proxy([], structure)
-                            node[path] = []
+                            node = addNode( node, path, prevLast, prevStep)
                         }
                         return node[path]
 
