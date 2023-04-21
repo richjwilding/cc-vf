@@ -115,7 +115,7 @@ app.get("/google/logout", (req, res) => {
 req.user = undefined
   req.logout(function(err) {
     if (err) { return next(err); }
-    res.redirect('/google/login');
+    res.redirect('/');
   });
 })
 app.get('/miro/callback', async (req, res) => {
@@ -148,11 +148,6 @@ var checkToken = async (req, res, next) => {
     }
     let user = req.user
 
-    var send401Response = function() {
-        return res.status(401).end();
-      };
-      
-    // subtract current time from stored expiry_date and see if less than 5 minutes (300s) remain
     if (moment().subtract(user.expiry_date, "s").format("X") > -300) {
         console.log(`NEED TO REFRESH with ${user.refreshToken}`)
 
@@ -199,13 +194,13 @@ var ensureAuthenticated = async function(req, res, next) {
             return next();
         }
         req.session.returnTo = req.originalUrl; 
-        console.log(`SET TO ${req.session.returnTo}`)
-        res.redirect('/google/login')
+        console.log("redir A")
+        res.redirect('/')
     } 
     else{
-        console.log(`SET TO ${req.session.returnTo}`)
         req.session.returnTo = req.originalUrl; 
-        res.redirect('/google/login')
+        console.log("redir B")
+        res.redirect('/')
     }
 }
 
@@ -265,8 +260,9 @@ if (process.env.NODE_ENV === 'production') {
   
     const path = require('path')
     app.get('*', function(req, res) {
-      //res.sendFile(path.resolve(__dirname, 'ui', 'build', 'index.html'))
+        console.log("HELLO THERE")
       res.sendFile(path.resolve('dist-server', 'ui', 'build', 'index.html'))
+      //res.sendFile(path.resolve(__dirname, 'ui', 'build', 'index.html'))
     })
   }
 

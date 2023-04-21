@@ -9,6 +9,8 @@ import { fas } from '@fortawesome/free-solid-svg-icons'
 import { faLinkedin } from '@fortawesome/free-brands-svg-icons'
 import { PrimitivePage } from './PrimitivePage';
 import MainStoreTests from './mainstore_tests';
+import SideNav from './SideNav';
+import SignIn from './SignIn';
 
 library.add(fas, faLinkedin)
 
@@ -20,10 +22,6 @@ window.mainstore = mainstore
 
 window.mainstore_tests = MainStoreTests
 
-const PrimitiveCardWrapper = (props) => {
-  const { id } = useParams();
-  return <PrimitivePage primitive={mainstore.primitiveByPlain(parseInt(id))} selectPrimitive={props.selectPrimitive} />;
-};
 
 function App() {
   
@@ -31,12 +29,18 @@ function App() {
   const [open, setOpen] = React.useState(false)
   const [overlay, setOverlay] = React.useState(false)
   const [primitive, setPrimitive] = React.useState(undefined)
+  const [widePage, setWidePage] = React.useState(false)
 
   useEffect(()=>{
     mainstore.loadData().then(res => {
       setLoaded(true)
     })
   }, [])
+
+  const PrimitiveCardWrapper = (props) => {
+    const { id } = useParams();
+    return <PrimitivePage primitive={mainstore.primitiveByPlain(parseInt(id))} selectPrimitive={props.selectPrimitive} setWidePage={setWidePage} />;
+  };
 
   const selectPrimitive = (primitive, overlay = false)=>{
     if( primitive === null){
@@ -51,15 +55,19 @@ function App() {
 
   return (
     !loaded ? <p>Loading</p> : 
-    <div className = 'w-full mx-auto flex h-screen'>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<ComponentView components={mainstore.components()} selectPrimitive={selectPrimitive}/>}/>
-          <Route path="/item/:id" element={<PrimitiveCardWrapper selectPrimitive={selectPrimitive}/>}/>
-        </Routes>
-      <Sidebar open={open} overlay={overlay} setOpen={(v)=>{console.log(v);setOpen(v)}} primitive={primitive}/>
-      </BrowserRouter>
-    </div>
+    !mainstore.activeUser
+      ? <SignIn/>
+      : <div className = 'w-full mx-auto flex h-screen'>
+        <SideNav widePage={widePage}>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/components" element={<ComponentView components={mainstore.components()} selectPrimitive={selectPrimitive}/>}/>
+              <Route path="/item/:id" element={<PrimitiveCardWrapper selectPrimitive={selectPrimitive}/>}/>
+            </Routes>
+          <Sidebar open={open} overlay={overlay} setOpen={(v)=>{console.log(v);setOpen(v)}} primitive={primitive}/>
+          </BrowserRouter>
+        </SideNav>
+      </div>
   )
 }
 

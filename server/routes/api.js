@@ -449,6 +449,50 @@ router.get('/restore', async function(req, res, next) {
     res.json({success:true})
 })
 
+router.post('/remove_metric', async function(req, res, next) {
+    let data = req.body
+    console.log(`remove`)
+    console.log(data)
+
+    try {
+        await Primitive.findOneAndUpdate(
+            {
+                "_id": new ObjectId(data.primitive),
+                "metrics.id": data.id,
+            }, 
+            {
+                $pull:{"metrics": {id: data.id}},
+                $unset:{[`primitives.metrics.${data.id}`]: true}
+            })
+        res.json({success: true, id: data.id })
+      } catch (err) {
+        res.json(400, {error: err.message})
+    }
+})
+router.post('/update_metric', async function(req, res, next) {
+    let data = req.body
+    try {
+        await Primitive.findOneAndUpdate(
+            {
+                "_id": new ObjectId(data.primitive),
+                "metrics.id": data.id,
+            }, 
+            {
+                $set:{
+                    "metrics.$": {
+                        id: data.id,
+                        title: data.title, 
+                        type: data.type, 
+                        targets: data.targets,
+                        path: data.type === "conversion" ? {results: 0} : {metrics: data.id}
+                    }
+                }
+            })
+        res.json({success: true, id: data.id })
+      } catch (err) {
+        res.json(400, {error: err.message})
+    }
+})
 
 router.post('/add_metric', async function(req, res, next) {
     let data = req.body

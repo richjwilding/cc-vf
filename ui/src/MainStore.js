@@ -65,6 +65,23 @@ function MainStore (prims){
         },
         controller: {
             async createMetric(primitive, object){
+                return await this._createOrUpdateMetric( primitive, object )
+            },
+            async removeMetric(primitive, id){
+                if( id === undefined ){ return id}
+
+                const object = {id: id, type: "remove"}
+                
+                return await this._createOrUpdateMetric( primitive, object, "remove" )
+            },
+            async updateMetric(primitive, object, id){
+                if( id === undefined ){ return id}
+
+                object.id = id
+                
+                return await this._createOrUpdateMetric( primitive, object, "update" )
+            },
+            async _createOrUpdateMetric(primitive, object, mode = "add"){
                 if( !object.type ||  primitive === undefined){
                     return undefined
                 }
@@ -74,7 +91,7 @@ function MainStore (prims){
                 }
                 let newId
 
-                await fetch("/api/add_metric",{
+                await fetch(`/api/${mode}_metric`,{
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -437,7 +454,7 @@ function MainStore (prims){
                                     if( prims === undefined){
                                         prims = {allIds: {length: 0}, allItems: []}
                                     }
-                                    if( metric.targets ){
+                                    if( metric.targets && metric.targets.length > 0){
                                         counts = metric.targets.map((t)=>{
                                             if( t.presence ){
                                                 return {presence: true, count: prims.allIds.length, list: prims.allItems}
@@ -459,7 +476,7 @@ function MainStore (prims){
                                     filter_empty = true
                                 }
                                 
-                            if( metric.targets ){
+                            if( metric.targets && metric.targets.length > 0 ){
                                 counts = counts.filter((d)=>{
                                     let mt = metric.targets.find((d2)=>(d2.presence === d.presence && d2.presence !== undefined) || (d2.relationship === d.relationship))
                                     if( mt ){
@@ -741,15 +758,39 @@ function MainStore (prims){
                 if( prop === "plainId"){
                     return d.plainId
                 }
-                if( prop === "addMetric"){
-                    return async function( data ){  
-                        //let id = d.metrics ? Math.max(...d.metrics.map((d)=>d.id)) + 1 : 0
+                if( prop === "deleteMetric"){
+                    return async function( existingMetric ){  
+                        let id = existingMetric ? existingMetric.id : undefined
+                        if( id === undefined){return}
+
+                        id = await obj.controller.removeMetric( receiver, id )
+
+                        if( id ){
+                            d.metrics = d.metrics.filter((d)=>d.id !== id )
+                            return existingMetric
+                        }else{
+                            console.warn("Failed to delete metric")
+                        }                        
+
+                    }
+                }
+                if( prop === "addMetric" || prop === "updateMetric"){
+                    return async function( data, existingMetric ){  
                         let metric = {
                             title: data.title,
                             type: data.type,
                             targets: data.targets,
                         }
-                        let id = await obj.controller.createMetric( receiver, metric )
+                        let id = existingMetric ? existingMetric.id : undefined
+                        if( prop === "updateMetric" ){
+                            if( id ){
+                                // do update
+                                id = await obj.controller.updateMetric( receiver, metric, id )
+                                d.metrics = d.metrics.filter((d)=>d.id !== id )
+                            }
+                        }else{
+                            id = await obj.controller.createMetric( receiver, metric )
+                        }
 
                         if( id ){
                             metric.id = id
@@ -1039,7 +1080,7 @@ function MainStore (prims){
     obj.loadData = async function(){
             const status = await fetch('/api/status').then(response => response.json())
             if( !status.logged_in ){
-                window.location.href = "/google/login"
+              //  window.location.href = "/"
                 return undefined
             }
                 obj.activeUser = status.user

@@ -69,7 +69,14 @@ export function PrimitivePage({primitive, ...props}) {
     const [plainText, setPlainText] = useState()
     const resultViewer = useRef()
     const [analysis, setAnalysis] = useState()
-    const [showWorkingPane, setShowWorkingPane] = useState(hasDocumentViewer)
+    const [showWorkingPane, setShowWorkingPaneReal] = useState(hasDocumentViewer)
+
+    const setShowWorkingPane = (value) => {
+      setShowWorkingPaneReal(value)
+      if( props.setWidePage ){
+        props.setWidePage( value )
+      }
+    }
 
     const test = ()=>{
       updateRelationships()
@@ -267,8 +274,9 @@ export function PrimitivePage({primitive, ...props}) {
             }
                 </div>
               </section>
-                  <Panel key='metrics' title='Metrics' titleButton={{action:()=>setEditMetric({new: true})}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
-                    <div className="gap-3 grid-cols-2 grid md:grid-cols-3 lg:grid-cols-3">
+                <Panel key='metrics' title='Metrics' titleButton={{action:()=>setEditMetric({new: true})}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
+                  <div className='@container'>
+                    <div className="gap-3  grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-3">
                         {primitive.metrics && primitive.metrics.map((metric)=>{
                           let wide = metric.type === "conversion"
                           const m = <MetricCard 
@@ -280,6 +288,7 @@ export function PrimitivePage({primitive, ...props}) {
                               primitive={primitive} 
                               metric={(metric)} 
                               editMetric={setEditMetric}
+                              wideSizeClasses='col-span-1 @md:col-span-2 @xl:col-span-3'
                               onCardClick={(p)=>setSelected(p)}/>
                           if( wide ){
                             return m
@@ -302,7 +311,8 @@ export function PrimitivePage({primitive, ...props}) {
                           }
                         })}
                     </div>
-                  </Panel>
+                  </div>
+                </Panel>
 
             {hasNestedEvidence && !showWorkingPane &&
                   <Panel key='evidence_panel' title="Evidence" titleButton={{icon: <ArrowsPointingOutIcon className='w-4 h-4 -mx-1'/>, action:()=>setShowWorkingPane(!showWorkingPane)}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>

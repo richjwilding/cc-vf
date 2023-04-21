@@ -35,6 +35,7 @@ import {
 import {CSS} from '@dnd-kit/utilities';
 import MainStore from './MainStore';
 import useDataEvent from './CustomHook';
+import { createPortal } from 'react-dom';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -408,7 +409,7 @@ export function MetricCard({primitive, metric, ...props}) {
       className={classNames(
         "relative overflow-hidden md:rounded-lg bg-white shadow border-[1px] flex flex-col justify-between group",
         props.className,
-        wide ? "w-full md:divide-gray-200 divide-y col-start-1 col-span-2 md:col-start-1 md:col-span-3" : ''
+        wide ? `w-full md:divide-gray-200 divide-y col-start-1 ${props.wideSizeClasses}` : ''
       )}
     >
       {props.editMetric && <Cog6ToothIcon
@@ -440,8 +441,8 @@ export function MetricCard({primitive, metric, ...props}) {
       <div
         key="detail"
         className={classNames(
-          "divide-y divide-gray-200 md:divide-y-0 md:divide-x md:grid grid-flow-col",
-          wide ? "col-start-1 col-span-2 md:col-start-1 md:col-span-3" : ''
+          "divide-y divide-gray-200 md:divide-y-0 md:divide-x @xl:grid grid-flow-col",
+          wide ? `col-start-1 col-span-2 md:col-start-1 md:col-span-3` : ''
         )}
         style={subgridConfig}
 
@@ -449,6 +450,7 @@ export function MetricCard({primitive, metric, ...props}) {
         
         {value.map((metric,idx)=>(<Item id={metric.relationship} key={`${metric.id}_${idx}`} list={items[metric.relationship]} onClick={props.onClick}  clickId={metric.id} open={wide && open} txPrefix={`${primitive.plainId}_${metric.id}`} txCallback={setFully} onCardClick={props.onCardClick} title={metric.title} count={metric.count} met={metric.met} target={metric.target} color={metric.color} wide={wide} />))}
           </div>
+          {createPortal(
         <DragOverlay style={{border: "unset"}}>
           <div className='px-2 py-1' style={{cursor: "grab"}}>
           {activeDragId && <PrimitiveCard 
@@ -460,7 +462,7 @@ export function MetricCard({primitive, metric, ...props}) {
               //bg='hover:bg-white'
               />}
               </div>
-        </DragOverlay>
+        </DragOverlay>,document.body)}
       </DndContext>
       {(open && analysis && !wide) && <HBar onClick={props.onClick} clickId={metric.id} primitive={primitive} metric={metric} analysis={analysis}/>}
     </div>

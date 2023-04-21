@@ -41,6 +41,14 @@ export default function MetricEditor({metric, primitive,...props}) {
     })
   }
 
+  const handleDelete = async function(){
+      await primitive.deleteMetric( metric )
+      if( props.setOpen ){
+          props.setOpen(false)
+      }else{
+          setOpen(false)
+      }
+  }
   const handleSave = async function(){
     const data = {
       title: title,
@@ -56,7 +64,11 @@ export default function MetricEditor({metric, primitive,...props}) {
         return undefined
       }).filter((d)=>d)
     }
-    await primitive.addMetric( data )
+    if( metric.id ){
+      await primitive.updateMetric( data, metric )
+    }else{
+      await primitive.addMetric( data )
+    }
 
       if( props.setOpen ){
           props.setOpen(false)
@@ -76,7 +88,6 @@ export default function MetricEditor({metric, primitive,...props}) {
 
   let relationships 
   let results
-  
   if( primitive.metadata?.resultCategories ){
     results = primitive.metadata?.resultCategories[0]
     if( selected === "conversion" ){
@@ -89,9 +100,12 @@ export default function MetricEditor({metric, primitive,...props}) {
   if( relationships === undefined){
     relationships = [{
       presence: true,
-      key: "presence",
+      key: targets && Object.keys(targets).length === 1 ?  Object.keys(targets)[0] : "presence",
       title: `Count of ${results.plurals}`
     }]
+  }
+  if( relationships && !targets ){
+    setTargets({})
   }
   
 
@@ -196,7 +210,7 @@ export default function MetricEditor({metric, primitive,...props}) {
                         </>
                       )}
                     </Listbox>
-                    { selected &&
+                    { selected && targets && 
                     <>
                       <div className="rounded-md border border-gray-200 p-3 my-2 space-y-3 bg-gray-50 ">
                         <div className='grid px-2 gap-x-6 gap-y-8 grid-cols-5'>
@@ -241,9 +255,16 @@ export default function MetricEditor({metric, primitive,...props}) {
                   </>
 
                     }
-                    <div className="mt-6 flex items-center justify-end gap-x-6">
+                    <div className="mt-6 flex items-center w-full gap-x-6">
+                    {metric.id &&   <button
+                      type="button"
+                      className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:w-auto"
+                      onClick={handleDelete}
+                    >
+                      Delete
+                    </button>}
                       <button type="button" 
-                        className="text-sm font-semibold leading-6 text-gray-900"onClick={handleClose}>
+                        className="text-sm font-semibold leading-6 text-gray-900 ml-auto"onClick={handleClose}>
                         Cancel
                       </button>
                       <button
@@ -251,7 +272,7 @@ export default function MetricEditor({metric, primitive,...props}) {
                         onClick={handleSave}
                         className="inline-flex justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm disabled:bg-gray-400 hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
                       >
-                        {metric ? "Update" : "Create"}
+                        {metric.id ? "Update" : "Create"}
                       </button>
                     </div>
                     
