@@ -1,4 +1,4 @@
-import React, { useEffect, useState, forwardRef, useLayoutEffect } from 'react';
+import React, { useEffect, useState, forwardRef, useReducer } from 'react';
 import GoogleHelper from './GoogleHelper';
 
 import { MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, ChevronDownIcon, ChevronUpIcon, PlusIcon } from '@heroicons/react/24/outline';
@@ -7,7 +7,6 @@ import { MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, ChevronDownIcon, Che
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
 import { toolbarPlugin, ToolbarSlot } from '@react-pdf-viewer/toolbar';
-import { searchPlugin } from '@react-pdf-viewer/search';
 
 //import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
 import '@react-pdf-viewer/core/lib/styles/index.css';
@@ -26,6 +25,8 @@ import {
   RenderHighlightTargetProps,
 } from '@react-pdf-viewer/highlight';
 import { Button, Position, PrimaryButton, Tooltip} from '@react-pdf-viewer/core';
+import MainStore from './MainStore';
+import useDataEvent from './CustomHook';
 
 const MyToolBar = ( props ) => {
   const toolbarPluginInstance = toolbarPlugin();
@@ -75,118 +76,15 @@ const MyToolBar = ( props ) => {
   )];
 };
 
-const findAutoExtractedTextPlugin = () => {
-    const findAutoExtractedText = (e) => {
-        if (e.status !== 1) {
-            return;
-        }
-
-        const oText = "Its tough for us to make decisions."// We talk about this - but we can"
-        const text = oText.replaceAll(/\s/g,'')
-
-        const elements = e.ele.querySelectorAll('.rpv-core__text-layer-text')
-        let range = new Range()
-        let endOffset = elements[elements.length - 1].childNodes.length;
-
-        let startIdx = 0
-        let endIdx = elements.length - 1
-        
-        let found 
-        let lastFound
-        do{
-            lastFound = found
-            range.setStart(elements[startIdx], 0)
-            range.setEnd(elements[endIdx], endOffset)            
-            const extracted = range.toString().replaceAll(/\s/g,'')
-            found = extracted.search(text) 
-            console.log(`found at position ${found} starting with ${startIdx}`)
-            startIdx++
-        }while( (found > -1) && startIdx <= endIdx )
-        
-        if( lastFound ){
-            startIdx--
-            if( found === -1){
-                found = lastFound
-                startIdx--
-            }
-        }
-        if( lastFound !== undefined){
-            range.setStart(elements[startIdx], 0)
-
-            found = false
-            do{
-                lastFound = found
-                endOffset = elements[endIdx].childNodes.length;
-                range.setEnd(elements[endIdx], endOffset)            
-                const extracted = range.toString().replaceAll(/\s/g,'')
-                found = extracted.search(text) 
-                console.log(`found up to ${found} starting with ${endIdx}`)
-                endIdx--
-            }while( (found > -1) && endIdx >= startIdx )
-            
-            endIdx++
-            
-            if( lastFound !== undefined){
-                if( found === -1){
-                    endIdx++
-                }
-                endOffset = elements[endIdx].childNodes.length;
-                range.setEnd(elements[endIdx], endOffset)            
-
-                const extracted = range.toString()
-                const max = elements[startIdx].firstChild.length;
-                let startOffset = 0
-                let comp, extract
-                do{
-                    comp = oText.substring(0, max - startOffset)
-                    extract = extracted.substring(startOffset, comp.length + startOffset)
-                    startOffset++
-
-                }while( startOffset < max && (comp !== extract))
-
-                let rExtracted = extracted.split('').reverse().join('')
-                let rText = oText.slice(0, rExtracted.length).split('').reverse().join('')
-                const rMax = elements[endIdx].firstChild.length;
-                endOffset = 0
-                do{
-                    comp = rText.substring(0, max - endOffset)
-                    extract = rExtracted.substring(endOffset, comp.length + endOffset)
-                    endOffset++
-
-                }while( endOffset < rMax && (comp !== extract))
-                
-
-                startOffset--
-                endOffset--
-                range.setStart(elements[startIdx].firstChild, startOffset)            
-                range.setEnd(elements[endIdx].firstChild, rMax - endOffset)            
-
-                const sel = window.getSelection();
-                sel.removeAllRanges();
-                sel.addRange(range);
-
-            }
-        }
-
-    };
-    console.log("++++++ PLUGIN")
-
-    return {
-        onTextLayerRender: findAutoExtractedText,
-    };
-};
 
 
 
-const ResultViewer = forwardRef(function ResultViewer({evidenceList, createCallback, ...props}, ref){
-    
-    const searchPluginInstance = searchPlugin();
-    const { highlight, search } = searchPluginInstance;
+const ResultViewer = forwardRef(function ResultViewer({createCallback, ...props}, ref){
 
-  window.pdfsearch = search
-  window.pdfhighlight = highlight
+   useDataEvent("relationship_update", props.primitive.id, ()=>setNotes(processNotesFromEvidence()))
 
     const processNotesFromEvidence = ()=>{
+        const evidenceList = props.evidenceList || props.primitive?.primitives.allUniqueEvidence
         if( !evidenceList ){ return []}
         let id = 0
         return evidenceList.filter((d)=>d.referenceParameters?.highlightAreas).map((d)=>{
@@ -202,7 +100,7 @@ const ResultViewer = forwardRef(function ResultViewer({evidenceList, createCallb
 
   const [url, setUrl ] = useState()
   const [message, setMessage] = React.useState('');
-  const [notes, setNotes] = React.useState(processNotesFromEvidence());
+  const [notes, setNotes] = React.useState(()=>processNotesFromEvidence());
   const [highlightNote, setHighlightNote] = React.useState(undefined);
   const [toolbarPluginInstance, toolbar] = MyToolBar()
   const viewer = React.useRef()
@@ -213,36 +111,27 @@ const ResultViewer = forwardRef(function ResultViewer({evidenceList, createCallb
     return {
       showPrimitive( primitiveId ) {
             const note = notes.find((d)=>d.primitiveId === primitiveId)
-            if( note.ref ){
+            if( note && note.ref ){
                 note.ref.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
             }
             setHighlightNote( primitiveId )
       },
     };
-  }, []);
+  }, [notes.map((d)=>d.primitiveId)]);
 
-  const noteEles = new Map();
   let noteId = notes.length;
 
-  //const defaultLayoutPluginInstance = defaultLayoutPlugin();
-
-  if( !url && props.GoogleDoc ){
-    if( props.GoogleDoc.type === "google_drive"){
+  if( !url && props.primitive ){
         const fetchDoc = async function(){
-          const docAsString = await GoogleHelper().getDocument( props.GoogleDoc )
-          if( docAsString === undefined){debugger}
-          const data = new Uint8Array(docAsString.length )
-          data.forEach((d,idx)=>data[idx] = docAsString.charCodeAt(idx))
-          setUrl( {data:  data})
+          const data = await props.primitive.getDocument( )
+          setUrl( {data: new Uint8Array( data)})
         }
         fetchDoc()
-    }
   }
 
 
 
   const renderHighlightTarget = (props) => {
-    console.log(props)
     return (
     <div
         className='absolute rounded-[50%] p-2 border-2 shadow-md shadow-gray-400 hover:ring-2 z-10 bg-blue-600 hover:bg-blue-700 text-white'
@@ -332,7 +221,6 @@ const renderHighlights = (rProps) => (
                                 rProps.getCssProperties(area, rProps.rotation)
                             )}
 //                            onClick={props.onHighlightClick ? () => props.onHighlightClick(note.primitiveId) : undefined}
-                            onMouseOver={()=>console.log('HELLO')}
                             ref={(ref) => {
                                 note.ref = ref
                             }}
@@ -349,73 +237,9 @@ const highlightPluginInstance = props.enableEvidence ? highlightPlugin({
     renderHighlights,
 }) : undefined;
 
-    /*console.log('reset')
-    let hasAnchor = false
-    let selRect 
-    let rect = {}
-
-    useLayoutEffect(()=>{
-        console.log(`TRY REG`)
-        if( viewer.current ){
-            const textLayer = viewer.current.querySelector('.rpv-core__text-layer')
-            const highlightLayer = viewer.current.querySelector('.custom_highlight')
-            
-            console.log(highlightLayer)
-            console.log(viewer.current)
-            console.log(textLayer)
-                console.log(`registered`)
-            if( textLayer ){
-                textLayer.addEventListener("mouseup", (e)=>{
-                    console.log(`up`)
-                    startEl = undefined
-                    hasAnchor = false
-                    if( selRect ){
-                        highlightLayer.removeChild(selRect)
-                    }
-                })
-                textLayer.addEventListener("mousedown", (e)=>{
-                    if( !startEl && e.target.classList.contains('rpv-core__text-layer-text') ){
-                        startEl = e.target
-                    }
-                })
-                textLayer.addEventListener("mousemove", (e)=>{
-                    if( !startEl ){return}
-                    if( !hasAnchor ){
-                        const range = window.getSelection().getRangeAt(0)
-                        if( range ){
-                            const rects = range.getClientRects()
-                            console.log(rects)
-                            if( rects ){
-                                let r = rects[0]
-                                console.log(rects)
-                                let p = textLayer.getClientRects()[0]
-                                
-                                hasAnchor = true
-                                selRect = document.createElement('div')
-                                selRect.style.position = "absolute"
-                                selRect.style.border = "1px solid red"
-                                selRect.style.background = "green"
-                                selRect.style.left = "0px"
-                                selRect.style.top = "0px"
-                                selRect.style.width = `${r.x - p.x}px`
-                                selRect.style.height = `${r.y - p.y}px`
-                                highlightLayer.appendChild(selRect)
-                            }
-                        }
-                        
-                    }
-                    if( startEl && startEl!=e.target && e.target.classList.contains('rpv-core__text-layer-text') ){
-                       // e.target.style.background='green'
-                    }
-                },true);
-            }
-        }
-    },[viewer.current, url])*/
-
 
   if( !url ){return <></>}
 
-  console.log(notes)
 
   return (
     <Worker workerUrl="https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.js">
@@ -427,7 +251,6 @@ const highlightPluginInstance = props.enableEvidence ? highlightPlugin({
               plugins={[
                 toolbarPluginInstance,
                 highlightPluginInstance,
-                findAutoExtractedTextPlugin()
               ].filter((d)=>d)}
           />
           </div>
@@ -435,20 +258,5 @@ const highlightPluginInstance = props.enableEvidence ? highlightPlugin({
       <div className='bg-gray-200 rounded-b-lg shadow-lg flex flex-col py-2'/>
   </Worker>)
 
-/*
-  function onDocumentLoadSuccess({ numPages }) {
-    setNumPages(numPages);
-    setPageNumber(2)
-  }
-  return (
-    <div className='w-fill bg-gray-200 rounded-lg shadow-inner flex-column justify-center p-2 '>
-      <Document file={url} onLoadSuccess={onDocumentLoadSuccess}>
-        <Page className='shadow-lg' pageNumber={pageNumber} />
-      </Document>
-      <p>
-        Page {pageNumber} of {numPages}
-      </p>
-    </div>
-  );*/
 })
 export default ResultViewer

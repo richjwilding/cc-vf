@@ -68,7 +68,7 @@ const Item = function(props){
           <div 
             className={`flex items-baseline text-2xl font-semibold ${props.color ? `text-${props.color}-600 group-hover:text-${props.color}-800` : "text-indigo-600 group-hover:text-indigo-800"}`}>
             {props.count}
-            {props.target && <span className={`ml-2 text-sm font-medium ${props.color ? `text-${props.color}-800/50 group-hover:text-${props.color}-800/80` : "text-gray-500 group-hover:text-gray-700"}`}>vs target of {props.target}</span>}
+            {props.target && <span className={`ml-2 text-sm font-medium ${props.color ? `text-${props.color}-800/50 group-hover:text-${props.color}-800/80` : "text-gray-500 group-hover:text-gray-700"} truncate mr-1`}>vs target of {props.target}</span>}
             {!props.wide && 
               <ChevronDoubleRightIcon 
                 className='w-5 h-5 ml-1 pb-1 self-end text-slate-400 invisible group-hover:visible hover:text-slate-600'/>

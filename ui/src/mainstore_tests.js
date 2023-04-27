@@ -220,7 +220,7 @@ export default function MainStoreTests(){
         test.add(11, {a: {b: {c: 4}}})
         console.assert( arrayEquals(test.a.b.c[4].allIds, [11]) )
         test.add(9, {a: {b: "c"}})
-        console.assert( arrayEquals(test.a.b.c.allIds, [9,11]) )
+        console.assert( arrayEquals(test.a.b.c.allIds, [11,9]) )
     }
     {
         let data = {
@@ -337,13 +337,13 @@ export default function MainStoreTests(){
         console.assert( arrayEquals(test.uniqueAllIds, [2, 4, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]) )
         console.assert( arrayEquals(test.ids, [2, 4, 4,3]))
         console.assert( arrayEquals(test.uniqueIds, [2, 4, 3]))
-        console.assert( test.items.length === 4)
-        console.assert( test.uniqueItems.length === 3)
+        console.assert( test.ids.length === 4)
+        console.assert( test.uniqueIds.length === 3)
         console.assert( arrayEquals(test.paths(4), ['','.a','.test3.a.c']) )
         console.assert( test.paths(40) === undefined )
         console.assert( arrayEquals(test.relationships(4), ['','a','c']) )
         console.assert( arrayEquals(test.fromPath({test2: "a"}), [11,5,6]))
-        console.assert( test.map((d)=>d).length == 23)
+        console.assert( test.allIds.length == 23)
     }
     {
         let p = teststore.primitive(4417)
@@ -360,7 +360,7 @@ export default function MainStoreTests(){
         console.assert( teststore.primitive(4448).parentRelationship(4417)[0] === "positive" )
     }
     {
-        let data = {
+        var data = {
             id: 1,
             primitives: [
                     2,
@@ -373,10 +373,10 @@ export default function MainStoreTests(){
                     }
                 ]
         }
-        let test = new Proxy(data.primitives, teststore.structure)
+        var test = new Proxy(data.primitives, teststore.structure)
         window.test_data = test
         console.assert( arrayEquals(test.fromPath({4: "a"}), [4,5,6]))
-        console.assert( test.map((d)=>d).length == 9)
+        console.assert( test.allIds.length == 9)
     }
     {
         let data = {

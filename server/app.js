@@ -14,6 +14,7 @@ import User from './model/User';
 import moment from 'moment';
 import * as refresh from 'passport-oauth2-refresh';
 import {Miro} from '@mirohq/miro-api'
+import { setRefreshTokenHandler } from './google_helper';
 
 dotenv.config()
 
@@ -54,6 +55,7 @@ function(request, accessToken, refreshToken, params, profile, done) {
 
 passport.use(strategy);
 refresh.use(strategy);
+setRefreshTokenHandler(refresh)
 
 var app = express();
 
@@ -104,17 +106,19 @@ app.get('/google/callback',
       failureRedirect: '/failed',
   }),
   function (req, res) {
-    console.log(req.session)
-    console.log(`CHECKIN TO ${req.session.returnTo}`)
-    res.redirect(req.session.returnTo || '/');
-    delete req.session.returnTo;
+    res.redirect('/');
 
   }
 );
 app.get("/google/logout", (req, res) => {
 req.user = undefined
+console.log("do logout")
   req.logout(function(err) {
-    if (err) { return next(err); }
+    if (err) { 
+        console.log(err)
+        return next(err);
+    }
+console.log("done - redirect")
     res.redirect('/');
   });
 })
@@ -188,19 +192,28 @@ app.get('/api/status', (req, res) => {
 })
 
 var ensureAuthenticated = async function(req, res, next) {
+    if( ['/login', '/manifest.json', '/logo192.png'].includes(req.originalUrl) ){
+        return next()
+    }
+    if( req.originalUrl.slice(0,12) === '/static/css/' ){
+        return next()
+    }
+    if( req.originalUrl.slice(0,11) === '/static/js/' ){
+        return next()
+    }
+    if( req.originalUrl.slice(0,8) === '/images/' ){
+        return next()
+    }
     if (req.isAuthenticated()){
         let user = await User.find({email: req.user.email})
         if( user ){
             return next();
         }
         req.session.returnTo = req.originalUrl; 
-        console.log("redir A")
-        res.redirect('/')
+        res.redirect('/login')
     } 
     else{
-        req.session.returnTo = req.originalUrl; 
-        console.log("redir B")
-        res.redirect('/')
+        res.redirect('/login')
     }
 }
 
@@ -256,6 +269,7 @@ app.get('/api/refresh', async (req, res) => {
 })
 
 if (process.env.NODE_ENV === 'production') {
+    console.log("DOING")
     app.use(express.static('ui/build'))
   
     const path = require('path')

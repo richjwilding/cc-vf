@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "npm run prod",
-    "build": "npm-run-all clean transpile",
+    "build": "npm-run-all clean transpile alias",
     "server": "node ./dist-server/bin/www",
     "server-debug": "node --inspect ./dist-server/bin/www",
     "dev": "NODE_ENV=development npm-run-all build server-debug ",
@@ -12,6 +12,7 @@
     "prod": "NODE_ENV=production npm run server",
     "transpile": "babel ./server --out-dir dist-server",
     "heroku-postbuild": "cd ui && npm install && npm run build",
+    "alias": "mkdir dist-server/ui && cd dist-server/ui &&  ln -s ../../ui/build .",
     "clean": "rimraf dist-server",
     "watch:dev": "nodemon"
   },
@@ -47,9 +48,11 @@
     "morgan": "~1.9.1",
     "nodemon": "^2.0.20",
     "npm-run-all": "^4.1.5",
+    "openai": "^3.2.1",
     "passport": "^0.6.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-oauth2-refresh": "^2.1.0",
+    "pdf.js-extract": "^0.2.1",
     "rimraf": "^3.0.2"
   },
   "babel": {

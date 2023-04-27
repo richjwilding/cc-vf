@@ -11,6 +11,7 @@ import { PrimitivePage } from './PrimitivePage';
 import MainStoreTests from './mainstore_tests';
 import SideNav from './SideNav';
 import SignIn from './SignIn';
+import HomeScreen from './HomeScreen';
 
 library.add(fas, faLinkedin)
 
@@ -39,7 +40,10 @@ function App() {
 
   const PrimitiveCardWrapper = (props) => {
     const { id } = useParams();
-    return <PrimitivePage primitive={mainstore.primitiveByPlain(parseInt(id))} selectPrimitive={props.selectPrimitive} setWidePage={setWidePage} />;
+    return (
+        <SideNav widePage={widePage}>
+          <PrimitivePage primitive={mainstore.primitiveByPlain(parseInt(id))} selectPrimitive={props.selectPrimitive} setWidePage={setWidePage} />;
+        </SideNav>)
   };
 
   const selectPrimitive = (primitive, overlay = false)=>{
@@ -55,18 +59,16 @@ function App() {
 
   return (
     !loaded ? <p>Loading</p> : 
-    !mainstore.activeUser
-      ? <SignIn/>
-      : <div className = 'w-full mx-auto flex h-screen'>
-        <SideNav widePage={widePage}>
+      <div className = 'w-full mx-auto flex h-screen'>
           <BrowserRouter>
             <Routes>
+              <Route path="/login" element={<SignIn/>}/>
               <Route path="/components" element={<ComponentView components={mainstore.components()} selectPrimitive={selectPrimitive}/>}/>
+              <Route path="/" element={<SideNav><HomeScreen/></SideNav>}/>
               <Route path="/item/:id" element={<PrimitiveCardWrapper selectPrimitive={selectPrimitive}/>}/>
             </Routes>
           <Sidebar open={open} overlay={overlay} setOpen={(v)=>{console.log(v);setOpen(v)}} primitive={primitive}/>
           </BrowserRouter>
-        </SideNav>
       </div>
   )
 }

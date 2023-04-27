@@ -15,12 +15,13 @@ import {
 import { HeroIcon, SolidHeroIcon } from './HeroIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { EvidenceCard } from './EvidenceCard';
-import { Link } from "react-router-dom";
+import { Link, useLinkClickHandler } from "react-router-dom";
 import EditableTextField from './EditableTextField';
 import EditablePersonField from './EditablePersonField';
 import EditableResourceField from './EditableResourceField';
 import useDataEvent from './CustomHook';
 import ContactPicker from './ContactPicker';
+import QuestionCard from './QuestionCard';
 
 const ExpandArrow = function(props) {
   return (
@@ -245,9 +246,9 @@ const Users = function({primitive, ...props}){
     )
   }else{
     userContent = 
-    <div className="flex space-x-2 mt-2 mx-2">
+    <div className={`flex space-x-2 ${props.className || 'mt-2 mx-2'}`}>
         {!editing && primitive.users.length === 0 &&
-          <p className='py-3 text-center text-gray-400 text-sm'>Nothing to show</p>
+          <p className='w-8 h-8 justify-center place-items-center flex rounded-full text-gray-300 bg-gray-100 border border-gray-300 text-md'><UserIcon/></p>
         }
         {primitive.users.map((user) => (
           <a key={user.email} href={user.href} className="rounded-full hover:opacity-75">
@@ -260,6 +261,9 @@ const Users = function({primitive, ...props}){
         ))}
        </div>
 
+  }
+  if( props.hideTitle){
+    return userContent
   }
 
   return (<>
@@ -578,6 +582,73 @@ const Title = function({primitive, ...props}){
   )
 }
 
+const Hero = function({primitive, ...props}){
+    const metadata = primitive.metadata
+    return (<div 
+        onClick={useLinkClickHandler(`/item/${primitive.plainId}`)}
+        tabIndex='0'
+        id={primitive.plainId}
+        className={
+        [
+          "pcard group relative flex flex-col space-between",
+          props.bg ? props.bg : 'bg-white',
+          'w-96 min-h-[12em]',
+          'rounded-lg',
+          `focus:ring-2 ring-offset-4 focus:outline-none hover:ring-2 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}`,
+          "shadow border-[1px]",
+          props.className].filter((d)=>d).join(' ')
+        }>
+          <div className='relative h-32 rounded-t-lg flex-0 text-indigo-900'>
+            <div className='absolute pattern-isometric pattern-indigo-600 pattern-bg-indigo-500 pattern-opacity-20 pattern-size-8 h-full w-full rounded-t-lg'></div>
+            <div className='absolute bottom-0 px-3 py-2 flex w-full'>
+              {metadata && metadata.icon && <HeroIcon icon={metadata.icon} className='w-16 h-16' strokeWidth={0.8}/>}
+              <div className='ml-2'>
+                {metadata && <p className='text-2xl font-light'>{metadata.title}</p>}
+                {metadata && <p className='text-lg font-light'>{metadata.description}</p>}
+              </div>
+            </div>
+          </div>
+          <p className='px-4 py-2 text-gray-800 text-lg my-2 flex-1'>{primitive.title}</p>
+          <Users primitive={primitive} hideTitle={true} className='px-4'/>
+          <Title primitive={primitive} showState={true} className='px-4 py-4 flex-0'/>
+        </div>)
+}
+
+const Questions = function({primitive, ...props}){
+  const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
+  useDataEvent("set_field", props.relatedTo?.id, forceUpdate)
+  let aiProcessSummary
+  if(props.relatedTo ){
+    if(props.relatedTo.analyzer){
+      const analyzer = props.relatedTo.analyzer()
+      if(analyzer.aiProcessSummary){
+        aiProcessSummary = analyzer.aiProcessSummary() 
+      }
+    }
+  }
+    
+  let button = aiProcessSummary ? 
+    {action: ()=>{props.relatedTo.analyzer().analyzeQuestions()}, title: (aiProcessSummary.processed.length  + aiProcessSummary.unprocessed.length) > 0 ? "Reprocess"  : "Auto Process", small: true}
+    : undefined
+
+  if( props.relatedTo && props.relatedTo.ai_processing ){
+    button = {action: ()=>{}, title: <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin"/> Processing</div>, small: true}
+    
+  }
+
+  return (
+    <Panel key='analysis' title='Questions' collapsable={true} open={true} titleButton={button} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
+      <dd className="mt-1 text-sm text-gray-900">
+        <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
+          {primitive.primitives.allQuestion.map((question, idx) => (
+            <QuestionCard key={question.id} primitive={question} {...props} aiProcessSummary={aiProcessSummary}/>
+          ))}
+        </ul>
+      </dd>
+    </Panel>
+  )
+}
+
 export function PrimitiveCard({primitive, className, showDetails, showUsers, showRelationships, showResources, major, disableHover, fields,...props}) {
   let ring = !disableHover
   let mainTextSize = props.textSize || (props.compact ? 'sm' : 'md' )
@@ -588,7 +659,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   const callbackId = React.useRef(null)
   React.useEffect(()=>{
     if( !props.noEvents ){
-      callbackId.current = mainstore.registerCallback(callbackId.current, "set_title set_parameter", updateForEvent, primitive.id )
+      callbackId.current = mainstore.registerCallback(callbackId.current, "set_title set_parameter set_field", updateForEvent, primitive.id )
       return ()=>{
         mainstore.deregisterCallback(callbackId.current )
       }
@@ -619,7 +690,6 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   let withHero = props.enableHero && primitive.metadata?.title === "Venture"
   if( withHero ){
     mainTextSize = '2xl'
-
   }
 
   const updateTitle = (newTitle )=>{
@@ -751,11 +821,13 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   )
 }
 PrimitiveCard.Details = Details
+PrimitiveCard.Questions = Questions
 PrimitiveCard.Parameters = Parameters
 PrimitiveCard.Users = Users
 PrimitiveCard.Relationships = Relationships
 PrimitiveCard.Resources = Resources
 PrimitiveCard.Banner = Banner
 PrimitiveCard.Title = Title
+PrimitiveCard.Hero = Hero
 PrimitiveCard.Evidence = Evidence
 PrimitiveCard.EvidenceList = EvidenceList

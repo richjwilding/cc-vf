@@ -9,6 +9,6 @@ const contactSchema = new Schema({
     "avatarPresent": Boolean,
     "expertise": [String],
     "domains": [String]
-},{timestamps: true});
+},{timestamps: true, strict: false});
 const Contact = model('Contact', contactSchema);
 export default Contact;

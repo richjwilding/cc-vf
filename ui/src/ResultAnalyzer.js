@@ -7,166 +7,111 @@ export default function ResultAnalyzer(primitive){
             const last = (id !== undefined) ? {openai: id} : "openai"
             return {processed: last}
         },
-        init:function(){
-            const origin = primitive.origin
-            if( !origin ){
-                throw new Error("Couldnt retrieve origin")
-            }
-            this.evidencePrompts = origin.evidencePrompts
-            this.questionPrompts = origin.questions
-            this.openai = OpenAIAnalysis
+        init(){
             return obj
         },
-        fetchText:async function(){
-            if( primitive.referenceParameters.notes.type === "google_drive"){
-                return await GoogleHelper().getDocument( primitive.referenceParameters.notes, "text/plain")
-            }
-            return undefined
-        },
-        text:async function(){
-            if( !this._text ){
-                this._text = (await this.fetchText()).replaceAll('"', "'")
-            }
-            return this._text
-        },
-        discoverDetails:async function(){
-            const prompts = [
-                "What is the name of the person (or main person) being interviewed?",
-                "What is the role of the person (or main person) being interviewed?",
-                "Which company of organisation does the person being interviewed work for?",
-                "Now produce a single paragraph summary of the interviewees responses, for this prompt you can ignore the previous instruction about UNCLEAR",
-            ].map((d, idx)=>{return {id: ["name","role","company","summary"][idx], prompt: d}})
-            const result = await this.prompt( prompts, {intro: "Here is a transcript of an interview. A question is numbered followed by the interviewee response.  Ignore text that doesnt belong to a question or answer:"} )
-            return result
-        },
-        doDiscovery:async function(options = {force: false}){
-            if( primitive.discoveryDone && !options.force){return}
+        aiProcessSummary:function(){
+            let evidenceList = primitive.primitives.allEvidence
+            let origin = primitive.origin
+            let questions = origin.primitives.allQuestion
+            let promptList = questions.map((d)=>d.primitives.allPrompt).flat()
 
-            const response = await this.discoverDetails()
-
-                if(response.status === "token_limit"){
-                    primitive.setField("openai_token_limit", true)
-                }else{
-                    if( primitive.openai_token_limit){
-                        primitive.setField("openai_token_limit", null)
-                    }
-                }                    
-            const details = response.response
-            const mainstore = MainStore()
-            if( details ){
-
-                for( const d of details){
-                    const response = (d.details && d.details[0] && d.details[0].length > 0) ? d.details[0] : d.response
-                    console.log(d.id, response)
-                    if( response ){
-                        if( d.id === "name"){
-                            let contact = mainstore.contacts().find((c)=>c.name === response)
-                            if( contact === undefined ){
-                                contact = await mainstore.createContact({name: response})
-                            }
-                            primitive.setParameter( "contactId", contact ? contact.id : null)
-                        }else if( d.id === "summary"){
-                            primitive.setField( d.id, response)
+            const reduce = (set)=>{
+                return set.reduce((o, c)=>{
+                    if( c.evidence && c.evidence.length > 0){
+                        if( o[c.prompt.id] ){
+                            o[c.prompt.id] = o[c.prompt.id].concat(c.evidence)
                         }else{
-                            primitive.setParameter( d.id, response)
+                            o[c.prompt.id] = c.evidence
                         }
                     }
+                    return o
+                }, {})
+            }
+
+            const byPrompt = promptList.map((p)=>{
+                return {
+                    prompt: p,
+                    evidence: evidenceList.filter((e)=>e.parentRelationship(p) !== undefined)
+                }})
+
+            return {
+                processed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? p.id : undefined ).filter((d)=>d),
+                unprocessed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? undefined : p.id ).filter((d)=>d),
+                byPrompt: reduce(byPrompt),
+                byQuestion: reduce(byPrompt.map((p)=>{
+                    return {
+                        prompt: p.prompt.origin,
+                        evidence: p.evidence,
+                    }
+                }))
+            }
+        },
+        aiGeneratedEvidence:function( questionFilter = undefined){
+            let evidenceList = primitive.primitives.allEvidence
+            let origin = primitive.origin
+            let questions = origin.primitives.allQuestion
+            if( questionFilter ){
+                const ids = questionFilter.map((d)=>d.id)
+                questions = questions.filter((d)=>ids.includes(d.id))
+            }
+            let promptList = questions.map((d)=>d.primitives.allPrompt).flat()
+
+            return evidenceList.filter((p)=>{
+                return promptList.filter((p2)=>p.parentRelationship(p2) !== undefined).length > 0
+            })
+
+        },
+        analyzeQuestions:async function(clearFirst = true, questionFilter = undefined){
+            const mainstore = MainStore()
+            if( clearFirst ){
+                const existing = this.aiGeneratedEvidence( questionFilter )
+                console.warn(`Removing existing evidence associated with current question set - may not be all`)
+                for(const p of existing){
+                    await mainstore.removePrimitive(p)
                 }
-                primitive.setField( "discoveryDone", true )
             }
-        },
-        unresolvedEvidencePrompts:function(options){
-            const evidence = primitive.primitives.fromPath(obj.buildPath())
-            let inscope = this.evidencePrompts
-            if(evidence){
-                const present = Object.keys( evidence )
-                inscope = inscope.filter((d)=> options.force || (!present.includes(`${d.id}`) || (evidence[d.id].allIds.length === 0)))
-            }
-            return inscope
-        },
-        evidence:async function(options = {force: false, complete: true, commit: true}){
-            if( this.evidencePrompts === undefined){return undefined}
-            const inscope = this.unresolvedEvidencePrompts(options)
+            const ids = questionFilter ? questionFilter.map((d)=>d.id) : undefined
+            primitive.setField("ai_processing", {state: "underway", started: new Date})
 
-            
-            console.log(`${inscope.length} prompts incomplete`)
-
-            if( (inscope.length > 0 && options.complete) || (inscope.length === this.evidencePrompts.length )){ 
-                let response = await this.prompt( inscope )
-                if( typeof(response) !== "object"){return undefined}
-
-                let result = response.response
-                if(response.status === "token_limit"){
-                    primitive.setField("openai_token_limit", true)
-                }else{
-                    if( primitive.openai_token_limit){
-                        primitive.setField("openai_token_limit", null)
-                    }
-                }                    
-                
-
-                console.log(result)
-                const mainstore = MainStore()
-
-                if( options.commit ){
-                    result.forEach(async (d,idx)=>{
-                        const path = obj.buildPath(d.id)
-                        if( !d.details ){
-                            if( d.response && d.response !== "UNCLEAR"){
-                                d.details = [d.response]
-                            }
-                        }
-                        if( d.details ){
-                            await d.details.forEach(async (item, idx)=>{
-                                await mainstore.createPrimitive({
+            const response = await primitive.doQuestionsAnalysis( ids )
+            console.log(response)
+            const promptTracker = {}
+            if( response && response.success ){
+                for( const set of response.result){
+                    console.log(`Got set of results for category ${set.categoryId}`)
+                    for( const promptSet of set.result ){
+                        const prompt = mainstore.primitive(promptSet.id)
+                        if( prompt ){
+                            const resultField= prompt.metadata?.openai?.field || "problem"
+                            promptTracker[ prompt.id ] = true
+                            console.log(`--- got ${promptSet.results?.length} results for ${prompt.plainId}`)
+                            for( const response of promptSet.results ){
+                                console.log(`${resultField} = ${response[resultField]}`)
+                                console.log(response.quote)
+                                if( (response[resultField] == undefined) || (response[resultField] === "none") || (response.quote === 'none')){
+                                    continue;
+                                }
+                                const newPrim = await mainstore.createPrimitive({
                                     parent: primitive,
                                     type: "evidence",
-                                    parentPath: path,
-                                    title: item,
-                                    categoryId: d.categoryId,
-                                    extraFields: {source: "openai", quoted: d.quotes, tags: d.tags}
+                                    title: response[resultField],
+                                    categoryId: prompt.metadata?.openai?.resultCatgeory,
+                                    referenceParameters: {highlightAreas: response.highlightAreas, scale: response.scale},
+                                    extraFields: {source: "openai", quoted: true, quote: response.quote}
                                 })
-                            })
+                                if( newPrim ){
+                                    prompt.addRelationship(newPrim )
+                                } 
+                            }
                         }
-                    })
-                    primitive.setField("raw_evidence", result)
-                }else{
-                    return result
+                    }
                 }
+                primitive.setField("ai_prompt_track", promptTracker)
+                primitive.setField("ai_processing", null)
             }
 
-            return primitive.primitives.fromPath({processed: "openai"})
         },
-        prompt:async function(prompts, options ){
-            let rawText = await this.text()
-
-            const go = async ()=>{
-
-                const oa =  OpenAIAnalysis({
-                    text: rawText,
-                    prompts: prompts,
-                    ...options
-                })
-                return await oa.process()
-            }
-            
-            let responses = await go()
-            let count = 5
-            let didTruncate = false
-            while( responses === 400 && count > 0 ){
-                console.log(`Text too long - truncating`)
-                count --
-                rawText = rawText.substring(0, rawText.length * 0.75 )
-                didTruncate = true
-
-                responses = await go()
-            }
-            if( didTruncate && responses ){
-                responses.status = "token_limit"
-            }
-            console.log(responses)
-            return responses
-        }
     }
     return obj
 }

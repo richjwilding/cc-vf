@@ -125,6 +125,7 @@ export default function OpenAIAnalysis(options){
                 }
             }
             console.log(messages)
+            return
                         
             const request = async ()=>{
                 try{

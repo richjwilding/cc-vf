@@ -299,6 +299,8 @@ export default function PrimitiveParser(obj){
                 }
                 if( target[null]){
                     return new Proxy(target[null], structure)[prop]
+                }else{
+                    return new Proxy([], structure)
                 }
             }
         }

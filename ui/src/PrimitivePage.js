@@ -22,6 +22,7 @@ import OpenAIAnalysis from './OpenAIAnalysis';
 import GoogleHelper from './GoogleHelper';
 import EvidenceExplorer from './EvidenceExplorer';
 import MetricEditor from './MetricEditor';
+import QuestionCard from './QuestionCard';
 
 
 let mainstore = MainStore()
@@ -67,9 +68,10 @@ export function PrimitivePage({primitive, ...props}) {
     const [groupMetricsOpen, setGroupMetricsOpen] = useState(false)
     const [activePrim, setActivePrim] = useState(primitive.id)
     const [plainText, setPlainText] = useState()
-    const resultViewer = useRef()
+    const resultViewer = useRef(null)
     const [analysis, setAnalysis] = useState()
     const [showWorkingPane, setShowWorkingPaneReal] = useState(hasDocumentViewer)
+
 
     const setShowWorkingPane = (value) => {
       setShowWorkingPaneReal(value)
@@ -87,17 +89,19 @@ export function PrimitivePage({primitive, ...props}) {
 
     const hasNestedEvidence = primitive.isTask
     const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
+    const showMetrics = primitive.isTask
+
 
       const analyzeText = async ()=>{
         if( primitive.referenceParameters.notes.type === "google_drive"){
           
-          const text = await GoogleHelper().getFileAsPdf( primitive.referenceParameters.notes.id, "text/plain")
+          /*const text = await GoogleHelper().getFileAsPdf( primitive.referenceParameters.notes.id, "text/plain")
           setPlainText(text)
 
           const thisAnalysis = OpenAIAnalysis({text: text})
           window.analysis = thisAnalysis
           await thisAnalysis.process()
-          setAnalysis(thisAnalysis)
+          setAnalysis(thisAnalysis)*/
         }
       }
 
@@ -245,36 +249,20 @@ export function PrimitivePage({primitive, ...props}) {
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5 @lg:col-span-2">
                     { primitive.isTask && <PrimitiveCard.Users primitive={primitive} title={`Team members`} asTable={true}/>}
                     { !primitive.isTask && task && 
-                      <Panel title={`Related ${task.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
-                        <PrimitiveCard compact={true} primitive={task}  disableHover={true} showUsers={true} showLink={true}/>
-                      </Panel>
+                        <Panel key='relatedTask' title={`Related ${task.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
+                          <PrimitiveCard compact={true} primitive={task}  disableHover={true} showLink={true}/>
+                        </Panel>
                     }
                   </div>
-                  <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
-                    <PrimitiveCard.Resources primitive={primitive}/>
+                  <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
+                    <PrimitiveCard.Questions key='questions' primitive={task ? task : primitive} relatedTo={task ? primitive : undefined}/>
                   </div>
-            {!showWorkingPane && 
-                <div className='px-4 sm:px-6 pt-2 pb-5 col-span-5 w-full'>
-                  <Panel key='analysis' title='Questions' collapsable={true}>
-                    <dd className="mt-1 text-sm text-gray-900">
-                      <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
-                        {OpenAIAnalysis({}).questions.map((question, idx) => (
-                          <li
-                            key={idx}
-                            className=" py-3 pl-3 pr-4 text-sm"
-                          >
-                              <p className="text-medium ml-2 flex-1 truncate">{question}</p>
-                          </li>
-                        ))}
-                      </ul>
-                    </dd>
-                  </Panel>
-                </div>
-            
-            }
-                </div>
+                  {primitive.resources && <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
+                    <PrimitiveCard.Resources primitive={primitive}/>
+                  </div>}
+              </div>
               </section>
-                <Panel key='metrics' title='Metrics' titleButton={{action:()=>setEditMetric({new: true})}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
+                {showMetrics && <Panel key='metrics' title='Metrics' titleButton={{action:()=>setEditMetric({new: true})}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
                   <div className='@container'>
                     <div className="gap-3  grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-3">
                         {primitive.metrics && primitive.metrics.map((metric)=>{
@@ -312,7 +300,7 @@ export function PrimitivePage({primitive, ...props}) {
                         })}
                     </div>
                   </div>
-                </Panel>
+                </Panel>}
 
             {hasNestedEvidence && !showWorkingPane &&
                   <Panel key='evidence_panel' title="Evidence" titleButton={{icon: <ArrowsPointingOutIcon className='w-4 h-4 -mx-1'/>, action:()=>setShowWorkingPane(!showWorkingPane)}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
@@ -491,7 +479,7 @@ export function PrimitivePage({primitive, ...props}) {
                       hasNestedEvidence && 
                           <EvidenceExplorer evidenceList={nestedEvidence}  showOriginInfo={[{contact: 'contactName'}, 'company']} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                     }
-                    {hasDocumentViewer && <ResultViewer evidenceList={outcomesList} ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} createCallback={createEvidenceFromNote} GoogleDoc={primitive.referenceParameters.notes}/>}
+                    {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} createCallback={createEvidenceFromNote} primitive={primitive} />}
                 </div>
               </div>
               }

@@ -12,7 +12,7 @@ function MainStore (prims){
     let obj = {
         id:  Math.floor(Math.random() * 99999),
         callbacks: {},
-        types: ["hypothesis", "learning","activity","result","experiment","question", "evidence"],
+        types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt"],
         ajaxResponseHandler(result){
             if( result.success){
                 return true
@@ -615,6 +615,29 @@ function MainStore (prims){
             })
 
         },
+        doPrimitiveDocumentQuestionsAnalysis:async function ( primitive, ids ){
+            
+            let url = `/api/primitive/${primitive.id}/analyzeQuestions`
+            if( ids ){
+                url += '?' + new URLSearchParams({
+                    questionIds: ids
+                })
+            }
+
+                const result = await fetch(url,{
+                    method: "GET",
+                })
+                const response = await result.json()
+                return response
+        },
+        getPrimitiveDocument:async function ( primitive ){
+                const result = await fetch(`/api/primitive/${primitive.id}/getDocument`
+                ,{
+                    method: "GET",
+                })
+                const response = await result.arrayBuffer()
+                return response
+        },
         createContact:async function(data){
             const newId = await this.controller.createContact(data)
             data.id = newId
@@ -654,6 +677,14 @@ function MainStore (prims){
             }
             if( parentPath){
                 paths.push( parentPath)
+            }
+            if( type === "prompt"){
+                if( category == undefined){
+                    throw new Error(`Cant add prompt without a category`)
+                }
+                if( !(parent && parent.type === "question")){
+                    throw new Error(`Cant add prompt ${parent ? `to parent of type ${parent.type}` : 'without parent'}`)
+                }
             }
 
             if( type === "result"){
@@ -836,9 +867,9 @@ function MainStore (prims){
                     }
                 }
                 if( prop === "setField"){
-                    return function( fieldName, value ){
+                    return function( fieldName, value, callbackName ){
                         d[fieldName] = value
-                        obj.controller.updateField( receiver, fieldName, value, `set_${fieldName}`  )
+                        obj.controller.updateField( receiver, fieldName, value, callbackName || `set_field`  )
                         return true
                     }
                 }
@@ -921,6 +952,22 @@ function MainStore (prims){
 
                         }
                         return anchor
+                    }
+                }
+                if( prop === "removeChildren"){
+                    return async function(dry_run = false){
+                        const directs = receiver.primitives.origin.allItems
+                        let nested = [] 
+                        directs.forEach((d)=>{
+                            nested = nested.concat(d.removeChildren(dry_run))
+                        })
+                        if( dry_run ){
+                            return nested.concat(directs.map((d)=>d.plainId))
+                        }else{
+                            for(const prim of directs){
+                                await obj.removePrimitive( prim )
+                            }
+                        }
                     }
                 }
                 if( prop === "master_type"){
@@ -1008,6 +1055,16 @@ function MainStore (prims){
                         }, [])
                     }
                 }
+                if( prop === "doQuestionsAnalysis"){
+                    return (ids)=>{
+                        return obj.doPrimitiveDocumentQuestionsAnalysis( receiver, ids )
+                    }
+                }
+                if( prop === "getDocument"){
+                    return ()=>{
+                        return obj.getPrimitiveDocument( receiver )
+                    }
+                }
                 if( prop === "displayType"){
                     return d.type.charAt(0).toUpperCase() + d.type.slice(1)
                 }
@@ -1080,8 +1137,10 @@ function MainStore (prims){
     obj.loadData = async function(){
             const status = await fetch('/api/status').then(response => response.json())
             if( !status.logged_in ){
-              //  window.location.href = "/"
-                return undefined
+                if( window.location.pathname !== "/login"){
+                    window.location.href = "/login"
+                }
+                return
             }
                 obj.activeUser = status.user
 

@@ -9,6 +9,8 @@ import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { Readable } from 'stream';
 import { finished } from 'stream/promises';
+import { getDocument, getDocumentAsPlainText, importGoogleDoc } from '../google_helper';
+import analyzeDocument from '../openai_helper';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -710,7 +712,7 @@ const flattenPath = (path)=>{
             nest( node[k] )
             return out
         }
-        out.push(node)
+        out.push(node || "null")
         return out
     }
     return nest( path).join(".")
@@ -781,6 +783,291 @@ router.post('/set_relationship', async function(req, res, next) {
 
 })
 
+router.get('/primitive/:id/getDocument', async function(req, res, next) {
+    let data = req.body
+    const primitiveId = req.params.id
+    console.log( primitiveId )
+    try{
+        const remoteReadStream = await getDocument( primitiveId, req )
+
+        res.set('Cache-Control', 'public, max-age=31557600');
+        remoteReadStream.pipe(res);
+    }catch(error){
+        res.status(501).json({message: "Error"})
+    }
+
+})
+router.get('/primitive/:id/getDocumentAsPlainText', async function(req, res, next) {
+    let data = req.body
+    const primitiveId = req.params.id
+    console.log( primitiveId )
+    try{
+        const result = await getDocumentAsPlainText( primitiveId, req )
+        res.json({success: true, result: result?.plain})
+    }catch(err){
+        res.status(400).json( {error: err.message})
+        return
+    }
+})
+router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
+    let data = req.body
+    const primitiveId = req.params.id
+    const qIds = req.query.questionIds
+    let out = []
+
+    try{
+        let success = false
+        let result 
+        const origin = await Primitive.findOne({["primitives.origin"]: {$in: [primitiveId]}})
+        const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
+        if( origin && prim ){
+            //const questions = new Proxy(origin.primitives, parser).allQuestion
+            const questions = await Primitive.find({[`parentPrimitives.${origin._id}.0`]: 'primitives.origin', type: 'question'})
+           
+            const groups = {}
+
+            for(const question of questions){
+                if( qIds && !qIds.includes( question.id ) ){
+                    console.log('skipping')
+                    continue
+                }
+                const cPrompts = await Primitive.find({[`parentPrimitives.${question._id}.0`]: 'primitives.origin', type: 'prompt'})
+                for( const prompt of cPrompts){
+                    const category = await Category.findOne({id: prompt.referenceId})
+                    groups[prompt.referenceId] = groups[prompt.referenceId] || {
+                        category: category,
+                        id: prompt.referenceId,
+                        prompts: [],
+                    }
+                    if( category ){
+                        let out
+                        if( prompt.title ){
+                            out = category.base.replace("${t}", prompt.title)
+                        }else{
+                            out = category.empty
+                        }
+                        if( out ){
+                            out = out.replace("${n}", prompt.referenceParameters?.count || category.parameters?.count?.default) 
+                            groups[prompt.referenceId].prompts.push( {
+                                id: prompt.id,
+                                text: out
+                            } )
+                        }
+                    }
+                }
+            }
+
+            const locateQuote = (oQuote, document)=>{
+                const quote = oQuote.toLowerCase().replaceAll(/\s+/g," ")
+                console.log(`looking for ${quote}`)
+                let startPage = 0
+                let endPage = 0
+                let startIdx = 0
+                let endIdx = 0
+                let terminate = false
+                const subset = (fwd)=>{
+                    const final = (data)=>{
+                        return data.join(" ").toLowerCase().replaceAll(/\s*\n+/g,". ").replaceAll(/\s+/g," ")
+                    }
+                    let str = []
+                    if( startIdx === document.pages[endPage].content.length ){
+                        startIdx = 0
+                        startPage++
+
+                    }
+
+                    if( startPage === endPage && startIdx > endIdx){
+                        return final(str)
+                    }
+
+                    if( fwd && endIdx === document.pages[endPage].content.length ){
+                        const oldIdx = endIdx
+                        endIdx = 0
+                        endPage++
+                        if( endPage === document.pages.length ){
+                            terminate = true
+                            endPage--
+                            endIdx = oldIdx - 1                            
+                            return final(str)
+                        }
+                    }
+                    for( let p = startPage; p <= endPage; p++){
+                        const start = p === startPage ? startIdx : 0
+                        const max = document.pages[p].content.length
+                        for( let i = start; i < max; i++){
+                            if( (p === endPage) && (i > endIdx)){
+                                continue
+                            }
+                            if( !document.pages[p].content[i].ignore ){
+                                str.push( document.pages[p].content[i].str )
+                            }
+                        }
+                    }
+                    return final(str)
+                }
+                // first pass
+                while( subset(true).indexOf(quote) === -1 && !terminate){
+                    endIdx++
+                }
+                console.log(`found end page ${endPage} / ${endIdx}`)
+
+                let out = undefined
+                if( !terminate ){
+
+                    terminate = false
+                
+                    while( subset(false).indexOf(quote) !== -1 && !terminate){
+                        startIdx++
+                    }
+                    if(!terminate){
+                        if( startIdx === 0 ){
+                            startPage--
+                            startIdx = document.pages[startPage].content.length - 1
+
+                        }else{
+                            startIdx--
+                        }
+                        console.log(`found start at page ${startPage} / ${startIdx} - ${endPage} / ${endIdx}`)
+                        out = []
+                        for( let p = startPage; p <= endPage; p++){
+                            const start = p === startPage ? startIdx : 0
+                            const max = document.pages[p].content.length
+                            for( let i = start; i < max; i++){
+                                if( (p === endPage) && (i > endIdx)){
+                                    continue
+                                }
+                                const item = document.pages[p].content[i]
+                                if( item){
+
+                                    const w = document.pages[p].pageInfo.width / 100
+                                    const h = document.pages[p].pageInfo.height / 100
+                                    out.push( {
+                                        pageIndex:p,
+                                        left: item.x / w,
+                                        top: (item.y - item.height) / h,
+                                        width: item.width / w,
+                                        height: item.height / h,
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+                return out
+
+            }
+
+            const extract = await getDocumentAsPlainText( primitiveId, req )
+         /*   const out = locateQuote("the surprise would be that none of these data sets are really joined up. you kind of assume that there is lot more connection between data sets and data sources than their actually are", extract.data)
+            res.json({success: success, result: out})
+            return */
+
+            const text = extract.plain
+            for( const group of Object.values(groups)){
+                const resultField = group.category.openai.field || "problem"
+                result = await analyzeDocument( {
+                    opener: group.category.openai.opener,
+                    descriptor: group.category.openai.descriptor,
+                    responseInstructions: group.category.openai.responseInstructions,
+                    text: text, 
+                    prompts: group.prompts.map((p)=>p.text)
+                })
+
+               /* result = {
+                  //  response: JSON.parse('{\n  "T0": {\n    "results": [\n      {\n        "quote": "Trying to implement consistency and drive data quality",\n        "need": "Consistency and data quality"\n      },\n      {\n        "quote": "The data quality issue is the most impactful",\n        "need": "Data quality"\n      },\n      {\n        "quote": "Having one single view of what our standardized data sets are",\n        "need": "Standardization of data sets"\n      },\n      {\n        "quote": "Trying to apply that model to data sets in your organization",\n        "need": "Data set organization"\n      },\n      {\n        "quote": "Being able to reconcile to a single individual",\n        "need": "Entity resolution"\n      }\n    ]\n  }\n}'),
+                    response: {
+                        "T0": [
+                            {
+                                "quote": "Everyone has a slightly different view of headcount for the organization",
+                                "problem": "It sucks that there is no centralized version of truth for organization-wide data like headcount.",
+                                "scale": 7
+                            },
+                            {
+                                "quote": "Because the way our data is stored is siloed, any changes I make won’t carry through to other members of the department",
+                                "problem": "It sucks that changes made to data in one department won't reflect across the entire organization due to silos.",
+                                "scale": 8
+                            },
+                            {
+                                "quote": "The surprise would be that none of these data sets are really joined up. You kind of assume that there is a lot more connection between data sets and data sources than there actually are.",
+                                "problem": "It sucks that there is a lack of data provenance across the organization, with data sets not being joined up.",
+                                "scale": 6
+                            }
+                        ],
+                        "T1": [
+                            {
+                                "quote": "Trying to implement consistency and drive data quality.",
+                                "problem": "It sucks that there are inconsistencies and poor data quality across the organization.",
+                                "scale": 6
+                            }
+                        ],
+                        "T2": [
+                            {
+                                "quote": "None"
+                            }
+                        ]
+                    },
+                    success:true}*/
+                    
+
+                if( result ){
+                    success = true
+                    if( result.success ){
+                        if( group.prompts.length == 1 && Array.isArray(result.response) ){
+                            result.response = {
+                                "T1": Object.values( result.response )
+                            }
+                        }
+                        result = {
+                            result: Object.values(result.response).map((d, idx)=>{
+                                let results = Array.isArray(d) ? d : Object.values(d)
+                                console.log(results.length)
+                                if( results.length === 1 ){
+                                    console.log((results[0] instanceof Object) , Object.keys(results[0]).length === 1 , Array.isArray(Object.values(results[0])))
+                                    if( results.length === 1 && Array.isArray(results[0]) ){
+                                        console.log(`Aligning to nested array`)
+                                        console.log(results)
+                                        results = Object.values(results[0])
+                                    }
+                                }
+                                if( !results.forEach){
+                                    console.log(results)
+                                    throw new Error("UNEXPECT DATA TYPE FOR RESU")
+                                }
+                                results.forEach((p)=>{
+                                    if( p.quote ){
+                                        if( (p[resultField] == undefined) || (p[resultField] === "none") || (p.quote === 'none')){
+                                            return;
+                                        }
+                                        p.highlightAreas = locateQuote(p.quote, extract.data)
+                                    }
+                                })
+                                return group.prompts[idx]
+                                    ?    {
+                                            id: group.prompts[idx].id,
+                                            results: results
+                                        }
+                                    : {id: "error"}
+                            }),
+                            instructions: result.instructions,
+                            raw: result.raw,
+                            categoryId: group.id
+                        }
+                    }else{
+                        result = {raw: result.raw, instructions: result.instructions, categoryId: group.id, parseFail: true}
+                    }
+                    out.push(result)
+                }
+            }
+        }
+        res.json({success: success, result: out})
+    }catch(err){
+        console.log(err)
+        res.status(400).json( {error: err.message})
+        return
+    }
+
+})
+
 
 async function replicateURLtoStorage(url, id, bucketName){
     console.log(`replicating`)
@@ -790,11 +1077,11 @@ async function replicateURLtoStorage(url, id, bucketName){
         projectId: process.env.GOOGLE_PROJECT_ID,
       });
 
-    bucketName = 'bucket-profiles-vf-cc'
+    bucketname = 'bucket-profiles-vf-cc'
 
-    const bucket = storage.bucket(bucketName);
+    const bucket = storage.bucket(bucketname);
     const file = bucket.file(id)
-    if( await file.exists()[0] ){
+    if( (await file.exists())[0] ){
         await file.delete()
     }
     const stream = file.createWriteStream()

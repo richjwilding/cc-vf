@@ -6,6 +6,6 @@ const categorySchema = new Schema({
     "description": String,
     "icon": String,
     "parameters": Schema.Types.Mixed
-});
+},{strict: false});
 const Category = model('Category', categorySchema);
 export default Category;
