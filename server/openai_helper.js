@@ -14,15 +14,29 @@ export default async function analyzeDocument(options = {}){
       });
     const openai = new OpenAIApi(configuration)
     
-    const promptsToSend = prompts.map((p,idx)=>`T${idx}. ${p}`).join("\n")
+    const promptsToSend = prompts.map((p,idx)=>{
+        if( p instanceof Object ){
+            let lead = `T${idx}. `
+            if( p.type === "question"){
+                lead = `Q${idx}. `
+            }else if(p.type === "instruction"){
+                lead = ''
+            }
+            return `${lead}${p.prompt || p.text}`
+        }
+        return `T${idx}. ${p}`
+    }).join("\n")
     const messages = [
             {"role": "system", "content": "You are analysing interview transcripts for a computer programe to process.  Responses must be in json format"},
             {"role": "user", "content": opener + text},
             {"role": "user", "content": descriptor + '\n' + promptsToSend + '\n' + responseInstructions},
 
     ]
+    console.log('open_ai_helper: prompts:')
+    console.log(promptsToSend)
 
     let response
+    let err
     console.log(`open_ai_helper: Sending OpenAi request`)
     const request = async ()=>{
         try{
@@ -36,19 +50,24 @@ export default async function analyzeDocument(options = {}){
         }
     }
     let count = 3
-    try{
-        await request();
-        console.log('open_ai_helper: back')
-    }catch{
-        count--
-        if( count > 0){
-            console.log(`open_ai_helper: got error - sleep and will retry`)
-            await new Promise(r => setTimeout(r, 2000));                    
-            await request()
+    let done = false
+    while( count >0 && !done){
+
+        try{
+            await request();
+            console.log('open_ai_helper: back')
+            done = true
+        }catch(thisErr){
+            err = thisErr
+            count--
+            if( count > 0){
+                console.log(`open_ai_helper: got error - sleep and will retry`)
+                await new Promise(r => setTimeout(r, 2000));                    
+            }
         }
     }
     if( response == undefined){
-        return {success: false, status: 400, error: "UNKNOWN", instructions: messages[2]}
+        return {success: false, status: err?.response?.status, error: "UNKNOWN", instructions: messages[2]}
     }
 
     if( response.status === 200){                
@@ -62,7 +81,7 @@ export default async function analyzeDocument(options = {}){
         }
     }
     if( this.response.status === 400 ){
-        return {success: false, status: 400, error: error, instructions: messages[2]}
+        return {success: false, status: 400, error: "UNKNOWN", instructions: messages[2]}
     }
     return {success: false, status: 400, error: "UNKNOWN", instructions: messages[2]}
 }

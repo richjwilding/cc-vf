@@ -376,6 +376,7 @@ export default function MainStoreTests(){
         var test = new Proxy(data.primitives, teststore.structure)
         window.test_data = test
         console.assert( arrayEquals(test.fromPath({4: "a"}), [4,5,6]))
+        
         console.assert( test.allIds.length == 9)
     }
     {

@@ -15,6 +15,7 @@ import moment from 'moment';
 import * as refresh from 'passport-oauth2-refresh';
 import {Miro} from '@mirohq/miro-api'
 import { setRefreshTokenHandler } from './google_helper';
+import { google } from "googleapis";
 
 dotenv.config()
 
@@ -177,7 +178,7 @@ app.get('/api/status', (req, res) => {
             logged_in: true, 
             user: req.user,
             env:{
-                OPEN_API_KEY:process.env.OPEN_API_KEY,
+             //   OPEN_API_KEY:process.env.OPEN_API_KEY,
                 GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
                 GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
                 MIRO_CLIENT_ID: process.env.MIRO_CLIENT_ID,
@@ -205,8 +206,35 @@ var ensureAuthenticated = async function(req, res, next) {
         return next()
     }
     if (req.isAuthenticated()){
+        
         let user = await User.find({email: req.user.email})
-        if( user ){
+        if( user && user.length > 0){
+            return next();
+        }else{
+            try{
+                const auth = new google.auth.OAuth2();
+                auth.setCredentials({ access_token: req.user.accessToken });
+
+                const papi = google.people({version: 'v1', auth})
+                const data = await papi.people.get({
+                    resourceName: 'people/me',
+                    personFields: 'emailAddresses,names,photos'})
+                if( data.data ){
+
+                    const userInfo = {
+                        name: data.data.names ? data.data.names[0].displayName : "Unknown",
+                        avatarUrl: data.data.photos ? data.data.photos[0].url : undefined,
+                        email: req.user.email,
+                        //accessToken: req.user.accessToken
+                    }
+                    let query = {email: req.user.email};
+                    let options = {upsert: true, new: true, setDefaultsOnInsert: true};
+                    let user = await User.findOneAndUpdate(query, userInfo, options);
+
+                }
+            }catch(err){
+                console.log(err)
+            }
             return next();
         }
         req.session.returnTo = req.originalUrl; 

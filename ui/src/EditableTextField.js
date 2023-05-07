@@ -87,6 +87,8 @@
       }
     }
 
+    const showAsEmpty = props.value === undefined || props.value === null || props.value === ""
+
     return (
         <>
         <div
@@ -103,6 +105,7 @@
             props.fieldClassName || '',
             props.compact ? "" : "px-1 py-1",
             props.fieldClassName && props.fieldClassName.search("text-") > -1 ? "" :props.secondary ? "text-gray-400" : "text-gray-800",
+            showAsEmpty ? "italic text-gray-600" : "",
             editing && !errors ? "px-1 bg-gray-50 focus:outline-none focus:ring-1  focus:ring-blue-500" : "",
             editing && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
           ].join(" ")}

@@ -181,6 +181,9 @@ export default function PrimitiveParser(obj){
                             return value.apply(this === receiver ? target : this, args);
                         };
                         }
+                        if( value instanceof Object ){
+                            return new Proxy(value, structure)
+                        }
                         return value;
                     }
                 }
@@ -238,12 +241,19 @@ export default function PrimitiveParser(obj){
 
                         let prevLast
                         let prevStep
+
+                        const needCreate = (step, last) => {
+                            const is_A = Array.isArray(last.underlying)
+                            return (is_A && !last.underlying[step] && !last.underlying.find((d)=>Object.keys(d).includes(step)))
+                            || (!is_A && last.underlying[step] === undefined)
+                        }
+
                         while( path instanceof(Object) ){
                             let step = Object.keys(path)[0]
                             let last = node
                             path = path[step]
                             node = node[step]
-                            if( node === undefined){
+                            if( needCreate(step, last) ){
                                 if( create ){
                                     last = addNode( last, step, prevLast, prevStep)
                                     node = last[step]
@@ -254,7 +264,7 @@ export default function PrimitiveParser(obj){
                             prevLast = last
                             prevStep = step
                         }
-                        if( !node[path] && create ){
+                        if( needCreate(path, node) && create ){
                             node = addNode( node, path, prevLast, prevStep)
                         }
                         return node[path]

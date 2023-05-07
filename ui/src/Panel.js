@@ -10,11 +10,11 @@ import DropdownButton from './DropdownButton';
 const Title = (props)=>(
             <h3 className={
               props.titleClassName || 
-                `w-full justify-between text-gray-500 text-gray-500 flex place-items-center font-medium ${props.major ? 'text-md px-0.5' : 'text-sm' }`
+                `w-full ${props.titleButton ? "" : "justify-between"} text-gray-500 text-gray-500 flex place-items-center font-medium ${props.major ? 'text-md px-0.5' : 'text-sm' }`
                 }>
                 {props.count !== undefined  
                     ? <div className='flex'>{props.title || "Details"}<span className="inline-flex items-center rounded-full bg-gray-200 ml-2 my-0.5 px-2 py-0.5 text-xs font-medium text-gray-400">{props.count}</span></div>
-                    : <>{props.title || "Details"}</>
+                    : <div className='flex'>{props.title || "Details"}</div>
                 }
               {props.editToggle &&
               (props.editing 

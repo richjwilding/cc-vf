@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 const { Schema, model } = mongoose;
+const ObjectId = mongoose.Types.ObjectId
 
 const primitiveSchema = new Schema({
     "type": String,
@@ -30,4 +31,6 @@ const primitiveSchema = new Schema({
     strict: false
 });
 const Primitive = model('Primitive', primitiveSchema);
+
+
 export default Primitive;

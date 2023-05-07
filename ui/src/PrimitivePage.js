@@ -1,7 +1,8 @@
 import { PrimitiveCard } from './PrimitiveCard'
 import { MetricCard } from './MetricCard'
 import { HeroIcon } from './HeroIcon'
-import {Fragment, useEffect, useReducer, useRef, useState, useMemo} from 'react';
+import {Fragment, useEffect, useReducer, useRef, useState, useMemo, useCallback} from 'react';
+import { useParams } from "react-router-dom";
 import Panel from './Panel';
 import { Tab } from '@headlessui/react'
 import {
@@ -22,8 +23,8 @@ import OpenAIAnalysis from './OpenAIAnalysis';
 import GoogleHelper from './GoogleHelper';
 import EvidenceExplorer from './EvidenceExplorer';
 import MetricEditor from './MetricEditor';
-import QuestionCard from './QuestionCard';
-
+import AIProcessButton from './AIProcessButton';
+import { ComponentRow } from './ComponentRow';
 
 let mainstore = MainStore()
 
@@ -55,6 +56,10 @@ function classNames(...classes) {
 
 
 export function PrimitivePage({primitive, ...props}) {
+    const { id } = useParams();
+    if( primitive === undefined && id){
+      primitive = mainstore.primitive(parseInt(id))
+    }
     let metadata = primitive.metadata
     let task = primitive.originTask
     let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
@@ -71,47 +76,32 @@ export function PrimitivePage({primitive, ...props}) {
     const resultViewer = useRef(null)
     const [analysis, setAnalysis] = useState()
     const [showWorkingPane, setShowWorkingPaneReal] = useState(hasDocumentViewer)
+    const [componentView, setComponentView] = useState(null)
 
 
-    const setShowWorkingPane = (value) => {
+
+    const setShowWorkingPane = useCallback((value) => {
+      console.log(value)
       setShowWorkingPaneReal(value)
       if( props.setWidePage ){
         props.setWidePage( value )
       }
-    }
+    })
 
-    const test = ()=>{
-      updateRelationships()
-    }
+    useDataEvent("relationship_update set_field", primitive.id, updateRelationships)
 
-
-    useDataEvent("relationship_update", primitive.id, test)
-
+    const showOutcomes = primitive.type !== "assessment"
     const hasNestedEvidence = primitive.isTask
     const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
-    const showMetrics = primitive.isTask
-
-
-      const analyzeText = async ()=>{
-        if( primitive.referenceParameters.notes.type === "google_drive"){
-          
-          /*const text = await GoogleHelper().getFileAsPdf( primitive.referenceParameters.notes.id, "text/plain")
-          setPlainText(text)
-
-          const thisAnalysis = OpenAIAnalysis({text: text})
-          window.analysis = thisAnalysis
-          await thisAnalysis.process()
-          setAnalysis(thisAnalysis)*/
-        }
-      }
+    const showMetrics = primitive.isTask || primitive.type === "cohort"
 
     useEffect(()=>{
       if( hasDocumentViewer ){
         setAnalysis(undefined)
-        console.log(`WILL READ NOW`)
-        analyzeText()
       }
-    },[primitive.id])
+      console.log(`re run effect ${primitive.id}`)
+      setShowWorkingPane(hasDocumentViewer )
+    }, [primitive.id])
 
     /*const registerCallbacks = ()=>{
       callbackId.current = mainstore.registerCallback(callbackId.current, "relationship_update", updateRelationships, primitive.id )
@@ -141,18 +131,13 @@ export function PrimitivePage({primitive, ...props}) {
       setSelectedMetric({primitive: primitive, metric: id})
     }
 
-    const [numPages, setNumPages] = useState(null);
-  const [pageNumber, setPageNumber] = useState(1);
-
-  function onDocumentLoadSuccess({ numPages }) {
-    setNumPages(numPages);
-  }
   const createNewResultFromDocument = async( category )=>{
     GoogleHelper().showPicker({}, (items)=>{
       for( const item of items){
 
         createResult( category, {
           title: item.name,
+          type: category.primitiveType || "result",
           referenceParameters: {
             notes: {type: "google_drive", id: item.id, mimeType: item.mimeType, name: item.name}
           }
@@ -164,9 +149,9 @@ export function PrimitivePage({primitive, ...props}) {
   const createResult = async( category, options = {}, open = false )=>{
     const newObj = await mainstore.createPrimitive({
       parent: primitive,
-      type: "result",
+      type: category.primitiveType || "result",
       title: options.title || `New ${category.title}`,
-      categoryId: category.resultCategoryId,
+      categoryId: category.id,
       referenceParameters: options.referenceParameters
     })
     if(open){
@@ -216,7 +201,7 @@ export function PrimitivePage({primitive, ...props}) {
         }}
         ref={page}
       >
-          <div key='banner' ref={header} className="w-full mt-10 z-10 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100">
+          <div key='banner' ref={header} className="w-full mt-10 z-40 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100">
             <PrimitiveCard.Banner primitive={primitive} showStateAction={true} className='pl-4 pr-6 mx-auto w-full max-w-3xl lg:max-w-7xl'/>
           </div>
 
@@ -255,7 +240,7 @@ export function PrimitivePage({primitive, ...props}) {
                     }
                   </div>
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
-                    <PrimitiveCard.Questions key='questions' primitive={task ? task : primitive} relatedTo={task ? primitive : undefined}/>
+                    <PrimitiveCard.Questions key='questions' primitive={task ? task : primitive} relatedTo={primitive} editable={true}/>
                   </div>
                   {primitive.resources && <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
                     <PrimitiveCard.Resources primitive={primitive}/>
@@ -265,6 +250,17 @@ export function PrimitivePage({primitive, ...props}) {
                 {showMetrics && <Panel key='metrics' title='Metrics' titleButton={{action:()=>setEditMetric({new: true})}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
                   <div className='@container'>
                     <div className="gap-3  grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-3">
+                        {(primitive.metrics === undefined || primitive.metrics.length === 0) && 
+                          <div className='col-span-1 @md:col-span-2 @xl:col-span-3 w-full p-2'>
+                            <button
+                            onClick={()=>setEditMetric({new: true})}
+                            type="button"
+                            className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                          >
+                            <span className="mt-2 block text-sm font-semibold text-gray-900">Create a metric</span>
+                          </button>
+                          </div>
+                        }
                         {primitive.metrics && primitive.metrics.map((metric)=>{
                           let wide = metric.type === "conversion"
                           const m = <MetricCard 
@@ -304,7 +300,21 @@ export function PrimitivePage({primitive, ...props}) {
 
             {hasNestedEvidence && !showWorkingPane &&
                   <Panel key='evidence_panel' title="Evidence" titleButton={{icon: <ArrowsPointingOutIcon className='w-4 h-4 -mx-1'/>, action:()=>setShowWorkingPane(!showWorkingPane)}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                        {(nestedEvidence === undefined || nestedEvidence.length === 0) && 
+                          <div className='w-full p-2'>
+                            <button
+                            type="button"
+                            className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                          >
+                            <span className="mt-2 block text-sm font-semibold text-gray-900">Nothing to show</span>
+                          </button>
+                          </div>
+                        }
                     <PrimitiveCard.EvidenceList evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
+                  </Panel>}
+            {primitive.type === "assessment" &&
+                  <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                      { Object.values(primitive.framework.components).map((c) => <ComponentRow onClick={()=>{setShowWorkingPane(true);setComponentView(c)}} compact={true} evidenceDetail={false} key={c.id} component={c}/>)}
                   </Panel>}
 
             {primitive.metadata.resultCategories && primitive.metadata.resultCategories.map((category)=>{
@@ -325,10 +335,22 @@ export function PrimitivePage({primitive, ...props}) {
                     }
                   })
                 }
+                const resultCategory = mainstore.category(category.resultCategoryId)
 
                 
                 return (
-                  <Panel key={category.title} title={primitive.metadata.title} titleButton={[{title:"Create new", action: ()=>createResult(category, undefined, true)},{title: "Create from document", action: ()=>createNewResultFromDocument(category)}]} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                  <Panel key={category.title} title={category.plurals || category.title} titleButton={[{title:"Create new", action: ()=>createResult(resultCategory, undefined, true)},{title: "Create from document", action: ()=>createNewResultFromDocument(resultCategory)}]} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                        {(list === undefined || list.length === 0) && 
+                          <div className='w-full p-2'>
+                            <button
+                            type="button"
+                            onClick={()=>createResult(resultCategory, undefined, true)}
+                            className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                          >
+                            <span className="mt-2 block text-sm font-semibold text-gray-900">Create a new {category.title}</span>
+                          </button>
+                          </div>
+                        }
                         <div 
                             className={
                               [`gap-3 space-y-3 no-break-children sm:columns-2`,
@@ -362,7 +384,7 @@ export function PrimitivePage({primitive, ...props}) {
                   </Panel>
                 )
             })}
-            {hasDocumentViewer && task?.doDiscovery &&
+            {primitive.summary &&
                   <Panel key='analysis' title='Auto analysis' collapsable={true}>
                   <div className="bg-white shadow sm:overflow-hidden sm:rounded-lg mb-6 p-4 mt-2">
                     <dd className="mt-1 text-sm text-gray-900">
@@ -474,17 +496,18 @@ export function PrimitivePage({primitive, ...props}) {
               </section>
             {showWorkingPane && 
               <div style={{minWidth:0, minHeight:0}} className='h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'>
-                <div className='bg-white rounded-lg shadow h-full flex flex-col py-4'>
+                <div className='bg-white rounded-lg shadow h-full flex flex-col p-2'>
                     {!hasDocumentViewer &&                       
                       hasNestedEvidence && 
                           <EvidenceExplorer evidenceList={nestedEvidence}  showOriginInfo={[{contact: 'contactName'}, 'company']} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                     }
                     {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} createCallback={createEvidenceFromNote} primitive={primitive} />}
+                    {primitive.type === "assessment" && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
                 </div>
               </div>
               }
 
-            <section key='rhs' 
+            {showOutcomes && <section key='rhs' 
               className={
                 [
                   "col-start-1 col-span-1  ",
@@ -586,7 +609,7 @@ export function PrimitivePage({primitive, ...props}) {
                                 </Tab.Panels>
                             </Tab.Group>
               </div>
-            </section>
+            </section>}
           </div>
         <PrimitivePopup primitive={selected} contextOf={primitive} editing={true} setPrimitive={setSelected}/>
         <MetricPopup selected={selectedMetric?.metric} contextOf={selectedMetric?.primitive} highlight={selectedMetric?.highlight} setSelected={setSelectedMetric}/>

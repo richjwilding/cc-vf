@@ -7,6 +7,7 @@ module.exports = {
     "./src/**/*.{js,jsx,ts,tsx}",
   ],
   safelist: [
+    {pattern: /pattern-./},
     {pattern: /bg-./,
     variants: ['hover','group-hover','active'],    
     },

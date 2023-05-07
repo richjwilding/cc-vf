@@ -4,177 +4,581 @@
         "title": "NPS score",
         "description": "Measure of customer satisfaction",
         "type": "quantitative",
-        "relationships":{
-            "negative":{
+        "relationships": {
+            "negative": {
                 "title": "Negative",
                 "icon": "HandThumbDownIcon",
                 "bgColor": "orange-400",
                 "textColor": "white"
             },
-            "positive":{
+            "positive": {
                 "title": "Positive",
                 "icon": "HandThumbUpIcon",
                 "bgColor": "green-100",
                 "textColor": "green-800"
-            },
+            }
         },
-        "icon": "FaceSmileIcon"
+        "icon": "FaceSmileIcon",
+        "primitiveType": "evidence"
     },
     {
         "id": 2,
         "title": "Survey analysis",
         "description": "Insights from a survey",
         "type": "qualitative",
-        "relationships":{
-            "negative":{
+        "relationships": {
+            "negative": {
                 "title": "Negative",
                 "icon": "HandThumbDownIcon",
                 "bgColor": "orange-400",
                 "textColor": "white"
             },
-            "positive":{
+            "positive": {
                 "title": "Positive",
                 "icon": "HandThumbUpIcon",
                 "bgColor": "green-100",
                 "textColor": "green-800"
-            },
+            }
         },
-        "icon": "BeakerIcon"
+        "icon": "BeakerIcon",
+        "primitiveType": "evidence"
     },
     {
         "id": 3,
         "title": "User quote",
         "description": "Quote from a target user",
         "type": "qualitative",
-        "relationships":{
-            "negative":{
+        "relationships": {
+            "negative": {
                 "title": "Negative",
                 "icon": "HandThumbDownIcon",
                 "bgColor": "orange-400",
                 "textColor": "white"
             },
-            "positive":{
+            "positive": {
                 "title": "Positive",
                 "icon": "HandThumbUpIcon",
                 "bgColor": "green-100",
                 "textColor": "green-800"
-            },
+            }
         },
-        "icon": "ChatBubbleBottomCenterTextIcon"
+        "icon": "ChatBubbleBottomCenterTextIcon",
+        "parameters": {
+            "category": {
+                "type": "string",
+                "title": "Category"
+            },
+            "specificity": {
+                "type": "scale",
+                "title": "Specificity"
+            }
+        },
+        "primitiveType": "evidence"
     },
     {
         "id": 4,
         "title": "User need",
         "description": "A specific user need",
         "type": "qualitative",
-        "relationships":{
-            "negative":{
+        "relationships": {
+            "negative": {
                 "title": "Negative",
                 "icon": "HandThumbDownIcon",
                 "bgColor": "orange-400",
                 "textColor": "white"
             },
-            "positive":{
+            "positive": {
                 "title": "Positive",
                 "icon": "HandThumbUpIcon",
                 "bgColor": "green-100",
                 "textColor": "green-800"
-            },
+            }
         },
-        "icon": "ExclamationTriangleIcon"
+        "icon": "ExclamationTriangleIcon",
+        "primitiveType": "evidence"
     },
     {
         "id": 5,
         "title": "Solution fit",
         "description": "Indication that a solution is a good fit",
         "type": "qualitative",
-        "relationships":{
-            "negative":{
+        "relationships": {
+            "negative": {
                 "title": "Negative",
                 "icon": "HandThumbDownIcon",
                 "bgColor": "orange-400",
                 "textColor": "white"
             },
-            "positive":{
+            "positive": {
                 "title": "Positive",
                 "icon": "HandThumbUpIcon",
                 "bgColor": "green-100",
                 "textColor": "green-800"
-            },
+            }
         },
-        "icon": "PuzzlePieceIcon"
+        "icon": "PuzzlePieceIcon",
+        "primitiveType": "evidence"
     },
     {
         "id": 6,
         "title": "Survey",
         "description": "Survey undertaken with target audience",
-        "parameters":{
-            "anonymous": {"type": "boolean", "title": "Anonymous", "description": "Survey conducted under anonymous conditions"},
-            "sample": {"type": "integer", "title": "Sample size", "description": "Size of audience"},
-            "geography": {"type": "countries", "title": "Geographies", "description": "Geogrpahies audience was sourced from"},
+        "parameters": {
+            "anonymous": {
+                "type": "boolean",
+                "title": "Anonymous",
+                "description": "Survey conducted under anonymous conditions"
+            },
+            "sample": {
+                "type": "integer",
+                "title": "Sample size",
+                "description": "Size of audience"
+            },
+            "geography": {
+                "type": "countries",
+                "title": "Geographies",
+                "description": "Geogrpahies audience was sourced from"
+            }
         },
         "icon": "UserGroupIcon",
-        "evidenceCategories": [1,2]
+        "evidenceCategories": [
+            1,
+            2
+        ],
+        "primitiveType": "activity"
     },
     {
         "id": 7,
         "title": "User interviews",
-        "description": "Traget user interview campaign",
-        "parameters":{
-            "sample": {"type": "integer", "title": "Sample size", "description": "Number of planned interviews"},
-            "source": {"type": "text", "title": "Source", "description": "Where the interviewees will be sourced from"},
+        "description": "Target user interview campaign",
+        "parameters": {
+            "sample": {
+                "type": "integer",
+                "title": "Sample size",
+                "description": "Number of planned interviews"
+            },
+            "source": {
+                "type": "text",
+                "title": "Source",
+                "description": "Where the interviewees will be sourced from"
+            }
         },
-        "metrics":{
-            "conversion": {"type": "integer", "title": "Conversion", "description": "Track conversion metrics"},
-            "count": {"type": "integer", "title": "Count", "description": "A count of interviews in a particular state"},
+        "metrics": {
+            "conversion": {
+                "type": "integer",
+                "title": "Conversion",
+                "description": "Track conversion metrics",
+                "icon": "ChartBarIcon"
+            },
+            "count": {
+                "type": "integer",
+                "title": "Count",
+                "description": "A count of interviews in a particular state"
+            }
         },
         "icon": "UserGroupIcon",
         "resultCategories": [
-            {"id" :0, 
-                "title": "Interview", 
-                "plurals": "Interviews", 
-                "resultCategoryId": 1, 
+            {
+                "id": 0,
+                "title": "Interview",
+                "plurals": "Interviews",
+                "resultCategoryId": 9,
                 "relationships": {
-                    "identified": {"order":0, "title":"Identified", "color": "orange"}, 
-                    "contacted": {"order":1, "title":"Contacted", "color": "yellow"},  
-                    "scheduled": {"order":2, "title":"Scheduled", "color": "green"}, 
-                    "completed": {"order":3, "title":"Completed", "color": "cyan"}, 
+                    "identified": {
+                        "order": 0,
+                        "title": "Identified",
+                        "color": "orange"
+                    },
+                    "contacted": {
+                        "order": 1,
+                        "title": "Contacted",
+                        "color": "yellow"
+                    },
+                    "scheduled": {
+                        "order": 2,
+                        "title": "Scheduled",
+                        "color": "green"
+                    },
+                    "completed": {
+                        "order": 3,
+                        "title": "Completed",
+                        "color": "cyan"
+                    }
                 },
                 "views": {
-                    "list":{
-                        "cards": ["contact","role","company"]
+                    "list": {
+                        "cards": [
+                            "contact",
+                            "role",
+                            "company"
+                        ],
+                        "summary": {
+                            "left": {
+                                "title": "Quotes",
+                                "sort": {
+                                    "field": "specificity",
+                                    "reverse": true
+                                },
+                                "count": 5,
+                                "categoryIds": [
+                                    3
+                                ]
+                            },
+                            "main": [
+                                {
+                                    "title": "Problems",
+                                    "categoryIds": [
+                                        10
+                                    ],
+                                    "count": 8,
+                                    "sort": {
+                                        "field": "scale",
+                                        "reverse": true
+                                    }
+                                },
+                                {
+                                    "title": "Needs",
+                                    "categoryIds": [
+                                        4
+                                    ]
+                                }
+                            ]
+                        }
                     },
-                    "default": "cards"
-                }},
+                    "default": "cards",
+                    "sort": {
+                        "cards": "contactName"
+                    }
+                },
+                "sort": {
+                    "list": "contactName"
+                }
+            }
         ],
-        "evidenceCategories": [3,4,5]
+        "evidenceCategories": [
+            3,
+            10,
+            4,
+            5
+        ],
+        "primitiveType": "activity"
     },
     {
         "id": 8,
         "title": "Internal artefact",
         "description": "Internal artefact",
-        "parameters":{
-            "link": {"type": "link", "title": "Document", "decription": "Document"},
-            "audio": {"type": "link", "title": "Audio", "decription": "Audio recording"},
-            "video": {"type": "link", "title": "Video", "decription": "Video recording"},
+        "parameters": {
+            "link": {
+                "type": "link",
+                "title": "Document",
+                "decription": "Document"
+            },
+            "audio": {
+                "type": "link",
+                "title": "Audio",
+                "decription": "Audio recording"
+            },
+            "video": {
+                "type": "link",
+                "title": "Video",
+                "decription": "Video recording"
+            }
         },
-        "icon": "UserGroupIcon"
+        "icon": "UserGroupIcon",
+        "primitiveType": "result"
     },
     {
         "id": 9,
         "title": "User Interview",
         "description": "Interview with member of target audience",
-        "parameters":{
-            "contact": {"type": "contact", "title": "Name", "description": "Name of interviewee"},
-            "role": {"type": "string", "title": "Role", "description": "Role of interviewee"},
-            "company": {"type": "string", "title": "Company", "description": "Company interviewee works at"},
-            "geography": {"type": "countries", "title": "Location", "description": "Location of interviewee"},
-            "interviewee": {"type": "user", "title": "Interviewee", "description": "Interviewer" },
-            "notes": {"type": "link", "title": "Notes", "decription": "Interview notes"},
-            "transcript": {"type": "link", "title": "Notes", "decription": "Transcript of interview"},
-            "audio": {"type": "link", "title": "Audio", "decription": "Audio recording of interview"},
-            "video": {"type": "link", "title": "Video", "decription": "Video recording of interview"},
+        "parameters": {
+            "contact": {
+                "type": "contact",
+                "title": "Name",
+                "description": "Name of interviewee",
+                "default": "None specified"
+            },
+            "role": {
+                "type": "string",
+                "title": "Role",
+                "description": "Role of interviewee",
+                "optional": true
+            },
+            "company": {
+                "type": "string",
+                "title": "Company",
+                "description": "Company interviewee works at",
+                "default": "None specified"
+            },
+            "geography": {
+                "type": "countries",
+                "title": "Location",
+                "description": "Location of interviewee"
+            },
+            "interviewee": {
+                "type": "user",
+                "title": "Interviewee",
+                "description": "Interviewer"
+            },
+            "notes": {
+                "type": "link",
+                "title": "Notes",
+                "decription": "Interview notes"
+            },
+            "transcript": {
+                "type": "link",
+                "title": "Transcript",
+                "decription": "Transcript of interview",
+                "extra": true
+            },
+            "audio": {
+                "type": "link",
+                "title": "Audio",
+                "decription": "Audio recording of interview",
+                "extra": true
+            },
+            "video": {
+                "type": "link",
+                "title": "Video",
+                "decription": "Video recording of interview",
+                "extra": true
+            },
+            "function": {
+                "type": "string",
+                "title": "Function",
+                "description": "Functioanl role of interviewee",
+                "optional": true
+            }
         },
         "icon": "ChatBubbleBottomCenterTextIcon",
+        "primitiveType": "result"
+    },
+    {
+        "id": 10,
+        "title": "User Problem statement",
+        "description": "Problem statement from a user",
+        "type": "qualitative",
+        "relationships": {
+            "negative": {
+                "title": "Negative",
+                "icon": "HandThumbDownIcon",
+                "bgColor": "orange-400",
+                "textColor": "white"
+            },
+            "positive": {
+                "title": "Positive",
+                "icon": "HandThumbUpIcon",
+                "bgColor": "green-100",
+                "textColor": "green-800"
+            }
+        },
+        "icon": "BoltIcon",
+        "parameters": {
+            "scale": {
+                "type": "scale",
+                "title": "Scale"
+            },
+            "specificity": {
+                "type": "scale",
+                "title": "Specificity"
+            },
+            "category": {
+                "type": "string",
+                "title": "Category"
+            }
+        },
+        "primitiveType": "evidence"
+    },
+    {
+        "id": 11,
+        "title": "Venture Portfolio",
+        "description": "Portfolio view of related ventures",
+        "parameters": {
+            "area": {
+                "type": "text",
+                "title": "Area",
+                "description": "Area of focus (domain / market / tech)"
+            }
+        },
+        "metrics": {
+            "conversion": {
+                "type": "integer",
+                "title": "Conversion",
+                "description": "Track conversion metrics",
+                "icon": "ChartBarIcon"
+            },
+            "count": {
+                "type": "integer",
+                "title": "Count",
+                "description": "A count of ventures in a particular state"
+            }
+        },
+        "icon": "RectangleStackIcon",
+        "resultCategories": [
+            {
+                "id": 0,
+                "title": "Venture",
+                "plurals": "Ventures",
+                "resultCategoryId": 12,
+                "relationships": {
+                    "inkling": {
+                        "order": 0,
+                        "title": "Inkling",
+                        "color": "orange"
+                    },
+                    "lpp": {
+                        "order": 1,
+                        "title": "LPP",
+                        "color": "yellow"
+                    },
+                    "signal": {
+                        "order": 2,
+                        "title": "Signals",
+                        "color": "green"
+                    },
+                    "mvp": {
+                        "order": 3,
+                        "title": "MVP",
+                        "color": "cyan"
+                    },
+                    "scale_up": {
+                        "order": 4,
+                        "title": "Scale Up",
+                        "color": "fuchsia"
+                    }
+                },
+                "views": {
+                    "list": {
+                        "cards": [
+                            "title",
+                            "desirability,feasibility,viability",
+                            "valuation",
+                            "funding"
+                        ]
+                    },
+                    "default": "cards",
+                    "sort": {
+                        "cards": "title"
+                    }
+                }
+            }
+        ],
+        "evidenceCategories": []
+    },
+    {
+        "id": 12,
+        "title": "Venture",
+        "description": "An idea, concept or venture",
+        "parameters": {
+            "desirability": {
+                "type": "progress",
+                "title": "Desirability",
+                "description": "Confidence level for desirability of venture",
+                "color": "#00d967",
+                "order": 3
+            },
+            "viability": {
+                "type": "progress",
+                "title": "Viability",
+                "description": "Confidence level for viability of venture",
+                "color": "#0694ff",
+                "order": 4
+            },
+            "feasibility": {
+                "type": "progress",
+                "title": "Feasibility",
+                "description": "Confidence level for feasibility of venture",
+                "color": "#c781ff",
+                "order": 5
+            },
+            "domain": {
+                "type": "domain",
+                "title": "Domain",
+                "description": "Area of focus",
+                "order": 2
+            },
+            "funding": {
+                "type": "currency",
+                "title": "Funding",
+                "description": "Funding / investment",
+                "order": 1
+            },
+            "valuation": {
+                "type": "currency",
+                "title": "Valuation",
+                "description": "Valuation",
+                "order": 0
+            }
+        },
+        "icon": "RocketLaunchIcon"
+    },
+    {
+        "id": 13,
+        "title": "OpenAI user problem prompt (interview transcript)",
+        "description": "OpenAI GPT-3 prompt to analyze text for user problems",
+        "base": "A maximum of ${n} problems from the interviewee related to ${t}",
+        "parameters": {
+            "count": {
+                "type": "integer",
+                "title": "Count",
+                "description": "Maximum number of problems",
+                "default": 5
+            },
+            "topic": {
+                "type": "string",
+                "title": "Topic",
+                "description": "Category or topic that problem should relate to",
+                "default": "None specified"
+            },
+            "resultCategory": {
+                "type": "categoryId"
+            }
+        },
+        "icon": "BoltIcon",
+        "empty": "A maximum of ${n} problems from the interviewee",
+        "summary": "Problems related to",
+        "summaryEmpty": "User problems",
+        "openai": {
+            "opener": "here is a transcript of an interview",
+            "descriptor": "You must extract a series of problems which are explicitly stated by the interviewee.  Assume any sentence ending in a question mark is from the interviewer and should be ignored when extracting problems",
+            "responseInstructions": "Your response must be in json format and should include each task with the key set to the task number and with an array of results. Each entry in the array must have a \"quote\" field containing the original text, a \"problem\" field containing the problem you identify in the form \"It sucks that...\", and a \"scale\" field which describes the severity of the problem based on the transcript on a scale of 0-9 where 0 is low and 9 is high. If there is no result for a specific question set the \"quote\" field to \"none\" and exclude the \"problem\" field.",
+            "resultCatgeory": 10
+        },
+        "primitiveType": "prompt"
+    },
+    {
+        "id": 14,
+        "title": "OpenAI user need prompt (interview transcript)",
+        "description": "OpenAI GPT-3 prompt to analyze text for user needs",
+        "base": "A maximum of ${n} needs expressed by the interviewee related to ${t}",
+        "parameters": {
+            "count": {
+                "type": "integer",
+                "title": "Count",
+                "description": "Maximum number of problems",
+                "default": 5
+            },
+            "topic": {
+                "type": "string",
+                "title": "Topic",
+                "description": "Category or topic that problem should relate to",
+                "default": "None specified"
+            },
+            "resultCategory": {
+                "type": "categoryId"
+            }
+        },
+        "icon": "BoltIcon",
+        "empty": "A maximum of ${n} needs expressed by the interviewee",
+        "summary": "Needs related to",
+        "summaryEmpty": "User needs",
+        "openai": {
+            "opener": "here is a transcript of an interview",
+            "descriptor": "Here are a set of tasks related to extracting  needs stated by the interviewee.  Assume any sentence ending in a question mark is from the interviewer and should be ignored when extracting needs.\n",
+            "responseInstructions": "Your response must be in json format and should include each task with the key set to the task number and with an array of results. Each entry in the array must have a \"quote\" field containing the original text, a \"need\" field containing the need you identify. If there is no result for a specific question set the \"quote\" field to \"none\" and exclude the \"need\" field.",
+            "field": "need",
+            "resultCatgeory": 4
+        },
+        "primitiveType": "prompt"
     }
 ]

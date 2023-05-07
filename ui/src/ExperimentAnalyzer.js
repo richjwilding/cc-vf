@@ -5,6 +5,7 @@ export default function ExperimentAnalyzer(primitive){
     let obj ={
         init:function(){
             if( this._init ){return obj}
+            /*
             this.evidenceAggregate = primitive.evidenceAggregate.map((ea)=>{
                 return {
                     ...ea,
@@ -17,9 +18,54 @@ export default function ExperimentAnalyzer(primitive){
                     primitives: primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat().filter((d)=>ea.categoryIds.includes(d.referenceId) )
                     
                 }
-            })
+            })*/
             this._init = true
             return obj
+        },
+        aiProcessSummary:function(){
+            const results = primitive.primitives.allUniqueResult
+            const summary = results.map((d)=>{
+                if( d.analyzer ){
+                    const a = d.analyzer()
+                    if( a.aiProcessSummary ){
+                        return a.aiProcessSummary()
+                    }
+                }
+                return undefined
+            }).filter((d)=>d)
+
+            return summary.reduce((a, d)=>{
+                Object.keys(d.byPrompt).forEach((id)=>{
+                    a.byPrompt[id] = a.byPrompt[id] ? a.byPrompt[id].concat(d.byPrompt[id]) : d.byPrompt[id] 
+                }) 
+                Object.keys(d.byQuestion).forEach((id)=>{
+                    a.byQuestion[id] = a.byQuestion[id] ? a.byQuestion[id].concat(d.byQuestion[id]) : d.byQuestion[id] 
+                }) 
+                Object.keys(d.processed).forEach((id)=>{
+                    a.processed[id] = a.processed[id] ? a.processed[id] + 1 : 1 
+                }) 
+                Object.keys(d.unprocessed).forEach((id)=>{
+                    a.unprocessed[id] = a.unprocessed[id] ? a.unprocessed[id] + 1 : 1 
+                }) 
+                return a
+            }, {
+                byPrompt: {},
+                byQuestion: {},
+                processed:{},
+                unprocessed: {}
+            })
+
+           /* return {
+                processed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? p.id : undefined ).filter((d)=>d),
+                unprocessed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? undefined : p.id ).filter((d)=>d),
+                byPrompt: reduce(byPrompt),
+                byQuestion: reduce(byPrompt.map((p)=>{
+                    return {
+                        prompt: p.prompt.origin,
+                        evidence: p.evidence,
+                    }
+                }))
+            }*/
         },
         aggregate:async function(options = {force: false}){
             this.init()

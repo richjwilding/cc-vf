@@ -22,6 +22,9 @@ import EditableResourceField from './EditableResourceField';
 import useDataEvent from './CustomHook';
 import ContactPicker from './ContactPicker';
 import QuestionCard from './QuestionCard';
+import { ArrowPathIcon, TrashIcon } from '@heroicons/react/24/outline';
+import ConfirmationPopup from './ConfirmationPopup';
+import AIProcessButton from './AIProcessButton';
 
 const ExpandArrow = function(props) {
   return (
@@ -118,7 +121,6 @@ let mainstore = MainStore()
                 onSelect={async function(value){
                   console.log( value)
                   if( value && value.id === undefined ){
-                    console.log('Create new contat')
                     value = await MainStore().createContact(value)
                     if( value.id === undefined){
                       console.warn(`Couldnt add new contact ${value}`)
@@ -269,7 +271,7 @@ const Users = function({primitive, ...props}){
   return (<>
     <Panel {...props} title={props.title || "Team"} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
       {userContent}
-      {addUser && <ContactPicker allowNew={false} setOpen={()=>setAddUser(false)} callback={(d)=>alert(d)} mode="user"/>}
+      {addUser && <ContactPicker allowNew={false} setOpen={()=>setAddUser(false)} callback={(d)=>primitive.users.find((c)=>c.id === d.id) ? primitive.removeUser(d) :  primitive.addUser(d)} mode="user"/>}
     </Panel>
   </>)
 }
@@ -280,9 +282,9 @@ const Banner = function({primitive, ...props}){
     <div className={`flex items-center space-x-2 xs:space-x-5 ${props.className || ""}`}>
       {metadata &&
         <div className="flex-shrink-0">
-          <div className="relative">
+          {metadata && <div className="relative">
               <HeroIcon icon={metadata.icon} className={`${props.small ? "w-12 h-12" : "w-12 h-12 md:w-20 md:h-20"}`}/>
-          </div>
+          </div>}
         </div>
       }
       <div className='flex-grow w-full'>
@@ -295,7 +297,7 @@ const Banner = function({primitive, ...props}){
               <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>
             </button>}
         </h1>
-        <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>
+        {metadata && <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>}
       </div>
       {props.showStateAction &&
               <DropdownButton colorKey='colorBase' items={mainstore.stateInfo[primitive.type]} selected={primitive.state}/>
@@ -497,12 +499,15 @@ const Details = function({primitive, ...props}){
     setEditing(props.editing)
   }, [primitive.id, props.editing])
   
-  const eventTracker = useDataEvent(props.noEvents ? undefined : "set_parameter", primitive.id )
+  const eventTracker = useDataEvent(props.noEvents ? undefined : ["set_parameter","set_field"], primitive.id )
   let metadata = primitive.metadata
   let parameters = primitive.metadata?.parameters || undefined
   if( !parameters ){ return <></> }
+  
+  const panelTitle = <>{props.title || "Details"}{metadata.do_discovery && <AIProcessButton active="discovery" primitive={primitive} process={(p)=>p.analyzer().doDiscovery({force: true})}/>}</>
+  
   return (
-        <Panel {...props} title={props.title || "Details"} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
+        <Panel {...props} title={panelTitle} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
           <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200`}>
             <Parameters primitive={primitive} editing={editing}/>
           </dl>
@@ -553,9 +558,11 @@ const Title = function({primitive, ...props}){
       </span>
     }
   }
-  if( props.showMetadataTitle ){
+  if( props.showMetadataTitle && primitive.metadata){
     let metadata = primitive.metadata
-    metadataRender = <p className='ml-1 truncate opacity-0 group-hover:opacity-75 transition-opacity'>· {metadata.title}</p>
+    metadataRender = props.showMetadataTitle === "full"
+      ? <p className='ml-1 truncate'>{metadata.title}</p>
+      : <p className='ml-1 truncate opacity-0 group-hover:opacity-75 transition-opacity'>· {metadata.title}</p>
   }
 
 
@@ -584,6 +591,7 @@ const Title = function({primitive, ...props}){
 
 const Hero = function({primitive, ...props}){
     const metadata = primitive.metadata
+    const color = primitive.workspace?.color || "slate"
     return (<div 
         onClick={useLinkClickHandler(`/item/${primitive.plainId}`)}
         tabIndex='0'
@@ -598,8 +606,8 @@ const Hero = function({primitive, ...props}){
           "shadow border-[1px]",
           props.className].filter((d)=>d).join(' ')
         }>
-          <div className='relative h-32 rounded-t-lg flex-0 text-indigo-900'>
-            <div className='absolute pattern-isometric pattern-indigo-600 pattern-bg-indigo-500 pattern-opacity-20 pattern-size-8 h-full w-full rounded-t-lg'></div>
+          <div className={`relative h-32 rounded-t-lg flex-0 text-${color}-900`}>
+            <div className={`absolute pattern-isometric pattern-${color}-600 pattern-bg-${color}-500 pattern-opacity-20 pattern-size-8 h-full w-full rounded-t-lg`}></div>
             <div className='absolute bottom-0 px-3 py-2 flex w-full'>
               {metadata && metadata.icon && <HeroIcon icon={metadata.icon} className='w-16 h-16' strokeWidth={0.8}/>}
               <div className='ml-2'>
@@ -618,35 +626,148 @@ const Questions = function({primitive, ...props}){
   const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
   useDataEvent("set_field", props.relatedTo?.id, forceUpdate)
   let aiProcessSummary
+  let analyzer
+
   if(props.relatedTo ){
     if(props.relatedTo.analyzer){
-      const analyzer = props.relatedTo.analyzer()
+      analyzer = props.relatedTo.analyzer()
       if(analyzer.aiProcessSummary){
         aiProcessSummary = analyzer.aiProcessSummary() 
       }
     }
   }
-    
-  let button = aiProcessSummary ? 
-    {action: ()=>{props.relatedTo.analyzer().analyzeQuestions()}, title: (aiProcessSummary.processed.length  + aiProcessSummary.unprocessed.length) > 0 ? "Reprocess"  : "Auto Process", small: true}
-    : undefined
 
-  if( props.relatedTo && props.relatedTo.ai_processing ){
-    button = {action: ()=>{}, title: <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin"/> Processing</div>, small: true}
+  const createQuestion = async ()=>{
+    const newPrim = await MainStore().createPrimitive({type: 'question', parent: primitive})
+  }
     
+  let button
+  
+  if( props.relatedTo && props.relatedTo !== primitive ){
+    button = <AIProcessButton active="questions" primitive={props.relatedTo} process={(p)=>p.analyzer().analyzeQuestions()}/>
   }
 
+  const list = primitive.primitives.allQuestion
+
   return (
-    <Panel key='analysis' title='Questions' collapsable={true} open={true} titleButton={button} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
+    <Panel key='analysis' title={(<>Questions{button}</>)} collapsable={true} open={list && list.length > 0} titleButton={{title:'Create new',small:true,action: createQuestion}} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
       <dd className="mt-1 text-sm text-gray-900">
         <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
-          {primitive.primitives.allQuestion.map((question, idx) => (
+          {(list === undefined || list.length === 0) && 
+            <div className='w-full p-2'>
+              <button
+              type="button"
+              onClick={props.editable ? createQuestion : undefined}
+              className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            >
+              <span className="mt-2 block text-sm font-semibold text-gray-900">{props.editable ? 'Create a new Question' : 'Nothing to show'}</span>
+            </button>
+            </div>
+          }
+          {list.map((question, idx) => (
             <QuestionCard key={question.id} primitive={question} {...props} aiProcessSummary={aiProcessSummary}/>
           ))}
         </ul>
       </dd>
     </Panel>
   )
+}
+
+const Variant=({primitive, ...props})=>{
+  if( primitive === undefined){return}
+  if( primitive.type === 'prompt' ){
+    return <Prompt primitive={primitive} {...props}/>
+  }
+  return <div>UNSUPPORTED</div>
+}
+export const Prompt = ({primitive, ...props})=>{
+  const [editing, setEditing] = React.useState(false)
+  const [confirmRemove, setConfirmRemove] = React.useState(false)
+  const [deleteMessage, setDeleteMessage] = React.useState( "Are you sure you want to delete this prompt?" )
+  const updateTitle = (newTitle )=>{
+    primitive.title = newTitle
+    return true
+  }
+  const textSize = props.editable ? "sm" : "xs"
+  const itemCount = props.itemCount || 0
+  const processed = props.processed || false
+  const unprocessed = props.unprocessed || false
+  const prompt = primitive
+  const showAsEmpty = prompt.title === undefined || prompt.title === null || prompt.title.trim() === "" 
+  const showEmptyAsPlaceholder = (props.editable === true) && !prompt.allowInput
+  const processedNumbers = (processed + unprocessed ) > 1
+  
+  const handleRemove = async ()=>{
+    await MainStore().removePrimitive( primitive )
+    setConfirmRemove(false)
+  }
+  
+  const promptConfirmRemove = ()=>{
+    const evidence = primitive.primitives.allUniqueEvidence
+    if( evidence.length > 0){
+      setDeleteMessage(`Deletion of this prompt will also delete ${evidence.length} child items`)
+    }
+
+    setConfirmRemove(true)
+  }
+
+  return (
+    <>
+              <div key={prompt.id} className='w-full flex place-items-center mt-2 justify-between group'>
+              <div key='summary' className={`flex text-${textSize} flex-0`}>
+                  <p className={`p-1 pl-2 bg-gray-200 ${showAsEmpty && (!props.editable || !showEmptyAsPlaceholder) ? "rounded-md" : "rounded-l-md"} border border-gray-300`}> 
+                      {showAsEmpty ? prompt.metadata.summaryEmpty : prompt.metadata.summary}
+                  </p> 
+                  {(showEmptyAsPlaceholder || !showAsEmpty) &&
+                      <div className={`p-1 bg-white rounded-r-md border border-gray-300 ${props.editable ? 'pr-2' : ''}`}> 
+                          {props.editable
+                            ?  <EditableTextField 
+                                callback={updateTitle}
+                                editable={props.showEdit ? ()=> setEditing( true ) : undefined}
+                                stopEditing={()=>setEditing(false)}
+                                editing={editing}
+                                value = {primitive.title}
+                                default='<Add term>'
+                                className='w-full'
+                                compact={true}
+                                fieldClassName={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-${textSize} text-slate-700`}>
+                              </EditableTextField>
+                            : prompt.title
+                            }
+                      </div>
+                  }
+              </div>
+              { props.editable
+              ?  <div className='flex space-x-2 invisible group-hover:visible'>
+                  <button
+                    key='edit'
+                      type="button"
+                      onClick={()=>setEditing( !editing )}
+                      className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {editing ? <CheckIcon className="h-5 w-5" aria-hidden="true" /> : <PencilIcon className="h-5 w-5" aria-hidden="true" />}
+                  </button>
+                  <button
+                    key='delete'
+                      type="button"
+                      onClick={promptConfirmRemove}
+                      className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  > <TrashIcon className="h-5 w-5" aria-hidden="true" />
+                  </button>
+                </div>
+              : <div className='flex w-fit grow-0 place-items-center'>
+                  {processedNumbers 
+                    ? <div className='flex w-12 grow-0 place-items-center border bg-amber-100'>
+                        <div key='status_p' style={{width: `${processed / (processed + unprocessed)*100}%`}} className={`flex place-items-center justify-center h-4 bg-green-400`}></div>
+                      </div>
+                    : <div key='status' className={`ml-auto w-3 h-3 rounded-full border ${processed ? "bg-green-200" : 'bg-amber-200'}`}/>
+                  }
+                  {(itemCount > 0) && <p key='count' className="flex hover:bg-indigo-600 hover:text-white justify-end ml-0.5 px-1 py-0.5 rounded-md shrink-0 text-indigo-700 text-xs">{itemCount} items</p>}
+                  </div>
+              }
+            </div>
+      {confirmRemove && <ConfirmationPopup title="Confirm deletion" confirm={handleRemove} message={deleteMessage} cancel={()=>setConfirmRemove(false)}/>}
+     </>)
 }
 
 export function PrimitiveCard({primitive, className, showDetails, showUsers, showRelationships, showResources, major, disableHover, fields,...props}) {
@@ -668,19 +789,24 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
 
 
 
+  let metaSummary
   let smallMeta
   let metadata
   if( props.showMeta){
     metadata = primitive.metadata
-    if( props.showMeta !== "large" ){
-      smallMeta = <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
+    if( metadata ){
+      if( props.showMeta === "summary" ){
+        metaSummary = <p className={`text-${mainTextSize} pl-1 font-medium`}>{metadata.summary}</p>
+      }
+      else if( props.showMeta !== "large" ){
+        smallMeta = <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
               {metadata.icon && <HeroIcon icon={metadata.icon} className='w-5 h-5 mr-1' strokeWidth={1}/>}
               {metadata.description}
             </h3>
-    }
-
+      }
+    } 
   }
-  let titleAtBase = fields 
+  let titleAtBase = fields || props.titleAtBase
 
   if( major ){
     margin = ""
@@ -725,12 +851,13 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   let header
   if(metadata ){
       header = <div className='flex'>
-        <HeroIcon icon={metadata.icon} className='w-10 h-10 mr-2 shrink-0 grow-0 text-gray-400 ease-linear transition-colors  group-hover:text-gray-800' strokeWidth={1}/>
+        <HeroIcon icon={metadata.icon} className={`${props.textSize === "sm" ? 'w-6 h-6' : 'w-10 h-10'} mr-2 shrink-0 grow-0 text-gray-400 ease-linear transition-colors  group-hover:text-gray-800`} strokeWidth={1}/>
         <div>
           <div className={`flex items-start justify-between space-x-3`}>
+            {metaSummary}
             {content}
           </div>
-          {!titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} showMetadataTitle={true} className='mt-1'/>} 
+          {!titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} showMetadataTitle={props.showMetadataTitle === undefined ? true : props.showMetadataTitle} className='mt-1'/>} 
         </div>
       </div>
 
@@ -744,6 +871,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
                       ? "rounded-t-lg bg-gradient-to-br from-slate-900 to-slate-600 -mx-2 -mt-3 h-24 flex" 
                       : `flex items-start justify-between space-x-3 ${props.compact ? 'mt-2' : 'mt-3'}`
                   }>
+                {metaSummary}
                 {content}
               </div>}
             </>
@@ -816,10 +944,11 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} className={props.inline ? 'grow-0' : 'grow-0 mt-1'}/>}
         {smallMeta}
         {primitive._doingDiscovery && !primitive.discoveryDone && <div className='w-2 h-2 absolute bg-amber-500 rounded-lg right-1 top-1'/>}
-        {primitive.openai_token_limit && <div className='w-2 h-2 absolute bg-red-500 rounded-lg right-1 top-1'/>}
+        {primitive.openai_error && <div className='w-2 h-2 absolute bg-red-500 rounded-lg right-1 top-1'/>}
     </div>
   )
 }
+PrimitiveCard.Variant = Variant
 PrimitiveCard.Details = Details
 PrimitiveCard.Questions = Questions
 PrimitiveCard.Parameters = Parameters

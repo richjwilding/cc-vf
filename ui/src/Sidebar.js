@@ -1,16 +1,20 @@
 import { PrimitiveCard } from './PrimitiveCard'
 import { Transition } from '@headlessui/react'
+import { useState } from 'react'
 import {
   PlusIcon as PlusIconOutline,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { HeroIcon } from './HeroIcon'
+import ConfirmationPopup from "./ConfirmationPopup";
+import MainStore from './MainStore'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
 export function Sidebar({primitive, ...props}) {
+    const [showDeletePrompt, setShowDeletePrompt] = useState(false)
     if( primitive === undefined ){
         return(<></>)
     }
@@ -18,7 +22,21 @@ export function Sidebar({primitive, ...props}) {
     let task = primitive.originTask
     let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
 
+
+    const promptDelete = ()=>{
+      setShowDeletePrompt( `Are you sure you want to remove ${primitive.displayType} #${primitive.plainId}` )
+     // setPrimitive(null)
+    }
+
+    const handleDelete = ()=>{
+      MainStore().removePrimitive( primitive )
+      setShowDeletePrompt( null )
+      props.setOpen(false)
+    }
+
     return (
+        <>
+    {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" message={showDeletePrompt} confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
     <Transition.Root 
             show={props.open}
             appear={true}
@@ -29,18 +47,18 @@ export function Sidebar({primitive, ...props}) {
             enterTo="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem]"
             leaveFrom="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem]"
             leaveTo="min-w-0 w-0"
-            className={`${props.overlay ? "absolute right-0 z-10 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen`}>
+            className={`${props.overlay ? "absolute right-0 z-50 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen`}>
         <div className='min-w-max'>
         <div className='max-w-[24rem] sm:max-w-[28rem]'>
-            <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky z-10 top-0 bg-white">
+            <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky z-50 top-0 bg-white">
                 <div className="flex items-start justify-between space-x-3">
-                    <div className='flex place-items-center'>
+                    {metadata && <div className='flex place-items-center'>
                         <HeroIcon icon={metadata.icon} className='w-20 h-20'/>
                         <div className='ml-2'>
                             <p className="text-sm font-medium text-gray-900 ">{metadata.title}</p>
                             <p className="text-xs text-gray-500">{metadata.description}</p>
                         </div>
-                    </div>
+                    </div>}
                     <div className="flex h-7 items-center">
                         <button
                             type="button"
@@ -66,8 +84,26 @@ export function Sidebar({primitive, ...props}) {
                 <PrimitiveCard primitive={task}  showState={true} showDetails={true} showUsers={true} showLink={true}/>
             </div>}
         </div>
+        <div className="flex-shrink-0 justify-between space-y-2 p-4 mt-1">
+            {props.unlink && <button
+                type="button"
+                className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                onClick={()=>props.unlink(primitive)}
+            >
+                Remove from {props.unlinkParent ? `${props.unlinkParent.displayType} #${props.unlinkParent.plainId}` : 'item'}
+            </button>}
+            <button
+                type="button"
+                className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 "
+                onClick={promptDelete}
+            >
+                Delete
+            </button>
+        </div>
+
     </div>
     </div>
     </Transition.Root>
+        </>
     )
 }

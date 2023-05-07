@@ -1,9 +1,12 @@
 import React from 'react';
-import { CheckIcon,EllipsisVerticalIcon } from "@heroicons/react/24/outline";
+import { CheckIcon,EllipsisVerticalIcon, PlusCircleIcon, SparklesIcon } from "@heroicons/react/24/outline";
 import { Transition } from '@headlessui/react'
 import { SummaryCard } from './SummaryCard';
 import { EvidenceCard } from './EvidenceCard';
 import { PrimitiveCard } from './PrimitiveCard';
+import NewPrimitive from './NewPrimitive';
+import MainStore from './MainStore';
+import PrimitivePicker from './PrimitivePicker';
 
 
 
@@ -32,21 +35,18 @@ const colors = [{
 export function ComponentRow(props) {
 
     const [expand, setExpand] = React.useState(false)
-    const [reveal, setReveal] = React.useState(true)
     const gridRef = React.useRef()
     const shadowRef = React.useRef()
+    const [showNew, setShowNew] = React.useState(false)
+    const [showPicker, setShowPicker] = React.useState(false)
+    const [targetLevel, setTargetLevel] = React.useState(false)
+    const [targetHypothesis, setTargetHypothesis] = React.useState(false)
 
     const handleScroll =(e)=>{
       let opacity = Math.min((e.target.scrollLeft / e.target.scrollWidth) * 20, 1)
       shadowRef.current.style.opacity = opacity
     }
 
-    React.useEffect(() => {
-      if( props.compact ){
-        setExpand(false)
-        setReveal(false)
-      }
-    }, [props.compact])
     React.useEffect(() => {
       gridRef.current.addEventListener('scroll', handleScroll, { passive: true });
   
@@ -62,31 +62,91 @@ export function ComponentRow(props) {
 
         shadowRef.current.style.height = `${gridRef.current.offsetHeight}px`
       }
-    }, [reveal])
+    }, [])
 
     const mini = true
     const c = props.component
     const compact = props.compact 
     const lens = Math.floor(c.order / 4)
     const color = colors[lens]
-    const hypothesis_list = c.primitives.hypothesis
-    let current_level_idx = c.levels.findIndex((d)=>d.id === c.currentLevel)
-    let current_level = c.levels[current_level_idx]
-    let last_index = c.levels.length - 1
-    return (
+    const editable = (!props.compact && props.primitive)
+    const hypothesis_list = (!props.compact && props.primitive) ? props.primitive.primitives.hfc[c.id].allUniqueHypothesis : []//
+
+    let current_level = c.levels[c.currentLevel]
+    let current_level_idx = current_level?.order || 0//c.levels.findIndex((d)=>d.id === c.currentLevel)
+
+    const levels = Object.values(c.levels).sort((a,b)=>a.order - b.order)
+
+                              
+    const pickHypothesis = async ()=>{
+      setShowPicker({type:'hypothesis', action:async (pick)=>{
+        if( pick && props.primitive){
+          await props.primitive.addRelationship(pick, {hfc: c.id})
+        }
+      }})
+    }
+    const pickEvidence = async (hypothesis, level)=>{
+      setShowPicker({type:'evidence', action:async (pick)=>{
+        if( pick && hypothesis && level ){
+          await hypothesis.addRelationship(pick )
+          await props.primitive.addRelationship(pick, {component: {[c.id]: {levels: level.id} }})
+        }
+      }})
+    }
+
+    const unlinkEvidence = async (p,hypothesis, level)=>{
+      if( p && hypothesis && level && props.primitive){
+          await hypothesis.removeRelationship( p )
+          await props.primitiveremoveRelationship(p, {component: {[c.id]: {levels: level.id} }})
+      }
+    }
+
+    const unlinkHypothesis = async (p)=>{
+      if( p && props.primitive){
+          await props.primitive.removeRelationship(p, {hfc: c.id})
+      }
+    }
+
+    const createHypothesis = async ()=>{
+      if( props.primitive === undefined || c === undefined){return}
+      await MainStore().createPrimitive({type: "hypothesis", parent: props.primitive, parentPath:{hfc: c.id}})
+    }
+    const createEvidence = (hypothesis, level)=>{
+      setTargetHypothesis( hypothesis )
+      setTargetLevel( level )
+      setShowNew( true )
+    }
+    const handleCreate = async (newPrim)=>{
+      console.log(newPrim)
+      if( newPrim && targetHypothesis && targetLevel ){
+        await targetHypothesis.addRelationship(newPrim )
+        await props.primitive.addRelationship(newPrim, {component: {[c.id]: {levels: targetLevel.id} }})
+      }
+      setShowNew(null)
+    }
+    const evidenceMap = (!props.compact && props.primitive) ? hypothesis_list.reduce((o, h)=>{
+      const evidenceIds = h.primitives.allUniqueEvidence.map((d)=>d.id)
+      const l_evidence = props.primitive.primitives.component[c.id].levels
+      Object.keys(l_evidence).forEach((lId)=>{
+        o[h.id] = o[h.id] || {}
+        o[h.id][lId] = l_evidence[lId].allUniqueEvidence.filter((d)=>evidenceIds.includes(d.id))
+      })
+      return o
+    }, {}) : undefined
+
+    console.log(evidenceMap)
+
+    let last_index = levels.length - 1
+    return (<>
+        {showPicker && <PrimitivePicker  type={showPicker.type} callback={showPicker.action} setOpen={()=>setShowPicker(null)} />}
+        {showNew && <NewPrimitive title='New Evidence' type='evidence' parent={props.primitive} done={(data)=>handleCreate(data)} cancel={()=>setShowNew(false)}/>}
         <li key={c.id} 
-          onClick={()=>{
-              if( !compact ){
-                setReveal(!reveal)
-              }
-          }}
-          className={`flex ${compact ? `${mini ? 'pb-5' : 'pt-4 pb-5'}` : "pt-6 pb-5 min-h-[8em]"} group duration-200 bg-white hover:bg-${color.base}-50 active:bg-white  hover:bg-${color.base}-50 border-0 border-[1px] border-transparent border-b-gray-200 hover:border-${color.base}-500 active:border-${color.base}-600 hover:border-[1px]`}
+          onClick={props.onClick}
+          className={`flex ${compact ? `${mini ? 'pb-5' : 'pt-4 pb-5'}` : "pt-6 pb-5 h-full"} group duration-200 bg-white hover:bg-${color.base}-50 active:bg-white  hover:bg-${color.base}-50 border border-transparent border-b-gray-200 hover:border-${color.base}-500 active:border-${color.base}-600 hover:border-[1px]`}
         >
         <div  key='grid' ref={gridRef} 
               className={`grid scrollbar-hide w-full pr-4 overflow-x-auto overflow-y-hidden transition-[min-height] duration-[300ms] min-h-[3em] `} 
-              //style={{gridTemplateColumns: `${compact ? "8em" : "18em"} repeat(${c.levels.length - 1}, minmax(min-content,1fr)) minmax(min-content,0.5fr)`}}
-             // style={{gridTemplateColumns: `${compact ? "8em" : "18em"} ${current_level_idx > 1 ? `repeat(${current_level_idx - 1}, minmax(min-content,1fr))` : ''} 4fr ${current_level_idx < last_index ? `${repeat(${c.levels.length - 1}, minmax(min-content,1fr))` : ''} minmax(min-content,0.5fr)`}}
-                style={{gridTemplateColumns: `${compact ? "8em" : "18em"} ${current_level_idx > 0 ? `repeat(${current_level_idx }, minmax(min-content,1fr))` : ''} minmax(min-content,${compact ? "1fr" : "4fr"}) ${current_level_idx < last_index ? `repeat(${last_index - current_level_idx}, minmax(min-content,1fr))` : ''}`}}
+                style={{gridTemplateRows: compact ? undefined : `repeat(${hypothesis_list.length + 1}, min-content) max-content` , gridTemplateColumns: `${compact ? "8em" : "18em"} ${current_level_idx > 0 ? `repeat(${current_level_idx }, minmax(min-content,1fr))` : ''} minmax(min-content,${compact ? "1fr" : "4fr"}) ${current_level_idx < last_index ? `repeat(${last_index - current_level_idx}, minmax(min-content,1fr))` : ''}`}}
           >
           <div key='header' className={`col-start-1 row-start-1 pl-4 bg-white left-0 sticky z-10 relative w-full}`}>
             <p className={`text-sm px-2 ${mini ? `mt-6 text-${color.base}-50 bg-${color.base}-600 py-0 font-bold` : `py-1 text-${color.base}-900`}`}>VF{c.order + 1}:{c.title}</p>
@@ -119,19 +179,18 @@ export function ComponentRow(props) {
               }}
               ></div>}
           </div>
-            { reveal && 
-              hypothesis_list.map((h)=>(
+              {hypothesis_list.map((h)=>(
                 <div key={h.id} className="bg-white col-start-1 sticky z-10 left-0 px-4 py-1">
-                  <PrimitiveCard primitive={h} bigMargin={true} ringColor={color.base} compact={true}/>
+                  <PrimitiveCard primitive={h} bigMargin={true} ringColor={color.base} compact={true}  onClick={props.selectPrimitive ? ()=>props.selectPrimitive(h, {unlink:(p)=>unlinkHypothesis(p)}) : undefined}/>
                 </div>
               ))
             }
             { 
-              c.levels.map((l, idx) => {
+              levels.map((l, idx) => {
               let ticked = c.currentLevel == undefined ? false :   l.score < current_level.score 
               let current = c.currentLevel  === undefined ? idx === 0 : c.currentLevel == l.id
-              let currentTarget = l.target && c.levels.filter((l)=>l.target && l.score >= (current_level?.score || 0))[0]?.id === l.id
-              let last_item = idx === c.levels.length - 1
+              let currentTarget = l.target && levels.filter((l)=>l.target && l.score >= (current_level?.score || 0))[0]?.id === l.id
+              let last_item = idx === levels.length - 1
               let push_last_item = last_item && (compact || (!expand && current_level !== l) )
               return (
               <div key={`level_${idx}`} className={`row-start-1 text-sm text-center px-0 mt-6 relative flex ${push_last_item ? "justify-end" : "justify-center"} relative ${!compact && (c.currentLevel === l.id) ? 'min-w-[12em]' : ''}`}>
@@ -182,7 +241,7 @@ export function ComponentRow(props) {
                   leaveFrom='!min-w-[20em]'
                 >
                 </Transition>
-                  <div key='marker' className={`shrink-0 text-gray-900 flex absolute ${currentTarget && current? "-top-2" : "" } min-w-8`}>
+                  <div key='marker' className={`shrink-0 text-gray-900 flex absolute ${currentTarget && current? "-top-2 z-20" : "" } min-w-8`}>
                     {!currentTarget && ticked  && !current && <div className={`h-5 w-5 mx-auto border-${color.base}-600 ${l.target ? `bg-${color.base}-200` : `bg-${color.base}-700`} rounded-[50%] border-[6px]  place-items-center	flex`}></div>}
                     {!currentTarget && current && <div className={`h-5 w-5 mx-auto border-${color.base}-600 bg-${color.base}-600 rounded-[50%] border-2 place-items-center	flex`}><ChevronRightIcon strokeWidth='2.5' className={`w-6 h-6 text-${color.base}-100`}/></div>}
                     {!currentTarget && !(ticked  || current) && <div className={`h-5 w-5 mx-auto border-${color.base}-200 ${l.target ? `bg-${color.base}-50` : `bg-${color.base}-300`} rounded-[50%] border-[6px]  place-items-center	flex`}></div>}
@@ -210,7 +269,7 @@ export function ComponentRow(props) {
                     this.beforeEnter(true)}
                     }
                   beforeEnter={(min = false)=>{
-                    if( !expand || idx == c.levels.length - 1 ){
+                    if( !expand || idx == levels.length - 1 ){
                       let height = (min ? [...gridRef.current.querySelectorAll(`div > div > p.current`)] : [...gridRef.current.querySelectorAll(`div > div > p`)]).map((n)=>n.offsetHeight + 24 )
                       let max_h = height.reduce((a,b)=>b > a ? b : a, 0)
                       gridRef.current.style.setProperty('min-height', `${max_h}px`, 'important')
@@ -221,10 +280,11 @@ export function ComponentRow(props) {
                 </Transition>
               </div>
             )})}
-            { reveal && hypothesis_list && c.levels.map((l, idx) => {
+            { hypothesis_list && levels.map((l, idx) => {
                 return hypothesis_list.map((h, row)=>{
-                  let levels = h.primitives.levels
-                  let evidence = levels ? levels[`${l.id}`]?.allEvidence : undefined
+                  const em = evidenceMap[h.id]
+                  const thisLevel = l.id === current_level.id
+                  let evidence = em ? em[l.id] : undefined
                   return (<div 
                     key={`${idx}_${row}`}
                       style={{
@@ -233,20 +293,55 @@ export function ComponentRow(props) {
                       }}
                       className={`flex border-b-[1px] border-gray-100 p-0.5 flex w-full`}
                     >
-                    <div className={`group-hover:bg-${color.base}-25 justify-start h-[calc(100%_-_1em)] place-items-center w-full`}>
-                    {evidence &&  evidence.map((d, idx)=>
+                    <div className={`group-hover:bg-${color.base}-25 justify-start h-[calc(100%_-_1em)] place-items-center w-full group/box`}>
+                    {evidence && !expand && !thisLevel && (evidence.length > 0) && 
+                      <div className={`h-6 w-6 mx-auto ${`bg-${color.base}-50`} rounded-[50%] border-2 text-${color.base}-600 border-${color.base}-600 flex place-items-center justify-center text-sm`} >
+                        {evidence.length}
+                      </div>}
+                    {evidence && (expand || thisLevel) && evidence.map((d, idx)=>
                       <EvidenceCard 
                         key={d.id}
-                        onClick={(e)=>{props.selectPrimitive(d); e.stopPropagation()}} 
+                        onClick={props.selectPrimitive ? (e)=>{props.selectPrimitive(d,{unlink:(p)=>unlinkEvidence(p,h,l)}); e.stopPropagation()} : undefined} 
                         evidence={d} 
-                        details={props.evidenceDetail} 
+                        details={false}//props.evidenceDetail} 
                         sentiment={d.parentRelationship(h.id)[0]} bgColor={`${color.base}-200`} iconColor={`${color.base}-900`}/>
-                    )}</div></div>
+                      )}
+                      {editable && (expand || thisLevel) && 
+                        <div className='flex justify-center justify-self-center place-items-center space-x-2 opacity-0 transition-opacity group-hover/box:opacity-100 mt-2'>
+                            <button 
+                              onClick={()=>createEvidence(h, l) }
+                              className='flex justify-center place-items-center py-2 px-2 shrink-0 grow-0 self-center rounded-full border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                              <SparklesIcon className='w-6 h-6 align-center'/>
+                            </button>
+                            <button 
+                              onClick={()=>pickEvidence(h, l) }
+                              className='flex justify-center place-items-center py-2 px-2 shrink-0 grow-0 self-center rounded-full border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                              <PlusCircleIcon className='w-6 h-6 align-center'/>
+                            </button>
+                        </div>
+                      }
+                      </div>
+                    </div>
                   )
                 })
               })
             }
+            {editable &&
+            <div className='p-4 space-y-3'>
+                <button 
+                  onClick={createHypothesis}
+                  className='flex justify-center place-items-center py-2 px-2 shrink-0 grow-0 self-center rounded-md border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                  <SparklesIcon className='w-6 h-6 align-center mr-2'/>
+                  <span className="text-sm">Create a new hypothesis</span>
+                </button>
+                <button 
+                  onClick={pickHypothesis}
+                  className='flex justify-center place-items-center py-2 px-2 shrink-0 grow-0 self-center rounded-md border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                  <PlusCircleIcon className='w-6 h-6 align-center mr-2'/>
+                  <span className="text-sm">Select existing hypothesis</span>
+                </button>
+            </div>}
           </div>
         </li>
-        )
+        </>)
 }

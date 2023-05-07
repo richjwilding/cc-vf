@@ -24,19 +24,21 @@ import {
 import MainStore from './MainStore'
 import { useLinkClickHandler } from 'react-router-dom'
 
-const teams = [
-  { name: 'Engineering', href: '#', bgColorClass: 'bg-indigo-500' },
-  { name: 'Human Resources', href: '#', bgColorClass: 'bg-green-500' },
-  { name: 'Customer Success', href: '#', bgColorClass: 'bg-yellow-500' },
-]
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
 export default function SideNav(props) {
+  const workspaces = MainStore().workspaces().map((d)=>{
+    return {
+      name: d.title,
+      href: '#',
+      bgColorClass: `bg-${d.color}-500`
+    }
+  })
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const sizeToggle = props.widePage ? "2xl" : "xl"
+  const sizeToggle = props.widePage ? "3xl" : "xl"
 
 const navigation = [
   { name: 'Home', routerLink: useLinkClickHandler('/'), icon: HomeIcon, current: true },
@@ -136,6 +138,7 @@ const mainMenu = navigation.map((item) => (
                 sizeToggle === "lg" ? "lg:hidden" : "",
                 sizeToggle === "xl" ? "xl:hidden" : "",
                 sizeToggle === "2xl" ? "2xl:hidden" : "",
+                sizeToggle === "3xl" ? "3xl:hidden" : "",
             ].join(" ")} onClose={setSidebarOpen}>
             <Transition.Child
               as={Fragment}
@@ -194,20 +197,20 @@ const mainMenu = navigation.map((item) => (
                       </div>
                       <div className="mt-8">
                         <h3 className="px-3 text-sm font-medium text-gray-500" id="mobile-teams-headline">
-                          Teams
+                          Workspaces
                         </h3>
                         <div className="mt-1 space-y-1" role="group" aria-labelledby="mobile-teams-headline">
-                          {teams.map((team) => (
+                          {workspaces.map((workspace) => (
                             <a
-                              key={team.name}
-                              href={team.href}
+                              key={workspace.name}
+                              href={workspace.href}
                               className="group flex items-center rounded-md px-3 py-2 text-base font-medium leading-5 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                             >
                               <span
-                                className={classNames(team.bgColorClass, 'mr-4 h-2.5 w-2.5 rounded-full')}
+                                className={classNames(workspace.bgColorClass, 'mr-4 h-2.5 w-2.5 rounded-full')}
                                 aria-hidden="true"
                               />
-                              <span className="truncate">{team.name}</span>
+                              <span className="truncate">{workspace.name}</span>
                             </a>
                           ))}
                         </div>
@@ -234,6 +237,7 @@ const mainMenu = navigation.map((item) => (
                 sizeToggle === "lg" ? "lg:flex" : "",
                 sizeToggle === "xl" ? "xl:flex" : "",
                 sizeToggle === "2xl" ? "2xl:flex" : "",
+                sizeToggle === "3xl" ? "3xl:flex" : "",
             ].join(" ")
 
             }>
@@ -313,20 +317,20 @@ const mainMenu = navigation.map((item) => (
               <div className="mt-8">
                 {/* Secondary navigation */}
                 <h3 className="px-3 text-sm font-medium text-gray-500" id="desktop-teams-headline">
-                  Teams
+                  Workspaces
                 </h3>
                 <div className="mt-1 space-y-1" role="group" aria-labelledby="desktop-teams-headline">
-                  {teams.map((team) => (
+                  {workspaces.map((workspace) => (
                     <a
-                      key={team.name}
-                      href={team.href}
+                      key={workspace.name}
+                      href={workspace.href}
                       className="group flex items-center rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900"
                     >
                       <span
-                        className={classNames(team.bgColorClass, 'mr-4 h-2.5 w-2.5 rounded-full')}
+                        className={classNames(workspace.bgColorClass, 'mr-4 h-2.5 w-2.5 rounded-full')}
                         aria-hidden="true"
                       />
-                      <span className="truncate">{team.name}</span>
+                      <span className="truncate">{workspace.name}</span>
                     </a>
                   ))}
                 </div>
@@ -340,13 +344,15 @@ const mainMenu = navigation.map((item) => (
                 sizeToggle === "lg" ? "lg:pl-64" : "",
                 sizeToggle === "xl" ? "xl:pl-64" : "",
                 sizeToggle === "2xl" ? "2xl:pl-64" : "",
+                sizeToggle === "3xl" ? "3xl:pl-64" : "",
             ].join(" ")}>
           {/* Search header */}
           <div className={[
             'sticky top-0 z-20 flex h-16 flex-shrink-0 border-b border-gray-200 bg-white',
                 sizeToggle === "lg" ? "lg:hidden" : "",
                 sizeToggle === "xl" ? "xl:hidden" : "",
-                sizeToggle === "2xl" ? "2xl:hidden" : ""
+                sizeToggle === "2xl" ? "2xl:hidden" : "",
+                sizeToggle === "3xl" ? "3xl:hidden" : "",
             ].join(" ")}>
             <button
               type="button"

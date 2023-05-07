@@ -10,6 +10,36 @@ export default function ResultAnalyzer(primitive){
         init(){
             return obj
         },
+        doDiscovery:async function(options = {force: false}){
+            if( primitive.discoveryDone && !options.force){return}
+            //primitive.setField("openai_token_limit", true)
+            const mainstore = MainStore()
+
+            let hasError = false
+            primitive.setField( "discoveryDone", null )
+            primitive.setField("ai_processing", {state: "underway", process:"discovery", started: new Date})
+            const response = await primitive.doDiscovery()
+            console.log(response)
+
+            if( response && response.success ){
+                for( const key of Object.keys(response.result.response) ){
+                    const answer = response.result.response[key]?.answer
+                    if( key === "name"){
+                        let contact = mainstore.contacts().find((c)=>c.name === answer)
+                        if( contact === undefined ){
+                            contact = await mainstore.createContact({name: answer})
+                        }
+                        primitive.setParameter( "contactId", contact ? contact.id : null)
+                    }else if( key === "summary"){
+                        primitive.setField( key, answer)
+                    }else{
+                        primitive.setParameter( key, answer)
+                    }
+                }
+                primitive.setField( "discoveryDone", true )
+            }
+            primitive.setField("ai_processing", hasError ? {state: "error"}  : null)
+        },
         aiProcessSummary:function(){
             let evidenceList = primitive.primitives.allEvidence
             let origin = primitive.origin
@@ -36,8 +66,8 @@ export default function ResultAnalyzer(primitive){
                 }})
 
             return {
-                processed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? p.id : undefined ).filter((d)=>d),
-                unprocessed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? undefined : p.id ).filter((d)=>d),
+                processed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? p.id : undefined ).filter((d)=>d).reduce((a,c)=>{a[c]=1;return a},{}),
+                unprocessed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? undefined : p.id ).filter((d)=>d).reduce((a,c)=>{a[c]=1;return a},{}),
                 byPrompt: reduce(byPrompt),
                 byQuestion: reduce(byPrompt.map((p)=>{
                     return {
@@ -47,16 +77,19 @@ export default function ResultAnalyzer(primitive){
                 }))
             }
         },
-        aiGeneratedEvidence:function( questionFilter = undefined){
-            let evidenceList = primitive.primitives.allEvidence
+        promptList:function( questionFilter = undefined){
             let origin = primitive.origin
             let questions = origin.primitives.allQuestion
             if( questionFilter ){
                 const ids = questionFilter.map((d)=>d.id)
                 questions = questions.filter((d)=>ids.includes(d.id))
             }
-            let promptList = questions.map((d)=>d.primitives.allPrompt).flat()
-
+            
+            return questions.map((d)=>d.primitives.allPrompt).flat() 
+        },
+        aiGeneratedEvidence:function( questionFilter = undefined){
+            let evidenceList = primitive.primitives.allEvidence
+            const promptList = this.promptList( questionFilter )
             return evidenceList.filter((p)=>{
                 return promptList.filter((p2)=>p.parentRelationship(p2) !== undefined).length > 0
             })
@@ -66,49 +99,63 @@ export default function ResultAnalyzer(primitive){
             const mainstore = MainStore()
             if( clearFirst ){
                 const existing = this.aiGeneratedEvidence( questionFilter )
-                console.warn(`Removing existing evidence associated with current question set - may not be all`)
+                console.warn(`Removing existing evidence (${existing.length}) associated with current question set - may not be all`)
                 for(const p of existing){
                     await mainstore.removePrimitive(p)
                 }
             }
             const ids = questionFilter ? questionFilter.map((d)=>d.id) : undefined
-            primitive.setField("ai_processing", {state: "underway", started: new Date})
+            for( const p of this.promptList(questionFilter)){
+                await primitive.setField(`ai_prompt_track.${p.id}`, null)
+            }
+            primitive.setField("ai_processing", {state: "underway", process:"questions", started: new Date})
 
+            let hasError = false
             const response = await primitive.doQuestionsAnalysis( ids )
             console.log(response)
             const promptTracker = {}
             if( response && response.success ){
                 for( const set of response.result){
                     console.log(`Got set of results for category ${set.categoryId}`)
-                    for( const promptSet of set.result ){
-                        const prompt = mainstore.primitive(promptSet.id)
-                        if( prompt ){
-                            const resultField= prompt.metadata?.openai?.field || "problem"
-                            promptTracker[ prompt.id ] = true
-                            console.log(`--- got ${promptSet.results?.length} results for ${prompt.plainId}`)
-                            for( const response of promptSet.results ){
-                                console.log(`${resultField} = ${response[resultField]}`)
-                                console.log(response.quote)
-                                if( (response[resultField] == undefined) || (response[resultField] === "none") || (response.quote === 'none')){
-                                    continue;
+                    if( set.result === undefined ){
+                        hasError = true
+                    }else{
+                        for( const promptSet of set.result ){
+                            const prompt = mainstore.primitive(promptSet.id)
+                            if( prompt ){
+                                const resultField= prompt.metadata?.openai?.field || "problem"
+                                promptTracker[ prompt.id ] = true
+                                console.log(`--- got ${promptSet.results?.length} results for ${prompt.plainId}`)
+                                if( promptSet.results === undefined ){
+                                    hasError = true
+                                }else{
+                                    for( const response of promptSet.results ){
+                                        console.log(`${resultField} = ${response[resultField]}`)
+                                        console.log(response.quote)
+                                        if( (response[resultField] == undefined) || (response[resultField] === "none") || (response.quote === 'none')){
+                                            continue;
+                                        }
+                                        const newPrim = await mainstore.createPrimitive({
+                                            parent: primitive,
+                                            type: "evidence",
+                                            title: response[resultField],
+                                            categoryId: prompt.metadata?.openai?.resultCatgeory,
+                                            referenceParameters: {highlightAreas: response.highlightAreas, scale: response.scale},
+                                            extraFields: {source: "openai", quoted: true, quote: response.quote}
+                                        })
+                                        if( newPrim ){
+                                            prompt.addRelationship(newPrim, "auto" )
+                                        } 
+                                    }
                                 }
-                                const newPrim = await mainstore.createPrimitive({
-                                    parent: primitive,
-                                    type: "evidence",
-                                    title: response[resultField],
-                                    categoryId: prompt.metadata?.openai?.resultCatgeory,
-                                    referenceParameters: {highlightAreas: response.highlightAreas, scale: response.scale},
-                                    extraFields: {source: "openai", quoted: true, quote: response.quote}
-                                })
-                                if( newPrim ){
-                                    prompt.addRelationship(newPrim )
-                                } 
                             }
                         }
                     }
                 }
-                primitive.setField("ai_prompt_track", promptTracker)
-                primitive.setField("ai_processing", null)
+                for(const p of Object.keys(promptTracker)){
+                    await primitive.setField(`ai_prompt_track.${p}`, promptTracker[p])
+                }
+                primitive.setField("ai_processing", hasError ? {state: "error"}  : null)
             }
 
         },

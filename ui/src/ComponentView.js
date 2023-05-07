@@ -60,7 +60,7 @@ export function ComponentView(props) {
         </Switch.Group>
         </div>
             <ul role="list"  className="w-full p-4 pt-0 mx-auto">
-            { props.components.map((c) => <ComponentRow selectPrimitive={props.selectPrimitive} compact={compact} evidenceDetail={evidenceDetail} key={c.id} component={c}/>)}
+            { props.components.map((c) => <ComponentRow selectPrimitive={props.selectPrimitive} compact={props.compact} evidenceDetail={evidenceDetail} key={c.id} component={c}/>)}
             </ul>
         </div>
       </div>

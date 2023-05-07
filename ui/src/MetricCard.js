@@ -245,8 +245,10 @@ export function MetricCard({primitive, metric, ...props}) {
   let subgridConfig = {}
   let mainTitle
 
+  const [eventRelationships, updateRelationships] = React.useReducer( (x)=>x+1, 0)
   const [open, setOpen] = React.useState(false)
   const [fully, setFully] = React.useState(false)
+    useDataEvent("relationship_update", primitive.id, updateRelationships)
 
   let analysis = open ? metric.analysis : undefined
 
@@ -301,6 +303,8 @@ export function MetricCard({primitive, metric, ...props}) {
   }
 
   const initList = ()=>{
+    console.log(metric.id)
+    console.log(value)
     return value.reduce((o, v,idx)=>{
       o[v.relationship] = v.list
       return o 
@@ -318,10 +322,10 @@ export function MetricCard({primitive, metric, ...props}) {
       },
     }),
   );
-  useDataEvent("relationship_update", primitive.id, ()=>{
+/*  useDataEvent("relationship_update", primitive.id, ()=>{
     value = metric.value
     setItems( initList() )
-  })
+  })*/
 
 
   function handleDragStart(event) {

@@ -170,9 +170,21 @@ export async function getDocument(id, req){
 }
 export async function importDocument(id, req){
     const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
-    const notes = primitive.referenceParameters?.notes
+    let notes = primitive.referenceParameters?.notes
     try{
         if( notes ){
+            if( typeof(notes) === "string"){
+                const regex = /(?:d|document|spreadsheets|presentation)\/(?:u\/\d\/)?(?:[^/]+\/)?(?<id>[a-zA-Z0-9-_]+)/;
+                const match = notes.match(regex);
+                if (match) {
+                    console.log(`converting url to google drive id`)
+                    const documentId = match.groups.id;
+                    notes = {
+                        type: "google_drive",
+                        id: documentId
+                    }
+                } 
+            }
             if( notes.type === "google_drive"){
                 if( notes.mimeType === "application/pdf"){
                     console.log("will copy over existing pdf")
@@ -209,7 +221,6 @@ export async function copyGoogleDriveFile(id, fileId, req){
 
     const doRequest = async function(retry = 3){
         const auth = new google.auth.OAuth2();
-        console.log(req.user.accessToken)
         auth.setCredentials({ access_token: req.user.accessToken });
         
         const drive = google.drive({ version: 'v3', auth });
@@ -248,7 +259,7 @@ export async function copyGoogleDriveFile(id, fileId, req){
 
       return true
 }
-async function waitForFileToExit(id, bucket, retry = 5, pause = 100){
+async function waitForFileToExit(id, bucket, retry = 10, pause = 200){
     do{
         const file = bucket.file(id)
         if( !((await file.exists())[0]) ){

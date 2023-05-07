@@ -39,6 +39,8 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
     const summary = results ? results[0].views?.list?.summary : undefined
     const contact = primitive.referenceParameters.contact
 
+    const mainstore = MainStore()
+
     const keyHandler = (e)=>{
         console.log(e.key)
       if( e.key === "Escape"){
@@ -58,11 +60,11 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
     }
 
     const handleDelete = ()=>{
-      console.log("DELETING")
+      mainstore.removePrimitive( primitive )
       setShowDeletePrompt( null )
+      setPrimitive(null)
     }
 
-    const mainstore = MainStore()
 
     const widths = [
       'w-full max-w-[80vw] lg:max-w-[70vw]',

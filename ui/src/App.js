@@ -30,6 +30,7 @@ function App() {
   const [open, setOpen] = React.useState(false)
   const [overlay, setOverlay] = React.useState(false)
   const [primitive, setPrimitive] = React.useState(undefined)
+  const [sidebarOptions, setSidebarOptions] = React.useState(undefined)
   const [widePage, setWidePage] = React.useState(false)
 
   useEffect(()=>{
@@ -38,15 +39,7 @@ function App() {
     })
   }, [])
 
-  const PrimitiveCardWrapper = (props) => {
-    const { id } = useParams();
-    return (
-        <SideNav widePage={widePage}>
-          <PrimitivePage primitive={mainstore.primitiveByPlain(parseInt(id))} selectPrimitive={props.selectPrimitive} setWidePage={setWidePage} />;
-        </SideNav>)
-  };
-
-  const selectPrimitive = (primitive, overlay = false)=>{
+  const selectPrimitive = (primitive, options)=>{
     if( primitive === null){
       setOpen(false)
       setOverlay(false)
@@ -55,6 +48,7 @@ function App() {
     setOpen(true)
     setOverlay(overlay)
     setPrimitive(primitive)
+    setSidebarOptions(options)
   }
 
   return (
@@ -63,11 +57,11 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<SignIn/>}/>
-              <Route path="/components" element={<ComponentView components={mainstore.components()} selectPrimitive={selectPrimitive}/>}/>
+              <Route path="/components" element={<ComponentView components={Object.values(mainstore.primitives().filter((d)=>d.type==='assessment')[0].framework.components)} selectPrimitive={selectPrimitive}/>}/>
               <Route path="/" element={<SideNav><HomeScreen/></SideNav>}/>
-              <Route path="/item/:id" element={<PrimitiveCardWrapper selectPrimitive={selectPrimitive}/>}/>
+              <Route path="/item/:id" element={<SideNav key='sidebar' widePage={widePage}><PrimitivePage setWidePage={setWidePage} selectPrimitive={selectPrimitive}/></SideNav>}/>
             </Routes>
-          <Sidebar open={open} overlay={overlay} setOpen={(v)=>{console.log(v);setOpen(v)}} primitive={primitive}/>
+          <Sidebar open={open} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
           </BrowserRouter>
       </div>
   )

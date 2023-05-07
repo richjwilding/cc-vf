@@ -5,6 +5,8 @@ import { UsersIcon } from '@heroicons/react/24/outline'
 import { ChevronRightIcon } from '@heroicons/react/20/solid'
 import MainStore from './MainStore'
 import ContactCard from './ContactCard'
+import { PrimitiveCard } from './PrimitiveCard'
+import { HeroIcon } from './HeroIcon'
 
 
 
@@ -12,20 +14,31 @@ function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
-export default function ContactPicker({mode, ...props}) {
+export default function PrimitivePicker({mode, ...props}) {
   const [query, setQuery] = useState(props.startText || "")
   const [open, setOpen] = useState(true)
   const contactFromQuery =() => query !== '' ? {name: query.split(" ").map((p)=>p ? (p[0].toUpperCase() + p.slice(1)) : p).join(" ")} : undefined
   const [newContact, setNewContact] = useState(contactFromQuery())
   const inputbox = useRef()
+  const filterSet = []
+  if( props.type ){
+    filterSet.push({
+      name: "Type",
+      action: (p)=>p.type === props.type
+    })
+  }
 
-  const people = useMemo(()=>mode === "user" ? MainStore().users() : MainStore().contacts(), [])
+  const primitives = useMemo(()=>{
+    return MainStore().primitives().filter((p)=>{
+      return filterSet.map((f)=>f.action(p)).reduce((a,c)=>a && c, true)
+    })
+  }, [filterSet].map((f)=>f.name))
 
-  const filteredPeople =
+  const filteredPrimitives =
     query === ''
-      ? people
-      : people.filter((person) => {
-          return person.name.toLowerCase().includes(query.toLowerCase())
+      ? primitives
+      : primitives.filter((p) => {
+          return p.title.toLowerCase().includes(query.toLowerCase())
         })
 
     const selected = (person)=>{
@@ -73,7 +86,7 @@ export default function ContactPicker({mode, ...props}) {
             leaveTo="opacity-0 scale-95"
           >
             <Dialog.Panel 
-                className="mx-auto max-w-3xl transform divide-y divide-gray-100 overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 transition-all">
+                className="mx-auto max-w-[72rem] transform divide-y divide-gray-100 overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 transition-all">
               <Combobox onChange={selected}>
                 {({ activeOption }) => (
                   <>
@@ -91,7 +104,7 @@ export default function ContactPicker({mode, ...props}) {
                       />
                     </div>
 
-                    {((query === '' || filteredPeople.length > 0) || props.allowNew) && (
+                    {((query === '' || filteredPrimitives.length > 0) || props.allowNew) && (
                       <Combobox.Options as="div" static hold className="flex divide-x divide-gray-100">
                         <div
                           className={classNames(
@@ -100,11 +113,11 @@ export default function ContactPicker({mode, ...props}) {
                           )}
                         >
                           <div className="-mx-2 text-sm text-gray-700">
-                            {filteredPeople.map((person) => (
+                            {filteredPrimitives.map((primitive) => (
                               <Combobox.Option
                                 as="div"
-                                key={person.id}
-                                value={person}
+                                key={primitive.id}
+                                value={primitive}
                                 className={({ active }) =>
                                   classNames(
                                     'flex cursor-default select-none items-center rounded-md p-2',
@@ -114,8 +127,7 @@ export default function ContactPicker({mode, ...props}) {
                               >
                                 {({ active }) => (
                                   <>
-                                    <img src={person.avatarUrl} alt="" className="h-6 w-6 flex-none rounded-full" referrerPolicy="no-referrer" />
-                                    <span className="ml-3 flex-auto truncate">{person.name}</span>
+                                    <HeroIcon className='w-5 h-5 shrink-0' icon={primitive.metadata?.icon}/><span className="ml-3 flex-auto truncate">{primitive.title}</span>
                                     {active && (
                                       <ChevronRightIcon
                                         className="ml-3 h-5 w-5 flex-none text-gray-400"
@@ -130,9 +142,10 @@ export default function ContactPicker({mode, ...props}) {
                         </div>
 
                         {activeOption && (
-                          <div className="hidden h-96 w-1/2 flex-none flex-col overflow-y-auto sm:flex">
+                          <div className="hidden h-96 w-2/5 flex-none flex-col overflow-y-auto sm:flex">
                             <div className="flex flex-col py-2 px-6 border-t-[1px] border-gray-100 grow overflow-y-scroll">
-                                <ContactCard contact={activeOption}/>
+                              <PrimitiveCard.Banner primitive={activeOption}/>
+                              <PrimitiveCard primitive={activeOption} showId={false}/>
                             </div>
                             <div className="flex flex-auto p-6 border-t-[1px] border-gray-100 grow-0 shrink-0">
                               <button
@@ -145,27 +158,10 @@ export default function ContactPicker({mode, ...props}) {
                             </div>
                           </div>
                         )}
-                        {!activeOption && props.allowNew && newContact && (
-                          <div className="hidden h-96 w-1/2 flex-none flex-col overflow-y-auto sm:flex">
-                            <div className="flex flex-col py-2 px-6 border-t-[1px] border-gray-100 grow overflow-y-scroll">
-                                <ContactCard contact={newContact} editable={true} updateContact={setNewContact}/>
-                            </div>
-                            <div className="flex flex-auto p-6 border-t-[1px] border-gray-100 grow-0 shrink-0">
-                              <button
-                                type="button"
-                                disabled = {!newContact.name || newContact.name.trim === ""}
-                                onClick={()=>selected(newContact)}
-                                className="w-full rounded-md bg-indigo-600 py-2 px-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:bg-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                              >
-                                Create new contact
-                              </button>
-                            </div>
-                          </div>
-                        )}
                       </Combobox.Options>
                     )}
 
-                    {query !== '' && filteredPeople.length === 0 && !props.allowNew  && 
+                    {query !== '' && filteredPrimitives.length === 0 && !props.allowNew  && 
                       <div className="py-14 px-6 text-center text-sm sm:px-14">
                         <UsersIcon className="mx-auto h-6 w-6 text-gray-400" aria-hidden="true" />
                         <p className="mt-4 font-semibold text-gray-900">No contacts found</p>

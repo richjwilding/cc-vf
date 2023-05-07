@@ -2,6 +2,8 @@ import express from 'express';
 import mongoose from 'mongoose';
 import User from '../model/User';
 import Company from '../model/Company';
+import AssessmentFramework from '../model/AssessmentFramework';
+import Workspace from '../model/Workspace';
 import Contact from '../model/Contact';
 import Category from '../model/Category';
 import Primitive from '../model/Primitive';
@@ -11,6 +13,7 @@ import { Readable } from 'stream';
 import { finished } from 'stream/promises';
 import { getDocument, getDocumentAsPlainText, importGoogleDoc } from '../google_helper';
 import analyzeDocument from '../openai_helper';
+import {createPrimitive, flattenPath} from '../SharedFunctions'
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -173,6 +176,15 @@ router.get('/users', async function(req, res, next) {
       }
 
 })
+router.get('/frameworks', async function(req, res, next) {
+    try {
+        const results = await AssessmentFramework.find({})
+        res.json(results)
+      } catch (err) {
+        res.json({error: err})
+      }
+
+})
 router.get('/companies', async function(req, res, next) {
 
     try {
@@ -184,9 +196,18 @@ router.get('/companies', async function(req, res, next) {
 
 })
 router.get('/contacts', async function(req, res, next) {
-
     try {
         const results = await Contact.find({})
+        res.json(results)
+      } catch (err) {
+        res.json({error: err})
+      }
+
+})
+router.get('/workspaces', async function(req, res, next) {
+
+    try {
+        const results = await Workspace.find({})
         res.json(results)
       } catch (err) {
         res.json({error: err})
@@ -214,242 +235,6 @@ router.get('/primitives', async function(req, res, next) {
 
 })
 
-
-
-router.get('/restore', async function(req, res, next) {
-    const data = {
-        type: 'experiment',
-        state: 'active',
-        referenceId: 7,
-        users: { owner: [ null ], other: [] },
-        title: 'EFD interviews',
-        plainId: 99571,
-        comments: [],
-        primitives: {
-          origin: [
-            '641acc149a2ba1ffa3e5a53c',
-            '641aff479a2ba1ffa3e5aa74',
-            '641b05859a2ba1ffa3e5abba',
-            '641b05859a2ba1ffa3e5abb8',
-            '641b05859a2ba1ffa3e5abbc',
-            '641b05859a2ba1ffa3e5abc3',
-            '641b05859a2ba1ffa3e5abc6',
-            '641b05859a2ba1ffa3e5abc8',
-            '641b05859a2ba1ffa3e5abd5',
-            '641b05859a2ba1ffa3e5abd7',
-            '641b05859a2ba1ffa3e5abd9',
-            '641b05859a2ba1ffa3e5abdf',
-            '641b05859a2ba1ffa3e5abe6',
-            '641b05859a2ba1ffa3e5abeb',
-            '641b05859a2ba1ffa3e5abf1',
-            '641b05859a2ba1ffa3e5abf3',
-            '641b05859a2ba1ffa3e5abf5',
-            '641b05859a2ba1ffa3e5abf9',
-            '641b05859a2ba1ffa3e5ac11',
-            '641b05859a2ba1ffa3e5ac0d',
-            '641b05859a2ba1ffa3e5ac17',
-            '641b05859a2ba1ffa3e5ac1e',
-            '641b05859a2ba1ffa3e5ac09',
-            '641b05859a2ba1ffa3e5ac0b',
-            '641b05859a2ba1ffa3e5ac0f',
-            '641b05859a2ba1ffa3e5ac23'
-          ],
-          results: { '0': {
-                completed: ['641acc149a2ba1ffa3e5a53c',
-                '641aff479a2ba1ffa3e5aa74',
-                '641b05859a2ba1ffa3e5abba',
-                '641b05859a2ba1ffa3e5abb8',
-                '641b05859a2ba1ffa3e5abbc',
-                '641b05859a2ba1ffa3e5abc3',
-                '641b05859a2ba1ffa3e5abc6',
-                '641b05859a2ba1ffa3e5abc8',
-                '641b05859a2ba1ffa3e5abd5',
-                '641b05859a2ba1ffa3e5abd7',
-                '641b05859a2ba1ffa3e5abd9',
-                '641b05859a2ba1ffa3e5abdf',
-                '641b05859a2ba1ffa3e5abe6',
-                '641b05859a2ba1ffa3e5abeb',
-                '641b05859a2ba1ffa3e5abf1',
-                '641b05859a2ba1ffa3e5abf3',
-                '641b05859a2ba1ffa3e5abf5',
-                '641b05859a2ba1ffa3e5abf9',
-                '641b05859a2ba1ffa3e5ac11',
-                '641b05859a2ba1ffa3e5ac0d',
-                '641b05859a2ba1ffa3e5ac17',
-                '641b05859a2ba1ffa3e5ac1e',
-                '641b05859a2ba1ffa3e5ac09',
-                '641b05859a2ba1ffa3e5ac0b',
-                '641b05859a2ba1ffa3e5ac0f',
-                '641b05859a2ba1ffa3e5ac23']
-
-          } },
-          outcomes: [
-            '641b2e379a2ba1ffa3e5c1d8',
-            '641b2e379a2ba1ffa3e5c1d4',
-            '641b2e379a2ba1ffa3e5c1cb',
-            '641b2e379a2ba1ffa3e5c1ba',
-            '641b2e379a2ba1ffa3e5c1f2',
-            '641b2e379a2ba1ffa3e5c1fa',
-            '641b2e379a2ba1ffa3e5c22a',
-            '641b3b439a2ba1ffa3e5c80e',
-            '641b3b439a2ba1ffa3e5c80b',
-            '641b3b439a2ba1ffa3e5c801',
-            '641b2e379a2ba1ffa3e5c1f4',
-            '641b2e489a2ba1ffa3e5c566',
-            '641b2e489a2ba1ffa3e5c581',
-            '641b2e489a2ba1ffa3e5c576',
-            '642402c076b46b0ccca1cdc0',
-            '642402c076b46b0ccca1cdc4',
-            '641b2e2d9a2ba1ffa3e5bed8',
-            '641b2e2e9a2ba1ffa3e5bf79',
-            '641b2e2e9a2ba1ffa3e5bf91',
-            '641b2e2e9a2ba1ffa3e5bf71',
-            '641b2e2e9a2ba1ffa3e5bf6f',
-            '641b2e2e9a2ba1ffa3e5bf95',
-            '641b2e2e9a2ba1ffa3e5bfbf',
-            '641b2e2f9a2ba1ffa3e5bffe',
-            '641b2e2f9a2ba1ffa3e5bffa',
-            '641b2e2f9a2ba1ffa3e5c002',
-            '641b2e2f9a2ba1ffa3e5c004',
-            '641b2e2f9a2ba1ffa3e5bfca',
-            '641b2e2f9a2ba1ffa3e5bfd7',
-            '641c024d9a2ba1ffa3e5cd91',
-            '641c024d9a2ba1ffa3e5cd89',
-            '641c024d9a2ba1ffa3e5cd71',
-            '641c024d9a2ba1ffa3e5cd87',
-            '641c024d9a2ba1ffa3e5cdb2',
-            '641c024d9a2ba1ffa3e5cded',
-            '641c024d9a2ba1ffa3e5cde1',
-            '641c024d9a2ba1ffa3e5cdc2',
-            '641c024d9a2ba1ffa3e5cdbe',
-            '642402c076b46b0ccca1cdd1',
-            '642402c076b46b0ccca1cdf0',
-            '642402c076b46b0ccca1cdfa',
-            '642402c076b46b0ccca1ce1a',
-            '642402c076b46b0ccca1ce18',
-            '642402c076b46b0ccca1ce14',
-            '642402c076b46b0ccca1ce0f',
-            '641b3b009a2ba1ffa3e5c73a',
-            '641b3b009a2ba1ffa3e5c72c',
-            '641b3b009a2ba1ffa3e5c72a',
-            '641b3b009a2ba1ffa3e5c71c',
-            '641b3b009a2ba1ffa3e5c76d',
-            '641b3b009a2ba1ffa3e5c76f',
-            '641b3b009a2ba1ffa3e5c755',
-            '641b3b009a2ba1ffa3e5c795',
-            '641b3b009a2ba1ffa3e5c798',
-            '641b3b009a2ba1ffa3e5c784',
-            '641b3b009a2ba1ffa3e5c786',
-            '641b3b009a2ba1ffa3e5c769',
-            '641b3b009a2ba1ffa3e5c76b',
-            '641b2e2e9a2ba1ffa3e5bf21',
-            '641b2e2e9a2ba1ffa3e5bf23',
-            '641b2e2e9a2ba1ffa3e5bf09',
-            '641b2e2e9a2ba1ffa3e5bf27',
-            '641b2e2e9a2ba1ffa3e5bf29',
-            '641b2e2e9a2ba1ffa3e5bf2f',
-            '641b2e2e9a2ba1ffa3e5bf3e',
-            '641b3b439a2ba1ffa3e5c83a',
-            '641b2e2e9a2ba1ffa3e5bf47',
-            '641b3b439a2ba1ffa3e5c85f',
-            '641b3b439a2ba1ffa3e5c83e',
-            '641b2e319a2ba1ffa3e5c01d',
-            '641b2e319a2ba1ffa3e5c055',
-            '641b2e319a2ba1ffa3e5c04f',
-            '641b2e319a2ba1ffa3e5c03d',
-            '641b2e299a2ba1ffa3e5bd3d',
-            '641b2e299a2ba1ffa3e5bd37',
-            '641b2e299a2ba1ffa3e5bd2d',
-            '641b3b3b9a2ba1ffa3e5c7b0',
-            '641b3b3c9a2ba1ffa3e5c7b2',
-            '641b3b3c9a2ba1ffa3e5c7ba',
-            '641b3b3c9a2ba1ffa3e5c7b6',
-            '641b3b3c9a2ba1ffa3e5c7cd',
-            '641b3b3c9a2ba1ffa3e5c7cb',
-            '641b3b3c9a2ba1ffa3e5c7d2',
-            '641b3b3c9a2ba1ffa3e5c7d6',
-            '641b3b3c9a2ba1ffa3e5c7b8',
-            '641b2e279a2ba1ffa3e5bcd0',
-            '641b2e279a2ba1ffa3e5bcea',
-            '641b3b499a2ba1ffa3e5c8f0',
-            '641b3b499a2ba1ffa3e5c92b',
-            '641b3b499a2ba1ffa3e5c8ea',
-            '641b3b499a2ba1ffa3e5c8e6',
-            '641b3b499a2ba1ffa3e5c903',
-            '641b3b499a2ba1ffa3e5c8e4',
-            '641b3b499a2ba1ffa3e5c91e',
-            '641b3b499a2ba1ffa3e5c92d',
-            '641b2e419a2ba1ffa3e5c3e3',
-            '641b2e419a2ba1ffa3e5c3fb',
-            '641b2e419a2ba1ffa3e5c3f4',
-            '641b2e419a2ba1ffa3e5c413',
-            '641b2e419a2ba1ffa3e5c46c',
-          ]
-        },
-        evidencePrompts: [
-          {
-            id: 0,
-            prompt: '5 user needs, in the form of "Need to...."',
-            categoryId: 4
-          },
-          {
-            id: 1,
-            prompt: 'Up to 10 detailed quotes fromm the document about problems the user has',
-            categoryId: 3,
-            isQuote: true
-          },
-          {
-            id: 2,
-            prompt: '5 problems related to entity resolution, in the form "It sucks that..."',
-            categoryId: 10,
-            tags: ["Resolution"]
-          },
-          {
-            id: 3,
-            prompt: '5 problems related to data schemas and mapping, in the form "It sucks that..."',
-            categoryId: 10,
-            tags: ["Mastery"]
-          },
-          {
-            id: 5,
-            prompt: '5 problems related to data granularity or provenance, in the form "It sucks that..."',
-            categoryId: 10,
-            tags: ["Granularity"]
-          },
-          {
-            id: 4,
-            prompt: '5 problems related to knowledge management, in the form "It sucks that..."',
-            categoryId: 10,
-            tags: ["ArraInstitutional knowledge"]
-          },
-          {
-            id: 5,
-            prompt: '5 problems related to context of data, in the form "It sucks that..."',
-            categoryId: 10,
-            tags: ["Contact"]
-          }
-        ],
-        metrics:[
-            {id: 5, data:"1212"},
-            {id: 11, data:"1212"}
-        ],
-        doDiscovery: true,
-        evidenceAggregate: [
-          { categoryIds: [10], items: [{id: 0, field: "scale", type: "scale", prompt: "Score the severity of each problem statement on scale of 0 to 9 with 0 being low and 9 being high"}, {id: 1, field: "specificity", type: "scale", prompt: "Score how specific each problem statement is on scale of 0 to 9 with 0 being low and 9 being high"}] },
-          { categoryIds: [10], category: true },
-          { category: true, categoryIds: [3] },
-          { categoryIds: [3], items: [{id: 0, field: "specificity", type: "scale", prompt: "Score how specific each problem statement is on scale of 0 to 9 with 0 being low and 9 being high"}] }
-        ]
-    }
-    const prim = await Primitive.findOne({_id:  new ObjectId("641aab679a2ba1ffa3e59781")})
-    Object.keys(data).forEach((k)=>{
-        prim[k] = data[k]
-        console.log(prim[k])
-        prim.markModified( k )
-    })
-    await prim.save()
-    res.json({success:true})
-})
 
 router.post('/remove_metric', async function(req, res, next) {
     let data = req.body
@@ -534,6 +319,43 @@ router.post('/add_metric', async function(req, res, next) {
     }
 })
 
+router.post('/primitive/:id/set_user', async function(req, res, next) {
+    const primitiveId = req.params.id
+    let data = req.body
+    console.log(data)
+    const userId = data.userId
+    const mode = data.mode
+    let success = false
+
+    try {
+
+        if( mode === "add"){
+            await Primitive.findOneAndUpdate(
+                {
+                    "_id": new ObjectId(data.receiver),
+                    'user.other': {$nin: [userId]},
+                }, 
+                {
+                    $push: { 'user.other': {$nin: [userId]},},
+                })
+            success = true
+        }
+        if( mode === "remove"){
+            await Primitive.findOneAndUpdate(
+                {
+                    "_id": new ObjectId(data.receiver),
+                    'user.other': {$in: [userId]},
+                }, 
+                {
+                    $pull: { 'user.other': {$nin: [userId]},},
+                })
+            success = true
+        }
+        res.json({success: success})
+      } catch (err) {
+        res.json(400, {error: err.message})
+    }
+})
 router.post('/set_field', async function(req, res, next) {
     let data = req.body
 
@@ -673,50 +495,18 @@ router.post('/add_primitive', async function(req, res, next) {
     let data = req.body
 
     try {
-        const paths = data.paths.map((p)=>flattenPath( p ))
-
-        if( data.parent ){
-            data.data.parentPrimitives = {[data.parent]: paths}
+        const newPrimitive = await createPrimitive( data )        
+        if( newPrimitive === undefined ){
+            throw new Error("No primitive created")
         }
-        
-        let newPrimitive = await Primitive.create(data.data)
         const newId = newPrimitive._id.toString()
-
-        try{
-            for( const path of paths){
-                console.log(path)
-                await Primitive.findOneAndUpdate(
-                    {
-                        "_id": new ObjectId(data.parent),
-                    }, 
-                    {
-                        $push: { [path]: newId }
-                    })
-            }
-        }catch(err){
-            throw err
-        }
-        res.json({success: true, id: newId})
+        res.json({success: true, id: newId, plainId: newPrimitive.plainId })
       } catch (err) {
         res.status(400).json({error: err.message})
     }
 })
 
 
-const flattenPath = (path)=>{
-    let out = ['primitives']
-    const nest = (node)=>{
-        if( node instanceof Object ){
-            const k = Object.keys(node)[0]
-            out.push(k)
-            nest( node[k] )
-            return out
-        }
-        out.push(node || "null")
-        return out
-    }
-    return nest( path).join(".")
-}
 
 router.post('/set_relationship', async function(req, res, next) {
     let data = req.body
@@ -809,6 +599,64 @@ router.get('/primitive/:id/getDocumentAsPlainText', async function(req, res, nex
         return
     }
 })
+router.get('/primitive/:id/discover', async function(req, res, next) {
+    let data = req.body
+    const primitiveId = req.params.id
+    let success = false
+
+    try{
+        const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
+        console.log(`Got origin ${prim.id} - category = ${prim.referenceId}`)
+        const category = await Category.findOne({id: prim.referenceId})
+        const extract = await getDocumentAsPlainText( primitiveId, req )
+        if( extract ){
+            const text = extract.plain
+            
+            let result = await analyzeDocument( {
+                opener: category.openai.opener,
+                descriptor: category.openai.descriptor,
+                responseInstructions: category.openai.responseInstructions,
+                text: text, 
+                prompts: category.openai.prompts
+            })
+            
+            if( result ){
+                success = true
+                if( result.success ){
+                    const out = {}
+                    const fieldMap = category.openai.prompts.filter((p)=>p.type !== "instruction").map((p)=>p.field)
+                    Object.values(result.response).forEach((item, idx)=>{
+                        let obj = Array.isArray(item) ? item[0] : item
+                        if( obj.answer ){
+                            if( obj.answer.toLowerCase().indexOf('not specified') === -1){
+                                if( fieldMap[idx] ){
+                                    out[fieldMap[idx]] = obj
+                                }
+                            }
+                        }
+                    })
+                    result.response = out
+                    prim.set("openai_error", null)
+                }else{
+                    prim.set("openai_error", result.status)
+                }
+            }else{
+                prim.set("openai_error", "UNKNOWN")
+            }
+            await prim.save()
+            res.json({success: success, result: result})
+        }else{
+            res.json({success: false, result: "Document not extracted"})
+        }
+
+            
+    }catch(err){
+        console.log(err)
+        res.status(400).json( {error: err.message})
+        return
+    }
+
+})
 router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id
@@ -841,10 +689,11 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
                     }
                     if( category ){
                         let out
-                        if( prompt.title ){
-                            out = category.base.replace("${t}", prompt.title)
-                        }else{
+                        const isEmpty = (prompt.allowInput === false) || prompt.title === undefined || prompt.title === null || prompt.title.trim() === "" 
+                        if( isEmpty ){
                             out = category.empty
+                        }else{
+                            out = category.base.replace("${t}", prompt.title)
                         }
                         if( out ){
                             out = out.replace("${n}", prompt.referenceParameters?.count || category.parameters?.count?.default) 
@@ -858,7 +707,7 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
             }
 
             const locateQuote = (oQuote, document)=>{
-                const quote = oQuote.toLowerCase().replaceAll(/\s+/g," ")
+                const quote = oQuote.toLowerCase().replaceAll(/\./g," ").replaceAll(/\s+/g," ")
                 console.log(`looking for ${quote}`)
                 let startPage = 0
                 let endPage = 0
@@ -867,7 +716,7 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
                 let terminate = false
                 const subset = (fwd)=>{
                     const final = (data)=>{
-                        return data.join(" ").toLowerCase().replaceAll(/\s*\n+/g,". ").replaceAll(/\s+/g," ")
+                        return data.join(" ").toLowerCase().replaceAll(/\./g," ").replaceAll(/\s+/g," ")
                     }
                     let str = []
                     if( startIdx === document.pages[endPage].content.length ){
@@ -958,7 +807,7 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
             }
 
             const extract = await getDocumentAsPlainText( primitiveId, req )
-         /*   const out = locateQuote("the surprise would be that none of these data sets are really joined up. you kind of assume that there is lot more connection between data sets and data sources than their actually are", extract.data)
+           /* const out = locateQuote("we as a firm assume the data is wrong coming up with a strategy that helps us to understand the difference in error for example, in commercial real estate, there are a fixed number of vendors who investors rely on for doing their underwriting they all have different approaches to generating a data set e.g. avg rent, price per square foot some do it by surveying owners or tenants some use reits as a way to back out data others leverage partnerships with operators e.g. the greystars", extract.data)
             res.json({success: success, result: out})
             return */
 

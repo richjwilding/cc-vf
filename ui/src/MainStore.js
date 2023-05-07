@@ -2,6 +2,7 @@ import PrimitiveParser from "./PrimitivesParser";
 import ResultAnalyzer from "./ResultAnalyzer";
 import ExperimentAnalyzer from "./ExperimentAnalyzer";
 import ContactHelper from "./ContactHelper";
+import {default as PrimitiveConfig} from "./PrimitiveConfig";
 
 let instance = undefined
 function MainStore (prims){
@@ -12,24 +13,14 @@ function MainStore (prims){
     let obj = {
         id:  Math.floor(Math.random() * 99999),
         callbacks: {},
-        types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt"],
+        types: PrimitiveConfig.types,
         ajaxResponseHandler(result){
             if( result.success){
                 return true
             }            
             console.warn(result)
         },
-        stateInfo: {
-            "experiment":{
-                "open": {title: "Not started", colorBase: "blue"},
-                "active": {title: "Underway", colorBase: "amber"},
-                "closed": {title: "Completed", colorBase: "green"},
-            },
-            default: {
-                "open": {title: "Open"},
-                "closed": {title: "Closed"},
-            }
-        },
+        stateInfo: PrimitiveConfig.stateInfo,
         extendPath:function(path, ext){
             return this.stringToPath(this.pathToString(path) + "." + ext)
         },
@@ -66,6 +57,34 @@ function MainStore (prims){
         controller: {
             async createMetric(primitive, object){
                 return await this._createOrUpdateMetric( primitive, object )
+            },
+            async updatePrimitiveUserList(receiver, user, mode){
+                const data = {
+                    userId: user.id,
+                    mode: mode
+                }
+                if( receiver.id === undefined || user.id === undefined){
+                    return 
+                }
+                fetch(`/api/primitive/${receiver.id}/set_user`,{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(res => res.json())
+                .then(
+                  (result) => {
+                    if( obj.ajaxResponseHandler( result )){
+                        obj.triggerCallback('set_user', [receiver])
+                    }
+                  },
+                  (error) => {
+                    console.warn(error)
+                  }
+                )
+
             },
             async removeMetric(primitive, id){
                 if( id === undefined ){ return id}
@@ -173,7 +192,7 @@ function MainStore (prims){
                     data: object,
                     paths: paths
                 }
-                let newId
+                let newIds
 
                 await fetch("/api/add_primitive",{
                     method: 'POST',
@@ -187,14 +206,14 @@ function MainStore (prims){
                   (result) => {
                     if( obj.ajaxResponseHandler( result )){
                         console.log(result)
-                        newId = result.id
+                        newIds = {id: result.id, plainId: result.plainId}
                     }
                   },
                   (error) => {
                     console.warn(error)
                   }
                 )
-               return newId 
+               return newIds
             },
             updateTitle:function( receiver, title){
                 this.updateField(receiver, "title", title, "set_title")
@@ -425,7 +444,7 @@ function MainStore (prims){
 
                         if( metric.type === "sum"){
                             if( prims === undefined){return 0}
-                            return prims.allItems.map((p)=>parseInt(p.referenceParameters[metric.parameter])).reduce((a, c)=>a + c,0)
+                            return prims.allItems.map((p)=>parseInt(p.referenceParameters[metric.parameter] || 0)).reduce((a, c)=>a + c,0)
                         }
 
                         if( metric.type === "conversion" || metric.type === "count"){
@@ -438,7 +457,7 @@ function MainStore (prims){
                                     
                                     let relationships = target.parent.metadata?.resultCategories[Object.values(metric.path)[0]].relationships
                                     Object.keys(relationships).forEach((k)=>{
-                                        if( !prims[k] ){
+                                        if( !Object.keys(prims).includes(k)){
                                             prims[k] = []
                                         }
                                     })
@@ -475,7 +494,6 @@ function MainStore (prims){
                                     let by_reln = metric.targets || metric.by_relationship
                                     filter_empty = true
                                 }
-                                
                             if( metric.targets && metric.targets.length > 0 ){
                                 counts = counts.filter((d)=>{
                                     let mt = metric.targets.find((d2)=>(d2.presence === d.presence && d2.presence !== undefined) || (d2.relationship === d.relationship))
@@ -538,6 +556,12 @@ function MainStore (prims){
                 }
             return data
         },
+        workspace:function(id){
+            return obj.workspaces().find((d)=>d._id === id)
+        },
+        workspaces:function(){
+            return obj.data.workspaces
+        },
         categories:function(){
             return obj.data.categories
         },
@@ -569,6 +593,12 @@ function MainStore (prims){
         },
         users:function(){
             return this.data.users
+        },
+        framework:function(id){
+            return this.frameworks().find((d)=>d.id === id)
+        },
+        frameworks:function(){
+            return this.data.frameworks
         },
         deregisterCallback:function(id){
             let store = this
@@ -615,6 +645,16 @@ function MainStore (prims){
             })
 
         },
+        doPrimitiveDocumentDiscovery:async function ( primitive){
+            
+            let url = `/api/primitive/${primitive.id}/discover`
+
+                const result = await fetch(url,{
+                    method: "GET",
+                })
+                const response = await result.json()
+                return response
+        },
         doPrimitiveDocumentQuestionsAnalysis:async function ( primitive, ids ){
             
             let url = `/api/primitive/${primitive.id}/analyzeQuestions`
@@ -649,6 +689,7 @@ function MainStore (prims){
             if( !(primitive instanceof Object)){
                 primitive = this.primitive(primitive)
             }
+            await primitive.removeChildren()
             if( this.controller.removePrimitive(primitive) ){
                 const ids = []
                 primitive.parentPrimitives.forEach((parent)=>{
@@ -687,25 +728,24 @@ function MainStore (prims){
                 }
             }
 
-            if( type === "result"){
-                if( category && parent && parent.metadata){
+        //    if( type === "result"){
+                if( category && parent && parent.metadata && parent.metadata.resultCategories){
                     const match = parent.metadata.resultCategories.find((d)=>d.resultCategoryId === categoryId) 
-                    if( match === undefined){
-                        throw new Error(`Cant add result with category ${categoryId} to Prim #${parent.plainId}`)
+                    if( match ){
+                        if( match.relationships ){
+                            paths.push({results: {[match.id]: Object.keys(match.relationships)[0]}})
+                        }else{
+                            paths.push({results: match.id})
+                        }
                     }                    
-                    if( match.relationships ){
-                        paths.push({results: {[match.id]: Object.keys(match.relationships)[0]}})
-                    }else{
-                        paths.push({results: match.id})
-                    }
-                }else{
-                    throw new Error(`Cant add result with category ${categoryId} to Prim #${parent.plainId}`)
+/*                }else{
+                    throw new Error(`Cant add result with category ${categoryId} to Prim #${parent.plainId}`)*/
                 }
-            }
+          //  }
             console.log(`paths: `, paths)
 
             let data = {
-                plainId:  Math.floor(Math.random() * 99999),
+                //plainId:  Math.floor(Math.random() * 99999),
                 title: title,
                 type: type,
                 state: state,
@@ -715,8 +755,13 @@ function MainStore (prims){
                 users: {owner: [this.activeUser.id], other: []},
                 ...extraFields
             }
-            const newId = await this.controller.createPrimitive(data, parent, paths)
-            data._id = newId
+            const newIds = await this.controller.createPrimitive(data, parent, paths)
+            if( newIds === undefined){
+                console.warn('New primitive not created')
+                return
+            }
+            data._id = newIds.id
+            data.plainId = newIds.plainId
             this.addPrimitive( data )
             
             if( parent ){
@@ -724,7 +769,7 @@ function MainStore (prims){
                     parent.addRelationship( data, p, true)
                 })
             }
-            const newObj = obj.primitive(newId)
+            const newObj = obj.primitive(data._id)
             obj.triggerCallback("relationship_update", [parent, newObj])
             return  newObj
         }
@@ -772,7 +817,7 @@ function MainStore (prims){
             d.id = d._id
         }
         if( !d.primitives ){
-            d.primitives = []
+            d.primitives = {}
         }
         const primObj = new Proxy(d, {
             set(d, prop, value, receiver) {
@@ -796,7 +841,7 @@ function MainStore (prims){
 
                         id = await obj.controller.removeMetric( receiver, id )
 
-                        if( id ){
+                        if( id !== undefined){
                             d.metrics = d.metrics.filter((d)=>d.id !== id )
                             return existingMetric
                         }else{
@@ -815,7 +860,6 @@ function MainStore (prims){
                         let id = existingMetric ? existingMetric.id : undefined
                         if( prop === "updateMetric" ){
                             if( id ){
-                                // do update
                                 id = await obj.controller.updateMetric( receiver, metric, id )
                                 d.metrics = d.metrics.filter((d)=>d.id !== id )
                             }
@@ -823,7 +867,7 @@ function MainStore (prims){
                             id = await obj.controller.createMetric( receiver, metric )
                         }
 
-                        if( id ){
+                        if( id !== undefined){
                             metric.id = id
                             metric.path = data.type === "conversion" ? {results: 0} : {metrics: id}
                             if( d.metrics === undefined){
@@ -860,6 +904,36 @@ function MainStore (prims){
                         return true
                     }
                 }
+                if( prop === "addUser" ){
+                    return function( user ){
+                        if( user === undefined){return undefined}
+                        d.users = d.users || {other: [], owner: []}
+                        const present = d.users.other.includes(user.id)
+                        if( present){return true}
+
+                        d.users.other.push(user.id)
+
+                        return obj.controller.updatePrimitiveUserList(receiver, user, "add")
+                    }
+                }
+                if( prop === "removeUser" ){
+                    return function( user ){
+                        if( user === undefined){return undefined}
+                        d.users = d.users || {other: [], owner: []}
+                        const present = d.users.other.includes(user.id)
+                        if( !present){return true}
+
+                        d.users.other = d.users.other.filter((d)=>d !== user.id)
+
+                        return obj.controller.updatePrimitiveUserList(receiver, user, "remove")
+                    }
+                }
+                if( prop === "workspace"){
+                    if( d.workspaceId ){
+                        return obj.workspace( d.workspaceId )
+                    }
+                    return undefined
+                }
                 if( prop === "setLocalFlag"){
                     return function( fieldName, value ){
                         d['_' + fieldName] = value
@@ -868,7 +942,17 @@ function MainStore (prims){
                 }
                 if( prop === "setField"){
                     return function( fieldName, value, callbackName ){
-                        d[fieldName] = value
+                        let node = d
+                        const fields = fieldName.split(".")
+                        let last = fields.pop()
+                        fields.forEach((f)=>{
+                            if( node[f] === undefined){
+                                node[f] = {}
+                            }
+                            node = node[f]
+                            
+                        })
+                        node[last] = value
                         obj.controller.updateField( receiver, fieldName, value, callbackName || `set_field`  )
                         return true
                     }
@@ -956,11 +1040,11 @@ function MainStore (prims){
                 }
                 if( prop === "removeChildren"){
                     return async function(dry_run = false){
-                        const directs = receiver.primitives.origin.allItems
+                        const directs = [receiver.primitives.origin.allItems, receiver.primitives.auto.allItems].flat()
                         let nested = [] 
-                        directs.forEach((d)=>{
-                            nested = nested.concat(d.removeChildren(dry_run))
-                        })
+                        for( d of directs ){
+                            nested = nested.concat(await d.removeChildren(dry_run))
+                        }
                         if( dry_run ){
                             return nested.concat(directs.map((d)=>d.plainId))
                         }else{
@@ -981,7 +1065,11 @@ function MainStore (prims){
                 }
 
                 if( prop === "metadata"){
-                    return obj.categories().find((p)=>p.id === d.referenceId )
+                    let category = obj.categories().find((p)=>p.id === d.referenceId )
+                    if( category === undefined){
+                        category = PrimitiveConfig.metadata[receiver.type]
+                    }
+                    return category
                 }
 
                 if( prop in obj.types){
@@ -992,8 +1080,7 @@ function MainStore (prims){
                         d.analyzer =  ()=>{
                             return ResultAnalyzer(receiver).init()
                         }
-                    }
-                    if( d.type === "experiment" || d.type === "task"){
+                    }else if( receiver.isTask){
                         d.analyzer =  ()=>{
                             return ExperimentAnalyzer(receiver).init()
                         }
@@ -1054,7 +1141,18 @@ function MainStore (prims){
                             return o
                         }, [])
                     }
+                    if( d.type === "assessment"){
+                        if( prop === "framework"){
+                            return obj.framework( d.frameworkId)
+                        }
+                    }
                 }
+
+                if( prop === "doDiscovery"){
+                    return (ids)=>{
+                        return obj.doPrimitiveDocumentDiscovery( receiver, ids )
+                    }
+                } 
                 if( prop === "doQuestionsAnalysis"){
                     return (ids)=>{
                         return obj.doPrimitiveDocumentQuestionsAnalysis( receiver, ids )
@@ -1120,7 +1218,6 @@ function MainStore (prims){
 
     obj.processOutstandingDiscovery = async function(){
         obj.primitives().forEach((primObj)=>{
-
             if( primObj.type === "result"){
                 if( primObj.referenceParameters.notes !== undefined ){
                     if( primObj.origin && primObj.origin.doDiscovery ){
@@ -1135,6 +1232,7 @@ function MainStore (prims){
     }
 
     obj.loadData = async function(){
+        obj.loadProgress = []
             const status = await fetch('/api/status').then(response => response.json())
             if( !status.logged_in ){
                 if( window.location.pathname !== "/login"){
@@ -1148,14 +1246,18 @@ function MainStore (prims){
 
 
         return new Promise((resolve)=>{
-            const users = fetch('/api/users').then(response => response.json())
-            const companies = fetch('/api/companies').then(response => response.json())
-            const contacts = fetch('/api/contacts').then(response => response.json())
-            const categories = fetch('/api/categories').then(response => response.json())
-            const primitives = fetch('/api/primitives').then(response => response.json())
+            const users = fetch('/api/users').then(response => {obj.loadProgress.push('users');return response.json()})
+            const companies = fetch('/api/companies').then(response => {obj.loadProgress.push('companies');return response.json()})
+            const contacts = fetch('/api/contacts').then(response => {obj.loadProgress.push('contacts');return response.json()})
+            const categories = fetch('/api/categories').then(response => {obj.loadProgress.push('categories');return response.json()})
+            const primitives = fetch('/api/primitives').then(response => {obj.loadProgress.push('primitives');return response.json()})
+            const workspaces = fetch('/api/workspaces').then(response => {obj.loadProgress.push('workspaces');return response.json()})
+            const frameworks = fetch('/api/frameworks').then(response => {obj.loadProgress.push('frameworks');return response.json()})
             
-            Promise.all([users,companies,contacts,categories,primitives]).then(([users, companies,contacts, categories,primitives])=>{
-                obj.data.users = users
+            Promise.all([users,companies,contacts,categories,primitives,workspaces,frameworks]).then(([users, companies,contacts, categories,primitives,workspaces,frameworks])=>{
+                obj.data.users = users.map((d)=>{
+                    return {...d, id: d.id || d._id}
+                })
                 obj.data.companies = companies
                 obj.data.contacts = contacts.map((d)=>{
                     d.id = d.id !== undefined ? d.id : d._id; 
@@ -1166,8 +1268,11 @@ function MainStore (prims){
                 obj.data.categories = categories
                 obj.data.primitives = primitives
                 obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
+                obj.activeUser.id = obj.activeUser.info.id
+                obj.data.workspaces = workspaces
+                obj.data.frameworks = frameworks.map((d)=>{d.id = d._id; return d})
 
-                obj.processOutstandingDiscovery()
+//                obj.processOutstandingDiscovery()
                 resolve(true)
             })
         })

@@ -6,6 +6,7 @@ import { MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, ChevronDownIcon, Che
 
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
+import {pageNavigationPlugin} from '@react-pdf-viewer/page-navigation';
 import { toolbarPlugin, ToolbarSlot } from '@react-pdf-viewer/toolbar';
 
 //import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
@@ -103,6 +104,7 @@ const ResultViewer = forwardRef(function ResultViewer({createCallback, ...props}
   const [notes, setNotes] = React.useState(()=>processNotesFromEvidence());
   const [highlightNote, setHighlightNote] = React.useState(undefined);
   const [toolbarPluginInstance, toolbar] = MyToolBar()
+  const pageNavigationPluginInstance = pageNavigationPlugin();
   const viewer = React.useRef()
   let startEl = undefined
   let endEl = undefined
@@ -111,8 +113,15 @@ const ResultViewer = forwardRef(function ResultViewer({createCallback, ...props}
     return {
       showPrimitive( primitiveId ) {
             const note = notes.find((d)=>d.primitiveId === primitiveId)
-            if( note && note.ref ){
-                note.ref.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+            if( note ){
+                if(  note.ref ){
+                    note.ref.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+                }else{
+                    if( note.highlightAreas ){
+                        const firstPage = note.highlightAreas[0].pageIndex
+                        pageNavigationPluginInstance.jumpToPage(firstPage)
+                    }
+                }
             }
             setHighlightNote( primitiveId )
       },
@@ -250,6 +259,7 @@ const highlightPluginInstance = props.enableEvidence ? highlightPlugin({
               fileUrl={url.data}
               plugins={[
                 toolbarPluginInstance,
+                pageNavigationPluginInstance,
                 highlightPluginInstance,
               ].filter((d)=>d)}
           />
