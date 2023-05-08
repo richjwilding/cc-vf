@@ -87,9 +87,9 @@ const Item = function(props){
         as='div'
         enter="ease-in-out duration-200"
         enterFrom="max-h-0 h-0"
-        enterTo="max-h-[40vh] h-[22em]"
+        enterTo="max-h-[60vh] h-[44em]"
         leave="ease-in-out duration-200"
-        leaveFrom="max-h-[40vh] h-[22em]"
+        leaveFrom="max-h-[60vh] h-[44em]"
         leaveTo="max-h-0 h-0"
         afterLeave={()=>props.txCallback(props.open)}
         className={classNames(
@@ -129,7 +129,11 @@ const SortableItem = function(props) {
   const SortablePrimitive = React.forwardRef(({primitive, isDragging, selectId, onEnter,...props}, ref) => {
     const categories = primitive.origin?.metadata?.resultCategories
     const thisCategory = categories.find((d)=>d.resultCategoryId === primitive.referenceId )
-    let fields = thisCategory ? thisCategory.views.list.cards : []
+
+    let fields = thisCategory ? thisCategory.views.list.kaban : undefined
+    if( fields === undefined){
+      fields = thisCategory ? thisCategory.views.list.cards : []
+    }
 
     return (
       <div id={primitive.plainId} ref={ref} {...props} className={`px-2 py-1 ${isDragging ? "opacity-25" : ""}`}>
@@ -140,6 +144,7 @@ const SortableItem = function(props) {
             compact={true} 
             flatBorder={true}
             showExpand={true}
+            showId={false}
             showAsSecondary={true}
             fields={fields} 
             className='border-b-[1px] border-gray-200 '
@@ -303,8 +308,6 @@ export function MetricCard({primitive, metric, ...props}) {
   }
 
   const initList = ()=>{
-    console.log(metric.id)
-    console.log(value)
     return value.reduce((o, v,idx)=>{
       o[v.relationship] = v.list
       return o 

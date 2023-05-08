@@ -5,9 +5,9 @@ export default function useDataEvent(fields, ids, callback){
     const callbackId = React.useRef(null)
     const [count, forceUpdate] = React.useReducer( (x)=>x+1, 0)
 
-    const wrap = ()=>{
+    const wrap = (ids)=>{
         forceUpdate()
-        callback && callback()
+        callback && callback(ids)
     }
 
     React.useEffect(()=>{

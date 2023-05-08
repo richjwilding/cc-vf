@@ -242,7 +242,7 @@ export function ComponentRow(props) {
                 >
                 </Transition>
                   <div key='marker' className={`shrink-0 text-gray-900 flex absolute ${currentTarget && current? "-top-2 z-20" : "" } min-w-8`}>
-                    {!currentTarget && ticked  && !current && <div className={`h-5 w-5 mx-auto border-${color.base}-600 ${l.target ? `bg-${color.base}-200` : `bg-${color.base}-700`} rounded-[50%] border-[6px]  place-items-center	flex`}></div>}
+                    {!currentTarget && ticked  && !current && <div className={`h-5 w-5 mx-auto border-${color.base}-600 ${l.target ? `bg-${color.base}-200` : `bg-${color.base}-700`} rounded-[50%] border-[6px]  place-items-center	flex ${expand ? 'hover:bg-white' :''}`}></div>}
                     {!currentTarget && current && <div className={`h-5 w-5 mx-auto border-${color.base}-600 bg-${color.base}-600 rounded-[50%] border-2 place-items-center	flex`}><ChevronRightIcon strokeWidth='2.5' className={`w-6 h-6 text-${color.base}-100`}/></div>}
                     {!currentTarget && !(ticked  || current) && <div className={`h-5 w-5 mx-auto border-${color.base}-200 ${l.target ? `bg-${color.base}-50` : `bg-${color.base}-300`} rounded-[50%] border-[6px]  place-items-center	flex`}></div>}
                     {currentTarget && !current && <div className={`h-5 w-5 mx-auto ${`bg-${color.base}-50`} rounded-[50%] border-4 border-${color.base}-600`} />}  
@@ -295,7 +295,7 @@ export function ComponentRow(props) {
                     >
                     <div className={`group-hover:bg-${color.base}-25 justify-start h-[calc(100%_-_1em)] place-items-center w-full group/box`}>
                     {evidence && !expand && !thisLevel && (evidence.length > 0) && 
-                      <div className={`h-6 w-6 mx-auto ${`bg-${color.base}-50`} rounded-[50%] border-2 text-${color.base}-600 border-${color.base}-600 flex place-items-center justify-center text-sm`} >
+                      <div className={`mt-2 h-6 w-6 mx-auto ${`bg-${color.base}-50`} rounded-full border-2 text-${color.base}-600 border-${color.base}-600 flex place-items-center justify-center text-sm`} >
                         {evidence.length}
                       </div>}
                     {evidence && (expand || thisLevel) && evidence.map((d, idx)=>

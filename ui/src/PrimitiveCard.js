@@ -65,8 +65,8 @@ let mainstore = MainStore()
                 key={user ? user.id : "user"}
                 mode = "user"
                 value ={user} 
-                onSelect={(value)=>{
-                  props.primitive.setParameter(item.key, value ? value.id : null)
+                onSelect={async (value)=>{
+                  await props.primitive.setParameter(item.key, value ? value.id : null)
                 }}
                 className={`flex place-items-center ${props.inline ? "truncate" : ""} ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
               />
@@ -624,7 +624,7 @@ const Hero = function({primitive, ...props}){
 
 const Questions = function({primitive, ...props}){
   const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
-  useDataEvent("set_field", props.relatedTo?.id, forceUpdate)
+  useDataEvent("set_field relationship_update", [props.relatedTo?.id, primitive.id], forceUpdate)
   let aiProcessSummary
   let analyzer
 

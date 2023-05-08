@@ -2,7 +2,7 @@ import { PrimitiveCard } from './PrimitiveCard'
 import { MetricCard } from './MetricCard'
 import { HeroIcon } from './HeroIcon'
 import {Fragment, useEffect, useReducer, useRef, useState, useMemo, useCallback} from 'react';
-import { useParams } from "react-router-dom";
+import { useLinkClickHandler, useNavigate, useParams } from "react-router-dom";
 import Panel from './Panel';
 import { Tab } from '@headlessui/react'
 import {
@@ -14,7 +14,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { PrimitivePopup } from './PrimitivePopup';
 import { MetricPopup } from './MetricPopup';
 import MainStore from './MainStore';
-import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon, GifIcon } from '@heroicons/react/24/outline';
+import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon, GifIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { formatDistance, subDays } from 'date-fns'
 import ContactPicker from './ContactPicker';
 import ResultViewer from './ResultViewer';
@@ -25,6 +25,9 @@ import EvidenceExplorer from './EvidenceExplorer';
 import MetricEditor from './MetricEditor';
 import AIProcessButton from './AIProcessButton';
 import { ComponentRow } from './ComponentRow';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import Popup from './Popup';
+import AIStatusPopup from './AIStatusPopup';
 
 let mainstore = MainStore()
 
@@ -58,7 +61,7 @@ function classNames(...classes) {
 export function PrimitivePage({primitive, ...props}) {
     const { id } = useParams();
     if( primitive === undefined && id){
-      primitive = mainstore.primitive(parseInt(id))
+      primitive = mainstore.primitive(isNaN(id) ? id : parseInt(id))
     }
     let metadata = primitive.metadata
     let task = primitive.originTask
@@ -77,6 +80,8 @@ export function PrimitivePage({primitive, ...props}) {
     const [analysis, setAnalysis] = useState()
     const [showWorkingPane, setShowWorkingPaneReal] = useState(hasDocumentViewer)
     const [componentView, setComponentView] = useState(null)
+    const [showAIPopup, setShowAIPopup] = useState(null)
+    const navigate = useNavigate();
 
 
 
@@ -312,7 +317,7 @@ export function PrimitivePage({primitive, ...props}) {
                         }
                     <PrimitiveCard.EvidenceList evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                   </Panel>}
-            {primitive.type === "assessment" &&
+            {primitive.type === "assessment" && primitive.framework &&
                   <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
                       { Object.values(primitive.framework.components).map((c) => <ComponentRow onClick={()=>{setShowWorkingPane(true);setComponentView(c)}} compact={true} evidenceDetail={false} key={c.id} component={c}/>)}
                   </Panel>}
@@ -336,10 +341,21 @@ export function PrimitivePage({primitive, ...props}) {
                   })
                 }
                 const resultCategory = mainstore.category(category.resultCategoryId)
+                const title = (resultCategory.openai || resultCategory.doDiscovery) 
+                            ? <div className='flex place-items-center'>
+                              {category.plurals || category.title}
+                              <button
+                                type="button"
+                                onClick={(e)=>{e.stopPropagation();setShowAIPopup({category:resultCategory, path: category.id})}}
+                                className="text-xs ml-2 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full text-gray-400 font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                                  <FontAwesomeIcon icon="fa-solid fa-robot" />
+                                </button>
+                              </div>
+                            : category.plurals || category.title
 
                 
                 return (
-                  <Panel key={category.title} title={category.plurals || category.title} titleButton={[{title:"Create new", action: ()=>createResult(resultCategory, undefined, true)},{title: "Create from document", action: ()=>createNewResultFromDocument(resultCategory)}]} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                  <Panel key={category.title} title={title} titleButton={[{title:"Create new", action: ()=>createResult(resultCategory, undefined, true)},{title: "Create from document", action: ()=>createNewResultFromDocument(resultCategory)}]} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
                         {(list === undefined || list.length === 0) && 
                           <div className='w-full p-2'>
                             <button
@@ -360,7 +376,7 @@ export function PrimitivePage({primitive, ...props}) {
                                 return (
                                     <motion.div 
                                         key={p.plainId}
-                                        layoutId={p.plainId} onDoubleClick={(e) =>{e.preventDefault();setSelected(p)}}
+                                        layoutId={p.plainId} onDoubleClick={(e) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
                                     >
                                     <PrimitiveCard 
                                         key={p.id}
@@ -502,7 +518,7 @@ export function PrimitivePage({primitive, ...props}) {
                           <EvidenceExplorer evidenceList={nestedEvidence}  showOriginInfo={[{contact: 'contactName'}, 'company']} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                     }
                     {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} createCallback={createEvidenceFromNote} primitive={primitive} />}
-                    {primitive.type === "assessment" && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
+                    {primitive.type === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
                 </div>
               </div>
               }
@@ -614,6 +630,7 @@ export function PrimitivePage({primitive, ...props}) {
         <PrimitivePopup primitive={selected} contextOf={primitive} editing={true} setPrimitive={setSelected}/>
         <MetricPopup selected={selectedMetric?.metric} contextOf={selectedMetric?.primitive} highlight={selectedMetric?.highlight} setSelected={setSelectedMetric}/>
         {editMetric && <MetricEditor metric={editMetric} primitive={primitive} setOpen={()=>setEditMetric(null)}/> }
+        {showAIPopup && <AIStatusPopup category={showAIPopup.category} path={showAIPopup.path} primitive={primitive} close={()=>setShowAIPopup(false)}/>}
       </div>
     </>
   )

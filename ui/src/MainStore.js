@@ -620,7 +620,7 @@ function MainStore (prims){
                     store.callbacks[e] = []
                 }
                 store.callbacks[e] = store.callbacks[e].filter((d)=>d.id !== id)
-                store.callbacks[e].push({callback: cb, filterIds: [idList].flat(), id: id})
+                store.callbacks[e].push({callback: cb, filterIds: idList ? [idList].flat(): undefined, id: id})
                 //console.log(`registered ${e} for ${id} (${store.callbacks[e].length}) / ${[idList].flat().join(", ")}`)
             })
             return id
@@ -636,7 +636,7 @@ function MainStore (prims){
 
             const name = e
             this.callbacks[e].forEach((e)=>{
-                if( e.filterIds.length > 0 ){
+                if( e.filterIds && e.filterIds.length > 0 ){
                     if( items.filter((item)=>e.filterIds.includes(item)).length === 0){
                         return
                     }

@@ -1,6 +1,7 @@
 import Primitive from './model/Primitive';
 import Counter from './model/Counter';
 import PrimitiveConfig from "./PrimitiveConfig";
+import AssessmentFramework from './model/AssessmentFramework';
 var ObjectId = require('mongoose').Types.ObjectId;
 
 async function getNextSequenceValue(sequenceName) {
@@ -32,6 +33,9 @@ async function createPrimitive( data ){
             if( config.needParent && data.parent === undefined){
                 throw new Error(`Cant create '${type}' without a parent`)
             }
+        }
+        if( type === "assessment" && data.data.frameworkId === undefined){
+            data.data.frameworkId = (await AssessmentFramework.findOne({}))?._id.toString()
         }
         
         const paths = data.paths.map((p)=>flattenPath( p ))

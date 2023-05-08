@@ -89,14 +89,15 @@ export default function EditablePersonField ({...props}){
         return
       }
       if( e.key === "Escape"){
+        console.log('cancel')
         setValue( startValues() )
         field.current.blur()
         return
       }
       if( e.key === "Enter"){
-        const out = value.map((v)=>({id: v.value, name: v.label}))
         e.preventDefault()
         e.stopPropagation()
+        const out = value.map((v)=>({id: v.value, name: v.label}))
         props.onSelect( props.muliple ? out : out[0])
         field.current.blur()
         return

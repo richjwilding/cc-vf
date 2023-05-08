@@ -719,7 +719,7 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
                         return data.join(" ").toLowerCase().replaceAll(/\./g," ").replaceAll(/\s+/g," ")
                     }
                     let str = []
-                    if( startIdx === document.pages[endPage].content.length ){
+                    if( startIdx >= document.pages[endPage].content.length ){
                         startIdx = 0
                         startPage++
 
@@ -729,7 +729,7 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
                         return final(str)
                     }
 
-                    if( fwd && endIdx === document.pages[endPage].content.length ){
+                    if( fwd && endIdx >= document.pages[endPage].content.length ){
                         const oldIdx = endIdx
                         endIdx = 0
                         endPage++
