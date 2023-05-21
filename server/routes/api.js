@@ -225,9 +225,30 @@ router.get('/categories', async function(req, res, next) {
 
 })
 router.get('/primitives', async function(req, res, next) {
+    const workspaceId = req.query.workspace
 
     try {
-        const results = await Primitive.find({})
+        const user = await User.findOne({email: req.user.email})
+        const workspaces = user.workspaces || []
+      //  const results = await Primitive.find({})
+      let query = {$and: [
+                    { workspaceId: { $in: workspaces }},
+                    { type: { $in: ['activity','experiment','venture'] }}
+                ]}
+
+      if( workspaceId !== undefined){
+        query = {
+            $or: [
+                {workspaceId: workspaceId},
+                query
+            ]
+        }
+        if( workspaceId === "all"){
+            query = { workspaceId: { $in: workspaces }}
+        }
+      }
+        
+        const results = await Primitive.find(query)
         res.json(results)
       } catch (err) {
         res.json({error: err})
@@ -332,22 +353,22 @@ router.post('/primitive/:id/set_user', async function(req, res, next) {
         if( mode === "add"){
             await Primitive.findOneAndUpdate(
                 {
-                    "_id": new ObjectId(data.receiver),
-                    'user.other': {$nin: [userId]},
+                    "_id": new ObjectId(primitiveId),
+                    'users.other': {$nin: [userId]},
                 }, 
                 {
-                    $push: { 'user.other': {$nin: [userId]},},
+                    $push: { 'users.other': userId},
                 })
             success = true
         }
         if( mode === "remove"){
             await Primitive.findOneAndUpdate(
                 {
-                    "_id": new ObjectId(data.receiver),
-                    'user.other': {$in: [userId]},
+                    "_id": new ObjectId(primitiveId),
+                    'users.other': {$in: [userId]},
                 }, 
                 {
-                    $pull: { 'user.other': {$nin: [userId]},},
+                    $pull: { 'users.other': userId},
                 })
             success = true
         }

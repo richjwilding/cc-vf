@@ -15,6 +15,28 @@ function MainStore (prims){
         id:  Math.floor(Math.random() * 99999),
         callbacks: {},
         types: PrimitiveConfig.types,
+        setActiveWorkspaceFrom:async function(primitive){
+            if( primitive.workspaceId ){
+                console.warn(`No workspace for Primitive ${primitive.id}`)
+            }
+            if( obj.activeWorkspaceId == primitive.workspaceId){return}
+
+            obj.loadControl(false)
+
+            const oldId = obj.activeWorkspaceId
+            obj.activeWorkspaceId = primitive.workspaceId
+            console.log(`Workspace set to ${obj.workspace(obj.activeWorkspaceId).title}`)
+
+            const toPurge = obj.data.primitives.filter((d)=>this.workspaceId != obj.activeWorkspaceId)
+            console.log(`Removing ${toPurge.length} items`)
+
+            const response = await fetch(`/api/primitives?workspace=${obj.activeWorkspaceId}`)
+            obj._cache_prim = undefined
+            obj.data.primitives = await response.json()
+            console.log('back')
+            obj.loadControl(true)
+
+        },
         ajaxResponseHandler(result){
             if( result.success){
                 return true
@@ -191,9 +213,13 @@ function MainStore (prims){
                 const data = {
                     parent: parent ? parent.id : undefined,
                     data: object,
+                    workspaceId: obj.activeWorkspaceId,
                     paths: paths
                 }
                 let newIds
+                if( obj.activeWorkspaceId === undefined){
+                    throw "Must have an active workspace"
+                }
 
                 await fetch("/api/add_primitive",{
                     method: 'POST',

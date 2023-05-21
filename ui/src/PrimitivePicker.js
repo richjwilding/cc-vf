@@ -242,7 +242,7 @@ function ParentLinksManager({mode, ...props}) {
       setInputOpen(true)
     }
     const promote = async ()=>{
-      await props.root.addRelationship( props.primitive )
+      await props.root.addRelationship( props.primitive, "outcomes" )
       props.setOpen(false)
     }
     const addToAggregation = async (target)=>{

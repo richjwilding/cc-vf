@@ -37,6 +37,10 @@ async function createPrimitive( data ){
         if( type === "assessment" && data.data.frameworkId === undefined){
             data.data.frameworkId = (await AssessmentFramework.findOne({}))?._id.toString()
         }
+        if( data.workspaceId === undefined){
+            throw new Error(`Cant create without a workspace`)
+        }
+        data.data.workspaceId = data.workspaceId
         
         const paths = data.paths.map((p)=>flattenPath( p ))
         if( data.parent ){

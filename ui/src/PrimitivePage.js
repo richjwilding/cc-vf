@@ -85,8 +85,6 @@ export function PrimitivePage({primitive, ...props}) {
     const [showAIPopup, setShowAIPopup] = useState(null)
     const navigate = useNavigate();
 
-
-
     const setShowWorkingPane = useCallback((value) => {
       console.log(value)
       setShowWorkingPaneReal(value)
@@ -108,6 +106,7 @@ export function PrimitivePage({primitive, ...props}) {
       }
       console.log(`re run effect ${primitive.id}`)
       setShowWorkingPane(hasDocumentViewer )
+      mainstore.setActiveWorkspaceFrom( primitive )
     }, [primitive.id])
 
     /*const registerCallbacks = ()=>{
@@ -184,7 +183,7 @@ export function PrimitivePage({primitive, ...props}) {
     let page = useRef()
     let header = useRef()
 
-    let outcomesList = primitive.primitives.allUniqueEvidence
+    let outcomesList = primitive.primitives.outcomes.allUniqueEvidence
 
   return (
     <>
