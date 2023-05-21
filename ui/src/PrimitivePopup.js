@@ -54,9 +54,7 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
     }
 
     const promptDelete = ()=>{
-
       setShowDeletePrompt( true )
-     // setPrimitive(null)
     }
 
     const handleDelete = ()=>{

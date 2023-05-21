@@ -277,13 +277,15 @@ app.get('/miro/login', async (req, res) => {
 
 app.get('/api/refresh', async (req, res) => {
     let user = req.user
+    try{
+
     await refresh.requestNewAccessToken('google', user.refreshToken, function(err, accessToken, refreshToken) {
         if (err || !accessToken){
             console.log(err)
             res.status(403).json( {
                 error: req.err,
             })
-            return next(err);
+            return
         } 
         req.user.accessToken = accessToken
         console.log(req.user.accessToken)
@@ -294,6 +296,12 @@ app.get('/api/refresh', async (req, res) => {
             user: req.user,
         })
     });
+    }catch(err){
+        console.log(err)
+        res.status(403).json( {
+            error: "COULDNT REFRESH TOKEN",
+        })
+    }
 })
 
 if (process.env.NODE_ENV === 'production') {

@@ -8,7 +8,6 @@ export default function Popup({metric, primitive,...props}) {
   const [open, setOpen] = useState(true)
 
   const handleClose = function(){
-    console.log(props.setOpen)
       if( props.setOpen ){
           props.setOpen(false)
       }else{
@@ -42,10 +41,15 @@ export default function Popup({metric, primitive,...props}) {
             leaveFrom="opacity-100 scale-100"
             leaveTo="opacity-0 scale-95"
           >
-            <Dialog.Panel className="mx-auto max-w-2xl transform rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 transition-all p-6">
-                {props.children({
+            <Dialog.Panel 
+              className={[
+                "min-w-[14em] mx-auto  transform rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 transition-all",
+                props.width === undefined ? "max-w-2xl" : props.width,
+                props.padding === undefined ? "p-6" : props.padding,
+                ].join(" ")}>
+                {props.children instanceof Function ? props.children({
                     handleClose: handleClose,
-                })}
+                }) : props.children}
                 
             </Dialog.Panel>
           </Transition.Child>

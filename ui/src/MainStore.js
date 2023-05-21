@@ -3,6 +3,7 @@ import ResultAnalyzer from "./ResultAnalyzer";
 import ExperimentAnalyzer from "./ExperimentAnalyzer";
 import ContactHelper from "./ContactHelper";
 import {default as PrimitiveConfig} from "./PrimitiveConfig";
+import AssessmentAnalyzer from "./AssessmentAnalyzer";
 
 let instance = undefined
 function MainStore (prims){
@@ -671,7 +672,12 @@ function MainStore (prims){
                 return response
         },
         getPrimitiveDocument:async function ( primitive ){
-                const result = await fetch(`/api/primitive/${primitive.id}/getDocument`
+            let revision = ''
+            if( primitive.referenceParameters?.notes?.lastFetched ){
+                revision = '?rev=' + new Date(primitive.referenceParameters?.notes?.lastFetched).getTime()
+            }
+            const url = `/api/primitive/${primitive.id}/getDocument${revision}`
+                const result = await fetch(url
                 ,{
                     method: "GET",
                 })
@@ -702,13 +708,22 @@ function MainStore (prims){
                 this.deletePrimitive( primitive.id )
                 console.log(ids)
                 obj.triggerCallback("relationship_update", ids )
+                obj.triggerCallback("delete_primitive", ids )
             }else{
                 console.warn(`Couldn't remove ${primitive.id}`)
                 throw new Error("Error removing")
             }
         },
         createPrimitive:async function( options ){
-            let {title = "New item", type = "result", state = undefined, extraFields = {}, parent = undefined, parentPath = undefined, categoryId = undefined, referenceParameters = {} } = options
+            let {
+                title = "New item", 
+                type = "result", 
+                state = undefined, 
+                extraFields = {}, 
+                parent = undefined, 
+                parentPath = undefined, 
+                categoryId = undefined, 
+                referenceParameters = {} } = options
             let category = categoryId ? this.category( categoryId ) : undefined
 
             let paths = []
@@ -771,6 +786,7 @@ function MainStore (prims){
             }
             const newObj = obj.primitive(data._id)
             obj.triggerCallback("relationship_update", [parent, newObj])
+            obj.triggerCallback("new_primitive", [newObj] )
             return  newObj
         }
     }
@@ -887,9 +903,10 @@ function MainStore (prims){
                         if( !metadata ){
                             return false
                         }
-                        if( !(parameterName in metadata.parameters) ){
-                            if( parameterName.slice(-2) === "Id"){
-                                if( (parameterName.slice(0, -2) in metadata.parameters) ){
+                        const root = parameterName.split('.')[0]
+                        if( !(root in metadata.parameters) ){
+                            if( root.slice(-2) === "Id"){
+                                if( (root.slice(0, -2) in metadata.parameters) ){
                                     if( value !== undefined){
                                         return true
                                     }
@@ -897,7 +914,7 @@ function MainStore (prims){
                             }
                             return false
                         }
-                        const pConfig = metadata.parameters[ parameterName ]
+                        const pConfig = metadata.parameters[ root ]
                         switch( pConfig.type ){
                             case "string": return pConfig.optional || value !== ""
                         }
@@ -960,7 +977,14 @@ function MainStore (prims){
                 if( prop === "setParameter"){
                     return function( parameterName, value ){
                         if( receiver.validateParameter(parameterName, value)){
-                            receiver.referenceParameters[parameterName] = value
+                            let target = receiver.referenceParameters 
+                            let set = parameterName.split(".")
+                            let last = set.pop()
+                            set.forEach((n)=>{
+                                target = target[n]
+                            })
+                            target[last] = value
+                            //receiver.referenceParameters[parameterName] = value
                             obj.controller.updateParameter( receiver, parameterName, value  )
                             return true
                         }
@@ -971,6 +995,11 @@ function MainStore (prims){
                     if( !d._referenceParameters){
                         d._referenceParameters = d.referenceParameters || {}
                         d.referenceParameters = new Proxy( d._referenceParameters, obj.referenceParametersParser)
+                    }
+                    if( d.type === "assessment"){
+                        if( !d._referenceParameters.levels ){
+                            d._referenceParameters.levels = {}
+                        }
                     }
                     return d.referenceParameters
                 }
@@ -1080,6 +1109,10 @@ function MainStore (prims){
                         d.analyzer =  ()=>{
                             return ResultAnalyzer(receiver).init()
                         }
+                    }else if( d.type === "assessment"){
+                        d.analyzer =  ()=>{
+                            return AssessmentAnalyzer(receiver).init()
+                        }
                     }else if( receiver.isTask){
                         d.analyzer =  ()=>{
                             return ExperimentAnalyzer(receiver).init()
@@ -1144,6 +1177,11 @@ function MainStore (prims){
                     if( d.type === "assessment"){
                         if( prop === "framework"){
                             return obj.framework( d.frameworkId)
+                        }
+                    }
+                    if( d.type === "venture" ){
+                        if( prop === "currentAssessment"){
+                            return receiver.primitives.allUniqueAssessment.pop()
                         }
                     }
                 }

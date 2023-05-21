@@ -4,6 +4,7 @@ import Panel from "./Panel"
 import { PrimitiveCard } from "./PrimitiveCard"
 import NewPrimitive from "./NewPrimitive"
 import { useNavigate } from 'react-router-dom';
+import useDataEvent from "./CustomHook"
 
 export default function HomeScreen(props){
     const navigate = useNavigate()        
@@ -15,6 +16,7 @@ export default function HomeScreen(props){
         setShowNew(false)
         navigate(`/item/${prim.plainId}`)
     }
+    useDataEvent('new_primitive delete_primitive',undefined)
 
     return (
     <>

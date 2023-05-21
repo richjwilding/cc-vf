@@ -67,9 +67,21 @@ export default function PrimitiveParser(obj){
                     }
                 }
 
+                if( prop === "descendantsInclude" ){
+                    return function(){
+                        let value = arguments[0]
+                        if( value instanceof(Object) ){
+                            value = value.id
+                        }
+                        return receiver.descendantIds.includes(value)
+                    }
+                }
                 if( prop === "includes" ){
                     return function(){
                         let value = arguments[0]
+                        if( value instanceof  Object){
+                            value = value.id
+                        }
                         const find = (v)=>{
                             return Object.values(v).reduce((r, d)=>{
                                 if( d instanceof(Object) ){
@@ -96,7 +108,7 @@ export default function PrimitiveParser(obj){
                                         return find( d[k], path + "." + k)
                                     }))
                                 })
-                            }else{
+                            }else if( v !== undefined && v !== null){
                                 out.push( Object.keys(v).map((k)=>{
                                     return find( v[k], path + "." + k)
                                 }))
@@ -188,6 +200,9 @@ export default function PrimitiveParser(obj){
                     }
                 }
                 if( prop in target ){
+                    if( target[prop] === null ){
+                        target[prop] = []
+                    }
                     return new Proxy(target[prop], structure)
                 }else {
                     let s = prop.toString()
@@ -305,6 +320,17 @@ export default function PrimitiveParser(obj){
                         if( obj.types.includes(type)){
                             return receiver.allItems.filter((p)=>p.type === type)
                         }
+                    }
+                    if(prop === "descendants"){
+                        return receiver.descendantIds.map((d)=>obj.primitive(d)).filter((d)=>d)
+                    }
+                    if(prop === "descendantIds"){
+                        const children = receiver.allItems
+                        let out = children.map((d)=>d.id)
+                        children.forEach((d)=>{
+                            out = out.concat( d.primitives.descendantIds )
+                        })
+                        return uniqueArray(out.filter((d)=>d))
                     }
                 }
                 if( target[null]){

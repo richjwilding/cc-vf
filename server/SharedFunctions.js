@@ -73,7 +73,7 @@ const flattenPath = (path)=>{
             nest( node[k] )
             return out
         }
-        out.push(node === undefined ? "null" : node)
+        out.push((node === undefined || node === '') ? "null" : node)
         return out
     }
     return nest( path).join(".")

@@ -41,8 +41,9 @@ export default function ResultAnalyzer(primitive){
             primitive.setField("ai_processing", hasError ? {state: "error"}  : null)
         },
         aiProcessSummary:function(){
-            let evidenceList = primitive.primitives.allEvidence
             let origin = primitive.origin
+            if( origin === undefined){return undefined}
+            let evidenceList = primitive.primitives.allEvidence
             let questions = origin.primitives.allQuestion
             let promptList = questions.map((d)=>d.primitives.allPrompt).flat()
 

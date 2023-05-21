@@ -35,19 +35,19 @@ export default function DropdownButton({...props}) {
       {!props.flat &&
       <button
         type="button"
-        onClick={props.items[0]?.action}
-        className={`relative inline-flex items-center rounded-l-md border  px-4 py-2 text-sm font-medium focus:z-10 focus:outline-none focus:ring-2  focus:ring-offset-2 ${colors} w-full `}
+        onClick={(e)=>{e.stopPropagation();props.items[0]?.action && props.items[0]?.action()}}
+        className={`relative inline-flex items-center rounded-l-md border  px-4 py-2 text-sm font-medium focus:z-20 focus:outline-none focus:ring-2  focus:ring-offset-2 ${colors} w-full `}
       >
         {selected?.title || props.title || items[0].title}
       </button>}
       <Menu as="div" className="relative -ml-px block">
         {props.flat 
-          ? <Menu.Button className={`h-full relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium focus:z-10 focus:outline-none  ${colors}`}>
+          ? <Menu.Button className={`h-full relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium focus:z-20 focus:outline-none  ${colors}`}>
             {props.title}
             <ChevronDownIcon className="h-5 w-5 ml-1" aria-hidden="true" />
           </Menu.Button>
 
-          : <Menu.Button className={`h-full relative inline-flex items-center rounded-r-md border px-2 py-2 text-sm font-medium focus:z-10 focus:outline-none  ${colors}`}>
+          : <Menu.Button className={`h-full relative inline-flex items-center rounded-r-md border px-2 py-2 text-sm font-medium focus:z-20 focus:outline-none  ${colors}`}>
           <span className="sr-only">Open options</span>
           <ChevronDownIcon className="h-5 w-5" aria-hidden="true" />
           </Menu.Button>
@@ -62,7 +62,7 @@ export default function DropdownButton({...props}) {
           leaveTo="transform opacity-0 scale-95"
         >
           <Menu.Items className={[
-              'absolute z-10 mt-2 -mr-1 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none',
+              'absolute z-20 mt-2 -mr-1 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none',
               props.align === 'left' ? 'left-0' : 'right-0',
               props.dropdownWidth || 'w-56'
             ].join(" ")}>
@@ -74,7 +74,7 @@ export default function DropdownButton({...props}) {
                   {({ active }) => (
                     <a
                       href={item.href}
-                      onClick={item.action}
+                      onClick={(e)=>{e.stopPropagation();item.action && item.action()}}
                       className={classNames(
                         active ? `bg-${baseColor}-100 text-${baseColor}-900` : `text-${baseColor}-700 bg-${props.colorKey ? `${baseColor}-50` : 'white' }`,
                         props.colorKey ? 'my-2 mx-1 rounded-md' : '',

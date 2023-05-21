@@ -117,7 +117,7 @@ export default function EditableResourceField ({...props}){
                             { editing && 
                             <p
                                 onClick={clearValue}
-                                className={`flex w-6 h-6 border-[4px] rounded-2xl w-3 h-3 place-items-center justify-center bg-gray-200 border-white hover:bg-gray-400 hover:text-white`}
+                                className={`flex w-6 h-6 border-[4px] rounded-2xl place-items-center justify-center bg-gray-200 border-white hover:bg-gray-400 hover:text-white`}
                             >
                                 <XMarkIcon className='w-3 h-3' strokeWidth={3}/>
                             </p>

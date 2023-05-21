@@ -92,7 +92,7 @@ export async function getDocumentAsPlainText(id, req){
                     }
                     return false
                 }).length
-                if( sameCount > (pages.length / 2) ){
+                if( sameCount > (pages.length / 2) && (pages.length > 1) ){
                     console.log(`got same at ${sameCount} out of ${pages.length} - marking as header / footer fo exclusion`)
                     pages.forEach((page)=>{
                         page.content.forEach((d)=>{
@@ -143,6 +143,26 @@ export async function getDocumentAsPlainText(id, req){
         }
     })
 }
+export async function removeDocument(id, bucket ){
+    const buckets = bucket ? [bucket] : ['cc_vf_documents', 'cc_vf_document_plaintext'];
+    const storage = new Storage({projectId: process.env.GOOGLE_PROJECT_ID})
+    try{
+        for( const bucketName of buckets){
+            console.log(`removing document from ${bucketName}`)
+            const bucket = storage.bucket(bucketName);
+            if( bucket ){
+                const file = bucket.file(id);
+                if( file ){
+                    await file.delete({ignoreNotFound: true})
+                    console.log(`deleted`)
+                }
+            }
+        }
+    }catch(error){
+        console.log(error)
+        return undefined
+    }
+}
 
 export async function getDocument(id, req){
     const bucketName = 'cc_vf_documents';
@@ -186,15 +206,22 @@ export async function importDocument(id, req){
                 } 
             }
             if( notes.type === "google_drive"){
+                let result
                 if( notes.mimeType === "application/pdf"){
-                    console.log("will copy over existing pdf")
-                    console.log(notes.id)
-                    return await copyGoogleDriveFile(id, notes.id, req)
+                    
+                    result = await copyGoogleDriveFile(id, notes.id, req)
                 }else{
                     console.log("will attempt export to pdf and plaintext")
-                    console.log(notes.id)
-                    return await importGoogleDoc(id, notes.id, req)
+                    result = await importGoogleDoc(id, notes.id, req)
                 }
+                console.log(result)
+                if( result ){
+                    primitive.referenceParameters.notes.lastFetched = new Date()
+                    primitive.markModified('referenceParameters.notes.lastFetched')
+                    await primitive.save()
+                console.log('saved')
+                }
+                return result
             }
         }
     }catch(err){

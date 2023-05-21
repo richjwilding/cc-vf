@@ -57,7 +57,6 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<SignIn/>}/>
-              <Route path="/components" element={<ComponentView components={Object.values(mainstore.primitives().filter((d)=>d.type==='assessment')[0].framework.components)} selectPrimitive={selectPrimitive}/>}/>
               <Route path="/" element={<SideNav><HomeScreen/></SideNav>}/>
               <Route path="/item/:id" element={<SideNav key='sidebar' widePage={widePage}><PrimitivePage setWidePage={setWidePage} selectPrimitive={selectPrimitive}/></SideNav>}/>
             </Routes>

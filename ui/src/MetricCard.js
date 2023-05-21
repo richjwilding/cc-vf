@@ -325,10 +325,10 @@ export function MetricCard({primitive, metric, ...props}) {
       },
     }),
   );
-/*  useDataEvent("relationship_update", primitive.id, ()=>{
+  useDataEvent("relationship_update", primitive.id, ()=>{
     value = metric.value
     setItems( initList() )
-  })*/
+  })
 
 
   function handleDragStart(event) {

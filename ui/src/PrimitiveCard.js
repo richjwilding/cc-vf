@@ -1,6 +1,6 @@
 import MainStore from './MainStore';
 import { RelationshipTable } from './RelationshipTable';
-import React, { useEffect, useReducer } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import Panel from './Panel';
 import {ContactPopover} from './ContactCard';
 import DropdownButton from './DropdownButton';
@@ -15,16 +15,20 @@ import {
 import { HeroIcon, SolidHeroIcon } from './HeroIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { EvidenceCard } from './EvidenceCard';
-import { Link, useLinkClickHandler } from "react-router-dom";
+import { Link, useLinkClickHandler, useNavigate } from "react-router-dom";
 import EditableTextField from './EditableTextField';
 import EditablePersonField from './EditablePersonField';
 import EditableResourceField from './EditableResourceField';
 import useDataEvent from './CustomHook';
 import ContactPicker from './ContactPicker';
 import QuestionCard from './QuestionCard';
-import { ArrowPathIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon,  ChevronRightIcon,  TrashIcon } from '@heroicons/react/24/outline';
+import { Bars3Icon } from '@heroicons/react/20/solid';
 import ConfirmationPopup from './ConfirmationPopup';
 import AIProcessButton from './AIProcessButton';
+import { Menu, Popover } from '@headlessui/react';
+import { Float } from '@headlessui-float/react';
+import PrimitivePicker from './PrimitivePicker';
 
 const ExpandArrow = function(props) {
   return (
@@ -104,7 +108,7 @@ let mainstore = MainStore()
           >{icon}{name}</div>
         }
       }else if( item.type === "contact"){
-        const contact = props.primitive.referenceParameters.contact
+        const contact = item.value || props.primitive?.referenceParameters.contact
         if( props.compact ){
           icon = <UserIcon className='w-5 h-5 pr-0.5 text-slate-200'/> 
           if( typeof(contact) === "object" ){
@@ -165,6 +169,79 @@ let mainstore = MainStore()
       />
 
   }
+
+  const CardMenu = function({primitive,...props}){
+    const [showDeletePrompt, setShowDeletePrompt] = React.useState(false)
+    const navigate = useNavigate();
+    const buttonClass = `p-1 shrink-0 grow-0 self-center rounded-md border ${props.bg === "transparent" ? "border-transparent hover:border-gray-300 hover:bg-white hover:shadow-sm" :"border-gray-300 bg-white shadow-sm"} font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
+
+    const handleDelete = ()=>{
+      mainstore.removePrimitive( primitive )
+      setShowDeletePrompt( null )
+    }
+
+    const items = [
+      {
+        title: 'Delete',
+        action: ()=>setShowDeletePrompt(true),
+        icon: TrashIcon,
+        skip: !((props.relatedTo && props.showDelete === 'origin' && primitive.origin.id === props.relatedTo.id) || (props.showDelete === undefined ? false : (props.showDelete === true)))
+      },
+      {
+        title: `Unlink from ${props.relatedTo?.displayType}`,
+        action: ()=>props.relatedTo.removeRelationship(primitive, props.relatedTo.metadata.isAggregation ? "" : "outcomes"),
+        icon: TrashIcon,
+        skip: (props.showUnlink === false || props.showUnlink === undefined) ? true : (props.relatedTo === undefined ) || (props.relatedTo && props.relatedTo.id === primitive.origin.id) || !(props.relatedTo && props.relatedTo?.primitives.includes(primitive))
+      },
+      {
+        title: 'Open page',
+        action: ()=>navigate(`item/${primitive.id}`),
+        icon: ArrowTopRightOnSquareIcon,
+        skip: props.showVisitPage === undefined ? false : !props.showVisitPage
+      },
+    ].filter((d)=>!d.skip)
+    const baseColor = props.color || "gray"
+
+    return(<>
+      {showDeletePrompt && <ConfirmationPopup message={`This will also delete all items that belong to this ${primitive.displayType}`} title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
+      <div className={[`h-${props.size || 8} w-${props.size || 8}`, 'shrink-0', props.className].join(" ")}>
+        <Menu>
+          {({open})=>(<>
+          {!open && <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}><Bars3Icon className='w-full h-full'/></Menu.Button>}
+          {open && <Float portal placement='bottom-end'>
+              <Menu.Button key={`b-${open}`} className={buttonClass}><Bars3Icon className='w-full h-full'/></Menu.Button>
+              <Menu.Items className={`absolute z-10 p-1 mt-2  origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none right-0 w-min`}>
+                <div className="py-1">
+                  {items.map((item) => (
+                    <Menu.Item>
+                    {({ active }) => (
+                      <a
+                        href={item.href}
+                        key={item.title}
+                        onClick={(e)=>{e.stopPropagation();item.action && item.action()}}
+                        className={[
+                          active ? `bg-${baseColor}-100 text-${baseColor}-900` : `text-${baseColor}-700 bg-${props.colorKey ? `${baseColor}-50` : 'white' }`,
+                          props.colorKey ? 'my-2 mx-1 rounded-md' : '',
+                          'flex place-items-center space-x-2 px-2 py-1 text-sm'
+                        ].join(" ")}
+                      >
+                        <item.icon aria-hidden="true" className='w-6 h-6'/>
+                        <p className='whitespace-nowrap'>{item.title}</p>
+                      </a>
+                    )}
+                    </Menu.Item>
+                  ))}                  
+                </div>
+            </Menu.Items>
+          </Float>}
+          </>
+          )}
+      </Menu>
+    </div>
+    </>)
+
+  }
+  
 
 
 const Resources = function({primitive, ...props}){
@@ -299,6 +376,9 @@ const Banner = function({primitive, ...props}){
         </h1>
         {metadata && <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>}
       </div>
+      {props.showMenu &&
+        <CardMenu primitive={primitive} showVisitPage={false} size='12' bg='transparent'/>
+      }
       {props.showStateAction &&
               <DropdownButton colorKey='colorBase' items={mainstore.stateInfo[primitive.type]} selected={primitive.state}/>
       }
@@ -347,6 +427,7 @@ const Parameters = function({primitive, ...props}){
     let keyNames = Object.keys(remap)
     fields = fields.filter((f)=>keyNames.includes(f))
   }
+  fields = fields.filter((d)=>!parameters[d].hidden)
   let details = fields.map((k)=>{
     return {...parameters[k], value: primitive.referenceParameters[k], autoId: primitive.referenceParameters[`${k}Id`], key: k}
   })
@@ -401,6 +482,7 @@ const Parameters = function({primitive, ...props}){
 }
 const EvidenceList = function({primitive, ...props}){
   let evidence = props.evidenceList || primitive?.primitives.allUniqueEvidence
+  useDataEvent('relationship_update', evidence.map((d)=>d.id))
   if( evidence === undefined || evidence === null || evidence.length === 0){return <></>} 
   let relatedTask = props.relatedTask || primitive?.findParentPrimitives({type: ["experiment", "activity"]})
 
@@ -522,6 +604,7 @@ const Details = function({primitive, ...props}){
 }
 
 const Title = function({primitive, ...props}){
+  const [showParentLinksManager, setShowParentLinksManager ] = useState(false)
   let color = primitive.stateInfo?.colorBase || "gray"
   let relationshipConfig
   let relationship
@@ -537,6 +620,10 @@ const Title = function({primitive, ...props}){
 
   let relationshipRender
   if( props.relationshipMode === "presence"){
+    const manageParentLinks = ()=>{
+      setShowParentLinksManager(true)
+      
+    }
     const toggleRelationship = ()=>{
       if( props.relationshipTo ){
         if( relationship ){
@@ -547,9 +634,14 @@ const Title = function({primitive, ...props}){
       }
     }
     if( relationship ){
-      relationshipRender = <HeroIcon onClick={toggleRelationship} icon='StarIcon' className='ml-auto w-6 h-6 stroke-width-[0.5px] text-gray-600 hover:text-gray-900 fill-yellow-300 hover:fill-yellow-400'/>
+      relationshipRender = <HeroIcon onClick={manageParentLinks} icon='StarIcon' className='ml-auto w-6 h-6 stroke-width-[0.5px] text-ccgreen-600 hover:text-ccgreen-900 fill-ccgreen-300 hover:fill-ccgreen-400'/>
     }else{
-      relationshipRender = <HeroIcon onClick={toggleRelationship} icon='StarIcon' className='ml-auto w-6 h-6 text-gray-300 hover:text-gray-600'/>
+      //if( props.relationshipTo && props.relationshipTo.primitives.allUniqueEvidence.filter((d)=>d.metadata?.isAggregation).map((d)=>d.primitives.descendants).flat().map((d)=>d?.id).includes(primitive.id)){
+      if( props.relationshipTo && props.relationshipTo.primitives.allUniqueEvidence.filter((d)=>d.metadata?.isAggregation && d.primitives.descendantsInclude(primitive.id)).length > 0){
+        relationshipRender = <HeroIcon onClick={manageParentLinks} icon='StarIcon' className='ml-auto w-6 h-6 stroke-width-[0.5px] text-ccpurple-600 hover:text-ccpurple-900 fill-ccpurple-300 hover:fill-ccpurple-400'/>
+      }else{
+        relationshipRender = <HeroIcon onClick={manageParentLinks} icon='StarIcon' className='ml-auto w-6 h-6 text-gray-300 hover:text-gray-600'/>
+      }
     }
   }else{
     if( relationshipConfig ){
@@ -567,6 +659,8 @@ const Title = function({primitive, ...props}){
 
 
   return (
+    <>
+    {showParentLinksManager && <PrimitivePicker.ParentLinksManager primitive={primitive} rootTitle={`Related ${props.relationshipTo.displayType}`} includeRoot={true} setOpen={()=>setShowParentLinksManager(false)} type="evidence" root={props.relationshipTo}/>}
       <h3 className={`flex text-slate-400 font-medium tracking-tight place-items-center text-${props.compact ? 'xs' : 'sm'} ${props.className}`}>
         {(props.showId === undefined || props.showId === true) && <p>{primitive.displayType} #{primitive.plainId}</p>}
         {(props.showId === "number") && <p>#{primitive.plainId}</p>}
@@ -586,14 +680,19 @@ const Title = function({primitive, ...props}){
           </button>
         }
       </h3>
+    </>
   )
 }
 
 const Hero = function({primitive, ...props}){
     const metadata = primitive.metadata
     const color = primitive.workspace?.color || "slate"
+    const navigate = useNavigate();
+
     return (<div 
-        onClick={useLinkClickHandler(`/item/${primitive.plainId}`)}
+        onClick={(e)=>{
+          navigate(`/item/${primitive.plainId}`)
+        }}
         tabIndex='0'
         id={primitive.plainId}
         className={
@@ -616,6 +715,7 @@ const Hero = function({primitive, ...props}){
               </div>
             </div>
           </div>
+          <CardMenu primitive={primitive} bg='transparent' className='absolute right-2 top-2'/>
           <p className='px-4 py-2 text-gray-800 text-lg my-2 flex-1'>{primitive.title}</p>
           <Users primitive={primitive} hideTitle={true} className='px-4'/>
           <Title primitive={primitive} showState={true} className='px-4 py-4 flex-0'/>
@@ -770,6 +870,30 @@ export const Prompt = ({primitive, ...props})=>{
      </>)
 }
 
+function Aggregation({primitive, ...props}){
+  useDataEvent("relationship_update", primitive.id)
+  const [show, setShow] = useState(false)
+  if( !primitive.metadata?.isAggregation ){return <></>}
+  const subList = primitive.primitives.allUniqueEvidence
+  if( subList.length === 0 ){return <></>}
+  return (<>
+    <p 
+      onClick={()=>setShow(!show)}
+      className={[
+      "text-xs text-gray-500 mt-1 flex place-items-center hover:text-gray-800 cursor-pointer",
+    ].join(" ")
+    }>{subList.length} Items<ChevronRightIcon className={`w-2.5 h-2.5 ml-0.5 mt-0.5 ${show ? "rotate-90" : ""}`}/></p>
+    {show && <div 
+      className={[
+        'border-l-2 space-y-2 pt-2 mt-1 ml-1 pl-2',
+        ].join(" ")}>
+      {subList.map((d)=>(
+        <PrimitiveCard primitive={d} textSize='sm' titleAtBase showMeta compact disableHover showMenu menuProps={{showVisitPage:false, showUnlink: true}} relatedTo={primitive} />
+      ))}
+      </div>}
+  </>)
+}
+
 export function PrimitiveCard({primitive, className, showDetails, showUsers, showRelationships, showResources, major, disableHover, fields,...props}) {
   let ring = !disableHover
   let mainTextSize = props.textSize || (props.compact ? 'sm' : 'md' )
@@ -799,7 +923,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         metaSummary = <p className={`text-${mainTextSize} pl-1 font-medium`}>{metadata.summary}</p>
       }
       else if( props.showMeta !== "large" ){
-        smallMeta = <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
+        smallMeta = <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center mt-2`}>
               {metadata.icon && <HeroIcon icon={metadata.icon} className='w-5 h-5 mr-1' strokeWidth={1}/>}
               {metadata.description}
             </h3>
@@ -835,6 +959,9 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           compact={true}
           fieldClassName={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-${mainTextSize} ${withHero ? "px-2 self-end text-slate-50 font-bold" : "text-slate-700"}`}>
         </EditableTextField>
+        {props.showMenu &&
+          <CardMenu primitive={primitive} relatedTo={props.relatedTo} {...props.menuProps} size='6' bg='transparent' className='invisible group-hover:visible'/>
+        }
         {(!props.compact && (props.showLink || props.showEdit)) &&
           <button
               type="button"
@@ -849,11 +976,11 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
       </>
 
   let header
-  if(metadata ){
+  if(metadata && !smallMeta){
       header = <div className='flex'>
         <HeroIcon icon={metadata.icon} className={`${props.textSize === "sm" ? 'w-6 h-6' : 'w-10 h-10'} mr-2 shrink-0 grow-0 text-gray-400 ease-linear transition-colors  group-hover:text-gray-800`} strokeWidth={1}/>
-        <div>
-          <div className={`flex items-start justify-between space-x-3`}>
+        <div className='w-full'>
+          <div className={`flex items-start justify-between ${props.compact ? "space-x-1" : "space-x-3"}`}>
             {metaSummary}
             {content}
           </div>
@@ -869,7 +996,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
                   className={
                     withHero
                       ? "rounded-t-lg bg-gradient-to-br from-slate-900 to-slate-600 -mx-2 -mt-3 h-24 flex" 
-                      : `flex items-start justify-between space-x-3 ${props.compact ? 'mt-2' : 'mt-3'}`
+                      : `flex items-start justify-between ${props.compact ? "space-x-1" : "space-x-3"} ${props.compact ? 'mt-2' : 'mt-3'}`
                   }>
                 {metaSummary}
                 {content}
@@ -945,6 +1072,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {smallMeta}
         {primitive._doingDiscovery && !primitive.discoveryDone && <div className='w-2 h-2 absolute bg-amber-500 rounded-lg right-1 top-1'/>}
         {primitive.openai_error && <div className='w-2 h-2 absolute bg-red-500 rounded-lg right-1 top-1'/>}
+        {primitive.metadata?.isAggregation && <Aggregation primitive={primitive} {...props}/>}
     </div>
   )
 }
@@ -960,3 +1088,4 @@ PrimitiveCard.Title = Title
 PrimitiveCard.Hero = Hero
 PrimitiveCard.Evidence = Evidence
 PrimitiveCard.EvidenceList = EvidenceList
+PrimitiveCard.RenderItem = RenderItem

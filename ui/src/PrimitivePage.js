@@ -28,6 +28,8 @@ import { ComponentRow } from './ComponentRow';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Popup from './Popup';
 import AIStatusPopup from './AIStatusPopup';
+import { AssessmentCard } from './AssessmentCard';
+import {PrimitiveTable} from './PrimitiveTable';
 
 let mainstore = MainStore()
 
@@ -207,7 +209,7 @@ export function PrimitivePage({primitive, ...props}) {
         ref={page}
       >
           <div key='banner' ref={header} className="w-full mt-10 z-40 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100">
-            <PrimitiveCard.Banner primitive={primitive} showStateAction={true} className='pl-4 pr-6 mx-auto w-full max-w-3xl lg:max-w-7xl'/>
+            <PrimitiveCard.Banner primitive={primitive} showMenu={true} showStateAction={false} className='pl-4 pr-6 mx-auto w-full max-w-3xl lg:max-w-7xl'/>
           </div>
 
           <div key='content' 
@@ -244,11 +246,14 @@ export function PrimitivePage({primitive, ...props}) {
                         </Panel>
                     }
                   </div>
-                  <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
+                  {(task || primitive.isTask) && <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
                     <PrimitiveCard.Questions key='questions' primitive={task ? task : primitive} relatedTo={primitive} editable={true}/>
-                  </div>
+                  </div>}
                   {primitive.resources && <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
                     <PrimitiveCard.Resources primitive={primitive}/>
+                  </div>}
+                  {primitive.type==="venture" && <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
+                    <AssessmentCard primitive={primitive.currentAssessment}/>
                   </div>}
               </div>
               </section>
@@ -315,11 +320,14 @@ export function PrimitivePage({primitive, ...props}) {
                           </button>
                           </div>
                         }
-                    <PrimitiveCard.EvidenceList evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
+                    <PrimitiveCard.EvidenceList relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                   </Panel>}
             {primitive.type === "assessment" && primitive.framework &&
-                  <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
-                      { Object.values(primitive.framework.components).map((c) => <ComponentRow onClick={()=>{setShowWorkingPane(true);setComponentView(c)}} compact={true} evidenceDetail={false} key={c.id} component={c}/>)}
+                  <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>
+                    { Object.values(primitive.framework.components).map((c) => {
+                      return (<ComponentRow onClick={()=>{setShowWorkingPane(true);setComponentView(c)}} primitive={primitive} compact={true} evidenceDetail={false} key={c.id} component={c}/>)
+                      })
+                    }                    
                   </Panel>}
 
             {primitive.metadata.resultCategories && primitive.metadata.resultCategories.map((category)=>{
@@ -367,7 +375,14 @@ export function PrimitivePage({primitive, ...props}) {
                           </button>
                           </div>
                         }
-                        <div 
+                        {
+                        view === "table" && <div className="p-2 bg-white rounded-md h-[60vh]">
+                          <PrimitiveTable 
+                            onDoubleClick={(p)=>setSelected({list:list, idx: list.findIndex((d)=>d.id === p.id)})} 
+                            columns={category.views.list.table} primitives={list} className='w-full min-h-[24em] bg-white'/> 
+                        </div>
+                        }
+                        {view === "cards" && <div 
                             className={
                               [`gap-3 space-y-3 no-break-children sm:columns-2`,
                                 showWorkingPane ? "" : `md:columns-3 xl:columns-4`].join(" ")
@@ -396,7 +411,7 @@ export function PrimitivePage({primitive, ...props}) {
                                     </motion.div>
                                 )}
                             )}
-                        </div>
+                        </div>}
                   </Panel>
                 )
             })}
@@ -564,9 +579,9 @@ export function PrimitivePage({primitive, ...props}) {
                                 <Tab.Panels key='panels'>
                                     <Tab.Panel>
                                       <div key='evidence' className="mt-6 flow-root">
-                                        <ul role="list" className="p-1 space-y-1">
+                                        <ul role="list" className="p-1 space-y-2">
                                           {outcomesList.map((p)=>(
-                                              <PrimitiveCard key={p.id} compact={true} primitive={p} showMeta="large" onClick={()=>resultViewer.current && resultViewer.current.showPrimitive(p.id)}/>
+                                              <PrimitiveCard key={p.id} showMenu menuProps={{showVisitPage:false, showDelete: "origin", showUnlink: true}} relatedTo={primitive} compact={true} primitive={p} showMeta="large" onClick={()=>resultViewer.current && resultViewer.current.showPrimitive(p.id)}/>
                                           ))}
                                         </ul>
                                       </div>

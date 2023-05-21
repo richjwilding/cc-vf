@@ -1,9 +1,7 @@
 import React, { useEffect } from 'react';
 import ContactPicker from './ContactPicker';
 import {ContactPopover} from './ContactCard';
-import EditableTextField from './EditableTextField';
 import Select, { components } from "react-select";
-import MainStore from './MainStore';
   
 export default function EditablePersonField ({...props}){
   const [open, setOpen] = React.useState(false)
@@ -11,7 +9,7 @@ export default function EditablePersonField ({...props}){
   const startValues = ()=>[props.value].flat().filter((d)=>d).map((d)=>({value: d.id, label: d.name, avatarUrl: d.avatarUrl}))
   const [value, setValue] = React.useState( startValues() );
   const field = React.useRef()
-
+  let cancelled = false
   const mode = props.mode
 
   React.useEffect(()=>{
@@ -72,7 +70,6 @@ export default function EditablePersonField ({...props}){
   }
 
   const handleChange = value => {
-      console.log("value:", value);
       setValue(value);
   };
 
@@ -89,7 +86,7 @@ export default function EditablePersonField ({...props}){
         return
       }
       if( e.key === "Escape"){
-        console.log('cancel')
+        cancelled = true
         setValue( startValues() )
         field.current.blur()
         return
@@ -97,8 +94,8 @@ export default function EditablePersonField ({...props}){
       if( e.key === "Enter"){
         e.preventDefault()
         e.stopPropagation()
-        const out = value.map((v)=>({id: v.value, name: v.label}))
-        props.onSelect( props.muliple ? out : out[0])
+      //  const out = value.map((v)=>({id: v.value, name: v.label}))
+       // props.onSelect( props.muliple ? out : out[0])
         field.current.blur()
         return
       }
@@ -108,6 +105,11 @@ export default function EditablePersonField ({...props}){
       trigger()
   }
   const blur = ()=>{
+    if( !cancelled && !open){
+        const out = value.map((v)=>({id: v.value, name: v.label}))
+        props.onSelect( props.muliple ? out : out[0])
+      
+    }
       if( !open ){
         stopEdit()
       }
@@ -120,7 +122,7 @@ export default function EditablePersonField ({...props}){
     container: (state) => state.isFocused && editing ? "flex w-full bg-gray-50 ring-1 ring-blue-500 " : "flex w-full",
     control: (state) => editing ? "flex w-full" : "flex w-full ",
     valueContainer: (state) => "flex flex-wrap justify-end px-0 w-full",
-    multiValueRemove: (state) => `flex w-6 h-6 border-[4px] rounded-2xl w-3 h-3 place-items-center justify-center bg-gray-200 border-white hover:bg-gray-400 hover:text-white`,
+    multiValueRemove: (state) => `flex w-6 h-6 border-[4px] rounded-2xl place-items-center justify-center bg-gray-200 border-white hover:bg-gray-400 hover:text-white`,
     placeholder:()=>'self-center mx-1 mt-1 mb-1.5',
     indicatorsContainer:()=>editing ? 'p-0.5 self-center' : "" ,
     dropdownIndicator:()=>'p-0.5 self-center ' ,

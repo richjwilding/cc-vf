@@ -11,7 +11,7 @@ import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { Readable } from 'stream';
 import { finished } from 'stream/promises';
-import { getDocument, getDocumentAsPlainText, importGoogleDoc } from '../google_helper';
+import { getDocument, getDocumentAsPlainText, importGoogleDoc, removeDocument } from '../google_helper';
 import analyzeDocument from '../openai_helper';
 import {createPrimitive, flattenPath} from '../SharedFunctions'
 
@@ -371,6 +371,11 @@ router.post('/set_field', async function(req, res, next) {
             {new: true},
             (err,doc)=>{
             })
+        
+            if( data.field === 'referenceParameters.notes'){                
+                console.log(`purging old doumcent for ${data.receiver}`)
+                removeDocument(data.receiver)
+            }
         res.json({success: true})
       } catch (err) {
         res.json(400, {error: err.message})
@@ -466,6 +471,10 @@ router.post('/remove_primitive', async function(req, res, next) {
         const removed = await Primitive.findOneAndDelete({"_id": new ObjectId(data.id)})
 
         try{
+            let notes = removed.referenceParameters?.notes
+            if( notes ){
+                await removeDocument( data.id )
+            }
             if( removed.parentPrimitives ){
                 for( const parentId of Object.keys(removed.parentPrimitives) ){
                     await removeParentReference( removed, parentId)
