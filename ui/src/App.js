@@ -33,10 +33,29 @@ function App() {
   const [sidebarOptions, setSidebarOptions] = React.useState(undefined)
   const [widePage, setWidePage] = React.useState(false)
 
+
+  const checkPrimIsLoaded = ()=>{
+    if( window.location.pathname.slice(0, '/item/'.length ) == '/item/'){
+      const id = window.location.pathname.slice('/item/'.length )
+      if( mainstore.primitive(id) === undefined){
+        console.log("NOT LOADED")
+        return id
+      }
+    }
+    return true
+  }
+
   useEffect(()=>{
     mainstore.loadControl = setLoaded
     mainstore.loadData().then(res => {
-      setLoaded(true)
+      const passOrId = checkPrimIsLoaded()
+      if( passOrId === true ){
+        setLoaded(true)
+      }else{
+        mainstore.loadWorkspaceFor(passOrId).then(data => {
+          setLoaded(true)
+        })
+      }
     })
   }, [])
 
@@ -67,7 +86,9 @@ function App() {
             <Routes>
               <Route path="/login" element={<SignIn/>}/>
               <Route path="/" element={<SideNav><HomeScreen/></SideNav>}/>
-              <Route path="/item/:id" element={<SideNav key='sidebar' widePage={widePage}><PrimitivePage setWidePage={setWidePage} selectPrimitive={selectPrimitive}/></SideNav>}/>
+              <Route path="/item/:id" element={<SideNav key='sidebar' widePage={widePage}>
+                <PrimitivePage setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
+              </SideNav>}/>
             </Routes>
           <Sidebar open={open} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
           </BrowserRouter>

@@ -11,11 +11,11 @@ export function EvidenceCard({evidence, ...props}) {
   let details = props.details === undefined ? true : props.details
   let bgColor = props.bgColor === undefined ? "slate-400" : props.bgColor
   let textColor = props.iconColor === undefined ? "white" : props.iconColor
-  let icon = config.icon
+  let icon = config?.icon
   let value = undefined
 
 
-  if( config.type === "quantitative" && evidence.referenceParameters ){
+  if( config?.type === "quantitative" && evidence.referenceParameters ){
     value = evidence.referenceParameters.value
   }
   if(props.sentiment === "positive"){
@@ -51,14 +51,14 @@ export function EvidenceCard({evidence, ...props}) {
         </div>
         <div key='content' className={`min-w-max flex-1 ${details ? "py-2 pr-3" : "py-1 pr-2"} pl-1 select-none`}>
           <p key='name' className="text-sm font-medium text-gray-900 ">
-              {config.title}
+              {config?.title}
               {props.count !== undefined && props.count > 1 &&
               <span className="ml-1 inline-flex items-center rounded-full bg-gray-200 px-2.5 py-px text-xs font-medium text-gray-800">
                 x{props.count}
               </span>}
           </p>
           {details && <p key='desc' className="text-xs text-gray-500">
-            {config.description}
+            {config?.description}
           </p>}
         </div>
       </div>

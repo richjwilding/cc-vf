@@ -20,7 +20,7 @@ export default function HomeScreen(props){
 
     return (
     <>
-        <div className="w-full h-screen p-4">
+        <div className="w-full h-screen overflow-y-scroll p-4">
             <Panel key='activity' titleButton={{title:"New activity", action: ()=>setShowNew('activity')}} title='Activties' collapsable={true} count={activities.length} open={true} major='true' >
                 <div className="w-full flex overflow-x-scroll">
                     <div className="w-fit flex gap-4 p-4">

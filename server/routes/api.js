@@ -225,7 +225,8 @@ router.get('/categories', async function(req, res, next) {
 
 })
 router.get('/primitives', async function(req, res, next) {
-    const workspaceId = req.query.workspace
+    let workspaceId = req.query.workspace
+    const owns = req.query.owns
 
     try {
         const user = await User.findOne({email: req.user.email})
@@ -235,6 +236,21 @@ router.get('/primitives', async function(req, res, next) {
                     { workspaceId: { $in: workspaces }},
                     { type: { $in: ['activity','experiment','venture'] }}
                 ]}
+    
+        if( owns !== undefined ){
+            let primitive
+            try{
+                primitive = await Primitive.findOne({"_id": new ObjectId(owns)})
+            }catch{
+                primitive = await Primitive.findOne({"plainId": parseInt(owns)})
+            }
+            workspaceId = primitive?.workspaceId
+
+        }
+
+        if( !workspaces.includes(workspaceId)){
+            workspaceId = undefined
+        }
 
       if( workspaceId !== undefined){
         query = {
@@ -251,6 +267,7 @@ router.get('/primitives', async function(req, res, next) {
         const results = await Primitive.find(query)
         res.json(results)
       } catch (err) {
+        console.log(err)
         res.json({error: err})
       }
 

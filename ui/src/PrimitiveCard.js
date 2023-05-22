@@ -185,7 +185,7 @@ let mainstore = MainStore()
         title: 'Delete',
         action: ()=>setShowDeletePrompt(true),
         icon: TrashIcon,
-        skip: !((props.relatedTo && props.showDelete === 'origin' && primitive.origin.id === props.relatedTo.id) || (props.showDelete === undefined ? false : (props.showDelete === true)))
+        skip: (props.relatedTo && !((props.relatedTo && props.showDelete === 'origin' && primitive.origin.id === props.relatedTo.id)) || (props.showDelete === undefined ? false : (props.showDelete === true)))
       },
       {
         title: `Unlink from ${props.relatedTo?.displayType}`,
@@ -209,7 +209,7 @@ let mainstore = MainStore()
           {({open})=>(<>
           {!open && <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}><Bars3Icon className='w-full h-full'/></Menu.Button>}
           {open && <Float portal placement='bottom-end'>
-              <Menu.Button key={`b-${open}`} className={buttonClass}><Bars3Icon className='w-full h-full'/></Menu.Button>
+              <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}><Bars3Icon className='w-full h-full'/></Menu.Button>
               <Menu.Items className={`absolute z-10 p-1 mt-2  origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none right-0 w-min`}>
                 <div className="py-1">
                   {items.map((item) => (
@@ -691,7 +691,7 @@ const Hero = function({primitive, ...props}){
 
     return (<div 
         onClick={(e)=>{
-          navigate(`/item/${primitive.plainId}`)
+          navigate(`/item/${primitive.id}`)
         }}
         tabIndex='0'
         id={primitive.plainId}

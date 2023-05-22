@@ -15,6 +15,27 @@ function MainStore (prims){
         id:  Math.floor(Math.random() * 99999),
         callbacks: {},
         types: PrimitiveConfig.types,
+        loadWorkspaceFor:async function(id){
+            console.log(`will load`)
+            return new Promise((resolve)=>{
+                const users = fetch(`/api/primitives?owns=${id}`).then(response => {
+                    response.json().then(data => {
+                        obj.data.primitives = data 
+                        obj._cache_prim = undefined
+                        
+                        let primitive = obj.primitive(id)
+                        if( primitive === undefined){
+                            primitive = obj.primitiveByPlain(parseInt(id))
+                            if( primitive === undefined){
+                                throw `Couldnt load ${id}`
+                            }
+                        }
+                        obj.activeWorkspaceId = primitive.workspaceId
+                        resolve(true)
+                    })
+                })
+            })
+        },
         setActiveWorkspaceFrom:async function(primitive){
             if( primitive.workspaceId ){
                 console.warn(`No workspace for Primitive ${primitive.id}`)
@@ -33,7 +54,6 @@ function MainStore (prims){
             const response = await fetch(`/api/primitives?workspace=${obj.activeWorkspaceId}`)
             obj._cache_prim = undefined
             obj.data.primitives = await response.json()
-            console.log('back')
             obj.loadControl(true)
 
         },
@@ -803,6 +823,7 @@ function MainStore (prims){
             }
             data._id = newIds.id
             data.plainId = newIds.plainId
+            data.workspaceId = obj.activeWorkspaceId
             this.addPrimitive( data )
             
             if( parent ){

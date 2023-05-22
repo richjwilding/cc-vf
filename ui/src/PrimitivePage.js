@@ -183,7 +183,7 @@ export function PrimitivePage({primitive, ...props}) {
     let page = useRef()
     let header = useRef()
 
-    let outcomesList = primitive.primitives.outcomes.allUniqueEvidence
+    let outcomesList = primitive.isTask ? primitive.primitives.outcomes.allUniqueEvidence : primitive.primitives.origin.allUniqueEvidence
 
   return (
     <>

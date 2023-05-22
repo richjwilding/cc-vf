@@ -156,7 +156,7 @@ export function PrimitiveTable(props) {
                 gridTemplateColumns: `20px ${Object.values(gridWidths).join(" ")}`
             }}
             onKeyDown={keyHandler}
-            className="grid text-sm w-full overflow-x-auto relative overflow-y-scroll h-full scrollbar-hide">
+            className="grid text-sm w-full overflow-x-auto relative overflow-y-scroll max-h-full scrollbar-hide">
             {table.getHeaderGroups().map(headerGroup => (
                 <>
                 <div

@@ -305,14 +305,11 @@ app.get('/api/refresh', async (req, res) => {
 })
 
 if (process.env.NODE_ENV === 'production') {
-    console.log("DOING")
     app.use(express.static('ui/build'))
   
     const path = require('path')
     app.get('*', function(req, res) {
-        console.log("HELLO THERE")
-      res.sendFile(path.resolve('dist-server', 'ui', 'build', 'index.html'))
-      //res.sendFile(path.resolve(__dirname, 'ui', 'build', 'index.html'))
+      res.sendFile(path.resolve('dist-server', 'ui', 'build', 'index.html'),{lastModified: false, etag: false, cacheControl: false })
     })
   }
 
