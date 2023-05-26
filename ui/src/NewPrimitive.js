@@ -1,60 +1,133 @@
-import { CalendarIcon, CommandLineIcon, MegaphoneIcon } from '@heroicons/react/24/outline'
-import { Dialog, Transition } from '@headlessui/react'
-import {Fragment, useEffect, useState} from 'react';
+import { Combobox, Dialog } from '@headlessui/react'
+
+import { useState, useMemo} from 'react';
 import {
   ChevronRightIcon,
-  XMarkIcon
 } from '@heroicons/react/20/solid'
 import MainStore from './MainStore';
 import { HeroIcon } from './HeroIcon';
-
-const olditems = [
-  {
-    name: 'Marketing Campaign',
-    description: 'I think the kids call these memes these days.',
-    href: '#',
-    iconColor: 'bg-pink-500',
-    icon: MegaphoneIcon,
-  },
-  {
-    name: 'Engineering Project',
-    description: 'Something really expensive that will ultimately get cancelled.',
-    href: '#',
-    iconColor: 'bg-purple-500',
-    icon: CommandLineIcon,
-  },
-  {
-    name: 'Event',
-    description: 'Like a conference all about you that no one will care about.',
-    href: '#',
-    iconColor: 'bg-yellow-500',
-    icon: CalendarIcon,
-  },
-]
+import Popup from './Popup';
+import { ExclamationCircleIcon, ExclamationTriangleIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { PrimitiveCard } from './PrimitiveCard';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
+function CategoryCard({item, ...props}){
+    return (
+            <div className={`group relative flex items-start space-x-3 py-4 ${props.onClick ? "hover:bg-gray-50" : ""} px-2 ${props.className}`}>
+                <div className="flex-shrink-0">
+                    <span
+                    className={classNames(item.iconColor, 'inline-flex h-10 w-10 items-center justify-center rounded-lg')}
+                    >
+                    <HeroIcon icon={item.icon} className="h-6 w-6 text-white" aria-hidden="true" />
+                    </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-gray-900">
+                    <a onClick={props.onClick}>
+                        <span className="absolute inset-0" aria-hidden="true" />
+                        {item.name}
+                    </a>
+                    </div>
+                    <p className="text-sm text-gray-500">{item.description}</p>
+                </div>
+            </div>
+    )
+
+}
+
+function CategorySelection({items, ...props}){
+    const [query, setQuery] = useState('')
+
+
+    const filteredCategories =
+      query === ''
+        ? items
+        : items.filter((item) => {
+            return (item.name?.toLowerCase().includes(query.toLowerCase()) || item.description?.toLowerCase().includes(query.toLowerCase()))
+          })
+  
+
+    return (
+        <Combobox 
+            value={props.selectedCategory} onChange={props.setSelectedCategory}>
+            <div className="relative">
+                <MagnifyingGlassIcon
+                    className="pointer-events-none absolute top-3.5 left-4 h-5 w-5 text-gray-400"
+                    aria-hidden="true"
+                />
+                <Combobox.Input
+                    className="h-12 w-full border-0 bg-transparent pl-11 pr-4 text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:text-sm focus:outline-none"
+                    placeholder="Search..."
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                />
+            </div>
+            <Combobox.Options static hold>
+                <div className='p-2 divide-y divide-gray-100'>
+                {filteredCategories.map((item) => (
+                <Combobox.Option key={item.id} value={item}>
+                    {({ active }) => (
+                        <CategoryCard item={item} className={active ? "bg-gray-100" : ""}/>
+                    )}
+                </Combobox.Option>
+                ))}
+                </div>
+            </Combobox.Options>
+        </Combobox>
+
+    )
+}
+
+
 export default function NewPrimitive({...props}) {
 
-    const items = MainStore().categories().filter((d)=>props.type === undefined || props.type === d.primitiveType).map((d)=>{
-        return {
-            name: d.title,
-            categoryId: d.id,
-            description: d.description,
-            icon: d.icon,
-            iconColor: 'bg-slate-500',
+    const mainstore = MainStore()
+    const getCategoryList = ()=>{
+        let list = []
+        if( props.categoryId ){
+            list = props.categoryId.map((id)=>mainstore.category(id))
+        }else if(props.parent ){
+            if( props.parent.metadata && props.parent.metadata.evidenceCategories ){
+                list = props.parent.metadata.evidenceCategories ? props.parent.metadata.evidenceCategories.map((id)=>mainstore.category(id)) : []
+            }            
+        }else{
+            list = mainstore.categories().filter((d)=>props.type === undefined || props.type === d.primitiveType)
         }
-    })
+        return list.map((d)=>{
+            return {
+                name: d.title,
+                categoryId: d.id,
+                description: d.description,
+                icon: d.icon,
+                iconColor: 'bg-slate-500',
+                details: d
+            }
+        })  
+    }
 
-    async function create( item ) {
-        console.log(`would create ${item.categoryId}`)
+    const items = useMemo(getCategoryList, [props.type])
+    const [value, setValue] = useState()
+    const [pickCategory, setPickCategory] = useState(false)
+    const [pickWorkspace, setPickWorkspace] = useState(false)
+    const [selectedCategory, setSelectedCategory] = useState(items.length === 1 ? items[0] : undefined)
+    const [selectedWorkspace, setSelectedWorkspace] = useState( props.parent?.workspaceId || MainStore().activeWorkspaceId )
+    const [parameters, setParameters] = useState({})
+
+    const allowWorkspaceSelection = props.parent === undefined 
+    const workspace = MainStore().workspace(selectedWorkspace)
+
+    async function submit() {
         const primitive = await MainStore().createPrimitive({
+            title: value,
             type: props.type,
-            categoryId: item.categoryId,
+            categoryId: selectedCategory.categoryId,
             parent: props.parent,
-            parentPath: props.parentPath
+            parentPath: props.parentPath,
+            referenceParameters: {...props.parameters, ...parameters},
+            workspaceId: selectedWorkspace
         })
         if( props.done ){
             props.done(primitive)
@@ -67,89 +140,97 @@ export default function NewPrimitive({...props}) {
         }
     }
 
-    return (
-        <Transition appear show={true} as={Fragment}>
-            <Dialog as="div" className="relative z-50" onClose={closeModal}>
-            <Transition.Child
-                as={Fragment}
-                enter="ease-out duration-300"
-                enterFrom="opacity-0"
-                enterTo="opacity-100"
-                leave="ease-in duration-200"
-                leaveFrom="opacity-100"
-                leaveTo="opacity-0"
-            >
-                <div className="fixed inset-0 bg-black bg-opacity-25" />
-            </Transition.Child>
+    function changeCategory(category){
+        setSelectedCategory( category )
+        setParameters({})
+    }
 
-            <div className="fixed inset-0 overflow-y-auto">
-                <div className="flex min-h-full items-center justify-center p-4 text-center">
-                <Transition.Child
-                    as={Fragment}
-                    enter="ease-out duration-300"
-                    enterFrom="opacity-0 scale-95"
-                    enterTo="opacity-100 scale-100"
-                    leave="ease-in duration-200"
-                    leaveFrom="opacity-100 scale-100"
-                    leaveTo="opacity-0 scale-95"
-                >
-                    <Dialog.Panel className="w-full max-w-md md:max-w-lg transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
-                    <Dialog.Title
-                        as="h3"
-                        className="text-lg font-medium leading-6 text-gray-900"
+    function validateAndSetParameter( paramaterName, paramater, value ){
+        if( paramater.type === "float" ){
+            console.log(value)
+            if( isNaN(parseFloat(value)) ){
+                return false
+            }            
+        }
+        setParameters({
+            ...parameters,
+            [paramaterName]: value
+        })
+        return true
+
+    }
+    return (
+        <Popup width='max-w-xl' setOpen={closeModal} title={`Create new ${props.title || "item"}`}>
+            {({ activeOption }) => (
+                <>
+                {selectedCategory === undefined && items.length > 0 && <div role='button' tabIndex='0' onKeyDown={(e)=>{if(e.key=='Enter' || e.key==" " || e.key === "ArrowDown"){setPickCategory(true)}}} onClick={()=>setPickCategory(true)} className='border outline-none focus:ring-2 focus:ring-indigo-600 rounded-md shadow-md mb-4 p-1'>
+                    <div className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 h-[4.5rem] justify-center place-items-center flex hover:border-gray-400">
+                        Select type of item
+                    </div>
+                </div>}
+                {selectedCategory && items.length > 1 && <div role='button' tabIndex='0' onKeyDown={(e)=>{if(e.key=='Enter' || e.key==" " || e.key === "ArrowDown"){setPickCategory(true)}}} className='border outline-none focus:ring-2 focus:ring-indigo-600 rounded-md shadow-md mb-4 p-1'><CategoryCard onClick={()=>setPickCategory(true)} item={selectedCategory}/></div>}
+                {selectedCategory && items.length === 1 && <CategoryCard item={selectedCategory}/>}
+                {pickCategory && <Popup padding='false' setOpen={()=>setPickCategory(false)}><CategorySelection items={items} setSelectedCategory={(item)=>{changeCategory(item);setPickCategory(false)}}/></Popup>}
+                <textarea
+                    className='mt-4'
+                    rows={5}
+                    tabIndex={1}
+                    onKeyDown={(e)=>{
+                        if(e.key === "Enter"){
+                            e.preventDefault()
+                            submit()
+                        }
+                    }}
+                    onChange={(e)=>setValue(e.currentTarget.value)}
+                    className="block w-full rounded-md border-0 py-1.5 px-2 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-200 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                    placeholder={props.prompt || "Title..."}
+                    defaultValue={''}
+                />
+                {selectedCategory && selectedCategory.details.parameters && 
+                    <div style={{gridTemplateColumns:'max-content auto'}} className='w-full px-2 py-0.5 grid grid-cols-2 border border-gray-200 rounded-md shadow-sm mt-2'>
+                        {Object.keys(selectedCategory.details.parameters).map((d, idx)=>{
+                            const parameter = selectedCategory.details.parameters[d]
+                            const classDef = ['flex text-sm min-h-[2rem] p-2 place-items-center', idx > 0 ? "border-t" : ""].join(" ")
+                            return <>
+                                <p className={`${classDef} font-semibold text-gray-500`}>
+                                    {parameter.title}
+                                </p>
+                                <div className={`${classDef} flex justify-end w-full`}>
+                                    <PrimitiveCard.RenderItem item={parameter} editable={true} border callback={(e)=>{return validateAndSetParameter(d, parameter, e)}}/>
+                                </div>
+                            </>
+                        })}
+                    </div>}
+                {allowWorkspaceSelection && workspace && <p onClick={()=>setPickWorkspace(true)} className={`cursor-pointer flex place-items-center text-xs rounded-md mt-2 py-1 px-2 bg-${workspace.color}-200 text-color-${workspace.color}-800`}><ExclamationCircleIcon className='w-6 h-6 pr-1'/> Creating in the {workspace.title} workspace</p>}
+                {allowWorkspaceSelection && !workspace && <p onClick={()=>setPickWorkspace(true)} className={`cursor-pointer flex place-items-center text-xs rounded-md mt-2 py-1 px-2 bg-amber-200 text-color-amber-800`}><ExclamationTriangleIcon className='w-6 h-6 pr-1'/>You must select a workspace to create this in</p>}
+                {pickWorkspace && <Popup title='Select a workspace' width='max-w-lg' setOpen={()=>setPickWorkspace(false)} showCancel={true}>
+                    <div className='space-y-3'>
+                    {MainStore().activeUser.info.workspaces.map((id)=>{
+                        const workspace = MainStore().workspace(id)
+                        return (<p onClick={()=>{setSelectedWorkspace(id);setPickWorkspace(false)}} className={`cursor-pointer bg-${workspace.color}-200 text-color-${workspace.color}-800 p-2`}>{workspace.title}</p>)
+                    })}
+                    </div>
+                </Popup>}
+                <div className="flex flex-shrink-0 justify-between space-x-2 pt-4 mt-1">
+                    <button
+                        type="button"
+                        tabIndex='2' 
+                        onClick={() => closeModal(null)}
+                        className="rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
                     >
-                        Create a new {props.title || "item"}
-                    </Dialog.Title>
-                        <div className="mx-auto max-w-lg">
-                            <p className="mt-1 text-sm text-gray-500">Get started by selecting a template or start from an empty {props.title || "item"}.</p>
-                            <ul role="list" className="mt-6 divide-y divide-gray-200 border-b border-t border-gray-200">
-                                {items.map((item, itemIdx) => (
-                                <li key={itemIdx}>
-                                    <div className="group relative flex items-start space-x-3 py-4 hover:bg-gray-50 px-2">
-                                    <div className="flex-shrink-0">
-                                        <span
-                                        className={classNames(item.iconColor, 'inline-flex h-10 w-10 items-center justify-center rounded-lg')}
-                                        >
-                                        <HeroIcon icon={item.icon} className="h-6 w-6 text-white" aria-hidden="true" />
-                                        </span>
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="text-sm font-medium text-gray-900">
-                                        <a onClick={()=>create(item) }>
-                                            <span className="absolute inset-0" aria-hidden="true" />
-                                            {item.name}
-                                        </a>
-                                        </div>
-                                        <p className="text-sm text-gray-500">{item.description}</p>
-                                    </div>
-                                    <div className="flex-shrink-0 self-center">
-                                        <ChevronRightIcon className="h-5 w-5 text-gray-400 group-hover:text-gray-500" aria-hidden="true" />
-                                    </div>
-                                    </div>
-                                </li>
-                                ))}
-                            </ul>
-                            <div className="mt-6 flex">
-                                <a href="#" className="text-sm font-medium text-indigo-600 hover:text-indigo-500">
-                                Or start from an empty {props.title || "item"}
-                                <span aria-hidden="true"> &rarr;</span>
-                                </a>
-                            </div>
-                        </div>
-                    <div className="flex flex-shrink-0 justify-end space-x-2 mt-1">
-                        <button
-                            type="button"
-                            className="rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                            onClick={() => closeModal(null)}
-                        >
-                            Close
-                        </button>
-                      </div>
-                    </Dialog.Panel>
-                </Transition.Child>
+                        {props.cancelText || "Cancel"}
+                    </button>
+                    <button
+                        type="button"
+                        tabIndex='3' 
+                       disabled={value === undefined || value.trim().length === 0 || (items.length > 0 && selectedCategory === undefined)}
+                        onClick={submit}
+                        className="rounded-md bg-indigo-600 disabled:bg-gray-600 py-2 px-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                    >
+                        {props.addText || "Create"}
+                    </button>
                 </div>
-            </div>
-            </Dialog>
-        </Transition>
-    )
+            </>
+        )}
+    </Popup>)
 }

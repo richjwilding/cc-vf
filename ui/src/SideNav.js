@@ -22,7 +22,7 @@ import {
   MagnifyingGlassIcon,
 } from '@heroicons/react/20/solid'
 import MainStore from './MainStore'
-import { useLinkClickHandler } from 'react-router-dom'
+import { useLinkClickHandler, useNavigate } from 'react-router-dom'
 
 
 function classNames(...classes) {
@@ -30,30 +30,25 @@ function classNames(...classes) {
 }
 
 export default function SideNav(props) {
-  const workspaces = MainStore().workspaces().map((d)=>{
-    return {
-      name: d.title,
-      href: '#',
-      bgColorClass: `bg-${d.color}-500`
-    }
-  })
+  const workspaces = MainStore().activeUser.info.workspaces.map((d)=>MainStore().workspace(d))
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const sizeToggle = props.widePage ? "3xl" : "xl"
 
+  const navigate = useNavigate()
+
 const navigation = [
-  { name: 'Home', routerLink: useLinkClickHandler('/'), icon: HomeIcon, current: true },
-  { name: 'My tasks', href: '#', icon: Bars4Icon, current: false },
-  { name: 'Recent', href: '#', icon: ClockIcon, current: false },
+  { name: 'Home', onClick: ()=>{props.setWorkspace(undefined);navigate('/')}, icon: HomeIcon, current: props.workspace === undefined },
+//  { name: 'My tasks', href: '#', icon: Bars4Icon, current: false },
+ // { name: 'Recent', href: '#', icon: ClockIcon, current: false },
 ]
 
 const mainMenu = navigation.map((item) => (
                   <a
                     key={item.name}
-                    href={item.href || ''}
-                    onClick={item.routerLink || undefined}
+                    onClick={item.onClick || undefined}
                     className={classNames(
                       item.current ? 'bg-ccgreen-200/60 text-gray-900' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900',
-                      'group flex items-center rounded-md px-2 py-2 text-sm font-medium'
+                      'group flex items-center rounded-md px-2 py-2 text-sm font-medium cursor-pointer'
                     )}
                     aria-current={item.current ? 'page' : undefined}
                   >
@@ -202,15 +197,15 @@ const mainMenu = navigation.map((item) => (
                         <div className="mt-1 space-y-1" role="group" aria-labelledby="mobile-teams-headline">
                           {workspaces.map((workspace) => (
                             <a
-                              key={workspace.name}
-                              href={workspace.href}
-                              className="group flex items-center rounded-md px-3 py-2 text-base font-medium leading-5 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                              key={workspace.title}
+                              onClick={()=>props.setWorkspace(workspace)}
+                              className="cursor-pointer group flex items-center rounded-md px-3 py-2 text-base font-medium leading-5 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                             >
                               <span
-                                className={classNames(workspace.bgColorClass, 'mr-4 h-2.5 w-2.5 rounded-full')}
+                                className={classNames(`bg-${workspace.color}-500`, 'mr-4 h-2.5 w-2.5 rounded-full')}
                                 aria-hidden="true"
                               />
-                              <span className="truncate">{workspace.name}</span>
+                              <span className="truncate">{workspace.title}</span>
                             </a>
                           ))}
                         </div>
@@ -322,15 +317,15 @@ const mainMenu = navigation.map((item) => (
                 <div className="mt-1 space-y-1" role="group" aria-labelledby="desktop-teams-headline">
                   {workspaces.map((workspace) => (
                     <a
-                      key={workspace.name}
-                      href={workspace.href}
-                      className="group flex items-center rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                      key={workspace.title}
+                      onClick={()=>props.setWorkspace(workspace)}
+                      className={classNames('cursor-pointer group flex items-center rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900', props.workspace && props.workspace.id === workspace.id ? `bg-${workspace.color}-100` : '')}
                     >
                       <span
-                        className={classNames(workspace.bgColorClass, 'mr-4 h-2.5 w-2.5 rounded-full')}
+                        className={classNames(`bg-${workspace.color}-500`, 'mr-4 h-2.5 w-2.5 rounded-full')}
                         aria-hidden="true"
                       />
-                      <span className="truncate">{workspace.name}</span>
+                      <span className="truncate">{workspace.title}</span>
                     </a>
                   ))}
                 </div>

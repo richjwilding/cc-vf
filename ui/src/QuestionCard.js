@@ -75,7 +75,7 @@ export default function QuestionCard({primitive, ...props}){
         }
         <p key='footer' className='text-xs text-gray-400'>#{primitive.plainId}</p>
         </div>
-        {editPrompt && <GenericEditor set={(p)=>p.primitives.allPrompt} options={[13,14].map((d)=>MainStore().category(d))} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
+        {editPrompt && <GenericEditor set={(p)=>p.primitives.allPrompt} options={(props.promptCategories || []).map((d)=>MainStore().category(d))} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
         </>
     )
 }

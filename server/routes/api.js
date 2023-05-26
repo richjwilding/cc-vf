@@ -14,6 +14,7 @@ import { finished } from 'stream/promises';
 import { getDocument, getDocumentAsPlainText, importGoogleDoc, removeDocument } from '../google_helper';
 import analyzeDocument from '../openai_helper';
 import {createPrimitive, flattenPath} from '../SharedFunctions'
+import { encode } from 'gpt-3-encoder';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -454,6 +455,7 @@ router.post('/move_relationship', async function(req, res, next) {
                 $pull: { [fromPath]: data.target },
                 $push: { [toPath]: data.target }
             })
+            res.json({success: true})
       } catch (err) {
         res.json(400, {error: err.message})
     }
@@ -547,7 +549,7 @@ router.post('/add_primitive', async function(req, res, next) {
             throw new Error("No primitive created")
         }
         const newId = newPrimitive._id.toString()
-        res.json({success: true, id: newId, plainId: newPrimitive.plainId })
+        res.json({success: true, result: newPrimitive })
       } catch (err) {
         res.status(400).json({error: err.message})
     }
@@ -633,6 +635,21 @@ router.get('/primitive/:id/getDocument', async function(req, res, next) {
         res.status(501).json({message: "Error"})
     }
 
+})
+router.get('/primitive/:id/getDocumentTokenCount', async function(req, res, next) {
+    let data = req.body
+    const primitiveId = req.params.id
+    console.log( primitiveId )
+    try{
+        const result = await getDocumentAsPlainText( primitiveId, req )
+
+        const encoded = encode(result?.plain)
+
+        res.json({success: true, result: encoded})
+    }catch(err){
+        res.status(400).json( {error: err.message})
+        return
+    }
 })
 router.get('/primitive/:id/getDocumentAsPlainText', async function(req, res, next) {
     let data = req.body

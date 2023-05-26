@@ -28,6 +28,7 @@ import {
 import { Button, Position, PrimaryButton, Tooltip} from '@react-pdf-viewer/core';
 import MainStore from './MainStore';
 import useDataEvent from './CustomHook';
+import NewPrimitive from './NewPrimitive';
 
 const MyToolBar = ( props ) => {
   const toolbarPluginInstance = toolbarPlugin();
@@ -106,6 +107,7 @@ const ResultViewer = forwardRef(function ResultViewer({createCallback, ...props}
   const [toolbarPluginInstance, toolbar] = MyToolBar()
   const pageNavigationPluginInstance = pageNavigationPlugin();
   const viewer = React.useRef()
+  const parentForEvidence = props.primitive
   let startEl = undefined
   let endEl = undefined
   
@@ -154,8 +156,16 @@ const ResultViewer = forwardRef(function ResultViewer({createCallback, ...props}
         <PlusIcon className='w-5 h-5' strokeWidth={3}/>
     </div>
 )};
-
 const renderHighlightContent = (props) => {
+    const parameters = {
+                highlightAreas: props.highlightAreas,
+                quote: props.selectedText,
+
+    }
+    return <NewPrimitive parameters={parameters} cancel={props.cancel} type='evidence' parent={parentForEvidence} done={()=>props.cancel()}/>
+}
+
+const _renderHighlightContent = (props) => {
     const addNote = async () => {
         if (message !== '') {
             const note = {
@@ -171,6 +181,7 @@ const renderHighlightContent = (props) => {
             props.cancel();
         }
     };
+
 
     return (
         <div

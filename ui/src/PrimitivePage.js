@@ -1,7 +1,7 @@
 import { PrimitiveCard } from './PrimitiveCard'
 import { MetricCard } from './MetricCard'
 import { HeroIcon } from './HeroIcon'
-import {Fragment, useEffect, useReducer, useRef, useState, useMemo, useCallback} from 'react';
+import {Fragment, useEffect, useReducer, useRef, useState, useMemo, useCallback, useLayoutEffect} from 'react';
 import { useLinkClickHandler, useNavigate, useParams } from "react-router-dom";
 import Panel from './Panel';
 import { Tab } from '@headlessui/react'
@@ -30,6 +30,7 @@ import Popup from './Popup';
 import AIStatusPopup from './AIStatusPopup';
 import { AssessmentCard } from './AssessmentCard';
 import {PrimitiveTable} from './PrimitiveTable';
+
 
 let mainstore = MainStore()
 
@@ -83,6 +84,7 @@ export function PrimitivePage({primitive, ...props}) {
     const [showWorkingPane, setShowWorkingPaneReal] = useState(hasDocumentViewer)
     const [componentView, setComponentView] = useState(null)
     const [showAIPopup, setShowAIPopup] = useState(null)
+    const cvRef = useRef()
     const navigate = useNavigate();
 
     const setShowWorkingPane = useCallback((value) => {
@@ -129,6 +131,18 @@ export function PrimitivePage({primitive, ...props}) {
       }
      // registerCallbacks()
     },[])
+
+    useLayoutEffect(()=>{
+      if( cvRef.current ){
+        var rect = cvRef.current.getBoundingClientRect();
+        var windowHeight = window.innerHeight || document.documentElement.clientHeight;
+        var vertInView = rect.top <= windowHeight && rect.top + rect.height >= 0;
+        if( !vertInView ){
+          cvRef.current.scrollIntoView({behavior:"smooth"})
+        }
+
+      }
+    },[componentView])
 
 
 
@@ -242,6 +256,11 @@ export function PrimitivePage({primitive, ...props}) {
                     { !primitive.isTask && task && 
                         <Panel key='relatedTask' title={`Related ${task.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
                           <PrimitiveCard compact={true} primitive={task}  disableHover={true} showLink={true}/>
+                        </Panel>
+                    }
+                    { primitive.type === "assessment" && primitive.venture && 
+                        <Panel key='relatedVenture' title={`Related ${primitive.venture.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
+                          <PrimitiveCard compact={true} primitive={primitive.venture}  disableHover={true} showLink={true}/>
                         </Panel>
                     }
                   </div>
@@ -360,9 +379,13 @@ export function PrimitivePage({primitive, ...props}) {
                               </div>
                             : category.plurals || category.title
 
+                let createButtons = [{title:"Create new", action: ()=>createResult(resultCategory, undefined, true)}]
+                if( resultCategory.parameters.notes ){
+                  createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument(resultCategory)} )
+                }
                 
                 return (
-                  <Panel key={category.title} title={title} titleButton={[{title:"Create new", action: ()=>createResult(resultCategory, undefined, true)},{title: "Create from document", action: ()=>createNewResultFromDocument(resultCategory)}]} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                  <Panel key={category.title} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
                         {(list === undefined || list.length === 0) && 
                           <div className='w-full p-2'>
                             <button
@@ -526,13 +549,13 @@ export function PrimitivePage({primitive, ...props}) {
               </section>
             {showWorkingPane && 
               <div style={{minWidth:0, minHeight:0}} className='h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'>
-                <div className='bg-white rounded-lg shadow h-full flex flex-col p-2'>
+                <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col p-2'>
                     {!hasDocumentViewer &&                       
                       hasNestedEvidence && 
                           <EvidenceExplorer evidenceList={nestedEvidence}  showOriginInfo={[{contact: 'contactName'}, 'company']} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                     }
                     {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} createCallback={createEvidenceFromNote} primitive={primitive} />}
-                    {primitive.type === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
+                    {primitive.type === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
                 </div>
               </div>
               }

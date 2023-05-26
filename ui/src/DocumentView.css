@@ -24,3 +24,8 @@
 .docview_highlightarea:hover{
 border:1px solid red;
 }
+.rpv-core__text-layer-text{
+  margin-top: -0.25em;
+  padding-top: 0.25em;
+  padding-bottom: 0.25em;
+}

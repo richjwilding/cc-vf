@@ -32,6 +32,7 @@ function App() {
   const [primitive, setPrimitive] = React.useState(undefined)
   const [sidebarOptions, setSidebarOptions] = React.useState(undefined)
   const [widePage, setWidePage] = React.useState(false)
+  const [workspaceView, setWorkspaceView] = React.useState(undefined)
 
 
   const checkPrimIsLoaded = ()=>{
@@ -85,8 +86,8 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<SignIn/>}/>
-              <Route path="/" element={<SideNav><HomeScreen/></SideNav>}/>
-              <Route path="/item/:id" element={<SideNav key='sidebar' widePage={widePage}>
+              <Route path="/" element={<SideNav workspace={workspaceView} setWorkspace={setWorkspaceView}><HomeScreen workspace={workspaceView} setWorkspace={setWorkspaceView}/></SideNav>}/>
+              <Route path="/item/:id" element={<SideNav key='sidebar' widePage={widePage} workspace={workspaceView} setWorkspace={setWorkspaceView}>
                 <PrimitivePage setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
               </SideNav>}/>
             </Routes>

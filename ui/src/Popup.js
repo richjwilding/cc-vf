@@ -47,10 +47,22 @@ export default function Popup({metric, primitive,...props}) {
                 props.width === undefined ? "max-w-2xl" : props.width,
                 props.padding === undefined ? "p-6" : props.padding,
                 ].join(" ")}>
+                {props.title && <h3 className='text-lg mb-4 font-semibold'>{props.title}</h3>}
                 {props.children instanceof Function ? props.children({
                     handleClose: handleClose,
                 }) : props.children}
                 
+                {props.showCancel &&
+                <div className="flex flex-shrink-0 justify-between space-x-2 pt-4 mt-1">
+                    <button
+                        type="button"
+                        onClick={handleClose}
+                        className="rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                    >
+                        {props.cancelText || "Cancel"}
+                    </button>
+                </div>
+                }
             </Dialog.Panel>
           </Transition.Child>
         </div>

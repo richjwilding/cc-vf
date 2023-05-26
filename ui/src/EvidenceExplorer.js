@@ -127,7 +127,7 @@ const options = <><option value="area">Focus area (defined by experiment)</optio
                                             let item = wrapped.primitive
                                             let color = 'ccblue'
                                             let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
-                                            if( item.origin.referenceParameters.company.search(/Munich Re/i)){
+                                            if( item.origin.referenceParameters.company?.search(/Munich Re/i)){
                                                 color = 'ccpurple'
                                             }
                                            // return <div style={{width: `${sz}em`, height: `${sz}em`, borderRadius:`${sz}em`}} className={`bg-${color}-400 border-4 border-white shade-lg m-1`}></div>

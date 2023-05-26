@@ -56,12 +56,6 @@ let mainstore = MainStore()
                 }}
                   value = {item.value}
             />
-        return (
-          <a key={item.id} href={item.value} target="_blank" className="rounded-full hover:opacity-75 text-blue-500 hover:text-blue-600">
-            <HeroIcon icon='DocumentTextIcon' className='w-6 h-6'/>
-          </a>
-        )
-
       }else if( item.type === "user"){
         let user = mainstore.user( item.value )
         return <EditablePersonField 
@@ -76,12 +70,16 @@ let mainstore = MainStore()
               />
 
       }else if( item.type === "scale" || item.type === "progress"){
-        if( props.editing ){
+        if( props.editing || props.editable ){
           return (
-                  <input type="range" min="0" max="9" value={item.value || 0} step='1' className="range" onChange={(e)=>{
-                    const value = e.currentTarget.value
-                    props.primitive.setParameter(item.key, value)
-                  }}/>
+                  <input type="range" 
+                    min="0" 
+                    max="9" 
+                    defaultValue={item.value || 0} step='1' className="range" 
+                    onChange={props.callback ? (e)=>props.callback(e.currentTarget.value) : (e)=>{
+                      const value = e.currentTarget.value
+                      props.primitive.setParameter(item.key, value)
+                    }}/>
           )
         }
         const size = item.type === "scale" ? "w-6 h-6" : "w-8 h-8"
@@ -98,6 +96,16 @@ let mainstore = MainStore()
               </svg>
               {item.type === "scale" && <p className='top-0 left-0 absolute text-center font-sm pt-0.5 w-full' style={{color: color}}>{item.value}</p>}
           </div>
+      }else if( item.type === "options"){
+        return (<select 
+                  className='border border-gray-200 p-1 rounded-md'
+                  onChange={(e)=>props.callback(e.currentTarget.value)}
+                >
+            <option value={undefined} ></option>
+            {item.options.map((option)=>(
+              <option value={option}>{option}</option>
+            ))}
+          </select>)
       }else if( item.type === "contactName"){
         const contact = props.primitive.referenceParameters.contact
         if( props.compact ){
@@ -152,7 +160,6 @@ let mainstore = MainStore()
               {item.key === "valuation" && <HeroIcon icon="ArrowTrendingUpIcon" className='w-5 h-5 mr-1'/>}
                 <p className='text-lg text-gray-800 font-semibold'>${val}{unit}</p>
               </>
-
       }
       
       return <EditableTextField
@@ -162,7 +169,7 @@ let mainstore = MainStore()
         default={item.default} 
         icon={icon} 
         fieldClassName={`${props.compact ? "" :'text-end grow'} ${props.inline ? "truncate" : ""}`}
-        callback={(value)=>{
+        callback={props.callback ? props.callback : (value)=>{
             return props.primitive.setParameter(item.key, value)
         }}
         className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
@@ -484,16 +491,15 @@ const EvidenceList = function({primitive, ...props}){
   let evidence = props.evidenceList || primitive?.primitives.allUniqueEvidence
   useDataEvent('relationship_update', evidence.map((d)=>d.id))
   if( evidence === undefined || evidence === null || evidence.length === 0){return <></>} 
-  let relatedTask = props.relatedTask || primitive?.findParentPrimitives({type: ["experiment", "activity"]})
 
-  if( relatedTask && Array.isArray(relatedTask)){
-    if( relatedTask.length > 1){
-      console.warn(`Primitive ${primitive.id} has multiple tasks - defualting to first`)
-    }
-    relatedTask = relatedTask[0]
+
+  let categoryIds = evidence.map((d)=>d.referenceId)
+  if( primitive?.metadata?.evidenceCategories ){
+    categoryIds = categoryIds.concat(primitive.metadata.evidenceCategories)
   }
-
-  let evidenceCategories = relatedTask.metadata.evidenceCategories?.map((id)=>mainstore.category(id))
+  categoryIds = categoryIds.filter((v,i,a)=>v && a.indexOf(v)==i)
+  console.log(categoryIds)
+  let evidenceCategories = categoryIds.map((id)=>mainstore.category(id))
 
   let evidenceGroups = evidence.reduce((o, d)=>{
       let c = d._packed ? d.primitive : d
@@ -727,6 +733,7 @@ const Questions = function({primitive, ...props}){
   useDataEvent("set_field relationship_update", [props.relatedTo?.id, primitive.id], forceUpdate)
   let aiProcessSummary
   let analyzer
+  let promptCategories
 
   if(props.relatedTo ){
     if(props.relatedTo.analyzer){
@@ -736,6 +743,10 @@ const Questions = function({primitive, ...props}){
       }
     }
   }
+  const resultTypes = primitive.metadata?.resultCategories?.map((d)=>d.resultCategoryId) || []
+  promptCategories = resultTypes.map((id)=>{
+    return mainstore.category(id).promptCategories
+  }).flat().filter((v,i,a)=>v && a.indexOf(v)==i)
 
   const createQuestion = async ()=>{
     const newPrim = await MainStore().createPrimitive({type: 'question', parent: primitive})
@@ -765,7 +776,7 @@ const Questions = function({primitive, ...props}){
             </div>
           }
           {list.map((question, idx) => (
-            <QuestionCard key={question.id} primitive={question} {...props} aiProcessSummary={aiProcessSummary}/>
+            <QuestionCard key={question.id} promptCategories={promptCategories} primitive={question} {...props} aiProcessSummary={aiProcessSummary}/>
           ))}
         </ul>
       </dd>
@@ -923,9 +934,9 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         metaSummary = <p className={`text-${mainTextSize} pl-1 font-medium`}>{metadata.summary}</p>
       }
       else if( props.showMeta !== "large" ){
-        smallMeta = <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center mt-2`}>
+        smallMeta = <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase ${props.showMeta === "small-top" ? "mb-2 border-b" : "mt-2"} place-items-center`}>
               {metadata.icon && <HeroIcon icon={metadata.icon} className='w-5 h-5 mr-1' strokeWidth={1}/>}
-              {metadata.description}
+              {metadata.title}
             </h3>
       }
     } 
@@ -991,12 +1002,13 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   }else{
     header = <>
               {!titleAtBase && !metadata && !props.hideTitle && <Title primitive={primitive} {...props}/>} 
+              {smallMeta && props.showMeta === "small-top" && smallMeta}
               {content && 
                 <div 
                   className={
                     withHero
                       ? "rounded-t-lg bg-gradient-to-br from-slate-900 to-slate-600 -mx-2 -mt-3 h-24 flex" 
-                      : `flex items-start justify-between ${props.compact ? "space-x-1" : "space-x-3"} ${props.compact ? 'mt-2' : 'mt-3'}`
+                      : `flex items-start justify-between ${props.compact ? "space-x-1" : "space-x-3"} ${props.compact ? titleAtBase ? '' : 'mt-2' : 'mt-3'}`
                   }>
                 {metaSummary}
                 {content}
@@ -1069,7 +1081,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {(props.showEvidence  === "compact") && <PrimitiveCard.Evidence primitive={primitive} hideTitle={true} compact={true} aggregate={true}/>}
         {props.children}
         {titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} className={props.inline ? 'grow-0' : 'grow-0 mt-1'}/>}
-        {smallMeta}
+        {smallMeta && props.showMeta !== "small-top" && smallMeta}
         {primitive._doingDiscovery && !primitive.discoveryDone && <div className='w-2 h-2 absolute bg-amber-500 rounded-lg right-1 top-1'/>}
         {primitive.openai_error && <div className='w-2 h-2 absolute bg-red-500 rounded-lg right-1 top-1'/>}
         {primitive.metadata?.isAggregation && <Aggregation primitive={primitive} {...props}/>}

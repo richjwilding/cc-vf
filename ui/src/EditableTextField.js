@@ -94,13 +94,14 @@
         <div
           ref={editBox} 
           contentEditable={editing}
-          onDoubleClick={props.editable}
+          onClick={props.editable instanceof Function ? props.editable : props.editable === true ? ()=>setEditing(true) :undefined}
           onKeyDown={editing ? keyHandler : undefined}
           onBlur={editing ? toggleEditing : undefined}
           tabIndex={editing ? 1 : -1}
           suppressContentEditableWarning={true}
           className={[
             'place-items-center outline-none',
+            props.border ? "border border-gray-200 rounded-md" : "none",
             !props.compact && !editing ? "p-1 min-h-[2em]" : "",
             props.fieldClassName || '',
             props.compact ? "" : "px-1 py-1",

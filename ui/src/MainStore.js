@@ -230,14 +230,15 @@ function MainStore (prims){
                return result 
             },
             async createPrimitive(object, parent, paths){
+                let workspaceId = object.workspaceId || parent?.workspaceId || obj.activeWorkspaceId
                 const data = {
                     parent: parent ? parent.id : undefined,
                     data: object,
-                    workspaceId: obj.activeWorkspaceId,
+                    workspaceId: workspaceId,
                     paths: paths
                 }
-                let newIds
-                if( obj.activeWorkspaceId === undefined){
+                let newItem
+                if( workspaceId === undefined){
                     throw "Must have an active workspace"
                 }
 
@@ -253,14 +254,14 @@ function MainStore (prims){
                   (result) => {
                     if( obj.ajaxResponseHandler( result )){
                         console.log(result)
-                        newIds = {id: result.id, plainId: result.plainId}
+                        newItem = result.result
                     }
                   },
                   (error) => {
                     console.warn(error)
                   }
                 )
-               return newIds
+               return newItem
             },
             updateTitle:function( receiver, title){
                 this.updateField(receiver, "title", title, "set_title")
@@ -767,6 +768,7 @@ function MainStore (prims){
                 state = undefined, 
                 extraFields = {}, 
                 parent = undefined, 
+                workspaceId = undefined, 
                 parentPath = undefined, 
                 categoryId = undefined, 
                 referenceParameters = {} } = options
@@ -803,20 +805,20 @@ function MainStore (prims){
                     throw new Error(`Cant add result with category ${categoryId} to Prim #${parent.plainId}`)*/
                 }
           //  }
-            console.log(`paths: `, paths)
 
             let data = {
                 //plainId:  Math.floor(Math.random() * 99999),
                 title: title,
                 type: type,
                 state: state,
+                workspaceId: workspaceId,
                 primitives: {},
                 referenceId: categoryId,
                 referenceParameters: referenceParameters,
                 users: {owner: [this.activeUser.id], other: []},
                 ...extraFields
             }
-            const newIds = await this.controller.createPrimitive(data, parent, paths)
+            /*const newIds = await this.controller.createPrimitive(data, parent, paths)
             if( newIds === undefined){
                 console.warn('New primitive not created')
                 return
@@ -824,14 +826,20 @@ function MainStore (prims){
             data._id = newIds.id
             data.plainId = newIds.plainId
             data.workspaceId = obj.activeWorkspaceId
-            this.addPrimitive( data )
+            */
+            const rData = await this.controller.createPrimitive(data, parent, paths)
+            if( rData === undefined){
+                console.warn('New primitive not created')
+                return
+            }
+            this.addPrimitive( rData )
+            const newObj = obj.primitive(rData.id)
             
             if( parent ){
                 paths.forEach((p)=>{
-                    parent.addRelationship( data, p, true)
+                    parent.addRelationship( newObj, p, true)
                 })
             }
-            const newObj = obj.primitive(data._id)
             obj.triggerCallback("relationship_update", [parent, newObj])
             obj.triggerCallback("new_primitive", [newObj] )
             return  newObj
@@ -1225,6 +1233,9 @@ function MainStore (prims){
                         if( prop === "framework"){
                             return obj.framework( d.frameworkId)
                         }
+                        if( prop === "venture"){
+                            return receiver.parentPrimitives.filter((d)=>d.type === "venture")[0]
+                        }
                     }
                     if( d.type === "venture" ){
                         if( prop === "currentAssessment"){
@@ -1354,7 +1365,7 @@ function MainStore (prims){
                 obj.data.primitives = primitives
                 obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
                 obj.activeUser.id = obj.activeUser.info.id
-                obj.data.workspaces = workspaces
+                obj.data.workspaces = workspaces.map((d)=>{d.id = d._id; return d})
                 obj.data.frameworks = frameworks.map((d)=>{d.id = d._id; return d})
 
 //                obj.processOutstandingDiscovery()

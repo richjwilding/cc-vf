@@ -33,12 +33,14 @@
     "react-scripts": "5.0.1",
     "react-select": "^5.7.0",
     "resize-observer-polyfill": "^1.5.1",
+    "source-map-explorer": "^2.5.3",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "analyze": "source-map-explorer 'build/static/js/*.js'",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

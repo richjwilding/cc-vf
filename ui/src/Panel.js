@@ -33,6 +33,9 @@ const Title = (props)=>(
 
 export default function Panel({...props}){
   const ref = React.useRef()
+
+  const titleButton = props.titleButton && props.titleButton instanceof Array && props.titleButton.length === 1 ? props.titleButton[0] : props.titleButton
+
   if( !props.collapsable ){
     return (
         <div className={`group ${props.hideTitle ? "" : "mt-6"} ${props.className || ""}`}>
@@ -50,10 +53,10 @@ export default function Panel({...props}){
             <Disclosure.Button className='flex w-full'>
               <Title {...props} open={open}/>
             </Disclosure.Button>
-              {props.titleButton && (
-                props.titleButton instanceof Array
+              {titleButton && (
+                titleButton instanceof Array
                 ? 
-                  <DropdownButton items={props.titleButton} className='shrink-0 grow-0 h-10' />
+                  <DropdownButton items={titleButton} className='shrink-0 grow-0 h-10' />
                 :
                     <button
                       type="button"
@@ -63,10 +66,10 @@ export default function Panel({...props}){
                           `shrink-0 grow-0 self-center rounded-md border border-gray-300 bg-white font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
                         ].join(" ")
                       }
-                      onClick={props.titleButton.action}
+                      onClick={titleButton.action}
                     >
-                      {props.titleButton.icon ? props.titleButton.icon : 
-                        (props.titleButton.title || "Create new")
+                      {titleButton.icon ? titleButton.icon : 
+                        (titleButton.title || "Create new")
                       }
                     </button>
               )}

@@ -305,11 +305,18 @@ app.get('/api/refresh', async (req, res) => {
 })
 
 if (process.env.NODE_ENV === 'production') {
-    app.use(express.static('ui/build'))
+    app.use(express.static('ui/build',{
+        setHeaders: (res, path) => {
+            if (express.static.mime.lookup(path) === 'text/html') {
+            res.setHeader('Cache-Control', 'public, max-age=0');
+            }
+        }
+
+    }))
   
     const path = require('path')
     app.get('*', function(req, res) {
-      res.sendFile(path.resolve('dist-server', 'ui', 'build', 'index.html'),{lastModified: false, etag: false, cacheControl: false })
+      res.sendFile(path.resolve('dist-server', 'ui', 'build', 'index.html'))
     })
   }
 

@@ -9,14 +9,22 @@ import useDataEvent from "./CustomHook"
 export default function HomeScreen(props){
     const navigate = useNavigate()        
     const [showNew, setShowNew] = useState(false)
+
+    const filterForWorksapce = (array)=>{
+        if( props.workspace === undefined ){
+            return array
+        }
+        return array.filter((d)=>d.workspaceId === props.workspace.id)
+    }
     
-    const activities = MainStore().primitives().filter((p)=>p.isTask)
-    const ventures = MainStore().primitives().filter((p)=>p.type === 'venture')
+    const activities = filterForWorksapce(MainStore().primitives().filter((p)=>p.isTask))
+    const ventures = filterForWorksapce(MainStore().primitives().filter((p)=>p.type === 'venture'))
     const handleCreate = (prim)=>{
         setShowNew(false)
-        navigate(`/item/${prim.plainId}`)
+        navigate(`/item/${prim.id}`)
     }
     useDataEvent('new_primitive delete_primitive',undefined)
+
 
     return (
     <>

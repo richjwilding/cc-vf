@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, useMemo, useReducer } from "react"
 import { PrimitiveCard } from "./PrimitiveCard";
 import { useReactTable, 
         flexRender, 
@@ -7,6 +7,7 @@ import { useReactTable,
         SortingState,
         getCoreRowModel } from '@tanstack/react-table'
 import MainStore from "./MainStore";
+import useDataEvent from "./CustomHook";
   
 
 const ExpandArrow = function(props) {
@@ -55,13 +56,17 @@ export function PrimitiveTable(props) {
         deltaPercentage: null,
         columnSizingStart: [],}
 
-    const [columns, setColumns] = useState( mapColumns(props.columns) )
-    const [data, setData] = useState( mapRows(props.primitives, props.columns) )
+    const ids = props.primitives.map((d)=>d.id)
+
     const [totalWidth, setTotalWidth] = useState( null )
     const [selected, setSelected] = useState( null )
     const [focus, setFocus] = useState( null )
     const [sorting, setSorting] = useState([])
+    const [count, forceUpdate] = useReducer( (x)=>x+1, 0)
     const gridRef = useRef()
+    const columns = useMemo( ()=>mapColumns(props.columns) )
+    const data = useMemo( ()=>mapRows(props.primitives, props.columns), [ids.join("_"), count] )
+    useDataEvent('set_title set_parameter', ids, forceUpdate)
 
 
      const table = useReactTable({
@@ -152,6 +157,7 @@ export function PrimitiveTable(props) {
     return (
         <div 
             ref={gridRef}
+            data-test={count}
             style={{
                 gridTemplateColumns: `20px ${Object.values(gridWidths).join(" ")}`
             }}
