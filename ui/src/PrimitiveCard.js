@@ -89,7 +89,7 @@ let mainstore = MainStore()
         const perc = parseInt(item.value) / 9
         const array = length * (1 - perc)
         const color = item.color || ["#f472b6","#f87171","#fbbf24","#22d3ee","#4ade80"][Math.floor(perc * 5)]
-          return <div className='relative'>
+          return <div className='ml-auto relative'>
               <svg className={size}>
                 <circle cx='50%' cy='50%' r='40%' fill='none' stroke='#dedede' strokeWidth={thickness}/>
                 <circle className='origin-center	-rotate-90' cx='50%' cy='50%' r='40%' fill='none' stroke={color} strokeWidth={thickness} strokeDashoffset={array} strokeDasharray={length}/>
@@ -281,6 +281,55 @@ const Resources = function({primitive, ...props}){
   )
 }
 
+const EvidenceHypothesisRelationship = function({primitive, ...props}){
+  useDataEvent('relationship_update',primitive.id)
+  let h = primitive.parentPrimitives.filter((p)=>p.type==='hypothesis')
+
+  let relationships =  [
+      {
+          key: "negative",
+          title: "Negative",
+          icon: "XMarkIcon",
+          bgColor: 'amber-100',
+          textColor: 'amber-600',
+          items: h.filter((d)=>{
+            console.log(d.plainId, primitive.id)
+            const res = primitive.parentRelationship(d)
+            return res.includes("negative")
+          })
+      },
+      {
+          key: "positive",
+          title: "Positive",
+          icon: "CheckIcon",
+          bgColor: 'green-100',
+          textColor: 'green-500',
+          items: h.filter((d)=>{
+            const res = primitive.parentRelationship(d)
+            return res.filter((d)=>["","positive"].includes(d)).length > 0
+          })
+      }
+  ]
+
+  const updateRelationship = (item, set)=>{
+    console.log(item)
+    console.log(set)
+    let current = item.primitives.paths(primitive.id) 
+    if(current.includes(".positive")){
+      current = "positive"
+    }else if(current.includes(".negative")){
+      current = "negative"
+    }else if(current.includes("")){
+      current = "null"
+    }else{
+      return
+    }
+    item.moveRelationship(primitive, current === "" ? null : current, set.key)
+
+  } 
+
+  return <RelationshipTable updateRelationship={updateRelationship} title={props.title === false ? false : props.title || 'Significance'} relationships={relationships}/>
+}
 const Relationships = function({primitive, ...props}){
     let temp = primitive.parentPrimitiveRelationships
     let map = primitive.metadata?.relationships 
@@ -292,7 +341,7 @@ const Relationships = function({primitive, ...props}){
         ...map[k]
       }
     })
-    return <RelationshipTable title='Significance' relationships={relationships}/>
+    return <RelationshipTable title={props.title === false ? false : props.title || 'Significance'} relationships={relationships}/>
 }
 const Users = function({primitive, ...props}){
   const [editing, setEditing] = React.useState(props.editing)
@@ -957,6 +1006,10 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     primitive.title = newTitle
     return true
   }
+  
+  if( fields ){
+    fields = fields.map((d)=>d instanceof Object ? d.field : d)
+  }
 
   let content = (fields && !fields.includes('title')) ? undefined : 
       <>
@@ -1074,8 +1127,12 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
             <PrimitiveCard.Parameters primitive={props.origin || primitive.origin} inline={true} showAsSecondary={true} noEvents={props.noEvents}  compact={true} showTitles={false} fields={props.showOriginInfo} />
           </div>}
         {showRelationships && <PrimitiveCard.Relationships primitive={primitive}/>}
-        {showDetails && <PrimitiveCard.Details primitive={primitive}/>}
-        {showUsers && <PrimitiveCard.Users primitive={primitive}/>}
+        {showDetails === true && <PrimitiveCard.Details primitive={primitive}/>}
+        {showUsers === true && <PrimitiveCard.Users primitive={primitive}/>}
+        {(showDetails === "panel" || showUsers === "panel") && <Panel title="More" collapsable={true} open={false}>
+            {showDetails === "panel" && <PrimitiveCard.Details primitive={primitive}/>}
+            {showUsers === "panel" && <PrimitiveCard.Users primitive={primitive}/>}
+          </Panel>}
         {showResources && <PrimitiveCard.Resources primitive={primitive}/>}
         {(props.showEvidence  === true) && <PrimitiveCard.Evidence primitive={primitive}/>}
         {(props.showEvidence  === "compact") && <PrimitiveCard.Evidence primitive={primitive} hideTitle={true} compact={true} aggregate={true}/>}
@@ -1094,6 +1151,7 @@ PrimitiveCard.Questions = Questions
 PrimitiveCard.Parameters = Parameters
 PrimitiveCard.Users = Users
 PrimitiveCard.Relationships = Relationships
+PrimitiveCard.EvidenceHypothesisRelationship = EvidenceHypothesisRelationship
 PrimitiveCard.Resources = Resources
 PrimitiveCard.Banner = Banner
 PrimitiveCard.Title = Title

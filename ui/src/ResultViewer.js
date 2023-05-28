@@ -81,7 +81,7 @@ const MyToolBar = ( props ) => {
 
 
 
-const ResultViewer = forwardRef(function ResultViewer({createCallback, ...props}, ref){
+const ResultViewer = forwardRef(function ResultViewer({...props}, ref){
 
    useDataEvent("relationship_update", props.primitive.id, ()=>setNotes(processNotesFromEvidence()))
 
@@ -165,60 +165,6 @@ const renderHighlightContent = (props) => {
     return <NewPrimitive parameters={parameters} cancel={props.cancel} type='evidence' parent={parentForEvidence} done={()=>props.cancel()}/>
 }
 
-const _renderHighlightContent = (props) => {
-    const addNote = async () => {
-        if (message !== '') {
-            const note = {
-                id: ++noteId,
-                content: message,
-                highlightAreas: props.highlightAreas,
-                quote: props.selectedText,
-            };
-            if( createCallback ){
-                note.primitiveId = await createCallback(note)
-            }
-            setNotes(notes.concat([note]));
-            props.cancel();
-        }
-    };
-
-
-    return (
-        <div
-            style={{
-                background: '#fff',
-                border: '1px solid rgba(0, 0, 0, .3)',
-                borderRadius: '2px',
-                padding: '8px',
-                position: 'absolute',
-                left: `${props.selectionRegion.left}%`,
-                top: `${props.selectionRegion.top + props.selectionRegion.height}%`,
-                zIndex: 1,
-            }}
-        >
-            <div>
-                <textarea
-                    rows={3}
-                    style={{
-                        border: '1px solid rgba(0, 0, 0, .3)',
-                    }}
-                    onChange={(e) => setMessage(e.target.value)}
-                ></textarea>
-            </div>
-            <div
-                style={{
-                    display: 'flex',
-                    marginTop: '8px',
-                }}
-            >
-                <div style={{ marginRight: '8px' }}>
-                    <PrimaryButton onClick={addNote}>Add</PrimaryButton>
-                </div>
-                <Button onClick={props.cancel}>Cancel</Button>
-            </div>
-        </div>
-    );
-};
 
 
 const renderHighlights = (rProps) => (

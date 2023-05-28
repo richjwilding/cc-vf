@@ -180,19 +180,6 @@ export function PrimitivePage({primitive, ...props}) {
 
   }
 
-  const createEvidenceFromNote = async (note)=>{
-    await mainstore.createPrimitive({
-      parent: primitive,
-      type: "evidence",
-      title: note.content,
-      categoryId: 3,
-      referenceParameters:{
-        highlightAreas: note.highlightAreas,
-        quotedText: note.quote
-      }
-    })
-  }
-
 
     let page = useRef()
     let header = useRef()
@@ -201,7 +188,9 @@ export function PrimitivePage({primitive, ...props}) {
 
   return (
     <>
-      <div className="min-h-full overflow-y-scroll overscroll-contain w-full"
+      <div 
+        style={{minHeight: showWorkingPane ? "100%" : 'calc(100% - 4rem)'}}
+        className="overflow-y-scroll overscroll-contain w-full"
         onScroll={()=>{
             let opacity = parseInt(Math.min(page.current.scrollTop, 60) / 6) * 10
             let last = parseInt(header.current.getAttribute('last')) || 0
@@ -554,7 +543,7 @@ export function PrimitivePage({primitive, ...props}) {
                       hasNestedEvidence && 
                           <EvidenceExplorer evidenceList={nestedEvidence}  showOriginInfo={[{contact: 'contactName'}, 'company']} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                     }
-                    {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} createCallback={createEvidenceFromNote} primitive={primitive} />}
+                    {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
                     {primitive.type === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
                 </div>
               </div>

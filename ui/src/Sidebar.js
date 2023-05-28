@@ -8,6 +8,7 @@ import {
 import { HeroIcon } from './HeroIcon'
 import ConfirmationPopup from "./ConfirmationPopup";
 import MainStore from './MainStore'
+import Panel from './Panel'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -72,16 +73,19 @@ export function Sidebar({primitive, ...props}) {
                 </div>
             </div>
         <div className="pb-2 pl-4 pr-4 pt-4">
-            <PrimitiveCard primitive={primitive}  showDetails={true} showLink={false} major={true} showRelationships={true} showEdit={true} className='mb-6'/>
+            <PrimitiveCard primitive={primitive}  showDetails={true} showLink={false} major={true} showEdit={true} className='mb-6'/>
+            {primitive.type === "evidence" && <Panel title="Significance" collapsable={true} open={true} major>
+                <PrimitiveCard.EvidenceHypothesisRelationship primitive={primitive} title={false} />
+            </Panel>}
             {origin &&
-                <div className='mt-4 mb-3'>
-                    <h3 className="mb-1 font-medium text-gray-900">Source</h3>
-                    <PrimitiveCard primitive={origin} showState={true} showLink={true} showDetails={true}/>
+                <div className='mt-6 mb-3'>
+                    <h3 className="mb-2 text-md text-gray-400 pt-2">Source</h3>
+                    <PrimitiveCard primitive={origin} showState={true} showLink={true} showDetails="panel"/>
                 </div>
             }
-            {task && <div className='mt-4 mb-3'>
-                <h3 className="mb-2 font-medium text-gray-900">Related {task.type}</h3>
-                <PrimitiveCard primitive={task}  showState={true} showDetails={true} showUsers={true} showLink={true}/>
+            {task && <div className='mt-6 mb-3'>
+                <h3 className="mb-2 text-md text-gray-400  pt-2">Related {task.type}</h3>
+                <PrimitiveCard primitive={task}  showState={true} showDetails="panel" showUsers="panel" showLink={true}/>
             </div>}
         </div>
         <div className="flex-shrink-0 justify-between space-y-2 p-4 mt-1">

@@ -47,13 +47,12 @@ export function RelationshipTable({relationships, ...props}){
     const scroll = props.maxHeightClass ? `overscroll-contain overflow-y-scroll ${props.maxHeightClass}` : ""
     return (
          <>
-            <h3 key='title' className={`${props.major ? "text-lg font-bold" : "mt-6"} font-medium text-gray-900`}>{props.title || 'Signficance'}</h3>
+            {props.title && <h3 key='title' className={`${props.major ? "text-lg font-bold" : "mt-6"} font-medium text-gray-900`}>{props.title || 'Signficance'}</h3>}
             <div 
                 key='grid'
                 id='grid'
                 className={`grid ${scroll} ${props.major ? "mt-6 mx-2" : "mt-2"}`}
                 style={{gridTemplateColumns: `fit-content(80%) repeat(2, 1fr)`}}
-                //style={{gridTemplateColumns: `100% repeat(${relationships.length},minmax(min-content, '1fr') mt-2`}}
               >
                 <div 
                     key='title-p'
