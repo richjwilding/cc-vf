@@ -289,11 +289,10 @@ const EvidenceHypothesisRelationship = function({primitive, ...props}){
       {
           key: "negative",
           title: "Negative",
-          icon: "XMarkIcon",
+          icon: "HandThumbDownIcon",
           bgColor: 'amber-100',
           textColor: 'amber-600',
           items: h.filter((d)=>{
-            console.log(d.plainId, primitive.id)
             const res = primitive.parentRelationship(d)
             return res.includes("negative")
           })
@@ -301,30 +300,26 @@ const EvidenceHypothesisRelationship = function({primitive, ...props}){
       {
           key: "positive",
           title: "Positive",
-          icon: "CheckIcon",
+          icon: "HandThumbUpIcon",
           bgColor: 'green-100',
           textColor: 'green-500',
           items: h.filter((d)=>{
             const res = primitive.parentRelationship(d)
-            return res.filter((d)=>["","positive"].includes(d)).length > 0
+            return !res.includes("negative")
           })
       }
   ]
 
   const updateRelationship = (item, set)=>{
-    console.log(item)
-    console.log(set)
-    let current = item.primitives.paths(primitive.id) 
-    if(current.includes(".positive")){
-      current = "positive"
-    }else if(current.includes(".negative")){
-      current = "negative"
-    }else if(current.includes("")){
-      current = "null"
-    }else{
-      return
+    let to
+    let current = primitive.parentPaths(item.id).find((d)=>["positive","negative"].includes(d.split(".").pop()))
+    if( current){
+      const root = current.split(".")
+      root.pop()
+      root.push( set.key )
+      const to = root.join(".")
+      item.moveRelationship(primitive, current === "" ? null : current, to)
     }
-    item.moveRelationship(primitive, current === "" ? null : current, set.key)
 
   } 
 
@@ -679,19 +674,9 @@ const Title = function({primitive, ...props}){
       setShowParentLinksManager(true)
       
     }
-    const toggleRelationship = ()=>{
-      if( props.relationshipTo ){
-        if( relationship ){
-          props.relationshipTo.removeRelationship( primitive, props.relationshipPath )
-        }else{
-          props.relationshipTo.addRelationship( primitive, props.relationshipPath )
-        }
-      }
-    }
     if( relationship ){
       relationshipRender = <HeroIcon onClick={manageParentLinks} icon='StarIcon' className='ml-auto w-6 h-6 stroke-width-[0.5px] text-ccgreen-600 hover:text-ccgreen-900 fill-ccgreen-300 hover:fill-ccgreen-400'/>
     }else{
-      //if( props.relationshipTo && props.relationshipTo.primitives.allUniqueEvidence.filter((d)=>d.metadata?.isAggregation).map((d)=>d.primitives.descendants).flat().map((d)=>d?.id).includes(primitive.id)){
       if( props.relationshipTo && props.relationshipTo.primitives.allUniqueEvidence.filter((d)=>d.metadata?.isAggregation && d.primitives.descendantsInclude(primitive.id)).length > 0){
         relationshipRender = <HeroIcon onClick={manageParentLinks} icon='StarIcon' className='ml-auto w-6 h-6 stroke-width-[0.5px] text-ccpurple-600 hover:text-ccpurple-900 fill-ccpurple-300 hover:fill-ccpurple-400'/>
       }else{
@@ -702,6 +687,7 @@ const Title = function({primitive, ...props}){
     if( relationshipConfig ){
       relationshipRender = <span className={`inline-flex items-center rounded-full bg-${relationshipConfig.color}-100 px-2 py-0.5 text-xs font-medium text-${relationshipConfig.color}-800 ml-auto`}>
         {relationshipConfig.title}
+        {relationshipConfig.icon && <HeroIcon icon={relationshipConfig.icon} className='w-4 h-4'/>}
       </span>
     }
   }
@@ -964,7 +950,8 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   const callbackId = React.useRef(null)
   React.useEffect(()=>{
     if( !props.noEvents ){
-      callbackId.current = mainstore.registerCallback(callbackId.current, "set_title set_parameter set_field", updateForEvent, primitive.id )
+      const ids = [primitive.id, props.relationshipId].filter((d)=>d)
+      callbackId.current = mainstore.registerCallback(callbackId.current, "set_title set_parameter set_field relationship_update", updateForEvent, ids )
       return ()=>{
         mainstore.deregisterCallback(callbackId.current )
       }

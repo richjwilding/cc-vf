@@ -302,8 +302,6 @@ function MainStore (prims){
                     from: from,
                     to: to
                 }
-                console.log(data)
-                console.log( JSON.stringify(data) )
                 fetch("/api/move_relationship",{
                     method: 'POST',
                     headers: {
@@ -1273,19 +1271,24 @@ function MainStore (prims){
                     }
                 }
                 if( prop === "parentRelationship"){
-                    return function( parent ){
+                    return function( parent, root ){
                         if( !(parent instanceof(Object)) ){
                             parent = obj.primitive(parent)
                         }
-                        return parent.primitives.relationships( d.id )
+                        //return parent.primitives.relationships( d.id )
+                        return receiver.parentPaths(parent, root).map((d)=>d.split('.').slice(-1)[0])
                     }
                 }
                 if( prop === "parentPaths"){
-                    return function( parent ){
+                    return function( parent, root ){
                         if( !(parent instanceof(Object)) ){
                             parent = obj.primitive(parent)
                         }
-                        return parent.primitives.paths( d.id ).map((d)=>d.slice(1))
+                        const out = parent.primitives.paths( d.id ).map((d)=>d.slice(1))
+                        if( root ){
+                            return out.filter((d)=>d.substr(0, root.length) == root)
+                        }
+                        return out
                     }
                 }
                 if( prop in d){

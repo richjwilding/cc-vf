@@ -22,6 +22,20 @@ function ChevronRightIcon(props) {
 }
 
 
+  const relationshipConfig =  {
+      "negative":{
+          key: "negative",
+          icon: "HandThumbDownIcon",
+          color: 'amber',
+      },
+      "positive":{
+          key: "positive",
+          icon: "HandThumbUpIcon",
+          color: 'green',
+      }
+    }
+
+
 export function ComponentRow(props) {
     const c = props.component
     const levels = c && c.levels ? Object.values(c.levels).sort((a,b)=>a.order - b.order) : []
@@ -116,6 +130,7 @@ export function ComponentRow(props) {
     const editable = (!props.compact && props.primitive)
     const hypothesis_list = (!props.compact && props.primitive) ? props.primitive.primitives.hfc[c.id].allUniqueHypothesis : []//
 
+    useDataEvent("relationship_update", hypothesis_list.map((d)=>d.id) )
 
 
                               
@@ -129,21 +144,44 @@ export function ComponentRow(props) {
     const pickEvidence = async (hypothesis, level)=>{
       setShowPicker({type:'evidence', action:async (pick)=>{
         if( pick && hypothesis && level ){
-          await hypothesis.addRelationship(pick )
-          await props.primitive.addRelationship(pick, {component: {[c.id]: {levels: level.id} }})
+          await hypothesis.addRelationship(pick, {assessment: {[props.primitive.id]: {component: {[c.id]: {levels: {[level.id]: "positive"}} }}}})
+          console.log({assessment: {[props.primitive.id]: {component: {[c.id]: {levels: {[level.id]: "positive"}} }}}})
+          await props.primitive.addRelationship(pick, {component: {[c.id]: {hypothesis: {[hypothesis.id]:{levels: level.id} }}}})
         }
       }})
     }
 
     const unlinkEvidence = async (p,hypothesis, level)=>{
       if( p && hypothesis && level && props.primitive){
-          await hypothesis.removeRelationship( p )
-          await props.primitive.removeRelationship(p, {component: {[c.id]: {levels: level.id} }})
+          const root = `assessment.${props.primitive.id}.component.${c.id}.levels.${level.id}`
+          const rel = p.parentPaths(hypothesis).find((d)=>d.substr(0, root.length) == root)
+          if( rel ){
+            await hypothesis.removeRelationship( p, rel)
+            await props.primitive.removeRelationship(p, {component: {[c.id]: {hypothesis: {[hypothesis.id]:{levels: level.id} }}}})
+          }
       }
     }
 
     const unlinkHypothesis = async (p)=>{
       if( p && props.primitive){
+          for( const d of (p.primitives.fromPath(`assessment.${props.primitive.id}.component.${c.id}`)?.uniqueAllItems || [])){
+            const paths = d.parentPaths(p)
+            for(const path of paths){
+              //console.log(`remove h link ${d.plainId} @ ${path}`)
+              await p.removeRelationship(d, path)
+            }
+          }
+
+          for( const d of (props.primitive.primitives.fromPath(`component.${c.id}.hypothesis.${p.id}`)?.uniqueAllItems || [])){
+            const paths = d.parentPaths(props.primitive)
+            for(const path of paths){
+//              console.log(`remove a link ${d.plainId} @ ${path}`)
+              if( path === "origin"){
+                await MainStore().removePrimitive( d )
+              }
+              await props.primitive.removeRelationship(d, path)
+            }
+          }
           await props.primitive.removeRelationship(p, {hfc: c.id})
       }
     }
@@ -160,20 +198,11 @@ export function ComponentRow(props) {
     const handleCreate = async (newPrim)=>{
       console.log(newPrim)
       if( newPrim && targetHypothesis && targetLevel ){
-        await targetHypothesis.addRelationship(newPrim )
-        await props.primitive.addRelationship(newPrim, {component: {[c.id]: {levels: targetLevel.id} }})
+        await targetHypothesis.addRelationship(newPrim, {assessment: {[props.primitive.id]: {component: {[c.id]: {levels: {[targetLevel.id]: "positive"}} }}}})
+        await props.primitive.addRelationship(newPrim, {component: {[c.id]: {hypothesis: {[targetHypothesis.id]:{levels: targetLevel.id} }}}})
       }
       setShowNew(null)
     }
-    const evidenceMap = (!props.compact && props.primitive) ? hypothesis_list.reduce((o, h)=>{
-      const evidenceIds = h.primitives.allUniqueEvidence.map((d)=>d.id)
-      const l_evidence = props.primitive.primitives.component[c.id].levels
-      Object.keys(l_evidence).forEach((lId)=>{
-        o[h.id] = o[h.id] || {}
-        o[h.id][lId] = l_evidence[lId].allUniqueEvidence.filter((d)=>evidenceIds.includes(d.id))
-      })
-      return o
-    }, {}) : undefined
 
     let last_index = levels.length - 1
 
@@ -359,9 +388,12 @@ export function ComponentRow(props) {
             )})}
             { hypothesis_list && levels.map((l, idx) => {
                 return hypothesis_list.map((h, row)=>{
-                  const em = evidenceMap[h.id]
                   const thisLevel = l.id === currentLevelId
-                  let evidence = em ? em[l.id] : undefined
+//                  let evidence = em ? em[l.id] : undefined
+
+                  const root = `assessment.${props.primitive.id}.component.${c.id}.levels.${l.id}`
+                  const evidence = h.primitives.fromPath(root)?.allItems || []
+
                   let id = `ev_${row}_${idx}`
                   return (<div 
                     key={`${idx}_${row}`}
@@ -384,7 +416,17 @@ export function ComponentRow(props) {
                               compact={true}
                               titleAtBase
                               ringColor={color.base} 
-                              onClick={props.selectPrimitive ? (e)=>{props.selectPrimitive(d,{unlink:(p)=>unlinkEvidence(p,h,l)}); e.stopPropagation()} : undefined} 
+                              relationshipId={h.id}
+                              relationship={d.parentRelationship(h, root)[0]}
+                              relationships={relationshipConfig}
+                              onClick={props.selectPrimitive ? (e)=>{
+                                props.selectPrimitive(d,
+                                  {
+                                    unlinkText: `${h.displayType} #${h.plainId} / Level ${l.score}`,
+                                    unlink:(p)=>unlinkEvidence(p,h,l)
+                                  });
+                                  e.stopPropagation()
+                                } : undefined} 
                               border={false}
                               showMeta='small-top'
                               bg={`bg-${color.base}-25`}

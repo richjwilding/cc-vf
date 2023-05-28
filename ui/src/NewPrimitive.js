@@ -86,15 +86,13 @@ export default function NewPrimitive({...props}) {
 
     const mainstore = MainStore()
     const getCategoryList = ()=>{
-        let list = []
+        let list = mainstore.categories().filter((d)=>props.type === undefined || props.type === d.primitiveType)
         if( props.categoryId ){
             list = props.categoryId.map((id)=>mainstore.category(id))
         }else if(props.parent ){
             if( props.parent.metadata && props.parent.metadata.evidenceCategories ){
                 list = props.parent.metadata.evidenceCategories ? props.parent.metadata.evidenceCategories.map((id)=>mainstore.category(id)) : []
             }            
-        }else{
-            list = mainstore.categories().filter((d)=>props.type === undefined || props.type === d.primitiveType)
         }
         return list.map((d)=>{
             return {
@@ -123,7 +121,7 @@ export default function NewPrimitive({...props}) {
         const primitive = await MainStore().createPrimitive({
             title: value,
             type: props.type,
-            categoryId: selectedCategory.categoryId,
+            categoryId: selectedCategory?.categoryId,
             parent: props.parent,
             parentPath: props.parentPath,
             referenceParameters: {...props.parameters, ...parameters},
