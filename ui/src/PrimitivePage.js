@@ -327,7 +327,7 @@ export function PrimitivePage({primitive, ...props}) {
                           </button>
                           </div>
                         }
-                    <PrimitiveCard.EvidenceList relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
+                    <PrimitiveCard.EvidenceList onCardClick={(p)=>props.selectPrimitive(p)} relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                   </Panel>}
             {primitive.type === "assessment" && primitive.framework &&
                   <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>

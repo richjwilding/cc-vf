@@ -542,7 +542,6 @@ const EvidenceList = function({primitive, ...props}){
     categoryIds = categoryIds.concat(primitive.metadata.evidenceCategories)
   }
   categoryIds = categoryIds.filter((v,i,a)=>v && a.indexOf(v)==i)
-  console.log(categoryIds)
   let evidenceCategories = categoryIds.map((id)=>mainstore.category(id))
 
   let evidenceGroups = evidence.reduce((o, d)=>{
@@ -580,7 +579,7 @@ const EvidenceList = function({primitive, ...props}){
                       origin = item.origin
                       item = item.primitive
                     }
-                    return <PrimitiveCard key={item.id} primitive={item} compact={true} border={true} origin={props.showOriginInfo && (origin || item.origin)} showOriginInfo={props.showOriginInfo} relationshipTo={props.relationshipTo || primitive} relationshipMode={props.relationshipMode} relationshipPath='outcomes' fields={props.cardFields}/>
+                    return <PrimitiveCard onClick={props.onCardClick ? ()=>props.onCardClick(item) : undefined} key={item.id} primitive={item} compact={true} border={true} origin={props.showOriginInfo && (origin || item.origin)} showOriginInfo={props.showOriginInfo} relationshipTo={props.relationshipTo || primitive} relationshipMode={props.relationshipMode} relationshipPath='outcomes' fields={props.cardFields}/>
                   })}
                 </div>
               }

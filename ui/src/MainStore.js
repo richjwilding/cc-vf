@@ -1276,7 +1276,7 @@ function MainStore (prims){
                             parent = obj.primitive(parent)
                         }
                         //return parent.primitives.relationships( d.id )
-                        return receiver.parentPaths(parent, root).map((d)=>d.split('.').slice(-1)[0])
+                        return receiver.parentPaths(parent, root)?.map((d)=>d.split('.').slice(-1)[0])
                     }
                 }
                 if( prop === "parentPaths"){
@@ -1284,7 +1284,7 @@ function MainStore (prims){
                         if( !(parent instanceof(Object)) ){
                             parent = obj.primitive(parent)
                         }
-                        const out = parent.primitives.paths( d.id ).map((d)=>d.slice(1))
+                        const out = parent.primitives.paths( d.id )?.map((d)=>d.slice(1))
                         if( root ){
                             return out.filter((d)=>d.substr(0, root.length) == root)
                         }

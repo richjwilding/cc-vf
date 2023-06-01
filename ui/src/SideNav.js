@@ -198,7 +198,7 @@ const mainMenu = navigation.map((item) => (
                           {workspaces.map((workspace) => (
                             <a
                               key={workspace.title}
-                              onClick={()=>props.setWorkspace(workspace)}
+                              onClick={()=>{props.setWorkspace(workspace);navigate('/')}}
                               className="cursor-pointer group flex items-center rounded-md px-3 py-2 text-base font-medium leading-5 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                             >
                               <span
@@ -318,7 +318,7 @@ const mainMenu = navigation.map((item) => (
                   {workspaces.map((workspace) => (
                     <a
                       key={workspace.title}
-                      onClick={()=>props.setWorkspace(workspace)}
+                      onClick={()=>{props.setWorkspace(workspace);navigate('/')}}
                       className={classNames('cursor-pointer group flex items-center rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900', props.workspace && props.workspace.id === workspace.id ? `bg-${workspace.color}-100` : '')}
                     >
                       <span
