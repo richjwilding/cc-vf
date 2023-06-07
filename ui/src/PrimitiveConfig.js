@@ -17,7 +17,7 @@ const PrimitiveConfig = {
             needCategory:true,
         },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment"],
+    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category"],
     stateInfo:{
         "experiment":{
             "open": {title: "Not started", colorBase: "blue"},

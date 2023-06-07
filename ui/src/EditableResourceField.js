@@ -15,6 +15,7 @@ export default function EditableResourceField ({...props}){
     const [editing, setEditing] = React.useState(props.editing)
     const field = React.useRef()
 
+    let cancelled = false
     const stopEdit = ()=>props.stopEditing(field?.current) || (()=>setEditing(false))
 
     const blur = (e)=>{
@@ -24,8 +25,14 @@ export default function EditableResourceField ({...props}){
         if(e.target !== field.current){return}
         //if(e.target.type !== 'button'){return}
         if( !open ){
+            if( !cancelled ){
+                submit();
+            }
             stopEdit()
         }
+    }
+    const submit = ()=>{
+        props.onSelect( value ? {type: "google_drive", id: value.id} : undefined)
     }
     const mainKeyHandler = (e)=>{
         if(!editing ){
@@ -41,6 +48,8 @@ export default function EditableResourceField ({...props}){
         if( e.key === "Escape"){
             e.stopPropagation()
             setValue( props.value )
+            setTitle( tempLoading)
+            cancelled = true
             field.current.blur()
             return
         }
@@ -52,7 +61,7 @@ export default function EditableResourceField ({...props}){
         if( e.key === "Enter"){
             e.preventDefault()
             e.stopPropagation()
-            props.onSelect( value ? {type: "google_drive", id: value.id} : undefined)
+            cancelled = false
             field.current.blur()
             return
         }

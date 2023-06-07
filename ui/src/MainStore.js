@@ -20,8 +20,10 @@ function MainStore (prims){
             return new Promise((resolve)=>{
                 const users = fetch(`/api/primitives?owns=${id}`).then(response => {
                     response.json().then(data => {
-                        obj.data.primitives = data 
-                        obj._cache_prim = undefined
+//                        obj.data.primitives = data 
+  //                      obj._cache_prim = undefined
+
+                        obj.data.primitives = data.reduce((o,d)=>{o[d.id || d._id] = primitive_access(d, "primitive"); return o}, {})
                         
                         let primitive = obj.primitive(id)
                         if( primitive === undefined){
@@ -48,12 +50,15 @@ function MainStore (prims){
             obj.activeWorkspaceId = primitive.workspaceId
             console.log(`Workspace set to ${obj.workspace(obj.activeWorkspaceId).title}`)
 
-            const toPurge = obj.data.primitives.filter((d)=>this.workspaceId != obj.activeWorkspaceId)
+            const toPurge = obj.primitives().filter((d)=>this.workspaceId != obj.activeWorkspaceId)
             console.log(`Removing ${toPurge.length} items`)
 
             const response = await fetch(`/api/primitives?workspace=${obj.activeWorkspaceId}`)
-            obj._cache_prim = undefined
-            obj.data.primitives = await response.json()
+          //  obj._cache_prim = undefined
+           // obj.data.primitives = await response.json()
+           const data =  await response.json()
+           obj.data.primitives = data.reduce((o,d)=>{o[d.id || d._id] = primitive_access(d, "primitive"); return o}, {})
+
             obj.loadControl(true)
 
         },
@@ -557,31 +562,46 @@ function MainStore (prims){
                 }
         },
         deletePrimitive:function(id){
+/*            
             delete obj.data.primitives[ id ]
             if( obj._cache_prim ){
                 obj._cache_prim = obj._cache_prim.filter((d)=>d.id !== id)
-            }
-        },
-        addPrimitive:function(data){
-            if( obj._cache_prim === undefined){
-                obj.primitives()                
-            }
-            obj.data.primitives.push(data)
-            obj._cache_prim.push(primitive_access(data,"primitive"))
+            }*/
+            /*obj.data.primitives = obj.data.primitives.filter((d)=>d.id === id || d._id === id)
+            delete obj._cache_prim[ id ]*/
+
+            delete obj.data.primitives[ id ]
 
         },
-        primitives:function(){
-            if( obj._cache_prim === undefined){
-                obj._cache_prim = (prims || obj.data.primitives).map((p)=>primitive_access(p,"primitive"))
+        addPrimitive:function(data){
+/*            if( obj._cache_prim === undefined){
+                obj.primitives()                
             }
-            return obj._cache_prim
+            obj.data.primitives.push(data)*/
+            //obj._cache_prim.push(primitive_access(data,"primitive"))
+            //obj._cache_prim[data.id || data._id] = primitive_access(data,"primitive")
+            obj.data.primitives[data.id || data._id] = primitive_access(data,"primitive")
+        },
+        primitives:function(){
+          /*  if( obj._cache_prim === undefined){
+                //obj._cache_prim = (prims || obj.data.primitives).map((p)=>primitive_access(p,"primitive"))
+                obj._cache_prim = (prims || obj.data.primitives).map((p)=>primitive_access(p,"primitive")).reduce((o,d)=>{o[d.id]=d;return o}, {})
+
+            }
+            return Object.values(obj._cache_prim)*/
+            return Object.values(obj.data.primitives)
         },
         primitiveByPlain:function(id){
             let data = obj.primitives().find((p)=>p.plainId === id)
             return data
         },
         primitive:function(id){
-            let data = obj.primitives().find((p)=>p.id === id)
+            /*if( obj._cache_prim === undefined){
+                obj.primitives()                
+            }*/
+            //let data = obj.primitives().find((p)=>p.id === id)
+//            let data = obj._cache_prim[id]
+            let data = obj.data.primitives[id]
             if( !data ){
                 data = this.primitiveByPlain(id)
                 if( data ){
@@ -680,6 +700,50 @@ function MainStore (prims){
                 }
                 e.callback(items, e)
             })
+
+        },
+        doPrimitiveAction:async function (primitive, action, params){
+            let url = `/api/primitive/${primitive.id}/action/${action}`
+
+            if(params){
+                url += '?' + new URLSearchParams(params)
+            }
+
+            let out
+
+            const result = await fetch(url,{
+                method: "GET",
+            })
+            const response = await result.json()
+            out = response
+            if( response && Array.isArray(response.result)){
+                response.result.forEach((entry)=>{
+                    if(entry.type === "new_primitives"){
+                        out = []
+                        for(const rData of entry.data){
+                            obj.addPrimitive( rData )
+                            const newObj = obj.primitive(rData.id)
+                            const list = [newObj]
+                            
+                            for(const parentId of Object.keys(rData.parentPrimitives || {})){
+                                const paths = rData.parentPrimitives[parentId].map((d)=>d.replace('primitives.',''))
+                                const parent = obj.primitive( parentId )
+                                if( parent ){
+                                    list.push(parent)
+                                    paths.forEach((p)=>{
+                                        parent.addRelationship( newObj, p, true)
+                                    })
+                                }
+                            }
+                            obj.triggerCallback("relationship_update", list)
+                            obj.triggerCallback("new_primitive", [newObj] )
+                            out.push(newObj)
+                        }
+                        out = {data:out, message: `Added ${out.length} new items`, type: entry.type}
+                    }
+                })
+            }
+            return out
 
         },
         doPrimitiveDocumentDiscovery:async function ( primitive){
@@ -1113,7 +1177,8 @@ function MainStore (prims){
                 }
                 if( prop === "removeChildren"){
                     return async function(dry_run = false){
-                        const directs = [receiver.primitives.origin.allItems, receiver.primitives.auto.allItems].flat()
+                        let directs = [receiver.primitives.origin.allItems, receiver.primitives.auto.allItems].flat()
+                        directs = directs.filter((d)=>!d.lock)
                         let nested = [] 
                         for( d of directs ){
                             nested = nested.concat(await d.removeChildren(dry_run))
@@ -1197,10 +1262,14 @@ function MainStore (prims){
                         return undefined
                     }
                     if( prop === "parentPrimitives"){
-                        return obj.primitives().filter((t)=>t.primitives.includes(d.id))
+                        //const old = obj.primitives().filter((t)=>t.primitives.includes(d.id)).map((d)=>d.plainId).sort()
+                        const parents = receiver.parentPrimitiveIds.map((d)=>obj.primitive(d)).filter((d)=>d)
+                        //const check = parents.map((d)=>d.plainId).sort()
+                        //console.assert( check.length === old.length )
+                        return parents
                     }
                     if( prop === "parentPrimitiveIds"){
-                        return receiver.parentPrimitives.map((d)=>d.id)
+                        return d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p] && d.parentPrimitives[p].length > 0 ) : []
                     }
                     if( prop === "parentPrimitiveRelationships"){
                         return receiver.parentPrimitives.reduce((o, p)=>{
@@ -1224,6 +1293,9 @@ function MainStore (prims){
                         if( prop === "currentAssessment"){
                             return receiver.primitives.allUniqueAssessment.pop()
                         }
+                    }
+                    if( prop === "categories" ){
+                        return receiver.parentPrimitives.filter((d)=>d.type === "category")
                     }
                 }
 
@@ -1314,6 +1386,7 @@ function MainStore (prims){
             }
         })
     }
+    
 
     obj.loadData = async function(){
         obj.loadProgress = []
@@ -1350,7 +1423,7 @@ function MainStore (prims){
                     }
                     return d} )
                 obj.data.categories = categories
-                obj.data.primitives = primitives
+                obj.data.primitives = primitives.reduce((o,d)=>{o[d.id || d._id] = primitive_access(d, "primitive"); return o}, {})
                 obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
                 obj.activeUser.id = obj.activeUser.info.id
                 obj.data.workspaces = workspaces.map((d)=>{d.id = d._id; return d})

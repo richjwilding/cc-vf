@@ -50,11 +50,12 @@
         }
         if( props.submitOnEnter ){
           e.preventDefault()
-          if( props.stopEditing ){
+          toggleEditing()
+          /*if( props.stopEditing ){
             props.stopEditing(editBox.current)
           }else{
             e.currentTarget.blur()
-          }
+          }*/
           return
         }        
       }

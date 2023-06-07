@@ -3,6 +3,8 @@ import { Storage } from '@google-cloud/storage';
 import Primitive from "./model/Primitive";
 import { PDFExtract } from "pdf.js-extract";
 import moment from 'moment';
+import { Readable } from 'stream';
+import { finished } from 'stream/promises';
 var ObjectId = require('mongoose').Types.ObjectId;
 
 let _ghState = undefined
@@ -354,4 +356,26 @@ export async function importGoogleDoc(id, fileId, req, pdf = true){
       });
       await waitForFileToExit(id, bucket)
       return true
+}
+
+export async function replicateURLtoStorage(url, id, bucketName){
+    console.log(`replicating`)
+    if(!url || !id || !bucketName){return false}
+    if( url.slice(0,4) !== "http"){return false}
+    const storage = new Storage({
+        projectId: process.env.GOOGLE_PROJECT_ID,
+      });
+
+    const bucket = storage.bucket(bucketName);
+    const file = bucket.file(id)
+    if( (await file.exists())[0] ){
+        await file.delete()
+    }
+    const stream = file.createWriteStream()
+
+
+    const response = await fetch(url)
+    await finished(Readable.fromWeb(response.body).pipe(stream));
+    return true
+
 }

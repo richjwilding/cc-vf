@@ -6,13 +6,16 @@ import DropdownButton from './DropdownButton'
 import useDataEvent from './CustomHook'
 import MainStore from './MainStore'
 import ConfirmationPopup from './ConfirmationPopup'
+import { Spinner } from '@react-pdf-viewer/core'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 
 
 export default function GenericEditor({item, primitive,...props}) {  
   
+  const [waiting, setWaiting] = useState(false)
   const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
   const [confirmRemove, setConfirmRemove] = useState(false)
-  const [deleteMessage, setDeleteMessage] = useState( "Are you sure you want to delete this question?" )
+  const [deleteMessage, setDeleteMessage] = useState( `Are you sure you want to delete this ${primitive.displayType}?` )
 
   const text = ()=>{
     updateRelationships()
@@ -100,6 +103,7 @@ export default function GenericEditor({item, primitive,...props}) {
           >
             <Dialog.Panel 
                 className="mx-auto max-w-2xl transform rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 transition-all p-6">
+                  
                   <PrimitiveCard.Banner key='banner' primitive={primitive}/>
                   <PrimitiveCard key='title' primitive={primitive} showEdit={true} showId={false} major={true}/>
                   {list && <div className='overscroll-contain overflow-y-scroll max-h-[50vh] rounded-md border border-gray-200 p-3 my-2 space-y-3 bg-gray-50 '>
@@ -114,11 +118,28 @@ export default function GenericEditor({item, primitive,...props}) {
                       </div>
                     }
                     {list && list.map((child)=>(
-                      <PrimitiveCard.Variant key={child.id} primitive={child} showEdit={true} editable={true}/>
-                      
+                      <PrimitiveCard.Variant key={child.id} primitive={child} showEdit={true} editable={true} listType={props.listType}/>
                     ))}
                   </div>}
-                  <DropdownButton flat={true} items={items} title='Add item' className='shrink-0 grow-0 h-8' dropdownWidth='w-96' align='left'/>
+                  <div className='w-full space-x-2'>
+                    <DropdownButton flat={true} items={items} title='Add item' className='shrink-0 grow-0 h-8' dropdownWidth='w-96' align='left'/>
+                    {props.actions && <DropdownButton flat={true} items={
+                      props.actions.map((d)=>{
+                        return {
+                          key: d.key,
+                          title: d.title,
+                          action: async ()=>{setWaiting(true); console.log( await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id}));setWaiting(false);}
+                        }
+                      })
+                      } title='Action' className='shrink-0 grow-0 h-8' dropdownWidth='w-max' align='left'/>}
+                      <button
+                        type="button"
+                        onClick={async (e)=>{e.stopPropagation();await primitive.removeChildren()}}
+                        className={`bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-indigo-500 focus:ring-indigo-500 h-full relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium shrink-0 grow-0 h-8 focus:outline-none`}
+                      >
+                        Delete all
+                      </button>
+                  </div>
                   <div key='button_bar' className="mt-6 flex items-center w-full gap-x-6 justify-between">
                     {primitive && primitive.id &&   <button
                       type="button"
@@ -135,6 +156,9 @@ export default function GenericEditor({item, primitive,...props}) {
                         Close
                       </button>
                     </div>
+                    {waiting && <div key='wait' className='z-50 absolute bg-gray-400/50 backdrop-blur-sm w-full h-full top-0 left-0 rounded-lg place-items-center justify-center flex'>
+                      <Spinner className='animate-spin'/>
+                    </div>}
                     
             </Dialog.Panel>
           </Transition.Child>

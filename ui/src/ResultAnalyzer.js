@@ -139,7 +139,7 @@ export default function ResultAnalyzer(primitive){
                                         const newPrim = await mainstore.createPrimitive({
                                             parent: primitive,
                                             type: "evidence",
-                                            title: response[resultField],
+                                            title: Array.isArray(response[resultField]) ? response[resultField].map((d,idx)=>`${idx+1}) ${d}`).join(" ") : response[resultField],
                                             categoryId: prompt.metadata?.openai?.resultCatgeory,
                                             referenceParameters: {highlightAreas: response.highlightAreas, scale: response.scale},
                                             extraFields: {source: "openai", quoted: true, quote: response.quote}

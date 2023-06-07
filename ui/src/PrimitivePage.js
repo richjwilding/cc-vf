@@ -7,14 +7,13 @@ import Panel from './Panel';
 import { Tab } from '@headlessui/react'
 import {
   PencilIcon,
-  ArrowsPointingOutIcon,
   QuestionMarkCircleIcon,
 } from '@heroicons/react/20/solid'
 import { motion, AnimatePresence } from "framer-motion"
 import { PrimitivePopup } from './PrimitivePopup';
 import { MetricPopup } from './MetricPopup';
 import MainStore from './MainStore';
-import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon, GifIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon, GifIcon, ArrowPathIcon, ArrowsPointingInIcon } from '@heroicons/react/24/outline';
 import { formatDistance, subDays } from 'date-fns'
 import ContactPicker from './ContactPicker';
 import ResultViewer from './ResultViewer';
@@ -30,6 +29,9 @@ import Popup from './Popup';
 import AIStatusPopup from './AIStatusPopup';
 import { AssessmentCard } from './AssessmentCard';
 import {PrimitiveTable} from './PrimitiveTable';
+import CardGrid from './CardGrid';
+import PrimitiveExplorer from './PrimitiveExplorer';
+import { VFImage } from './VFImage';
 
 
 let mainstore = MainStore()
@@ -66,9 +68,9 @@ export function PrimitivePage({primitive, ...props}) {
     if( primitive === undefined && id){
       primitive = mainstore.primitive(isNaN(id) ? id : parseInt(id))
     }
-    let metadata = primitive.metadata
+    //let metadata = primitive.metadata
     let task = primitive.originTask
-    let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
+    //let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
 
     const hasDocumentViewer = primitive.type === "result" && primitive.referenceParameters?.notes
     const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
@@ -81,7 +83,7 @@ export function PrimitivePage({primitive, ...props}) {
     const [plainText, setPlainText] = useState()
     const resultViewer = useRef(null)
     const [analysis, setAnalysis] = useState()
-    const [showWorkingPane, setShowWorkingPaneReal] = useState(hasDocumentViewer)
+    const [showWorkingPane, setShowWorkingPaneReal] = useState()
     const [componentView, setComponentView] = useState(null)
     const [showAIPopup, setShowAIPopup] = useState(null)
     const cvRef = useRef()
@@ -97,17 +99,20 @@ export function PrimitivePage({primitive, ...props}) {
 
     useDataEvent("relationship_update set_field", primitive.id, updateRelationships)
 
-    const showOutcomes = primitive.type !== "assessment"
     const hasNestedEvidence = primitive.isTask
+    const showOutcomes = primitive.type !== "assessment"// && !(showWorkingPane && hasNestedEvidence)
     const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
-    const showMetrics = primitive.isTask || primitive.type === "cohort"
+    const showMetrics = (primitive.isTask || primitive.type === "cohort" ) && primitive.metadata.metrics
+
+    const hasQuestions = (task && task.metadata.sections?.questions) || (primitive && primitive.metadata.sections?.questions)
+    const hasCategories = (task && task.metadata.sections?.categories) || (primitive && primitive.metadata.sections?.categories)
 
     useEffect(()=>{
       if( hasDocumentViewer ){
         setAnalysis(undefined)
       }
       console.log(`re run effect ${primitive.id}`)
-      setShowWorkingPane(hasDocumentViewer )
+      setShowWorkingPane(hasDocumentViewer ? true : (primitive.metadata?.title === "Market scan" ? "results" : false) )
       mainstore.setActiveWorkspaceFrom( primitive )
     }, [primitive.id])
 
@@ -123,7 +128,6 @@ export function PrimitivePage({primitive, ...props}) {
       if( props.selectPrimitive ){
         props.selectPrimitive(null)
       }
-      //registerCallbacks()
     }
     useEffect(()=>{
       if( props.selectPrimitive ){
@@ -253,8 +257,11 @@ export function PrimitivePage({primitive, ...props}) {
                         </Panel>
                     }
                   </div>
-                  {(task || primitive.isTask) && <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
+                  {hasQuestions && (task || primitive.isTask) && <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
                     <PrimitiveCard.Questions key='questions' primitive={task ? task : primitive} relatedTo={primitive} editable={true}/>
+                  </div>}
+                  {hasCategories && (task || primitive.isTask) && <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
+                    <PrimitiveCard.Categories key='categories' primitive={task ? task : primitive} relatedTo={primitive} editable={true}/>
                   </div>}
                   {primitive.resources && <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
                     <PrimitiveCard.Resources primitive={primitive}/>
@@ -315,8 +322,8 @@ export function PrimitivePage({primitive, ...props}) {
                   </div>
                 </Panel>}
 
-            {hasNestedEvidence && !showWorkingPane &&
-                  <Panel key='evidence_panel' title="Evidence" titleButton={{icon: <ArrowsPointingOutIcon className='w-4 h-4 -mx-1'/>, action:()=>setShowWorkingPane(!showWorkingPane)}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+            {hasNestedEvidence && showWorkingPane !== "evidence" &&
+                  <Panel key='evidence_panel' title="Evidence" expandButton={()=>setShowWorkingPane('evidence')} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
                         {(nestedEvidence === undefined || nestedEvidence.length === 0) && 
                           <div className='w-full p-2'>
                             <button
@@ -327,34 +334,25 @@ export function PrimitivePage({primitive, ...props}) {
                           </button>
                           </div>
                         }
-                    <PrimitiveCard.EvidenceList onCardClick={(p)=>props.selectPrimitive(p)} relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
+                    <PrimitiveCard.EvidenceList onCardClick={(p)=>props.selectPrimitive(p)} showCategories={primitive.primitives.allCategory.length > 0} relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                   </Panel>}
             {primitive.type === "assessment" && primitive.framework &&
                   <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>
                     { Object.values(primitive.framework.components).map((c) => {
-                      return (<ComponentRow onClick={()=>{setShowWorkingPane(true);setComponentView(c)}} primitive={primitive} compact={true} evidenceDetail={false} key={c.id} component={c}/>)
+                      return (<ComponentRow onClick={()=>{setShowWorkingPane('assessment');setComponentView(c)}} primitive={primitive} compact={true} evidenceDetail={false} key={c.id} component={c}/>)
                       })
                     }                    
                   </Panel>}
 
-            {primitive.metadata.resultCategories && primitive.metadata.resultCategories.map((category)=>{
+            {showWorkingPane !== "results" && primitive.metadata.resultCategories && primitive.metadata.resultCategories.map((category)=>{
                 let view = category.views?.default
                 let cardConfig = view ? category.views.list[view] : undefined
                 let cardSort =  view ? category.views.sort[view] : undefined
-                let showState = view !== "kaban"
+                const viewConfig = view ? (category.views?.config && category.views?.config[view] ) : undefined
+                
                 
                 let list = primitive.primitives.results ?  primitive.primitives.results[category.id].map((d)=>d) : []
 
-                if( cardConfig ){
-                  console.log(cardSort)
-                  list = list.sort((a,b)=>{
-                    let va = cardSort === "title" ? a.title : a.referenceParameters[cardSort]
-                    let vb = cardSort === "title" ? b.title : b.referenceParameters[cardSort]
-                    if( va && vb ){
-                        return va.localeCompare(vb)
-                    }
-                  })
-                }
                 const resultCategory = mainstore.category(category.resultCategoryId)
                 const title = (resultCategory.openai || resultCategory.doDiscovery) 
                             ? <div className='flex place-items-center'>
@@ -374,7 +372,7 @@ export function PrimitivePage({primitive, ...props}) {
                 }
                 
                 return (
-                  <Panel key={category.title} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                  <Panel expandButton={title === "Organizations" ? ()=>setShowWorkingPane('results') : undefined} key={category.title} count={list.length} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
                         {(list === undefined || list.length === 0) && 
                           <div className='w-full p-2'>
                             <button
@@ -393,36 +391,18 @@ export function PrimitivePage({primitive, ...props}) {
                             columns={category.views.list.table} primitives={list} className='w-full min-h-[24em] bg-white'/> 
                         </div>
                         }
-                        {view === "cards" && <div 
-                            className={
-                              [`gap-3 space-y-3 no-break-children sm:columns-2`,
-                                showWorkingPane ? "" : `md:columns-3 xl:columns-4`].join(" ")
-                            }>
-                            {list.map((p,idx)=>{
-                                return (
-                                    <motion.div 
-                                        key={p.plainId}
-                                        layoutId={p.plainId} onDoubleClick={(e) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
-                                    >
-                                    <PrimitiveCard 
-                                        key={p.id}
-                                        compact={true} primitive={p} 
-                                        onClick={(e)=>e.currentTarget.focus()}
-                                        onEnter={()=>{setSelected({list: list, idx: idx})}}
-                                        className={`h-full select-none flex flex-col justify-between ${selected && selected.id === p.id ? "bg-white opacity-50 blur-50" : ""}`}
-                                        fields={cardConfig} 
-                                        border={true} 
-                                        enableHero={true}
-                                        showExpand={true}
-                                        showState={showState} 
-                                        showAsSecondary={true}
-                                        showEvidence="compact"
-                                        relationships={category.relationships} 
-                                        relationship={primitive.primitives.relationships(p.id, ["results", category.id])}/>
-                                    </motion.div>
-                                )}
-                            )}
-                        </div>}
+                        {view === "cards" && <CardGrid 
+                          primitive={primitive}
+                          category={category}
+                          selectedItem={selected}
+                          cardClick={(e)=>e.currentTarget.focus()}
+                          onEnter={(e, p, list, idx)=>{setSelected({list: list, idx: idx})}}
+                          onDoubleClick={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
+                          list={list} 
+                          cardSort={cardSort} 
+                          cardFields={cardConfig} 
+                          columnClass={showWorkingPane ? "sm:columns-2" : viewConfig?.wide ? 'sm:columns-2 2xl:columns-3' : `sm:columns-2 md:columns-3 xl:columns-4`}
+                          />}
                   </Panel>
                 )
             })}
@@ -536,15 +516,40 @@ export function PrimitivePage({primitive, ...props}) {
                   </div>
                 </div>
               </section>
-            {showWorkingPane && 
+            {showWorkingPane  && 
               <div style={{minWidth:0, minHeight:0}} className='h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'>
-                <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col p-2'>
-                    {!hasDocumentViewer &&                       
-                      hasNestedEvidence && 
-                          <EvidenceExplorer evidenceList={nestedEvidence}  showOriginInfo={[{contact: 'contactName'}, 'company']} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
+                <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col p-2 @container'>
+                    {showWorkingPane === "evidence" &&
+                          <EvidenceExplorer closeButton={()=>setShowWorkingPane(false)} evidenceList={nestedEvidence}  showOriginInfo={[{contact: 'contactName'}, 'company']} primitive={primitive}/>
                     }
                     {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
-                    {primitive.type === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
+                    {showWorkingPane === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
+                    {true && showWorkingPane === "results" && 
+                          <PrimitiveExplorer 
+                            primitive={primitive}
+                            types='entity'
+                            renderProps={{
+                              hideDescription: true, 
+                              hideCover: true,
+                              hideCategories: true,
+                              urlShort: true
+                            }}
+                            render={
+                              (p)=><VFImage className="m-1 w-8 h-8 object-scale" src={`/api/image/${p.id}`} />
+                            }
+                            closeButton={()=>setShowWorkingPane(false)} 
+                            />
+                    }
+                    {false && showWorkingPane === "results" && <div className='overflow-y-scroll'>
+                        <CardGrid 
+                          primitive={primitive}
+                          createButton={(resultCategory)=>createResult(resultCategory, undefined, true)}
+                          cardClick={(e)=>e.currentTarget.focus()}
+                          onEnter={(e, p, list, idx)=>{setSelected({list: list, idx: idx})}}
+                          onDoubleClick={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
+                          className='p-2'
+                          columnClass={`@xl:columns-2 @[70rem]:columns-3 @[95rem]:columns-4 @[120rem]:columns-5`}
+                          /></div>}
                 </div>
               </div>
               }

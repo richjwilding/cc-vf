@@ -22,13 +22,15 @@ import EditableResourceField from './EditableResourceField';
 import useDataEvent from './CustomHook';
 import ContactPicker from './ContactPicker';
 import QuestionCard from './QuestionCard';
-import { ArrowPathIcon,  ChevronRightIcon,  TrashIcon } from '@heroicons/react/24/outline';
+import CategoryCard, { CategoryCardPill } from './CategoryCard';
+import { ArrowPathIcon,  ChevronRightIcon,  LinkIcon,  TrashIcon } from '@heroicons/react/24/outline';
 import { Bars3Icon } from '@heroicons/react/20/solid';
 import ConfirmationPopup from './ConfirmationPopup';
 import AIProcessButton from './AIProcessButton';
 import { Menu, Popover } from '@headlessui/react';
 import { Float } from '@headlessui-float/react';
 import PrimitivePicker from './PrimitivePicker';
+import { VFImage } from './VFImage';
 
 const ExpandArrow = function(props) {
   return (
@@ -98,7 +100,7 @@ let mainstore = MainStore()
           </div>
       }else if( item.type === "options"){
         return (<select 
-                  className='border border-gray-200 p-1 rounded-md'
+                  className='border border-gray-200 p-1 rounded-md grow text-end'
                   onChange={(e)=>props.callback(e.currentTarget.value)}
                 >
             <option value={undefined} ></option>
@@ -161,6 +163,8 @@ let mainstore = MainStore()
                 <p className='text-lg text-gray-800 font-semibold'>${val}{unit}</p>
               </>
       }
+
+      const align = item.type === "long_string" ? "" : "text-end"
       
       return <EditableTextField
         {...props} 
@@ -168,7 +172,7 @@ let mainstore = MainStore()
         value={item.value} 
         default={item.default} 
         icon={icon} 
-        fieldClassName={`${props.compact ? "" :'text-end grow'} ${props.inline ? "truncate" : ""}`}
+        fieldClassName={`${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
         callback={props.callback ? props.callback : (value)=>{
             return props.primitive.setParameter(item.key, value)
         }}
@@ -180,14 +184,20 @@ let mainstore = MainStore()
   const CardMenu = function({primitive,...props}){
     const [showDeletePrompt, setShowDeletePrompt] = React.useState(false)
     const navigate = useNavigate();
-    const buttonClass = `p-1 shrink-0 grow-0 self-center rounded-md border ${props.bg === "transparent" ? "border-transparent hover:border-gray-300 hover:bg-white hover:shadow-sm" :"border-gray-300 bg-white shadow-sm"} font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
+    const buttonClass = `${props.size > 6 ? 'p-1' : 'p-0.5'} shrink-0 grow-0 self-center rounded-md border ${props.bg === "transparent" ? "border-transparent hover:border-gray-300 hover:bg-white hover:shadow-sm" : `border-gray-300 ${props.bg || "bg-white"} shadow-sm`} font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
 
     const handleDelete = ()=>{
       mainstore.removePrimitive( primitive )
       setShowDeletePrompt( null )
     }
 
-    const items = [
+    const items = (props.custom || []).concat([
+      {
+        title: 'Open page',
+        action: ()=>navigate(`item/${primitive.id}`),
+        icon: ArrowTopRightOnSquareIcon,
+        skip: props.showVisitPage === undefined ? false : !props.showVisitPage
+      },
       {
         title: 'Delete',
         action: ()=>setShowDeletePrompt(true),
@@ -200,14 +210,10 @@ let mainstore = MainStore()
         icon: TrashIcon,
         skip: (props.showUnlink === false || props.showUnlink === undefined) ? true : (props.relatedTo === undefined ) || (props.relatedTo && props.relatedTo.id === primitive.origin.id) || !(props.relatedTo && props.relatedTo?.primitives.includes(primitive))
       },
-      {
-        title: 'Open page',
-        action: ()=>navigate(`item/${primitive.id}`),
-        icon: ArrowTopRightOnSquareIcon,
-        skip: props.showVisitPage === undefined ? false : !props.showVisitPage
-      },
-    ].filter((d)=>!d.skip)
+      
+    ]).filter((d)=>!d.skip)
     const baseColor = props.color || "gray"
+
 
     return(<>
       {showDeletePrompt && <ConfirmationPopup message={`This will also delete all items that belong to this ${primitive.displayType}`} title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
@@ -219,12 +225,12 @@ let mainstore = MainStore()
               <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}><Bars3Icon className='w-full h-full'/></Menu.Button>
               <Menu.Items className={`absolute z-10 p-1 mt-2  origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none right-0 w-min`}>
                 <div className="py-1">
-                  {items.map((item) => (
+                  {items.map((item,idx) => (
                     <Menu.Item>
                     {({ active }) => (
                       <a
                         href={item.href}
-                        key={item.title}
+                        key={idx}
                         onClick={(e)=>{e.stopPropagation();item.action && item.action()}}
                         className={[
                           active ? `bg-${baseColor}-100 text-${baseColor}-900` : `text-${baseColor}-700 bg-${props.colorKey ? `${baseColor}-50` : 'white' }`,
@@ -232,7 +238,8 @@ let mainstore = MainStore()
                           'flex place-items-center space-x-2 px-2 py-1 text-sm'
                         ].join(" ")}
                       >
-                        <item.icon aria-hidden="true" className='w-6 h-6'/>
+                        {item.icon && (item.icon.render || item.icon instanceof Function) && <item.icon aria-hidden="true" className='w-6 h-6'/>}
+                        {item.icon && typeof(item.icon)==="string" && <HeroIcon icon={item.icon} aria-hidden="true" className='w-6 h-6'/>}
                         <p className='whitespace-nowrap'>{item.title}</p>
                       </a>
                     )}
@@ -579,7 +586,7 @@ const EvidenceList = function({primitive, ...props}){
                       origin = item.origin
                       item = item.primitive
                     }
-                    return <PrimitiveCard onClick={props.onCardClick ? ()=>props.onCardClick(item) : undefined} key={item.id} primitive={item} compact={true} border={true} origin={props.showOriginInfo && (origin || item.origin)} showOriginInfo={props.showOriginInfo} relationshipTo={props.relationshipTo || primitive} relationshipMode={props.relationshipMode} relationshipPath='outcomes' fields={props.cardFields}/>
+                    return <PrimitiveCard onClick={props.onCardClick ? ()=>props.onCardClick(item) : undefined} key={item.id} primitive={item} compact={true} border={true} origin={props.showOriginInfo && (origin || item.origin)} showOriginInfo={props.showOriginInfo} relationshipTo={props.relationshipTo || primitive} relationshipMode={props.relationshipMode} relationshipPath='outcomes' showCategories={props.showCategories} fields={props.cardFields}/>
                   })}
                 </div>
               }
@@ -761,6 +768,61 @@ const Hero = function({primitive, ...props}){
           <Title primitive={primitive} showState={true} className='px-4 py-4 flex-0'/>
         </div>)
 }
+const Categories = function({primitive, ...props}){
+  const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
+  useDataEvent("set_field relationship_update", [props.relatedTo?.id, primitive.id], forceUpdate)
+  let aiProcessSummary
+  let analyzer
+  let promptCategories
+
+  if(props.relatedTo ){
+    if(props.relatedTo.analyzer){
+      analyzer = props.relatedTo.analyzer()
+      if(analyzer.aiProcessSummary){
+        aiProcessSummary = analyzer.aiProcessSummary() 
+      }
+    }
+  }
+  const resultTypes = primitive.metadata?.resultCategories?.map((d)=>d.resultCategoryId) || []
+  promptCategories = resultTypes.map((id)=>{
+    return mainstore.category(id).promptCategories
+  }).flat().filter((v,i,a)=>v && a.indexOf(v)==i)
+
+  const createCategory = async ()=>{
+    const newPrim = await MainStore().createPrimitive({type: 'category', parent: primitive})
+  }
+    
+  let button
+  
+ /* if( props.relatedTo && props.relatedTo !== primitive ){
+    button = <AIProcessButton active="questions" primitive={props.relatedTo} process={(p)=>p.analyzer().analyzeQuestions()}/>
+  }*/
+
+  const list = primitive.primitives.allCategory
+
+  return (
+    <Panel key='analysis' title={(<>Categories{button}</>)} collapsable={true} open={list && list.length > 0} titleButton={{title:'Create new',small:true,action: createCategory}} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
+      <dd className="mt-1 text-sm text-gray-900">
+        <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
+          {(list === undefined || list.length === 0) && 
+            <div className='w-full p-2'>
+              <button
+              type="button"
+              onClick={props.editable ? createCategory : undefined}
+              className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            >
+              <span className="mt-2 block text-sm font-semibold text-gray-900">{props.editable ? 'Create a new Category' : 'Nothing to show'}</span>
+            </button>
+            </div>
+          }
+          {list.map((primitive, idx) => (
+            <CategoryCard key={primitive.id} primitive={primitive} {...props} aiProcessSummary={aiProcessSummary}/>
+          ))}
+        </ul>
+      </dd>
+    </Panel>
+  )
+}
 
 const Questions = function({primitive, ...props}){
   const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
@@ -818,12 +880,108 @@ const Questions = function({primitive, ...props}){
   )
 }
 
+const Entity=({primitive, ...props})=>{
+  let ring = !props.disableHover
+  let margin = props.bigMargin ? (ring ? 'px-4 py-6' : 'px-2 py-3') : (ring ? 'px-2 py-3' : 'px-0.5 py-1')
+  let mainTextSize = props.textSize || (props.compact ? 'sm' : 'md' )
+
+  const handleEnter = (e)=>{
+    if( e.key === "Enter"){
+      e.preventDefault();
+      e.stopPropagation()
+      props.onEnter()
+    }
+  }
+
+  const bgImg = primitive.linkedInData ? primitive.linkedInData.background_cover_image_url : undefined
+  const logoImg = primitive.linkedInData ? primitive.linkedInData.profile_pic_url : undefined
+
+  return (
+    <div 
+        onClick={props.onClick }
+        onKeyDown={props.onEnter ? handleEnter : undefined}
+        tabIndex='0'
+        id={primitive.plainId}
+        className={
+        [
+          "pcard group relative ",
+          props.hideCover !== true ? "min-h-[12rem]" : "", 
+          props.bg ? props.bg : 'bg-white',
+          props.flatBorder ? '' : 'rounded-lg',
+          ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
+          props.border ? "shadow border-[1px]" : '',
+          props.inline ? "flex space-x-2" : "",
+          props.dragShadow ? "shadow-xl rotate-[-5deg]" : "",
+          props.className].filter((d)=>d).join(' ')
+        }>
+          {props.hideCover !== true && bgImg && (bgImg !== null) &&
+              <VFImage className="object-cover h-24 w-full rounded-t-lg" src={`/api/image/${primitive.id}-background`}/>
+          }
+          {props.hideCover !== true && (!bgImg || (bgImg === null)) &&
+              <div className="min-h-[4rem] w-full rounded-t-lg bg-gray-300"/>
+          }
+            <div className={`px-4 py-1 ${props.hideCover !== true ? "bg-gray-800/50 absolute top-0 left-0 text-white " : "text-gray-800"} rounded-t-lg w-full`}>
+              <p className='text-sm'>{primitive.displayType} #{primitive.plainId}</p>
+            </div>
+          <CardMenu 
+            primitive={primitive} 
+            bg='bg-white/50 group-hover:bg-white' 
+            className='absolute right-1 top-1' 
+            size={5}
+            showVisitPage={false} 
+            custom={[
+              {
+                title: 'Expand',
+                action: ()=>props.onEnter(),
+                icon: ExpandArrow,
+              },
+            ].concat(
+              primitive.metadata.actions
+              ? primitive.metadata.actions.filter((d)=>d.manual && d.menu).map((d)=>{return {title: d.title, icon: d.icon || "PlayIcon", action: async ()=>{const res = await MainStore().doPrimitiveAction(primitive, d.key);console.log(res?.message)}}})
+              : [] 
+            )}
+            />
+          <div className='w-full px-4 pt-2 flex place-items-center'>
+          { logoImg && (logoImg !== null) &&
+            <VFImage className="w-8 h-8 object-scale" src={`/api/image/${primitive.id}`} />}
+            <p className='p-2 text-lg text-gray-700  font-semibold'>{primitive.title}</p>
+          </div>
+          {props.hideDescription !== true && <p className='text-gray-500 px-4 py-2 text-sm'>{primitive.referenceParameters.description}</p>}
+          { false && primitive.referenceParameters.industry &&
+            <span style={{maxWidth: 'calc(100% - 1.5rem)'}} className='text-xs mx-3 w-min my-1 uppercase bg-gray-200 rounded-lg px-1.5 py-0.5 truncate'>{primitive.referenceParameters.industry}</span>
+          }
+          {props.hideCategories !== true && <div className='w-full px-4 flex flex-wrap'>
+            {primitive.categories.map((category)=>(
+              <CategoryCardPill primitive={category}/>
+            ))}
+          </div>}
+          {primitive.referenceParameters?.url && 
+            <a 
+              target='_blank'
+              href={primitive.referenceParameters.url}
+              className='text-gray-300 hover:text-gray-600 px-4 py-2 mt-1 text-xs font-semibold flex'>
+              <LinkIcon className='h-4 pr-0.5'/><p className='truncate'>{props.urlShort ? "Link" : primitive.referenceParameters.url}</p>
+            </a>}
+    </div>
+  )
+}
+
 const Variant=({primitive, ...props})=>{
   if( primitive === undefined){return}
-  if( primitive.type === 'prompt' ){
+  const type = props.listType || primitive.type
+  if( type === 'prompt' ){
     return <Prompt primitive={primitive} {...props}/>
   }
-  return <div>UNSUPPORTED</div>
+  if( type === 'entity' ){
+    return <Entity primitive={primitive} {...props}/>
+  }
+  if( type === 'category' ){
+    return <CategoryCard primitive={primitive} {...props}/>
+  }
+  if( type === 'category_pill' ){
+    return <CategoryCard.Pill primitive={primitive} {...props}/>
+  }
+  return undefined
 }
 export const Prompt = ({primitive, ...props})=>{
   const [editing, setEditing] = React.useState(false)
@@ -870,6 +1028,7 @@ export const Prompt = ({primitive, ...props})=>{
                                 callback={updateTitle}
                                 editable={props.showEdit ? ()=> setEditing( true ) : undefined}
                                 stopEditing={()=>setEditing(false)}
+                                submitOnEnter={true}
                                 editing={editing}
                                 value = {primitive.title}
                                 default='<Add term>'
@@ -956,6 +1115,13 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
       }
     }
   }, [])
+
+  if( !major ){
+    const variant = Variant({primitive, ...props, className, showDetails, showUsers, showRelationships, showResources, major, disableHover, fields})
+    if( variant ){
+      return variant
+    }
+  }
 
 
 
@@ -1128,12 +1294,18 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {primitive._doingDiscovery && !primitive.discoveryDone && <div className='w-2 h-2 absolute bg-amber-500 rounded-lg right-1 top-1'/>}
         {primitive.openai_error && <div className='w-2 h-2 absolute bg-red-500 rounded-lg right-1 top-1'/>}
         {primitive.metadata?.isAggregation && <Aggregation primitive={primitive} {...props}/>}
+        {props.showCategories && <div className='w-full flex flex-wrap'>
+          {primitive.categories.map((category)=>(
+            <CategoryCardPill primitive={category}/>
+          ))}
+        </div>}
     </div>
   )
 }
 PrimitiveCard.Variant = Variant
 PrimitiveCard.Details = Details
 PrimitiveCard.Questions = Questions
+PrimitiveCard.Categories = Categories
 PrimitiveCard.Parameters = Parameters
 PrimitiveCard.Users = Users
 PrimitiveCard.Relationships = Relationships

@@ -5,12 +5,13 @@ import {
   ChevronRightIcon,
 } from '@heroicons/react/20/solid'
 import DropdownButton from './DropdownButton';
+import { ArrowsPointingOutIcon } from '@heroicons/react/24/outline';
 
 
 const Title = (props)=>(
             <h3 className={
               props.titleClassName || 
-                `w-full ${props.titleButton ? "" : "justify-between"} text-gray-500 text-gray-500 flex place-items-center font-medium ${props.major ? 'text-md px-0.5' : 'text-sm' }`
+                `w-full ${props.titleButton ? "" : "justify-between"} text-gray-500 flex place-items-center font-medium ${props.major ? 'text-md px-0.5' : 'text-sm' }`
                 }>
                 {props.count !== undefined  
                     ? <div className='flex'>{props.title || "Details"}<span className="inline-flex items-center rounded-full bg-gray-200 ml-2 my-0.5 px-2 py-0.5 text-xs font-medium text-gray-400">{props.count}</span></div>
@@ -31,10 +32,40 @@ const Title = (props)=>(
             </h3>
 )
 
+
+const MenuButton = (props)=>{
+  return (
+                    <button
+                      type="button"
+                      className={
+                        [
+                          props.small ? "text-xs h-8 py-1 px-2" : "text-sm h-10 py-2 px-4 ",
+                          `shrink-0 grow-0 self-center rounded-md border border-gray-300 bg-white font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
+                        ].join(" ")
+                      }
+                      onClick={props.action}
+                    >
+                      {props.icon ? props.icon : 
+                        (props.title || "Create new")
+                      }
+                    </button>
+    )
+
+}
+
+
 export default function Panel({...props}){
   const ref = React.useRef()
+  const toggleRef = React.useRef()
 
   const titleButton = props.titleButton && props.titleButton instanceof Array && props.titleButton.length === 1 ? props.titleButton[0] : props.titleButton
+
+
+  const ensureOpen = ()=>{
+    if( toggleRef.current && !ref.current){
+      toggleRef.current.click()
+    }
+  }
 
   if( !props.collapsable ){
     return (
@@ -49,30 +80,17 @@ export default function Panel({...props}){
       <Disclosure defaultOpen={props.open}>
       {({ open }) => (
         <div className={`mt-6 ${props.className || ""}`}>
-          <div className='flex w-full place-items-center'>
-            <Disclosure.Button className='flex w-full'>
+          <div className='flex w-full place-items-center space-x-2'>
+            <Disclosure.Button className='flex w-full' ref={toggleRef}>
               <Title {...props} open={open}/>
             </Disclosure.Button>
               {titleButton && (
                 titleButton instanceof Array
                 ? 
-                  <DropdownButton items={titleButton} className='shrink-0 grow-0 h-10' />
-                :
-                    <button
-                      type="button"
-                      className={
-                        [
-                          props.titleButton.small ? "text-xs h-8 py-1 px-2" : "text-sm h-10 py-2 px-4 ",
-                          `shrink-0 grow-0 self-center rounded-md border border-gray-300 bg-white font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
-                        ].join(" ")
-                      }
-                      onClick={titleButton.action}
-                    >
-                      {titleButton.icon ? titleButton.icon : 
-                        (titleButton.title || "Create new")
-                      }
-                    </button>
+                  <DropdownButton items={titleButton.map((d)=>{return {...d, action:()=>{ensureOpen();d.action()}}})} className='shrink-0 grow-0 h-10' />
+                : <MenuButton title={titleButton.title} icon={titleButton.icon} action={()=>{ensureOpen();titleButton.action()}} small={titleButton.small}/>
               )}
+              {props.expandButton && <MenuButton icon={<ArrowsPointingOutIcon className='w-4 h-4 -mx-1'/>} action={()=>{props.expandButton()}} />}
           </div>
           <Transition
             enter="transition duration-100 ease-out"
@@ -96,3 +114,4 @@ export default function Panel({...props}){
     )
   }
 }
+Panel.MenuButton = MenuButton

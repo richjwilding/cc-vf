@@ -9,11 +9,9 @@ import Category from '../model/Category';
 import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
-import { Readable } from 'stream';
-import { finished } from 'stream/promises';
-import { getDocument, getDocumentAsPlainText, importGoogleDoc, removeDocument } from '../google_helper';
+import { getDocument, getDocumentAsPlainText, importGoogleDoc, removeDocument, replicateURLtoStorage } from '../google_helper';
 import analyzeDocument from '../openai_helper';
-import {createPrimitive, flattenPath} from '../SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
 
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -23,6 +21,31 @@ var router = express.Router();
 
 router.get('/', async function(req, res, next) {
     res.json({up: true})
+})
+router.get('/image/:id', async function(req, res, next) {
+    const id = req.params.id
+    const bucketName = 'cc_vf_images'
+    const storage = new Storage({
+        projectId: process.env.GOOGLE_PROJECT_ID,
+      });
+    try{
+
+        const bucket = storage.bucket(bucketName);
+        const file = bucket.file(id)
+        const remoteReadStream = file.createReadStream()
+                                    .on('error', function(err) {
+                                        res.status(404)
+                                        .set('Cache-Control', 'no-cache, no-store, must-revalidate')
+                                        .set('Pragma', 'no-cache')
+                                        .set('Expires', '0')
+                                        .send('Resource not found');
+                                        return
+                                    });
+        res.set('Cache-Control', 'public, max-age=31557600');
+        remoteReadStream.pipe(res);
+    }catch(error){
+        res.status(501).json({message: "Error", error: error})
+    }
 })
 router.get('/avatarImage/:id', async function(req, res, next) {
     const contactId = req.params.id
@@ -43,7 +66,7 @@ router.get('/avatarImage/:id', async function(req, res, next) {
         res.set('Cache-Control', 'public, max-age=31557600');
         remoteReadStream.pipe(res);
     }catch(error){
-        res.status(501).json({message: "Error"})
+        res.status(501).json({message: "Error", error: error})
     }
 })
 router.get('/enrichContact', async function(req, res, next) {
@@ -121,7 +144,7 @@ router.get('/enrichContact', async function(req, res, next) {
                 console.log(data)
                 res.json({result: data})
                 contact.profileInfo = data
-                contact.avatarPresent = await replicateURLtoStorage( data.profile_pic_url, contact.id )
+                contact.avatarPresent = await replicateURLtoStorage( data.profile_pic_url, contact.id, 'bucket-profiles-vf-cc' )
                 contact.avatarUrl = avatarUrl
                 contact.markModified("profileInfo")
                 contact.markModified("avatarUrl")
@@ -149,7 +172,7 @@ router.get('/enrichContact', async function(req, res, next) {
                 const data = await response.json();
                 console.log(data)
                 if( data.tmp_profile_pic_url ){
-                    contact.avatarPresent = await replicateURLtoStorage( data.tmp_profile_pic_url, contact.id )
+                    contact.avatarPresent = await replicateURLtoStorage( data.tmp_profile_pic_url, contact.id, 'bucket-profiles-vf-cc' )
                     contact.markModified("avatarPresent")
                     await contact.save()
                 }
@@ -397,6 +420,7 @@ router.post('/primitive/:id/set_user', async function(req, res, next) {
 })
 router.post('/set_field', async function(req, res, next) {
     let data = req.body
+    console.log(`${data.receiver} - ${data.field} = ${data.value}`)
 
     try {
 
@@ -573,10 +597,10 @@ router.post('/set_relationship', async function(req, res, next) {
 
     try {
         const path = flattenPath( data.path )
-        const parentPath = `parentPrimitives.${data.receiver}`
+        //const parentPath = `parentPrimitives.${data.receiver}`
         
         if( data.set ){
-            try{
+            /*try{
                 await Primitive.findOneAndUpdate(
                     {
                         "_id": new ObjectId(data.target),
@@ -598,10 +622,15 @@ router.post('/set_relationship', async function(req, res, next) {
             if( check.length === 0){
                 doRemove( path )
                 throw new Error("Couldn't find target")
-            }
+            }*/
+           try{
+               await addRelationship( data.receiver, data.target, path)
+           }catch(error){
+            throw error
+           }
 
         }else{
-            try{
+            /*try{
 
                 await Primitive.findOneAndUpdate(
                     {
@@ -613,11 +642,40 @@ router.post('/set_relationship', async function(req, res, next) {
             catch{
                 throw new Error("Couldn't find target")
             }
-           doRemove(path)
+           doRemove(path)*/
+           try{
+               await removeRelationship( data.receiver, data.target, path)
+           }catch(error){
+            throw error
+           }
+
         }
         res.json({success: true})
     } catch (err) {
         res.status(400).json( {error: err.message})
+    }
+
+})
+router.get('/primitive/:id/action/:action', async function(req, res, next) {
+    let data = req.body
+    const primitiveId = req.params.id
+    const action = req.params.action
+    console.log( primitiveId, action, req.query)
+    try{
+        let result
+        const primitive = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
+
+        if( primitive){
+            result = await doPrimitiveAction(primitive, action, req.query)
+        }
+        if( result && result.error ){
+            res.json({success: false, error: result.error})
+        }else{
+            res.json({success: true, result: result})
+        }
+    }catch(error){
+        console.log(error)
+        res.status(501).json({message: "Error", error: error})
     }
 
 })
@@ -981,30 +1039,6 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
 
 })
 
-
-async function replicateURLtoStorage(url, id, bucketName){
-    console.log(`replicating`)
-    if(!url || !id){return false}
-    if( url.slice(0,4) !== "http"){return false}
-    const storage = new Storage({
-        projectId: process.env.GOOGLE_PROJECT_ID,
-      });
-
-    bucketname = 'bucket-profiles-vf-cc'
-
-    const bucket = storage.bucket(bucketname);
-    const file = bucket.file(id)
-    if( (await file.exists())[0] ){
-        await file.delete()
-    }
-    const stream = file.createWriteStream()
-
-
-    const response = await fetch(url)
-    await finished(Readable.fromWeb(response.body).pipe(stream));
-    return true
-
-}
 
 
 export default router;
