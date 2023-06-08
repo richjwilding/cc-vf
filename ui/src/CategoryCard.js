@@ -7,6 +7,8 @@ import GenericEditor from './GenericEditor';
 import MainStore from "./MainStore";
 import ConfirmationPopup from "./ConfirmationPopup";
 import EditableTextField from "./EditableTextField";
+import AIProcessButton from "./AIProcessButton";
+import useDataEvent from "./CustomHook";
 
 export function CategoryCardPill({primitive, ...props}){
   const [confirmRemove, setConfirmRemove] = useState(false)
@@ -66,6 +68,7 @@ export function CategoryCardPill({primitive, ...props}){
 }
 
 export default function CategoryCard({primitive, ...props}){
+    useDataEvent("set_field relationship_update", [primitive.id])
     let aiSummary = props.aiProcessSummary
     const [editPrompt, setEditPrompt] = useState(null)
     if( !aiSummary ){
@@ -87,15 +90,13 @@ export default function CategoryCard({primitive, ...props}){
             title={<div key='title' className="flex place-items-center w-full" >
                     <p>{primitive.title}</p>
                     {primitive.primitives.allCategory.length > 0 && 
-                        <div
-                            key='reprocess' 
-                            type="button"
-                            onClick={async (e)=>{e.stopPropagation(); console.log(await MainStore().doPrimitiveAction(primitive.origin, "mark_categories", {source: primitive.id}))}}
-                            className="flex ml-2 h-6 w-6 -mt-0.5 invisible group-hover:visible flex-none items-center justify-center rounded-full ext-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        >
-                            <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
-                        </div>}
-
+                        <AIProcessButton 
+                            active="mark_categories"
+                            markOnProcess
+                            primitive={primitive} 
+                            process={async ()=>MainStore().doPrimitiveAction(primitive.origin, "mark_categories", {source: primitive.id})}
+                            />
+                    }
                 <div
                     key='edit' 
                     type="button"

@@ -1111,9 +1111,41 @@ function MainStore (prims){
                     }
                     return d.referenceParameters
                 }
+                if( prop === "addParentRelationship"){
+                    return function( parent, path){
+                        const asString = receiver.primitives.flattenPath(path)
+                        console.log(asString)
+                        if(!d.parentPrimitives){
+                            d.parentPrimitives = {}
+                        }
+                        if(!d.parentPrimitives[parent.id]){
+                            d.parentPrimitives[parent.id] = []
+                        }
+                        if( d.parentPrimitives[parent.id].filter((d)=>d === asString).length === 0){
+                            d.parentPrimitives[parent.id].push(asString)
+                        }
+                    }
+
+                }
+                if( prop === "removeParentRelationship"){
+                    return function( parent, path){
+                        const asString = receiver.primitives.flattenPath(path)
+                        console.log(asString)
+                        if(!d.parentPrimitives){
+                            d.parentPrimitives = {}
+                        }
+                        if(!d.parentPrimitives[parent.id]){
+                            d.parentPrimitives[parent.id] = []
+                        }
+                        
+                        d.parentPrimitives[parent.id] = d.parentPrimitives[parent.id].filter((d)=>d !== asString)
+                    }
+
+                }
                 if( prop === "addRelationship"){
                     return function( target, path, skip = false ){
                         if( receiver.primitives.add( target.id, path )){
+                            target.addParentRelationship(receiver, path)
                             if( !skip ){
                                 obj.controller.setRelationship( receiver, target, path, true )
                             }
@@ -1123,6 +1155,7 @@ function MainStore (prims){
                 if( prop === "removeRelationship"){
                     return function( target, path, skip = false ){
                         if( receiver.primitives.remove( target.id, path )){
+                            target.removeParentRelationship(receiver, path)
                             if( !skip ){
                                 obj.controller.setRelationship( receiver, target, path, false )
                             }
@@ -1132,6 +1165,8 @@ function MainStore (prims){
                 if( prop === "moveRelationship"){
                     return function( target, from, to ){
                         if( receiver.primitives.move( target.id, from, to) ){
+                            target.removeParentRelationship(receiver, from)
+                            target.addParentRelationship(receiver, to)
                             obj.controller.moveRelationship( receiver, target, from, to)
                         }
                     }
@@ -1165,8 +1200,10 @@ function MainStore (prims){
                         const oldRelationship = anchor.includes( target.id )
                         if( oldRelationship ){
                             result = anchor.remove( target.id ) 
+                            target.removeParentRelationship(receiver, path)
                         }else{
                             result = anchor.add( target.id) 
+                            target.addParentRelationship(receiver, path)
                         }
                         if( result ){
                             obj.controller.setRelationship( receiver, target, path, !oldRelationship )

@@ -124,7 +124,7 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                     done = true
                 }
             }
-            if( primitive.type === "activity" ){
+            if( primitive.type === "activity" || primitive.type === "task" ){
                 if( command === "categorize" || command === "mark_categories"){
                     let list
                     let data

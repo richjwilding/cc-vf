@@ -21,7 +21,7 @@ export default function EvidenceExplorer({primitive, ...props}){
 
     const axisOptions = useMemo(()=>{
         let out = [
-            {type: "interviewee", title: "Interview name"}
+            {type: "interviewee", title: "Interviewee name"}
         ]
         
         out = out.concat(primitive.primitives.allUniqueCategory.map((d)=>{

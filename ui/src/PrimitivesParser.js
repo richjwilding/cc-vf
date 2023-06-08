@@ -4,6 +4,22 @@ export default function PrimitiveParser(obj){
     }
     const structure = {
             get(target, prop, receiver) {
+                if( prop === "flattenPath" ){
+                    return function(path){
+                        let out = ['primitives']
+                        const nest = (node)=>{
+                            if( node instanceof Object ){
+                                const k = Object.keys(node)[0]
+                                out.push(k)
+                                nest( node[k] )
+                                return out
+                            }
+                            out.push((node === undefined || node === '') ? "null" : node)
+                            return out
+                        }
+                        return nest( path).join(".")
+                    }
+                }
                 if( prop === "add" ){
                     return function(){
                         let item = arguments[0]

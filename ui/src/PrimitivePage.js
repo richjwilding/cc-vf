@@ -520,7 +520,7 @@ export function PrimitivePage({primitive, ...props}) {
               <div style={{minWidth:0, minHeight:0}} className='h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'>
                 <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col p-2 @container'>
                     {showWorkingPane === "evidence" &&
-                          <EvidenceExplorer closeButton={()=>setShowWorkingPane(false)} evidenceList={nestedEvidence}  showOriginInfo={[{contact: 'contactName'}, 'company']} primitive={primitive}/>
+                          <PrimitiveExplorer closeButton={()=>setShowWorkingPane(false)} categoryIds={[10]} list={nestedEvidence} onCardClick={(p)=>props.selectPrimitive(p)}  showOriginInfo={[{contact: 'contactName'}, 'company']} primitive={primitive}/>
                     }
                     {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
                     {showWorkingPane === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
@@ -531,10 +531,11 @@ export function PrimitivePage({primitive, ...props}) {
                             renderProps={{
                               hideDescription: true, 
                               hideCover: true,
-                              hideCategories: true,
-                              urlShort: true
+                           //   hideCategories: true,
+                              urlShort: true,
                             }}
-                            render={
+                            onCardClick ={(p)=>props.selectPrimitive(p)}
+                            _render={
                               (p)=><VFImage className="m-1 w-8 h-8 object-scale" src={`/api/image/${p.id}`} />
                             }
                             closeButton={()=>setShowWorkingPane(false)} 

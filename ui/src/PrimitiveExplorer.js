@@ -11,27 +11,49 @@ const mainstore = MainStore()
 //window.miroExporter = MiroExporter()
 
 export default function PrimitiveExplorer({primitive, ...props}){
-    const [filters, setFilters] = React.useState([])
+    const [filters, setFilters] = React.useState(props.categoryIds ? [(d)=>props.categoryIds.includes(d.referenceId)] : [])
+    //const [filters, setFilters] = React.useState([(d)=>d.referenceId === 10 ])//&& d.referenceParameters.scale > 5 && d.referenceParameters.specificity > 5])
     const [scale, setScale] = React.useState(100)
     const canvas = React.useRef(null)
 
-    const axisOptions = useMemo(()=>primitive.primitives.allUniqueCategory.map((d)=>{
-        const options = d.primitives.allUniqueCategory
-        return {
-            type: "category",
-            id: d.id,
-            order: [undefined,options.map((d)=>d.id)].flat(),
-            values: ["None", options.map((d)=>d.title)].flat(),
-            title: `By ${d.title}`
+    const types = [props.types].flat()
+
+    let items = React.useMemo(()=>{
+        return props.list || primitive.primitives.uniqueAllItems.filter((d)=>types.includes(d.type) )
+    },[primitive.id])
+
+    const axisOptions = useMemo(()=>{
+        let out = []
+
+        if( props.list ){
+            const sample = props.list[0]
+            if( sample ){
+                console.log(sample)
+                const parameters = sample.metadata.parameters
+                if( parameters ){
+                    Object.keys(parameters).forEach((parameter)=>{
+                        out.push( {type: 'parameter', parameter: parameter, title: parameters[parameter].title})
+                    })
+                }
+            }
         }
-    }), [primitive.id])
+
+        
+        out = out.concat(primitive.primitives.allUniqueCategory.map((d)=>{
+            const options = d.primitives.allUniqueCategory
+            return {
+                type: "category",
+                id: d.id,
+                order: [undefined,options.map((d)=>d.id)].flat(),
+                values: ["None", options.map((d)=>d.title)].flat(),
+                title: `By ${d.title}`
+            }
+        }))
+        return out
+    }, [primitive.id])
 
     const [colSelection, setColSelection] = React.useState(0)
-    const [rowSelection, setRowSelection] = React.useState(1)
-
-    const group = (d)=>d.referenceParameters?.category
-    let fields = ["title", "scale", "specificity","category"]
-    let originFields = [{contact: "contactName"}]
+    const [rowSelection, setRowSelection] = React.useState(axisOptions.length > 1 ? 1 : 0)
 
     const pickProcess = ( mode )=>{
         const option = axisOptions[mode]
@@ -39,16 +61,23 @@ export default function PrimitiveExplorer({primitive, ...props}){
             if( option.type === "category"){
                 return (p)=>option.values[Math.max(0,...p.parentPrimitiveIds.map((d)=>option.order.indexOf(d)).filter((d)=>d !== -1 ))]
             }
+            if( option.type === "interviewee"){
+                return (d)=>d.origin.referenceParameters?.contactName
+            }else if( option.type === "parameter"){
+                return (d)=> d.referenceParameters[option.parameter]
+            }else if( option.type === "specificity"){
+                fields = fields.filter((d)=>d!=="specificity")
+                return (d)=> d.referenceParameters?.specificity
+            }
         }
-        return (p)=>0
+        return (p)=>""
     }
 
     const column = pickProcess( colSelection )
     const row = pickProcess( rowSelection )
+    const group = (d)=>d.referenceParameters?.category
 
-  let list = React.useMemo(()=>{
-    const types = [props.types].flat()
-    let items = props.list || primitive.primitives.uniqueAllItems.filter((d)=>types.includes(d.type) )
+    let list = React.useMemo(()=>{
         return items.filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true)).map((p)=>{
             return {
                 column: column(p),
@@ -57,7 +86,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 primitive: p
             }
         })
-    },[primitive.id, colSelection, rowSelection])
+        },[primitive.id, colSelection, rowSelection])
+
+    let fields = ["title", "scale", "specificity","category"]
+    let originFields = [{contact: "contactName"}]
+
+
+
 
   const columnExtents = React.useMemo(()=>list.map((d)=>d.column).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection])
   const rowExtents = React.useMemo(()=>list.map((d)=>d.row).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection])
@@ -107,7 +142,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     <p></p>{columnExtents.map((col,idx)=>(<p key={`rt${idx}`} className='vfbgtitle z-[2] font-bold text-lg text-center p-2 text-2xl self-center'>{col}</p>))}
                     { rowExtents.map((row, rIdx)=>{
                         return <React.Fragment>
-                            {<p key={`ct${rIdx}`} className='vfbgtitle z-[2] font-bold text-sm text-center p-2 text-2xl self-center'>{row?.split('/').join(" ")}</p>}
+                            {<p key={`ct${rIdx}`} className='vfbgtitle z-[2] font-bold text-sm text-center p-2 text-2xl self-center'>{row && typeof(row) === "string" ? row?.split('/').join(" ") : row}</p>}
                             {columnExtents.map((column, cIdx)=>{
                                 let subList = list.filter((item)=>item.column === column && item.row === row).sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
                                 return <div style={{columns: Math.floor(Math.sqrt(columnColumns[cIdx] ))}} className='z-[2] w-fit m-4 p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children'>
@@ -121,7 +156,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                             if( props.render ){
                                                 return props.render( item )
                                             }
-                                            return <PrimitiveCard key={item.id} primitive={item} className='min-w-[16em] max-w-[16em] m-2' {...props.renderProps}/>
+                                            return <PrimitiveCard key={item.id} primitive={item} fields={fields} className='min-w-[16em] max-w-[16em] m-2' {...props.renderProps} onClick={props.onCardClick ? ()=>props.onCardClick(item) : undefined}/>
                                         })}
                                     </div>
                         })}

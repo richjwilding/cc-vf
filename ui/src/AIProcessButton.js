@@ -3,9 +3,15 @@ import { ArrowPathIcon } from "@heroicons/react/24/outline";
 
 export default function AIProcessButton({primitive, ...props}){
     let title = <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
-    let action = (e)=>{
+    let action = async (e)=>{
         e.stopPropagation();
         if( props.process ){
+            if( props.markOnProcess ){
+              primitive.setField("ai_processing", {state: "underway", process: props.active || "unknown", started: new Date})
+              const result = await props.process(primitive)
+              primitive.setField("ai_processing", result.success ? null : {state: "error"})
+              return
+            }
             props.process(primitive)
         }
     }
