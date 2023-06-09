@@ -21,6 +21,7 @@
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
+    "@use-gesture/react": "^10.2.27",
     "date-fns": "^2.29.3",
     "framer-motion": "^9.0.2",
     "html2canvas": "^1.4.1",
@@ -63,7 +64,7 @@
     ]
   },
   "devDependencies": {
-    "tailwindcss": "^3.2.4",
+    "tailwindcss": "^3.3.2",
     "tailwindcss-bg-patterns": "^0.2.0"
   }
 }

@@ -38,6 +38,9 @@ module.exports = {
     {
       pattern: /shadow-gray./,
     },
+    {
+      pattern: /line-clamp./,
+    },
   ],
   theme: {
     patterns: {

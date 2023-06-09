@@ -529,15 +529,11 @@ export function PrimitivePage({primitive, ...props}) {
                             primitive={primitive}
                             types='entity'
                             renderProps={{
-                              hideDescription: true, 
                               hideCover: true,
-                           //   hideCategories: true,
                               urlShort: true,
+                              fixedSize: "16rem"
                             }}
                             onCardClick ={(p)=>props.selectPrimitive(p)}
-                            _render={
-                              (p)=><VFImage className="m-1 w-8 h-8 object-scale" src={`/api/image/${p.id}`} />
-                            }
                             closeButton={()=>setShowWorkingPane(false)} 
                             />
                     }

@@ -896,24 +896,14 @@ const Entity=({primitive, ...props})=>{
   const bgImg = primitive.linkedInData ? primitive.linkedInData.background_cover_image_url : undefined
   const logoImg = primitive.linkedInData ? primitive.linkedInData.profile_pic_url : undefined
 
-  return (
-    <div 
-        onClick={props.onClick }
-        onKeyDown={props.onEnter ? handleEnter : undefined}
-        tabIndex='0'
-        id={primitive.plainId}
-        className={
-        [
-          "pcard group relative ",
-          props.hideCover !== true ? "min-h-[12rem]" : "", 
-          props.bg ? props.bg : 'bg-white',
-          props.flatBorder ? '' : 'rounded-lg',
-          ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
-          props.border ? "shadow border-[1px]" : '',
-          props.inline ? "flex space-x-2" : "",
-          props.dragShadow ? "shadow-xl rotate-[-5deg]" : "",
-          props.className].filter((d)=>d).join(' ')
-        }>
+  let content 
+  let header
+
+  if( props.fixedSize && props.scale < 0.4 ){
+      content = <VFImage className="p-4 min-w-[2rem] min-h-[2rem] w-full h-full object-scale" src={`/api/image/${primitive.id}`} />
+  }else{
+
+    header = <>
           {props.hideCover !== true && bgImg && (bgImg !== null) &&
               <VFImage className="object-cover h-24 w-full rounded-t-lg" src={`/api/image/${primitive.id}-background`}/>
           }
@@ -923,6 +913,69 @@ const Entity=({primitive, ...props})=>{
             <div className={`px-4 py-1 ${props.hideCover !== true ? "bg-gray-800/50 absolute top-0 left-0 text-white " : "text-gray-800"} rounded-t-lg w-full`}>
               <p className='text-sm'>{primitive.displayType} #{primitive.plainId}</p>
             </div>
+           </>
+
+      content = <>
+        <div className='w-full px-4 pt-2 flex place-items-center'>
+          { logoImg && (logoImg !== null) &&
+            <VFImage className="w-8 h-8 object-scale" src={`/api/image/${primitive.id}`} />
+            }
+            <p className={`${props.fixedSize ? "line-clamp-2" : "py-2"} px-2 text-lg text-gray-700 font-semibold`}>{primitive.title}</p>
+          </div>
+          {props.hideDescription !== true && 
+            <div className='grow'>
+              <p className={`${props.fixedSize ? "line-clamp-4" : "py-2"} text-gray-500 px-4 text-sm`}>
+                {primitive.referenceParameters.description}
+            </p>
+          </div>
+          }
+          {props.hideCategories !== true && <div className='w-full px-4 flex flex-wrap'>
+            {primitive.categories.map((category)=>(
+              <CategoryCardPill primitive={category}/>
+            ))}
+          </div>}
+          {primitive.referenceParameters?.url && 
+            <a 
+              target='_blank'
+              href={primitive.referenceParameters.url}
+              className='text-gray-300 hover:text-gray-600 px-4 py-2 mt-1 text-xs font-semibold flex'>
+              <LinkIcon className='h-4 pr-0.5'/><p className='truncate'>{props.urlShort ? "Link" : primitive.referenceParameters.url}</p>
+            </a>}
+        </>
+  }
+
+  let style = {}
+  if( props.fixedWidth){
+    style.minWidth = props.fixedWidth
+    style.maxWidth = props.fixedWidth
+  }
+  if( props.fixedSize){
+    style.minWidth = props.fixedSize
+    style.maxWidth = props.fixedSize
+    style.minHeight = props.fixedSize
+    style.maxHeight = props.fixedSize
+  }
+
+  return (
+    <div 
+        onClick={props.onClick }
+        onKeyDown={props.onEnter ? handleEnter : undefined}
+        tabIndex='0'
+        id={primitive.plainId}
+        style={style}
+        className={
+        [
+          "pcard group relative flex flex-col ",
+          props.hideCover !== true ? "min-h-[12rem]" : "", 
+          props.bg ? props.bg : 'bg-white',
+          props.flatBorder ? '' : 'rounded-lg',
+          ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
+          props.border ? "shadow border-[1px]" : '',
+          props.inline ? "flex space-x-2" : "",
+          props.dragShadow ? "shadow-xl rotate-[-5deg]" : "",
+          props.className].filter((d)=>d).join(' ')
+        }>
+          {header}
           <CardMenu 
             primitive={primitive} 
             bg='bg-white/50 group-hover:bg-white' 
@@ -941,27 +994,7 @@ const Entity=({primitive, ...props})=>{
               : [] 
             )}
             />
-          <div className='w-full px-4 pt-2 flex place-items-center'>
-          { logoImg && (logoImg !== null) &&
-            <VFImage className="w-8 h-8 object-scale" src={`/api/image/${primitive.id}`} />}
-            <p className='p-2 text-lg text-gray-700  font-semibold'>{primitive.title}</p>
-          </div>
-          {props.hideDescription !== true && <p className='text-gray-500 px-4 py-2 text-sm'>{primitive.referenceParameters.description}</p>}
-          { false && primitive.referenceParameters.industry &&
-            <span style={{maxWidth: 'calc(100% - 1.5rem)'}} className='text-xs mx-3 w-min my-1 uppercase bg-gray-200 rounded-lg px-1.5 py-0.5 truncate'>{primitive.referenceParameters.industry}</span>
-          }
-          {props.hideCategories !== true && <div className='w-full px-4 flex flex-wrap'>
-            {primitive.categories.map((category)=>(
-              <CategoryCardPill primitive={category}/>
-            ))}
-          </div>}
-          {primitive.referenceParameters?.url && 
-            <a 
-              target='_blank'
-              href={primitive.referenceParameters.url}
-              className='text-gray-300 hover:text-gray-600 px-4 py-2 mt-1 text-xs font-semibold flex'>
-              <LinkIcon className='h-4 pr-0.5'/><p className='truncate'>{props.urlShort ? "Link" : primitive.referenceParameters.url}</p>
-            </a>}
+            {content}
     </div>
   )
 }
@@ -1232,12 +1265,25 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   const packedFields = fields ? fields.filter((d)=>d.indexOf(",") >= 0).map((d)=>d.split(",")).flat() : undefined
   fields = fields ? fields.filter((d)=> (d !== "title") && (d.indexOf(",") === -1)) : undefined
 
+  let style = {}
+  if( props.fixedWidth){
+    style.minWidth = props.fixedWidth
+    style.maxWidth = props.fixedWidth
+  }
+  if( props.fixedSize){
+    style.minWidth = props.fixedSize
+    style.maxWidth = props.fixedSize
+    style.minHeight = props.fixedSize
+    style.maxHeight = props.fixedSize
+  }
+
   return (
     <div 
         onClick={props.onClick }
         onKeyDown={props.onEnter ? handleEnter : undefined}
         tabIndex='0'
         id={primitive.plainId}
+        style={style}
         className={
         [
           "pcard group relative",
@@ -1315,5 +1361,6 @@ PrimitiveCard.Banner = Banner
 PrimitiveCard.Title = Title
 PrimitiveCard.Hero = Hero
 PrimitiveCard.Evidence = Evidence
+PrimitiveCard.Entity = Entity
 PrimitiveCard.EvidenceList = EvidenceList
 PrimitiveCard.RenderItem = RenderItem
