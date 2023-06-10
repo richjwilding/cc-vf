@@ -72,6 +72,8 @@ function App() {
     setSidebarOptions(options)
   }
 
+  mainstore.sidebarSelect = selectPrimitive
+
   return (
     !loaded
     ? <div role="status" className='w-full h-screen flex justify-center place-items-center'>

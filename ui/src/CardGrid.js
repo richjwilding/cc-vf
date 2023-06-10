@@ -10,8 +10,11 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
             return <></>
         }
     }        
-    if( fields === undefined && category && category.views.list){
-        fields = category.views.list['cards']
+    
+    let cardConfig = category.views?.options["cards"]
+    
+    if( fields === undefined ){
+        fields = cardConfig?.fields
     }
 
     if( list === undefined ){
@@ -44,7 +47,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
         }>
         {list.map((p,idx)=>{
             return (
-                <motion.div 
+                <div 
                     key={p.plainId}
                     layoutId={p.plainId} onDoubleClick={props.onDoubleClick ? (e)=>props.onDoubleClick(e,p,list,idx) : undefined}
                 >
@@ -56,6 +59,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                     className={`h-full select-none flex flex-col justify-between ${props.selectedItem && props.selectedItem.id === p.id ? "bg-white opacity-50 blur-50" : ""}`}
                     fields={fields} 
                     border={true} 
+                    showDetails={props.showDetails}
                     enableHero={true}
                     showExpand={true}
                     showState={true} 
@@ -63,7 +67,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                     showEvidence="compact"
                     relationships={category.relationships} 
                     relationship={primitive.primitives.relationships(p.id, ["results", category.id])}/>
-                </motion.div>
+                </div>
             )}
         )}
     </div></>)

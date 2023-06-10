@@ -23,7 +23,7 @@ import useDataEvent from './CustomHook';
 import ContactPicker from './ContactPicker';
 import QuestionCard from './QuestionCard';
 import CategoryCard, { CategoryCardPill } from './CategoryCard';
-import { ArrowPathIcon,  ChevronRightIcon,  LinkIcon,  TrashIcon } from '@heroicons/react/24/outline';
+import {  BuildingOffice2Icon,  ChevronRightIcon,  LinkIcon,  TrashIcon } from '@heroicons/react/24/outline';
 import { Bars3Icon } from '@heroicons/react/20/solid';
 import ConfirmationPopup from './ConfirmationPopup';
 import AIProcessButton from './AIProcessButton';
@@ -798,7 +798,13 @@ const Categories = function({primitive, ...props}){
     button = <AIProcessButton active="questions" primitive={props.relatedTo} process={(p)=>p.analyzer().analyzeQuestions()}/>
   }*/
 
-  const list = primitive.primitives.allCategory
+  let list = primitive.primitives.allUniqueCategory
+  if( !props.includeResult ){
+    if( primitive.metadata?.resultCategories ){
+      const excludeIds = primitive.primitives.results.uniqueAllIds
+      list = list.filter((d)=>!excludeIds.includes(d.id))
+    }
+  }
 
   return (
     <Panel key='analysis' title={(<>Categories{button}</>)} collapsable={true} open={list && list.length > 0} titleButton={{title:'Create new',small:true,action: createCategory}} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
@@ -893,14 +899,18 @@ const Entity=({primitive, ...props})=>{
     }
   }
 
-  const bgImg = primitive.linkedInData ? primitive.linkedInData.background_cover_image_url : undefined
-  const logoImg = primitive.linkedInData ? primitive.linkedInData.profile_pic_url : undefined
+  const bgImg =  primitive?.referenceParameters?.hasBgImg ? true : primitive.linkedInData ? primitive.linkedInData.background_cover_image_url : undefined
+  const logoImg = primitive?.referenceParameters?.hasImg ? true : primitive.linkedInData ? primitive.linkedInData.profile_pic_url : undefined
 
   let content 
   let header
+  let buttonSize = 5
 
-  if( props.fixedSize && props.scale < 0.4 ){
-      content = <VFImage className="p-4 min-w-[2rem] min-h-[2rem] w-full h-full object-scale" src={`/api/image/${primitive.id}`} />
+  if( props.imageOnly || (props.fixedSize && props.scale < 0.4) ){
+    
+      content = logoImg ? <VFImage className="p-4 min-w-[2rem] min-h-[2rem] w-full h-full object-scale" src={`/api/image/${primitive.id}`} /> : <BuildingOffice2Icon className='text-gray-500 p-4'/>
+       
+      buttonSize = props.compact ? 5 : 16
   }else{
 
     header = <>
@@ -910,9 +920,9 @@ const Entity=({primitive, ...props})=>{
           {props.hideCover !== true && (!bgImg || (bgImg === null)) &&
               <div className="min-h-[4rem] w-full rounded-t-lg bg-gray-300"/>
           }
-            <div className={`px-4 py-1 ${props.hideCover !== true ? "bg-gray-800/50 absolute top-0 left-0 text-white " : "text-gray-800"} rounded-t-lg w-full`}>
+          {!props.hideTitle && <div className={`px-4 py-1 ${props.hideCover !== true ? "bg-gray-800/50 absolute top-0 left-0 text-white " : "text-gray-800"} rounded-t-lg w-full`}>
               <p className='text-sm'>{primitive.displayType} #{primitive.plainId}</p>
-            </div>
+            </div>}
            </>
 
       content = <>
@@ -949,12 +959,13 @@ const Entity=({primitive, ...props})=>{
     style.minWidth = props.fixedWidth
     style.maxWidth = props.fixedWidth
   }
-  if( props.fixedSize){
-    style.minWidth = props.fixedSize
-    style.maxWidth = props.fixedSize
-    style.minHeight = props.fixedSize
-    style.maxHeight = props.fixedSize
+  if( props.fixedSize || props.imageOnly){
+    style.minWidth = props.fixedSize || "4rem"
+    style.maxWidth = props.fixedSize || "4rem"
+    style.minHeight = props.fixedSize || "4rem"
+    style.maxHeight = props.fixedSize || "4rem"
   }
+  
 
   return (
     <div 
@@ -976,16 +987,16 @@ const Entity=({primitive, ...props})=>{
           props.className].filter((d)=>d).join(' ')
         }>
           {header}
-          <CardMenu 
+          {!props.hideMenu && <CardMenu 
             primitive={primitive} 
             bg='bg-white/50 group-hover:bg-white' 
             className='absolute right-1 top-1' 
-            size={5}
+            size={buttonSize}
             showVisitPage={false} 
             custom={[
               {
                 title: 'Expand',
-                action: ()=>props.onEnter(),
+                action: ()=>props.onEnter ? props.onEnter() : undefined,
                 icon: ExpandArrow,
               },
             ].concat(
@@ -993,7 +1004,7 @@ const Entity=({primitive, ...props})=>{
               ? primitive.metadata.actions.filter((d)=>d.manual && d.menu).map((d)=>{return {title: d.title, icon: d.icon || "PlayIcon", action: async ()=>{const res = await MainStore().doPrimitiveAction(primitive, d.key);console.log(res?.message)}}})
               : [] 
             )}
-            />
+            />}
             {content}
     </div>
   )
@@ -1149,7 +1160,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     }
   }, [])
 
-  if( !major ){
+  if( !major  && props.variant !== false){
     const variant = Variant({primitive, ...props, className, showDetails, showUsers, showRelationships, showResources, major, disableHover, fields})
     if( variant ){
       return variant
@@ -1325,6 +1336,11 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
             <PrimitiveCard.Parameters primitive={props.origin || primitive.origin} inline={true} showAsSecondary={true} noEvents={props.noEvents}  compact={true} showTitles={false} fields={props.showOriginInfo} />
           </div>}
         {showRelationships && <PrimitiveCard.Relationships primitive={primitive}/>}
+          {props.showQuote === true && primitive.quote && 
+              <div className='w-full px-6 py-2 '>
+                  <p className='pl-2 border-l-4 text-gray-500 italic text-sm line-clamp-6'><strong>Original text:</strong> {primitive.quote}</p>
+              </div>
+          }
         {showDetails === true && <PrimitiveCard.Details primitive={primitive}/>}
         {showUsers === true && <PrimitiveCard.Users primitive={primitive}/>}
         {(showDetails === "panel" || showUsers === "panel") && <Panel title="More" collapsable={true} open={false}>

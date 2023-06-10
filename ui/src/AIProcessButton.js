@@ -9,7 +9,7 @@ export default function AIProcessButton({primitive, ...props}){
             if( props.markOnProcess ){
               primitive.setField("ai_processing", {state: "underway", process: props.active || "unknown", started: new Date})
               const result = await props.process(primitive)
-              primitive.setField("ai_processing", result.success ? null : {state: "error"})
+              primitive.setField("ai_processing", result ? null : {state: "error"})
               return
             }
             props.process(primitive)
@@ -25,7 +25,7 @@ export default function AIProcessButton({primitive, ...props}){
         title = <div className='text-red-600'><FontAwesomeIcon icon='triangle-exclamation'/> Error</div>
       }else if(active){
         action = (e)=>{e.stopPropagation();}
-        title = <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin"/> Processing</div>
+        title = <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin"/>{props.small ? "" :" Processing"}</div>
       }
       
     }

@@ -21,6 +21,7 @@ function classNames(...classes) {
 
 export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
   const [showDeletePrompt, setShowDeletePrompt] = useState(false)
+  const [activeTab, setActveTab] = useState(props.editing ? 1 : 0)
     let id = primitive?.plainId
     let selectedList
     let selectedIdx
@@ -98,7 +99,7 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
             leaveTo="opacity-0 scale-95"
           >
             <Dialog.Panel 
-                className='flex z-30 w-max max-w-[100vw] top-0 mx-auto '
+                className={`flex z-30  top-0 mx-auto ${widths[activeTab]}`}
                 >
                     <div className='p-4 bg-white rounded-2xl shadow-xl w-full' >
                       <div className='flex ml-auto pb-1 w-fit space-x-2'>
@@ -116,10 +117,11 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
                                 className='bg-white'
                                 >
                                 <PrimitiveCard.Banner primitive={primitive} small={true} showLink={true}/>
-                                <PrimitiveCard primitive={primitive} disableHover={true} showEdit={true} hideTitle={true}/>
+                                <PrimitiveCard variant={false} primitive={primitive} disableHover={true} showEdit={true} hideTitle={true} hideMenu hideCover/>
                             </motion.div>
                             <Tab.Group
-                                defaultIndex={props.editing ? 1 : 0}
+                                onChange={(idx)=>setActveTab(idx)}
+                                defaultIndex={activeTab}
                                 >
                                 {({ selectedIndex }) => {
                                   return ( 
@@ -168,6 +170,7 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
                                       </Tab>
                                     </Tab.List>
                                     <Tab.Panels>
+                                      <div className={widths[selectedIndex]}>
                                         <Tab.Panel>
                                             <PrimitiveCard.EvidenceList relationshipTo={contextOf} relationshipMode="presence" primitive={primitive} hideTitle={true} className={`${widths[0]}  max-h-[40vh] h-[40vh]`} frameClassName='sm:columns-2 md:columns-3 xl:columns-4'/>
                                         </Tab.Panel>
@@ -217,6 +220,7 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
                                             </div>
                                           </div>)}
                                         </Tab.Panel>
+                                        </div>
                                     </Tab.Panels>
                                   </>)}}
                             </Tab.Group>

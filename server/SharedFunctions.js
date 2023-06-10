@@ -4,8 +4,11 @@ import Counter from './model/Counter';
 import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
 import {enrichCompanyFromLinkedIn, pivotFromLinkedIn} from './linkedin_helper'
-import {buildCategories, categorize} from './openai_helper';
+import {buildCategories, categorize, summarizeMultiple} from './openai_helper';
+import PrimitiveParser from './PrimitivesParser';
 var ObjectId = require('mongoose').Types.ObjectId;
+
+const parser = PrimitiveParser()
 
 export async function getNextSequenceValue(sequenceName) {
     try {
@@ -124,6 +127,63 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                     done = true
                 }
             }
+            if( primitive.type === "category" ){
+                if( command === "summarize" ){
+                    const source = options.source ? await Primitive.findOne({_id:  new ObjectId(options.source)}) : primitive
+                    
+                    const childPrimitiveIds = primitive.primitives ? new Proxy(primitive.primitives, parser).uniqueAllIds : []
+                    
+                    let list 
+                    let data
+
+                    if(action.target === "children"){
+                        list = await primitiveChildren(source)
+                    }
+                    if(action.target === "level2"){
+                        list = await primitiveChildren(source)
+                        list = (await Promise.all(list.map(async (d)=>await primitiveChildren(d)))).flat()
+                    }
+                    if( action.type ){
+                        list = list.filter((d)=>d.type === action.type)
+                    }
+                    list = list.filter((d)=>childPrimitiveIds.includes(d._id.toString()))
+                    if( list !== undefined){
+                        data = list.map((d)=>{
+                            if( action.parameter && d.referenceParameters){
+                                return d.referenceParameters[action.parameter]
+                            }
+                            if( action.field ){
+                                return d[action.field]
+                            }
+
+                        }).filter((d)=>d)
+                    }
+                    if( data && data.length > 0){
+
+                        
+                        const summary = await summarizeMultiple( data, {title: primitive.title, types: options.dataTypes || action.dataTypes, themes: options.themes || action.themes, prompt: options.prompt || action.prompt, aggregatePrompt: options.aggregatePrompt || action.aggregatePrompt} )
+                        
+                        if( summary.success){
+                            done = true
+                            
+                            
+                            const prim = await Primitive.findOneAndUpdate(
+                                {"_id": primitive._id},
+                                {
+                                    'referenceParameters.description': summary.summary,
+                                })
+                                
+                            result = [{
+                                type:"set_fields",
+                                primitiveId: primitive._id.toString(),
+                                fields:{
+                                    'referenceParameters.description': summary.summary,
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
             if( primitive.type === "activity" || primitive.type === "task" ){
                 if( command === "categorize" || command === "mark_categories"){
                     let list
@@ -153,7 +213,7 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                         }).filter((d)=>d)
                         
                         if( command === "categorize"){
-                            const catData = await buildCategories( data, {count: options.count || action.count || 15, type: options.dataType || action.dataType, themes: options.theme || action.theme} )
+                            const catData = await buildCategories( data, {count: options.count || action.count || 15, types: options.dataTypes || action.dataTypes, themes: options.theme || action.theme} )
                             if( catData.success && catData.categories){
                                 const items = []
                                 for( const title of catData.categories){
@@ -182,28 +242,35 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                             const categoryList = catOptions.map((d)=>d.title)
                             const categoryIds = catOptions.map((d)=>d._id.toString())
 
+                            result = []
+
                             for( const item of list ){
                                 if( item.parentPrimitives ){
                                     const parents = Object.keys(item.parentPrimitives ).filter((d)=>categoryIds.includes(d) )
                                     if( parents.length > 0){
                                         for( const parent of parents){
                                             for( const path of item.parentPrimitives[parent]){
-                                                console.log(`${item._id.toString()} - ${parent} at ${path}`)
                                                 await removeRelationship( parent, item._id.toString(), path )
+                                                result.push({
+                                                        type: "remove_relationship",
+                                                        id: parent,
+                                                        target: item._id,
+                                                        path: path
+                                                })
                                             }
                                         }
                                     }
                                 }
                             }
                             
-                            result = await categorize(data, categoryList)
-                            console.log(result)
+                            const categoryAlloc = await categorize(data, categoryList)
+                            console.log(categoryAlloc)
 
-                            if( Object.hasOwn(result, "success")){
+                            if( Object.hasOwn(categoryAlloc, "success")){
                                 console.log("Error on mark_categories")
-                                return result
+                                return categoryAlloc
                             }else{
-                                for(const item of result){
+                                for(const item of categoryAlloc){
                                     let cat
                                     if( typeof(item.category === "number")){
                                         cat = catOptions[ item.category ]
@@ -215,6 +282,12 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                                     if( cat ){
                                         console.log(`${item.id} -> ${list[item.id].plainId} : ${cat.title}`)
                                         await addRelationship( cat._id.toString(), list[item.id]._id.toString(), "ref")
+                                        result.push({
+                                                type: "add_relationship",
+                                                id: cat._id.toString(), 
+                                                target: list[item.id]._id.toString(),
+                                                path: "ref"
+                                        })
                                     }else{
                                         console.log(`Couldnt find category '${item.category}' for ${item.id})`)
                                     }

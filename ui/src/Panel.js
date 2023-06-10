@@ -43,7 +43,7 @@ const MenuButton = (props)=>{
                           `shrink-0 grow-0 self-center rounded-md border border-gray-300 bg-white font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
                         ].join(" ")
                       }
-                      onClick={props.action}
+                      onClick={props.action || props.onClick}
                     >
                       {props.icon ? props.icon : 
                         (props.title || "Create new")

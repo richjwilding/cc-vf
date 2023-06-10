@@ -72,7 +72,7 @@ export async function enrichCompanyFromLinkedIn(primitive, force = false){
             return {error: "no_data"}
         }
 
-        await Primitive.findOneAndUpdate(
+        const prim = await Primitive.findOneAndUpdate(
             {"_id": primitive._id},
             {
                 'referenceParameters.url': linkedInData.website,
@@ -80,7 +80,7 @@ export async function enrichCompanyFromLinkedIn(primitive, force = false){
                 'referenceParameters.description': linkedInData.description,
                 'title': linkedInData.name,
                 linkedin_done: true
-            }
+            }, {new: true}
 
         )
         
@@ -90,8 +90,22 @@ export async function enrichCompanyFromLinkedIn(primitive, force = false){
         if( linkedInData.background_cover_image_url ){
             replicateURLtoStorage(linkedInData.background_cover_image_url, primitive._id.toString() + "-background", "cc_vf_images")
         }
+        const result = [
+            {
+                type:"set_fields",
+                primitiveId: primitive._id.toString(),
+                fields:{
+                    'referenceParameters.url': linkedInData.website,
+                    'referenceParameters.industry': linkedInData.industry,
+                    'referenceParameters.description': linkedInData.description,
+                    'referenceParameters.hasImg': linkedInData.profile_pic_url,
+                    'referenceParameters.hasBgImg': linkedInData.background_cover_image_url,
+                    'title': linkedInData.name,
+                }
+            }
+        ]
 
-        return linkedInData
+        return result
 }
 export async function fetchCompanyProfileFromLinkedIn( primitive ){
     try{

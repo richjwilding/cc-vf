@@ -62,11 +62,71 @@ function MainStore (prims){
             obj.loadControl(true)
 
         },
-        ajaxResponseHandler(result){
-            if( result.success){
+        ajaxResponseHandler(response){
+            if( response.success){
+                if( response.result && Array.isArray(response.result)){
+                    let out
+                    response.result.forEach((entry)=>{
+                        if(entry.type === "new_primitives"){
+                            out = []
+                            for(const rData of entry.data){
+                                obj.addPrimitive( rData )
+                                const newObj = obj.primitive(rData.id)
+                                const list = [newObj]
+                                
+                                for(const parentId of Object.keys(rData.parentPrimitives || {})){
+                                    const paths = rData.parentPrimitives[parentId].map((d)=>d.replace('primitives.',''))
+                                    const parent = obj.primitive( parentId )
+                                    if( parent ){
+                                        list.push(parent)
+                                        paths.forEach((p)=>{
+                                            parent.addRelationship( newObj, p, true)
+                                        })
+                                    }
+                                }
+                                obj.triggerCallback("relationship_update", list)
+                                obj.triggerCallback("new_primitive", [newObj] )
+                                out.push(newObj)
+                            }
+                            console.log(  `Added ${out.length} new items` )
+//                            out = {data:out, message: `Added ${out.length} new items`, type: entry.type}
+                        }else if(entry.type === "add_relationship"){
+                                const parent = obj.primitive( entry.id)
+                                const target = obj.primitive( entry.target)
+                                parent.addRelationship(target, entry.path, true)
+                            console.log(  ` Add rel ${parent.id} > ${target.id} : ${entry.path}` )
+                        }else if(entry.type === "remove_relationship"){
+                                const parent = obj.primitive( entry.id)
+                                const target = obj.primitive( entry.target)
+                                parent.removeRelationship(target, entry.path, true)
+                            console.log(  ` Remove rel ${parent.id} > ${target.id} : ${entry.path}` )
+                        }else if(entry.type === "set_fields"){
+                            if( entry.fields){
+                                const target = obj.primitive( entry.primitiveId)
+                                if( target ){
+                                    console.log(  `Updating fields on  ${target.id}` )
+
+                                    Object.keys(entry.fields).forEach((field)=>{
+                                        const val = entry.fields[field] //'referenceParameters.url': linkedInData.website,
+                                        const frag = field.split('.')
+                                        const root = frag.shift()
+                                        if( root === 'referenceParameters'){
+                                            target.setParameter(frag.join("."), val, true, true)
+                                            obj.triggerCallback("set_parameter", [target] )
+                                        }else{
+                                            target.setField(root, val, undefined, true)
+                                            obj.triggerCallback("set_field", [target] )
+                                        }
+                                    })
+                                }
+                            }
+                        }
+                    })
+
+                }
                 return true
             }            
-            console.warn(result)
+            console.warn(response)
         },
         stateInfo: PrimitiveConfig.stateInfo,
         extendPath:function(path, ext){
@@ -291,6 +351,7 @@ function MainStore (prims){
                 .then(
                   (result) => {
                     if( obj.ajaxResponseHandler( result )){
+                        console.log(result)
                         obj.triggerCallback(callback_name, [receiver])
                     }
                   },
@@ -715,35 +776,7 @@ function MainStore (prims){
                 method: "GET",
             })
             const response = await result.json()
-            out = response
-            if( response && Array.isArray(response.result)){
-                response.result.forEach((entry)=>{
-                    if(entry.type === "new_primitives"){
-                        out = []
-                        for(const rData of entry.data){
-                            obj.addPrimitive( rData )
-                            const newObj = obj.primitive(rData.id)
-                            const list = [newObj]
-                            
-                            for(const parentId of Object.keys(rData.parentPrimitives || {})){
-                                const paths = rData.parentPrimitives[parentId].map((d)=>d.replace('primitives.',''))
-                                const parent = obj.primitive( parentId )
-                                if( parent ){
-                                    list.push(parent)
-                                    paths.forEach((p)=>{
-                                        parent.addRelationship( newObj, p, true)
-                                    })
-                                }
-                            }
-                            obj.triggerCallback("relationship_update", list)
-                            obj.triggerCallback("new_primitive", [newObj] )
-                            out.push(newObj)
-                        }
-                        out = {data:out, message: `Added ${out.length} new items`, type: entry.type}
-                    }
-                })
-            }
-            return out
+            return this.ajaxResponseHandler(response)
 
         },
         doPrimitiveDocumentDiscovery:async function ( primitive){
@@ -1066,7 +1099,7 @@ function MainStore (prims){
                     }
                 }
                 if( prop === "setField"){
-                    return function( fieldName, value, callbackName ){
+                    return function( fieldName, value, callbackName, skip = false ){
                         let node = d
                         const fields = fieldName.split(".")
                         let last = fields.pop()
@@ -1078,13 +1111,15 @@ function MainStore (prims){
                             
                         })
                         node[last] = value
-                        obj.controller.updateField( receiver, fieldName, value, callbackName || `set_field`  )
+                        if(!skip){
+                            obj.controller.updateField( receiver, fieldName, value, callbackName || `set_field`  )
+                        }
                         return true
                     }
                 }
                 if( prop === "setParameter"){
-                    return function( parameterName, value ){
-                        if( receiver.validateParameter(parameterName, value)){
+                    return function( parameterName, value, skip = false, force = false ){
+                        if( force || receiver.validateParameter(parameterName, value)){
                             let target = receiver.referenceParameters 
                             let set = parameterName.split(".")
                             let last = set.pop()
@@ -1092,8 +1127,9 @@ function MainStore (prims){
                                 target = target[n]
                             })
                             target[last] = value
-                            //receiver.referenceParameters[parameterName] = value
-                            obj.controller.updateParameter( receiver, parameterName, value  )
+                            if(!skip){
+                                obj.controller.updateParameter( receiver, parameterName, value  )
+                            }
                             return true
                         }
                         return false
@@ -1114,7 +1150,6 @@ function MainStore (prims){
                 if( prop === "addParentRelationship"){
                     return function( parent, path){
                         const asString = receiver.primitives.flattenPath(path)
-                        console.log(asString)
                         if(!d.parentPrimitives){
                             d.parentPrimitives = {}
                         }
@@ -1274,6 +1309,13 @@ function MainStore (prims){
                         if( d.users === undefined){return []}
                         let id_list = Object.values(d.users).flat()
                         return obj.users().filter((d)=>id_list.includes(d.id))
+                    }
+                    if( prop === "task"){
+                        if( receiver.isTask ){
+                            return receiver
+                        }else{
+                            return receiver.origin?.task
+                        }
                     }
                     if( prop === "origin"){
                         if( d._origin){

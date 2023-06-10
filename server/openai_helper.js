@@ -1,6 +1,50 @@
 import {Configuration, OpenAIApi} from "openai"
 import {encode, decode} from 'gpt-3-encoder'
 
+export async function summarizeMultiple(list, options = {} ){
+
+    let listIntro = `Here are a list of ${options.types || "items"}: `
+
+    const interim = await processInChunk( list, 
+            [
+                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "user", "content": listIntro}],
+            [
+                {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single sumamry covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
+                {"role": "user", "content": `Provide the result as a json object with an single field called 'summary' with conatins a string with your summary. Do not put anything other than the raw json object in the response .`},
+            ],
+            {field: "summary", temperature: 0.3})
+
+
+    if( Object.hasOwn(interim, "success")){
+        console.log(interim)
+        return interim
+    }
+
+    let final = []
+
+    if( interim.length > 0){
+        const result = await processInChunk( interim, 
+            [
+                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "user", "content": `Here is a list of summaries:`}],
+            [
+                {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single summary.`},
+                {"role": "user", "content": `Provide the result as a json object with an single field called 'summary' with conatins a string with your summary. Do not put anything other than the raw json object in the response .`},
+            ],
+            {field: "summary", temperature: 0.3})
+
+        if( Object.hasOwn(result, "success")){
+            return result
+        }else{
+            final = result
+        }
+
+        return {success: true, summary: final[0], interim: interim}
+    }
+    return {success: true, summary: interim[0]}
+
+}
 export async function buildCategories(list, options = {} ){
     const interim = await processInChunk( list, 
             [
@@ -76,7 +120,10 @@ async function processInChunk( list, pre, post, options = {} ){
             {"role": "user", "content": content},
             post
         ].flat()
+
+
         const result = await executeAI( messages, options )
+
         if( result.success && result.response ){
             if( result.response[field]){
                 interim = interim.concat(result.response[field])

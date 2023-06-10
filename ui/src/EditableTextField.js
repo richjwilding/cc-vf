@@ -51,11 +51,6 @@
         if( props.submitOnEnter ){
           e.preventDefault()
           toggleEditing()
-          /*if( props.stopEditing ){
-            props.stopEditing(editBox.current)
-          }else{
-            e.currentTarget.blur()
-          }*/
           return
         }        
       }
@@ -72,8 +67,8 @@
     const toggleEditing = ()=>{
       if( editing ){
         let newText = editBox.current.textContent.trim()
-        console.log(editOld.current, newText)
         if( editOld.current !== newText ){
+          editOld.current = newText
           if( props.callback ){
             if( !props.callback( newText ) ){
               editBox.current.focus()

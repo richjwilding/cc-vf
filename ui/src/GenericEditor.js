@@ -8,6 +8,7 @@ import MainStore from './MainStore'
 import ConfirmationPopup from './ConfirmationPopup'
 import { Spinner } from '@react-pdf-viewer/core'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import Popup from './Popup'
 
 
 export default function GenericEditor({item, primitive,...props}) {  
@@ -77,94 +78,68 @@ export default function GenericEditor({item, primitive,...props}) {
 
   return (
     <>
-    <Transition.Root show={props.setOpen ? true : open} as={Fragment} appear>
-      <Dialog as="div" className="relative z-50" onClose={handleClose} >
-        <Transition.Child
-          as={Fragment}
-          enter="ease-out duration-300"
-          enterFrom="opacity-0"
-          enterTo="opacity-100"
-          leave="ease-in duration-200"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
-        >
-          <div className="fixed inset-0 bg-gray-500 bg-opacity-25 transition-opacity backdrop-blur-sm " />
-        </Transition.Child>
-
-        <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 md:p-20">
-          <Transition.Child
-            as={Fragment}
-            enter="ease-out duration-300"
-            enterFrom="opacity-0 scale-95"
-            enterTo="opacity-100 scale-100"
-            leave="ease-in duration-200"
-            leaveFrom="opacity-100 scale-100"
-            leaveTo="opacity-0 scale-95"
-          >
-            <Dialog.Panel 
-                className="mx-auto max-w-2xl transform rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 transition-all p-6">
-                  
-                  <PrimitiveCard.Banner key='banner' primitive={primitive}/>
-                  <PrimitiveCard key='title' primitive={primitive} showEdit={true} showId={false} major={true}/>
-                  {list && <div className='overscroll-contain overflow-y-scroll max-h-[50vh] rounded-md border border-gray-200 p-3 my-2 space-y-3 bg-gray-50 '>
-                    {(list.length === 0) && 
-                      <div className='w-full p-2'>
-                        <button
-                        type="button"
-                        className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                      >
-                        <span className="mt-2 block text-sm font-semibold text-gray-900">Nothing to show</span>
-                      </button>
-                      </div>
-                    }
-                    {list && list.map((child)=>(
-                      <PrimitiveCard.Variant key={child.id} primitive={child} showEdit={true} editable={true} listType={props.listType}/>
-                    ))}
-                  </div>}
-                  <div className='w-full space-x-2'>
-                    <DropdownButton flat={true} items={items} title='Add item' className='shrink-0 grow-0 h-8' dropdownWidth='w-96' align='left'/>
-                    {props.actions && <DropdownButton flat={true} items={
-                      props.actions.map((d)=>{
-                        return {
-                          key: d.key,
-                          title: d.title,
-                          action: async ()=>{setWaiting(true); console.log( await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id}));setWaiting(false);}
-                        }
-                      })
-                      } title='Action' className='shrink-0 grow-0 h-8' dropdownWidth='w-max' align='left'/>}
-                      <button
-                        type="button"
-                        onClick={async (e)=>{e.stopPropagation();await primitive.removeChildren()}}
-                        className={`bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-indigo-500 focus:ring-indigo-500 h-full relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium shrink-0 grow-0 h-8 focus:outline-none`}
-                      >
-                        Delete all
-                      </button>
+      <Popup width='max-w-xl' setOpen={handleClose} >
+        {({ activeOption }) => (
+            <>
+              
+              <PrimitiveCard.Banner key='banner' primitive={primitive}/>
+              <PrimitiveCard key='title' primitive={primitive} showEdit={true} showId={false} major={true}/>
+              {list && <div className='overscroll-contain overflow-y-scroll max-h-[50vh] rounded-md border border-gray-200 p-3 my-2 space-y-3 bg-gray-50 '>
+                {(list.length === 0) && 
+                  <div className='w-full p-2'>
+                    <button
+                    type="button"
+                    className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  >
+                    <span className="mt-2 block text-sm font-semibold text-gray-900">Nothing to show</span>
+                  </button>
                   </div>
-                  <div key='button_bar' className="mt-6 flex items-center w-full gap-x-6 justify-between">
-                    {primitive && primitive.id &&   <button
-                      type="button"
-                      className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:w-auto"
-                      onClick={promptConfirmRemove}
+                }
+                {list && list.map((child)=>(
+                  <PrimitiveCard.Variant key={child.id} primitive={child} showEdit={true} editable={true} listType={props.listType}/>
+                ))}
+              </div>}
+              <div className='w-full space-x-2'>
+                <DropdownButton flat={true} items={items} title='Add item' className='shrink-0 grow-0 h-8' dropdownWidth='w-96' align='left'/>
+                {props.actions && <DropdownButton flat={true} items={
+                  props.actions.map((d)=>{
+                    return {
+                      key: d.key,
+                      title: d.title,
+                      action: async ()=>{setWaiting(true); console.log( await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id}));setWaiting(false);}
+                    }
+                  })
+                  } title='Action' className='shrink-0 grow-0 h-8' dropdownWidth='w-max' align='left'/>}
+                  <button
+                    type="button"
+                    onClick={async (e)=>{e.stopPropagation();await primitive.removeChildren()}}
+                    className={`bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-indigo-500 focus:ring-indigo-500 h-full relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium shrink-0 grow-0 h-8 focus:outline-none`}
+                  >
+                    Delete all
+                  </button>
+              </div>
+              <div key='button_bar' className="mt-6 flex items-center w-full gap-x-6 justify-between">
+                {primitive && primitive.id &&   <button
+                  type="button"
+                  className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:w-auto"
+                  onClick={promptConfirmRemove}
+                >
+                  Delete
+                </button>}
+                  <button
+                    disabled={false}
+                    onClick={handleClose}
+                    className="inline-flex justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm disabled:bg-gray-400 hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
                     >
-                      Delete
-                    </button>}
-                      <button
-                        disabled={false}
-                        onClick={handleClose}
-                        className="inline-flex justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm disabled:bg-gray-400 hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                        >
-                        Close
-                      </button>
-                    </div>
-                    {waiting && <div key='wait' className='z-50 absolute bg-gray-400/50 backdrop-blur-sm w-full h-full top-0 left-0 rounded-lg place-items-center justify-center flex'>
-                      <Spinner className='animate-spin'/>
-                    </div>}
-                    
-            </Dialog.Panel>
-          </Transition.Child>
-        </div>
-      </Dialog>
-    </Transition.Root>
+                    Close
+                  </button>
+                </div>
+                {waiting && <div key='wait' className='z-50 absolute bg-gray-400/50 backdrop-blur-sm w-full h-full top-0 left-0 rounded-lg place-items-center justify-center flex'>
+                  <Spinner className='animate-spin'/>
+                </div>}
+            </>
+          )}
+        </Popup>
       {confirmRemove && <ConfirmationPopup title="Confirm deletion" confirm={handleRemove} message={deleteMessage} cancel={()=>setConfirmRemove(false)}/>}
       </>
   )

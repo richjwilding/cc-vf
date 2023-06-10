@@ -42,6 +42,7 @@ export default function Popup({metric, primitive,...props}) {
             leaveTo="opacity-0 scale-95"
           >
             <Dialog.Panel 
+              onDoubleClick={(e)=>e.stopPropagation()}
               className={[
                 "min-w-[14em] mx-auto  transform rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 transition-all",
                 props.width === undefined ? "max-w-2xl" : props.width,
@@ -51,6 +52,7 @@ export default function Popup({metric, primitive,...props}) {
                 {props.children instanceof Function ? props.children({
                     handleClose: handleClose,
                 }) : props.children}
+                
                 
                 {props.showCancel &&
                 <div className="flex flex-shrink-0 justify-between space-x-2 pt-4 mt-1">

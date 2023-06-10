@@ -6,6 +6,8 @@ import { PrimitiveCard } from './PrimitiveCard';
 //import MiroExporter from './MiroExporter'; 
 import Panel from './Panel';
 import {useGesture, usePinch} from '@use-gesture/react'
+import { useLayoutEffect } from 'react';
+import useDataEvent from './CustomHook';
 
 
 const mainstore = MainStore()
@@ -14,19 +16,18 @@ const mainstore = MainStore()
 
 export default function PrimitiveExplorer({primitive, ...props}){
     const [filters, setFilters] = React.useState(props.categoryIds ? [(d)=>props.categoryIds.includes(d.referenceId)] : [])
-    //const [filters, setFilters] = React.useState([(d)=>d.referenceId === 10 ])//&& d.referenceParameters.scale > 5 && d.referenceParameters.specificity > 5])
-    const [scale, setScale] = React.useState(1)
-    const canvas = React.useRef(null)
+    const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
+    useDataEvent("relationship_update", primitive.id, forceUpdate)
 
     
     let items = React.useMemo(()=>{
         const types = [props.types].flat()
         return(props.list || primitive.primitives.uniqueAllItems.filter((d)=>types.includes(d.type) )).filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true))
-    },[primitive.id])
+    },[primitive.id, update])
 
     const axisOptions = useMemo(()=>{
 
-        function txParameters(p){
+        function txParameters(p, access){
             const out = []
             const catIds = p.map((d)=>d.referenceId).filter((v,idx,a)=>a.indexOf(v)=== idx)
             catIds.forEach((id)=>{
@@ -43,9 +44,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                             return
                         }
                         if(  type === "contact"){
-                            out.push( {type: 'parameter', parameter: "contactName", title: `${category.title} - ${parameters[parameter].title}`, access: "origin"})
+                            out.push( {type: 'parameter', parameter: "contactName", title: `${category.title} - ${parameters[parameter].title}`, access: access})
                         }else{
-                            out.push( {type: 'parameter', parameter: parameter, title: `${category.title} - ${parameters[parameter].title}`, access: "origin"})
+                            out.push( {type: 'parameter', parameter: parameter, title: `${category.title} - ${parameters[parameter].title}`, access: access})
                         }
                     })
                 }
@@ -56,13 +57,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
             })
         }
 
-        let out = []
+        let out = [{type: "none", title: "None"}]
 
         if( items ){
             out = out.concat( txParameters( items ) )
             
             if( !props.excludeOrigin ){
-                out = out.concat( txParameters( items.map((d)=>d.origin  === primitive ? undefined : d.origin).filter((d)=>d)  ) )
+                out = out.concat( txParameters( items.map((d)=>d.origin  === primitive ? undefined : d.origin).filter((d)=>d), "origin"  ) )
             }
         }
         
@@ -78,7 +79,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }))
         
         return out
-    }, [primitive.id])
+    }, [primitive.id, update])
 
     const [colSelection, setColSelection] = React.useState(0)
     const [rowSelection, setRowSelection] = React.useState(axisOptions.length > 1 ? 1 : 0)
@@ -120,7 +121,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 primitive: p
             }
         })
-        },[primitive.id, colSelection, rowSelection])
+        },[primitive.id, colSelection, rowSelection, update])
 
     let fields = ["title", "scale", "specificity","category"]
     let originFields = [{contact: "contactName"}]
@@ -128,14 +129,35 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     const targetRef = useRef()
     const gridRef = useRef()
-    const [left, setLeft] = useState(0)
-    const [top, setTop] = useState(0)
 
     const restoreState = ()=>{
         const [translateX = 0, translateY = 0] = gridRef.current.style.transform.match(/translate\((.*?)\)/)?.[1]?.split(',') || [];
         const [scale = 1] = gridRef.current.style.transform.match(/scale\((.*?)\)/)?.[1]?.split(',') || [];
         return [parseFloat(translateX),parseFloat(translateY),parseFloat(scale)]
     }
+
+    const [scale, setScale] = useState(1)
+    useLayoutEffect(()=>{
+        if( gridRef.current){
+
+            gridRef.current.style.transform = `scale(1)`
+            const toolbarHeight = 56
+            const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
+            const tbb = targetRef.current.getBoundingClientRect()
+
+            const border = 20
+            const tw = tbb.width
+            const th = tbb.height 
+
+            const scale = Math.min(Math.min( (tbb.width - border) / gbb.width, (tbb.height - border - toolbarHeight) / gbb.height),1) 
+            const x =  -((gbb.width/2)-(tw / 2))
+            const y =  -((gbb.height/2)-(th / 2)) - (toolbarHeight * scale)
+
+            gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
+            setScale(scale)
+        }
+
+    }, [gridRef.current, primitive.id, colSelection, rowSelection])
   
     useGesture({
 
@@ -169,7 +191,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
             const thisScale = memo[4] * ms
 
-
             gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${thisScale})`
             setScale(thisScale)
 
@@ -178,7 +199,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }, {
         target: targetRef,
         pinch: {
-            scaleBounds: { min: 0.1, max: 8 },
+            from: ()=>[scale,scale],
+            scaleBounds: { min: 0.03, max: 8 },
         },
         eventOptions: { 
             passive: false,
@@ -189,19 +211,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
 
-  const columnExtents = React.useMemo(()=>list.map((d)=>d.column).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection])
-  const rowExtents = React.useMemo(()=>list.map((d)=>d.row).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection])
+  const columnExtents = React.useMemo(()=>list.map((d)=>d.column).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection, update])
+  const rowExtents = React.useMemo(()=>list.map((d)=>d.row).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection, update])
 
   if( list === undefined || list.length === 0){return <></>} 
 
 
   const colors = ["rose","ccgreen","ccpurple","amber","cyan","fuchsia", "ccblue"] 
 
-  const handleScale = (e)=>{
-    const s = e.target.value
-   // gridRef.current.style.transform = `translate(${left}px,${top}px) scale(${s/100})`
-   // setScale(s / 100)
-  }
 
   const columnColumns = columnExtents.map((col)=>{
       return Math.max(...Object.values(list.filter((d)=>d.column == col).reduce((o, d)=>{o[d.row] = (o[d.row] || 0) + 1;return o},{})))
@@ -210,14 +227,18 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const options = axisOptions.map((d, idx)=>(
         <option value={idx}>{d.title}</option>
     ))
+
+    const hasColumnHeaders = (columnExtents.length > 1)
+    const hasRowHeaders = (rowExtents.length > 1)
     
 
 
   return (
-        <div ref={targetRef} className='w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain'>
-            <div key='control' className='z-20 bg-white w-full p-2 sticky top-0 left-0 space-x-3 place-items-center'>
+        <div ref={targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain'>
+            <div key='control' className='z-20 bg-white w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex'>
                 {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
-                <input key='zoom' type="range" min="10" max="800" value={scale * 100} step='10' className="range" onChange={handleScale}/>
+                {props.buttons}
+                <p>{list?.length} items</p>
                 <select className='border rounded-sm' key='cols' id="cols" value={colSelection} onChange={(e)=>setColSelection(e.target.value)}>{options}</select>
                 <select className='border rounded-sm' key='rows' id="rows" value={rowSelection} onChange={(e)=>setRowSelection(e.target.value)}>{options}</select>
             </div>
@@ -226,28 +247,29 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     ref={gridRef}
                     style = {{
 //                        transformOrigin: "top left",
-                        gridTemplateColumns: `15em repeat(${columnExtents.length}, min-content)`,
-                        gridTemplateRows: `5em repeat(${rowExtents.length}, min-content)`
+                        gridTemplateColumns: `${hasRowHeaders ? "15em" : ""} repeat(${columnExtents.length}, min-content)`,
+                        gridTemplateRows: `${hasColumnHeaders ? "5em" : ""} repeat(${rowExtents.length}, min-content)`
                     }}
                     className='vfExplorer grid relative gap-8 w-fit h-fit'>
-                    {columnExtents.map((col, cIdx)=>(<div key={`c${cIdx}`} style={{gridColumnStart:cIdx + 2, gridColumnEnd:cIdx + 3}} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[cIdx] || "slate"}-200/20 border-2 border-${colors[cIdx] || "slate"}-200/40`}></div>))}
-                    {rowExtents.map((col, cIdx)=>(<div key={`r${cIdx}`} style={{gridRowStart:cIdx + 2, gridRowEnd:cIdx + 3}} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-slate-200/40 border-2 border-slate-200/50`}></div>))}
-                    <p></p>{columnExtents.map((col,idx)=>(<p key={`rt${idx}`} className='vfbgtitle z-[2] font-bold text-lg text-center p-2 text-2xl self-center'>{col}</p>))}
+                    {!hasColumnHeaders && !hasRowHeaders && <div key={`croot`} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[0] || "slate"}-200/20 border-2 border-${colors[0] || "slate"}-200/40`}></div>}
+                    {hasColumnHeaders && columnExtents.map((col, cIdx)=>(<div key={`c${cIdx}`} style={{gridColumnStart:cIdx + (hasRowHeaders ? 2 : 1), gridColumnEnd:cIdx + (hasRowHeaders ? 3 : 2)}} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[cIdx] || "slate"}-200/20 border-2 border-${colors[cIdx] || "slate"}-200/40`}></div>))}
+                    {hasRowHeaders && rowExtents.map((col, cIdx)=>(<div key={`r${cIdx}`} style={{gridRowStart:cIdx + (hasColumnHeaders ? 2 : 1), gridRowEnd:cIdx + (hasColumnHeaders ? 3 : 2)}} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-slate-200/40 border-2 border-slate-200/50`}></div>))}
+                    {hasColumnHeaders && <>
+                        {hasRowHeaders && <p></p>}
+                        {columnExtents.map((col,idx)=>(<p key={`rt${idx}`} className='vfbgtitle z-[2] font-bold text-lg text-center p-2 text-2xl self-center'>{col}</p>))}
+                        </>}
+
                     { rowExtents.map((row, rIdx)=>{
                         return <React.Fragment>
-                            {<p key={`ct${rIdx}`} className='vfbgtitle z-[2] font-bold text-sm text-center p-2 text-2xl self-center'>{row && typeof(row) === "string" ? row?.split('/').join(" ") : row}</p>}
+                            {hasRowHeaders && <p key={`ct${rIdx}`} className='vfbgtitle z-[2] font-bold text-sm text-center p-2 text-2xl self-center'>{row && typeof(row) === "string" ? row?.split('/').join(" ") : row}</p>}
                             {columnExtents.map((column, cIdx)=>{
                                 let subList = list.filter((item)=>item.column === column && item.row === row).sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
                                 return <div style={{columns: Math.floor(Math.sqrt(columnColumns[cIdx] ))}} className='z-[2] w-fit m-4 p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children'>
                                         {subList.map((wrapped, idx)=>{
                                             let item = wrapped.primitive
-                                            let color = 'ccblue'
                                             let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth:'16rem'}
                                             let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
                                             const staggerScale = scale  + (scale / 200 * (idx % 20))
-                                            if( item.origin.referenceParameters.company?.search(/Munich Re/i)){
-                                                color = 'ccpurple'
-                                            }
                                             if( props.render ){
                                                 return props.render( item, staggerScale)
                                             }

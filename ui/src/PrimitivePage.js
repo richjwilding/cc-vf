@@ -19,19 +19,14 @@ import ContactPicker from './ContactPicker';
 import ResultViewer from './ResultViewer';
 import useDataEvent from './CustomHook';
 import OpenAIAnalysis from './OpenAIAnalysis';
-import GoogleHelper from './GoogleHelper';
-import EvidenceExplorer from './EvidenceExplorer';
 import MetricEditor from './MetricEditor';
 import AIProcessButton from './AIProcessButton';
 import { ComponentRow } from './ComponentRow';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import Popup from './Popup';
 import AIStatusPopup from './AIStatusPopup';
 import { AssessmentCard } from './AssessmentCard';
-import {PrimitiveTable} from './PrimitiveTable';
-import CardGrid from './CardGrid';
 import PrimitiveExplorer from './PrimitiveExplorer';
-import { VFImage } from './VFImage';
+import CollectionViewer from './CollectionViewer';
+import CardGrid from './CardGrid';
 
 
 let mainstore = MainStore()
@@ -82,7 +77,6 @@ export function PrimitivePage({primitive, ...props}) {
     const [activePrim, setActivePrim] = useState(primitive.id)
     const [plainText, setPlainText] = useState()
     const resultViewer = useRef(null)
-    const [analysis, setAnalysis] = useState()
     const [showWorkingPane, setShowWorkingPaneReal] = useState()
     const [componentView, setComponentView] = useState(null)
     const [showAIPopup, setShowAIPopup] = useState(null)
@@ -108,11 +102,8 @@ export function PrimitivePage({primitive, ...props}) {
     const hasCategories = (task && task.metadata.sections?.categories) || (primitive && primitive.metadata.sections?.categories)
 
     useEffect(()=>{
-      if( hasDocumentViewer ){
-        setAnalysis(undefined)
-      }
       console.log(`re run effect ${primitive.id}`)
-      setShowWorkingPane(hasDocumentViewer ? true : (primitive.metadata?.title === "Market scan" ? "results" : false) )
+      setShowWorkingPane(hasDocumentViewer ? true : false)//(primitive.metadata?.title === "Market scan" && primitive.primitives.allEntity.length > 0 ? "results" : false) )
       mainstore.setActiveWorkspaceFrom( primitive )
     }, [primitive.id])
 
@@ -155,32 +146,9 @@ export function PrimitivePage({primitive, ...props}) {
       setSelectedMetric({primitive: primitive, metric: id})
     }
 
-  const createNewResultFromDocument = async( category )=>{
-    GoogleHelper().showPicker({}, (items)=>{
-      for( const item of items){
-
-        createResult( category, {
-          title: item.name,
-          type: category.primitiveType || "result",
-          referenceParameters: {
-            notes: {type: "google_drive", id: item.id, mimeType: item.mimeType, name: item.name}
-          }
-        } )
-      }
-    })
-  }
 
   const createResult = async( category, options = {}, open = false )=>{
-    const newObj = await mainstore.createPrimitive({
-      parent: primitive,
-      type: category.primitiveType || "result",
-      title: options.title || `New ${category.title}`,
-      categoryId: category.id,
-      referenceParameters: options.referenceParameters
-    })
-    if(open){
-      setSelected( newObj )
-    }
+    alert('DEPRECTAE')
 
   }
 
@@ -261,7 +229,7 @@ export function PrimitivePage({primitive, ...props}) {
                     <PrimitiveCard.Questions key='questions' primitive={task ? task : primitive} relatedTo={primitive} editable={true}/>
                   </div>}
                   {hasCategories && (task || primitive.isTask) && <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
-                    <PrimitiveCard.Categories key='categories' primitive={task ? task : primitive} relatedTo={primitive} editable={true}/>
+                    <PrimitiveCard.Categories key='categories' primitive={task ? task : primitive} relatedTo={primitive} editable={true} includeResult={false}/>
                   </div>}
                   {primitive.resources && <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
                     <PrimitiveCard.Resources primitive={primitive}/>
@@ -344,67 +312,19 @@ export function PrimitivePage({primitive, ...props}) {
                     }                    
                   </Panel>}
 
-            {showWorkingPane !== "results" && primitive.metadata.resultCategories && primitive.metadata.resultCategories.map((category)=>{
-                let view = category.views?.default
-                let cardConfig = view ? category.views.list[view] : undefined
-                let cardSort =  view ? category.views.sort[view] : undefined
-                const viewConfig = view ? (category.views?.config && category.views?.config[view] ) : undefined
-                
-                
-                let list = primitive.primitives.results ?  primitive.primitives.results[category.id].map((d)=>d) : []
-
-                const resultCategory = mainstore.category(category.resultCategoryId)
-                const title = (resultCategory.openai || resultCategory.doDiscovery) 
-                            ? <div className='flex place-items-center'>
-                              {category.plurals || category.title}
-                              <button
-                                type="button"
-                                onClick={(e)=>{e.stopPropagation();setShowAIPopup({category:resultCategory, path: category.id})}}
-                                className="text-xs ml-2 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full text-gray-400 font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
-                                  <FontAwesomeIcon icon="fa-solid fa-robot" />
-                                </button>
-                              </div>
-                            : category.plurals || category.title
-
-                let createButtons = [{title:"Create new", action: ()=>createResult(resultCategory, undefined, true)}]
-                if( resultCategory.parameters.notes ){
-                  createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument(resultCategory)} )
-                }
-                
-                return (
-                  <Panel expandButton={title === "Organizations" ? ()=>setShowWorkingPane('results') : undefined} key={category.title} count={list.length} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
-                        {(list === undefined || list.length === 0) && 
-                          <div className='w-full p-2'>
-                            <button
-                            type="button"
-                            onClick={()=>createResult(resultCategory, undefined, true)}
-                            className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                          >
-                            <span className="mt-2 block text-sm font-semibold text-gray-900">Create a new {category.title}</span>
-                          </button>
-                          </div>
-                        }
-                        {
-                        view === "table" && <div className="p-2 bg-white rounded-md h-[60vh]">
-                          <PrimitiveTable 
-                            onDoubleClick={(p)=>setSelected({list:list, idx: list.findIndex((d)=>d.id === p.id)})} 
-                            columns={category.views.list.table} primitives={list} className='w-full min-h-[24em] bg-white'/> 
-                        </div>
-                        }
-                        {view === "cards" && <CardGrid 
-                          primitive={primitive}
-                          category={category}
-                          selectedItem={selected}
-                          cardClick={(e)=>e.currentTarget.focus()}
-                          onEnter={(e, p, list, idx)=>{setSelected({list: list, idx: idx})}}
-                          onDoubleClick={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
-                          list={list} 
-                          cardSort={cardSort} 
-                          cardFields={cardConfig} 
-                          columnClass={showWorkingPane ? "sm:columns-2" : viewConfig?.wide ? 'sm:columns-2 2xl:columns-3' : `sm:columns-2 md:columns-3 xl:columns-4`}
-                          />}
-                  </Panel>
-                )
+            {primitive.metadata?.resultCategories && primitive.metadata.resultCategories.map((category,idx)=>{
+              return !(showWorkingPane instanceof Object && showWorkingPane.type === "result" && showWorkingPane.index === idx) ?
+                <CollectionViewer 
+                  primitive={primitive} 
+                  category={category} 
+                  excludeViews='explore'
+                  setSelected={setSelected} 
+                  onExpand={()=>setShowWorkingPane( {type: 'result', index: idx} )}
+                  onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
+                  onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}
+                  onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
+                  selected={selected}
+                  /> : undefined
             })}
             {primitive.summary &&
                   <Panel key='analysis' title='Auto analysis' collapsable={true}>
@@ -524,7 +444,7 @@ export function PrimitivePage({primitive, ...props}) {
                     }
                     {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
                     {showWorkingPane === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
-                    {true && showWorkingPane === "results" && 
+                    {false && showWorkingPane === "results" && 
                           <PrimitiveExplorer 
                             primitive={primitive}
                             types='entity'
@@ -537,16 +457,21 @@ export function PrimitivePage({primitive, ...props}) {
                             closeButton={()=>setShowWorkingPane(false)} 
                             />
                     }
-                    {false && showWorkingPane === "results" && <div className='overflow-y-scroll'>
-                        <CardGrid 
-                          primitive={primitive}
-                          createButton={(resultCategory)=>createResult(resultCategory, undefined, true)}
-                          cardClick={(e)=>e.currentTarget.focus()}
-                          onEnter={(e, p, list, idx)=>{setSelected({list: list, idx: idx})}}
-                          onDoubleClick={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
-                          className='p-2'
-                          columnClass={`@xl:columns-2 @[70rem]:columns-3 @[95rem]:columns-4 @[120rem]:columns-5`}
-                          /></div>}
+                    {(showWorkingPane instanceof Object && showWorkingPane.type === "result" ) && primitive?.metadata?.resultCategories?.[showWorkingPane.index] && 
+                      <CollectionViewer 
+                          closeButton={()=>setShowWorkingPane()}
+                          hidePanel={true} 
+                          className='w-full h-full overflow-y-scroll'
+                          defaultWide
+                          primitive={primitive} 
+                          onShowInfo={(p)=>props.selectPrimitive(p)}
+                          setSelected={setSelected} 
+                          onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
+                          onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}
+                          onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
+                          selected={selected}
+                          category={primitive?.metadata?.resultCategories?.[showWorkingPane.index]}/>
+                    }
                 </div>
               </div>
               }

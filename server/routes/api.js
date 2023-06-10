@@ -421,25 +421,42 @@ router.post('/primitive/:id/set_user', async function(req, res, next) {
 router.post('/set_field', async function(req, res, next) {
     let data = req.body
     console.log(`${data.receiver} - ${data.field} = ${data.value}`)
+    let result
 
     try {
 
-        Primitive.findOneAndUpdate(
+        const prim = await Primitive.findOneAndUpdate(
             {
                     "_id": new ObjectId(data.receiver),
             }, 
             {
                 $set: { [data.field]: data.value },
             },
-            {new: true},
-            (err,doc)=>{
-            })
+            {new: true})
         
             if( data.field === 'referenceParameters.notes'){                
                 console.log(`purging old doumcent for ${data.receiver}`)
                 removeDocument(data.receiver)
             }
-        res.json({success: true})
+
+        const category = await Category.findOne({id: prim.referenceId})
+        if( category && category.actions ){
+            for(const action of category.actions){
+                if( action.onUpdate ){
+                    const lastField = data.field.split('.').slice(-1)?.[0]
+                    if( action.onUpdate === true || (Array.isArray(action.onUpdate) && action.onUpdate.includes(lastField) )){
+                        result = await doPrimitiveAction(prim, action.key)
+                    }else{
+
+                        console.log('wont do ')
+                    }
+                }
+            }
+        }
+        
+
+
+        res.json({success: true, result: result})
       } catch (err) {
         res.json(400, {error: err.message})
     }
@@ -728,7 +745,6 @@ router.get('/primitive/:id/discover', async function(req, res, next) {
 
     try{
         const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
-        console.log(`Got origin ${prim.id} - category = ${prim.referenceId}`)
         const category = await Category.findOne({id: prim.referenceId})
         const extract = await getDocumentAsPlainText( primitiveId, req )
         if( extract ){
