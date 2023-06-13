@@ -5,6 +5,8 @@ import { PDFExtract } from "pdf.js-extract";
 import moment from 'moment';
 import { Readable } from 'stream';
 import { finished } from 'stream/promises';
+import { htmlToText } from "html-to-text";
+import puppeteer from "puppeteer";
 var ObjectId = require('mongoose').Types.ObjectId;
 
 let _ghState = undefined
@@ -48,6 +50,56 @@ function sleep(ms) {
   }
 
 export async function getDocumentAsPlainText(id, req){
+    const bucketName = 'cc_vf_document_plaintext'
+    const storage = new Storage({
+        projectId: process.env.GOOGLE_PROJECT_ID,
+      });
+
+    const bucket = storage.bucket(bucketName);
+    let file = bucket.file(id)
+
+    if( !((await file.exists())[0]) ){
+        const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
+        
+        let notes = primitive.referenceParameters?.notes
+        let url = primitive.referenceParameters?.url
+
+        if( notes ){
+            console.log(`----- EXTRACT FROM PDF`)
+            return await extractPlainTextFromPdf( id, req )
+        }
+        if( url ){
+
+            const extResult = await fetch( url );
+            const html = await extResult.text();
+
+            const extractOptions = {
+                baseElements:{
+                    selectors : ['article'],
+                    returnDomByDefault: true
+                },
+                selectors: [
+                { selector: 'a', format: 'skip' },
+                { selector: 'input', format: 'skip' },
+                { selector: 'img', format: 'skip' },
+                { selector: 'button', format: 'skip' },
+                { selector: '[class*=nav]', format: 'skip' }
+                ]
+            }
+            console.log(`Importing URL as text`)
+            const text = htmlToText(html, extractOptions);
+            if( text.match(/enable javascript/i) ){
+                return undefined
+            }
+            await writeTextToFile(id, text, req)
+            return {plain: text}
+        }
+        return undefined
+    }
+    const contents = (await file.download())[0]
+    return {plain: contents.toString()}
+}
+export async function extractPlainTextFromPdf(id, req){
     const pdfExtract = new PDFExtract();
 
     const bucketName = 'cc_vf_documents'
@@ -193,6 +245,7 @@ export async function getDocument(id, req){
 export async function importDocument(id, req){
     const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
     let notes = primitive.referenceParameters?.notes
+    let url = primitive.referenceParameters?.url
     try{
         if( notes ){
             if( typeof(notes) === "string"){
@@ -221,16 +274,46 @@ export async function importDocument(id, req){
                     primitive.referenceParameters.notes.lastFetched = new Date()
                     primitive.markModified('referenceParameters.notes.lastFetched')
                     await primitive.save()
-                console.log('saved')
                 }
                 return result
             }
+        }else if(url){
+            try{
+
+                console.log(`Importing URL as PDF`)
+                await grabUrlAsPdf( url, id, req )
+                return true
+            }catch(error){
+                console.log(`Error extracting from ${url}`)
+                console.log(error)
+            }
+
         }
     }catch(err){
         console.log(err)
         console.log(err.message)
     }
     return undefined
+}
+export async function writeTextToFile(id, text, req){
+    const bucketName = 'cc_vf_document_plaintext'
+
+    const storage = new Storage({
+        projectId: process.env.GOOGLE_PROJECT_ID,
+      });
+
+    const bucket = storage.bucket(bucketName);
+    let file = bucket.file(id)
+
+    if( (await file.exists())[0] ){
+        await file.delete()
+    }
+
+    await file.save(text, {
+        metadata: {
+        contentType: 'text/plain'
+        }
+    });
 }
 export async function copyGoogleDriveFile(id, fileId, req){
     if(!fileId || !id){return false}
@@ -377,5 +460,70 @@ export async function replicateURLtoStorage(url, id, bucketName){
     const response = await fetch(url)
     await finished(Readable.fromWeb(response.body).pipe(stream));
     return true
+
+}
+
+
+export async function grabUrlAsPdf(url, id, req){
+    try{
+        const browser = await puppeteer.launch({headless: "new"});
+        const page = await browser.newPage();
+
+        await page.goto(url, { waitUntil: 'networkidle0' });
+        await page.setViewport({ width: 1680, height: 1050 });
+
+        await page.emulateMediaType('screen');
+
+        const docHeight = () => {
+            const body = document.body
+            const html = document.documentElement;
+            return Math.max(body.scrollHeight, body.offsetHeight, html.clientHeight, html.scrollHeight, html.offsetHeight);
+          }
+
+        console.log(`looking for cookie consent`)
+        const needToWaitAgain = await page.evaluate(_ => {
+            let res = false
+            function xcc_contains(selector, text) {
+                var elements = document.querySelectorAll(selector);
+                return Array.prototype.filter.call(elements, function(element){
+                    return RegExp(text, "i").test(element.textContent.trim());
+                });
+            }
+            var _xcc;
+            _xcc = xcc_contains('a[id*=cookie], a[class*=cookie], button[id*=cookie], button[class*=cookie], button[class*=accept]', '^(Alle akzeptieren|Accept|Accept all|Accept All|Akzeptieren|Verstanden|Zustimmen|Okay|OK)$');
+            if (_xcc != null && _xcc.length != 0) { 
+                res = true
+                _xcc[0].click(); 
+            }
+            return res
+        });
+        console.log(`back = ${needToWaitAgain}`)
+        if( needToWaitAgain){
+            console.log(`Waiting for idle`)
+            await page.waitForNavigation({ waitUntil: 'networkidle0' });
+            console.log(`Back again`)
+        }
+
+        const pdf = await page.pdf({
+            height: await page.evaluate(docHeight)
+        });
+
+        const storage = new Storage({
+            projectId: process.env.GOOGLE_PROJECT_ID,
+        });
+
+        const bucketName = 'cc_vf_documents' 
+        const bucket = storage.bucket(bucketName);
+        const file = bucket.file(id)
+        if( (await file.exists())[0] ){
+            await file.delete()
+        }
+
+        await file.save(pdf, {metadata: {contentType: 'application/pdf'}})
+        await browser.close();
+    }catch(error){
+        console.log(`Error on processing URL to PDF ${url}`)
+        console.log(error)
+    }
 
 }

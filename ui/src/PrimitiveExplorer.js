@@ -26,6 +26,52 @@ export default function PrimitiveExplorer({primitive, ...props}){
     },[primitive.id, update])
 
     const axisOptions = useMemo(()=>{
+        function addCategories(p){
+            return p.primitives.allUniqueCategory.map((d)=>{
+                const options = d.primitives.allUniqueCategory
+                return {
+                    type: "category",
+                    id: d.id,
+                    order: [undefined,options.map((d)=>d.id)].flat(),
+                    values: ["None", options.map((d)=>d.title)].flat(),
+                    title: `By ${d.title}`
+                }
+            })
+        }
+        function findCategories( list, access = 0 ){
+            const catIds = {}
+            let type
+            function topLevelCategory( item ){
+                const cats = item.categories
+                if( cats.length == 0){
+                    if( item.type === "category" ){
+                        return item
+                    }                    
+                }else{
+                    return cats.map((d)=>topLevelCategory(d)).flat()
+                }
+                return []
+            }
+            list.forEach((d)=>{
+                type = type || d.metadata.title
+                topLevelCategory(d).forEach((d)=>{
+                    if( !catIds[d.id] ){
+                        catIds[d.id] = d
+                    }
+                })
+            })
+            return Object.values(catIds).map((d)=>{
+                const options = d.primitives.allUniqueCategory
+                return {
+                    type: "category",
+                    id: d.id,
+                    order: [undefined,options.map((d)=>d.id)].flat(),
+                    values: ["None", options.map((d)=>d.title)].flat(),
+                    title: `${type} - By ${d.title}`,
+                    access: access
+                }
+            })
+        }
 
         function txParameters(p, access){
             const out = []
@@ -35,7 +81,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 const parameters = category.parameters
                 if( parameters ){
                     Object.keys(parameters).forEach((parameter)=>{
-                        console.log(parameter)
                         const type = parameters[parameter].type
                         if( parameters[parameter].excludeFromAggregation ){
                             return
@@ -58,25 +103,28 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
 
         let out = [{type: "none", title: "None"}]
+        out = out.concat( findCategories( items ) )
 
         if( items ){
             out = out.concat( txParameters( items ) )
             
+            const expandOrigin = (nodes, count = 0)=>{
+                let out = []
+                    const origins = nodes.map((d)=>!d.isTask && d.origin).filter((d)=>d)
+                    if( origins.length > 0){
+                        out = out.concat( txParameters( origins, count + 1 ) )
+                        out = out.concat( findCategories( origins, count + 1 ))
+                        out = out.concat( expandOrigin(origins, count + 1) )
+                    }
+                    return out
+            }
             if( !props.excludeOrigin ){
-                out = out.concat( txParameters( items.map((d)=>d.origin  === primitive ? undefined : d.origin).filter((d)=>d), "origin"  ) )
+                //out = out.concat( txParameters( items.map((d)=>d.origin  === primitive ? undefined : d.origin).filter((d)=>d), "origin"  ) )
+                out = out.concat( expandOrigin(items) )
+                
             }
         }
         
-        out = out.concat(primitive.primitives.allUniqueCategory.map((d)=>{
-            const options = d.primitives.allUniqueCategory
-            return {
-                type: "category",
-                id: d.id,
-                order: [undefined,options.map((d)=>d.id)].flat(),
-                values: ["None", options.map((d)=>d.title)].flat(),
-                title: `By ${d.title}`
-            }
-        }))
         
         return out
     }, [primitive.id, update])
@@ -88,14 +136,20 @@ export default function PrimitiveExplorer({primitive, ...props}){
         const option = axisOptions[mode]
         if( option ){
             if( option.type === "category"){
-                return (p)=>option.values[Math.max(0,...p.parentPrimitiveIds.map((d)=>option.order.indexOf(d)).filter((d)=>d !== -1 ))]
+                return (p)=>{
+                    let item = p
+                    for(let idx = 0; idx < option.access; idx++){
+                        item = item.origin
+                    }
+                    return option.values[Math.max(0,...item.parentPrimitiveIds.map((d)=>option.order.indexOf(d)).filter((d)=>d !== -1 ))]
+                }
             }
             if( option.type === "interviewee"){
                 return (d)=>d.origin.referenceParameters?.contactName
             }else if( option.type === "parameter"){
                 return (d)=> {
                     let item = d
-                    if( option.access === "origin"){
+                    for(let idx = 0; idx < option.access; idx++){
                         item = item.origin
                     }
                     return item.referenceParameters[option.parameter]
@@ -129,6 +183,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     const targetRef = useRef()
     const gridRef = useRef()
+    const primitivePositions = useRef()
 
     const restoreState = ()=>{
         const [translateX = 0, translateY = 0] = gridRef.current.style.transform.match(/translate\((.*?)\)/)?.[1]?.split(',') || [];
@@ -158,9 +213,65 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
 
     }, [gridRef.current, primitive.id, colSelection, rowSelection])
+
+    function rebuildPrimitivePosition(){
+        const selector = '.pcard'
+        if(gridRef.current){
+            const out = []
+            for(const node of gridRef.current.querySelectorAll(selector)){
+                out.push( {x: node.offsetLeft, y: node.offsetTop, width:node.offsetWidth, height: node.offsetHeight, id: node.getAttribute('id')} )
+            }
+            primitivePositions.current = out
+            console.log("SET")
+            return out
+        }
+    }
+    function primitivesAt(x,y, xo, yo){
+        const [translateX, translateY, initialScale] = restoreState()
+
+        const ax = ((x) * initialScale)  - translateX * initialScale
+        const ay = ((y) * initialScale)   - translateY * initialScale
+        console.log(`${x}, ${y} -> ${ax}, ${ay}`)
+        
+        if( primitivePositions.current ){
+            console.log( primitivePositions.current.find((d)=>d.id === '647f4d56dec5a686541a31c9') )
+
+        }
+    }
   
     useGesture({
+      /*  onDrag:(state)=>{
+            state.event.preventDefault()
+            let memo = state.memo
+            if( state.first ){
+                console.log("DRAG START")
+                rebuildPrimitivePosition()
+                const gwidth = gridRef.current.offsetWidth
+                const gheight = gridRef.current.offsetHeight
+//                const { width:gwidth, height:gheight} = gridRef.current.getBoundingClientRect()
+                const { width, height, x, y } = targetRef.current.getBoundingClientRect()
+                memo = [x,y, width / 2,height /2, gwidth / 2, gheight / 2]
+                console.log(memo)
+            }
+            const [px, py] = state.xy
+            const tx = px - memo[0] 
+            const ty = py - memo[1] 
+            console.log(tx)
 
+        const [translateX, translateY, initialScale] = restoreState()
+
+        const x1 = tx - translateX
+        const x2 = x1 - memo[2] 
+        const x3 = x2 / initialScale
+        const x4 = x3 + memo[4]
+
+        console.log(`start = ${tx} / ${x1} mid = ${memo[2]} = ${x2} ^ ${x3} = ${x4}`)
+
+
+         //   primitivesAt(tx , ty, memo[2], memo[3] )
+
+            return memo
+        },*/
         onWheel: (state) => {
             if( !state.ctrlKey ){
                 const [translateX, translateY, initialScale] = restoreState()
@@ -197,15 +308,22 @@ export default function PrimitiveExplorer({primitive, ...props}){
             return memo
         }
     }, {
-        target: targetRef,
-        pinch: {
-            from: ()=>[scale,scale],
-            scaleBounds: { min: 0.03, max: 8 },
-        },
-        eventOptions: { 
-            passive: false,
-            preventDefault: true,
-         }
+            target: targetRef,
+            eventOptions: { 
+                passive: false,
+                preventDefault: true,
+            },
+            drag:{
+                eventOptions: { 
+                    passive: false,
+                    capture: true
+                }
+
+            },
+            pinch: {
+                from: ()=>[scale,scale],
+                scaleBounds: { min: 0.03, max: 8 },
+            },
         }
     )
 
@@ -250,7 +368,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         gridTemplateColumns: `${hasRowHeaders ? "15em" : ""} repeat(${columnExtents.length}, min-content)`,
                         gridTemplateRows: `${hasColumnHeaders ? "5em" : ""} repeat(${rowExtents.length}, min-content)`
                     }}
-                    className='vfExplorer grid relative gap-8 w-fit h-fit'>
+                    className='vfExplorer touch-none grid relative gap-8 w-fit h-fit'>
                     {!hasColumnHeaders && !hasRowHeaders && <div key={`croot`} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[0] || "slate"}-200/20 border-2 border-${colors[0] || "slate"}-200/40`}></div>}
                     {hasColumnHeaders && columnExtents.map((col, cIdx)=>(<div key={`c${cIdx}`} style={{gridColumnStart:cIdx + (hasRowHeaders ? 2 : 1), gridColumnEnd:cIdx + (hasRowHeaders ? 3 : 2)}} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[cIdx] || "slate"}-200/20 border-2 border-${colors[cIdx] || "slate"}-200/40`}></div>))}
                     {hasRowHeaders && rowExtents.map((col, cIdx)=>(<div key={`r${cIdx}`} style={{gridRowStart:cIdx + (hasColumnHeaders ? 2 : 1), gridRowEnd:cIdx + (hasColumnHeaders ? 3 : 2)}} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-slate-200/40 border-2 border-slate-200/50`}></div>))}
@@ -273,7 +391,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                             if( props.render ){
                                                 return props.render( item, staggerScale)
                                             }
-                                            return <PrimitiveCard key={item.id} primitive={item} scale={staggerScale} fields={fields} {...size} className='m-2' {...props.renderProps} onClick={props.onCardClick ? ()=>props.onCardClick(item) : undefined}/>
+                                           return <PrimitiveCard fullId key={item.id} border={false} primitive={item} scale={staggerScale} fields={undefined} {...size} className='m-2' {...props.renderProps} onClick={props.onCardClick ? ()=>props.onCardClick(item) : undefined}/>
                                         })}
                                     </div>
                         })}

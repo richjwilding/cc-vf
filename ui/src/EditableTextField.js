@@ -90,7 +90,8 @@
         <div
           ref={editBox} 
           contentEditable={editing}
-          onClick={props.editable instanceof Function ? props.editable : props.editable === true ? ()=>setEditing(true) :undefined}
+          onClick={props.doubleClickToEdit ? undefined : props.editable instanceof Function ? props.editable : props.editable === true ? ()=>setEditing(true) :undefined}
+          onDoubleClick={props.doubleClickToEdit ? props.editable instanceof Function ? props.editable : props.editable === true ? ()=>setEditing(true) :undefined : undefined}
           onKeyDown={editing ? keyHandler : undefined}
           onBlur={editing ? toggleEditing : undefined}
           tabIndex={editing ? 1 : -1}

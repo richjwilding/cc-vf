@@ -130,10 +130,8 @@ const SortableItem = function(props) {
     const categories = primitive.origin?.metadata?.resultCategories
     const thisCategory = categories.find((d)=>d.resultCategoryId === primitive.referenceId )
 
-    let fields = thisCategory ? thisCategory.views.list.kaban : undefined
-    if( fields === undefined){
-      fields = thisCategory ? thisCategory.views.list.cards : []
-    }
+    let fields = thisCategory?.views?.options?.kaban?.fields || thisCategory?.views?.options?.cards?.fields || []
+    
 
     return (
       <div id={primitive.plainId} ref={ref} {...props} className={`px-2 py-1 ${isDragging ? "opacity-25" : ""}`}>

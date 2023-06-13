@@ -148,7 +148,8 @@ export function PrimitiveTable(props) {
             break;
           case 2:
             if(props.onDoubleClick){
-                props.onDoubleClick(primitive) 
+                const list = table.getRowModel().rows.map((d)=>d.original.primitive)
+                props.onDoubleClick(e,primitive, list, list.findIndex((d)=>d.id === primitive.id)) 
             }
             break;
         }

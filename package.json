@@ -42,6 +42,7 @@
     "express": "~4.16.1",
     "googleapis": "^112.0.0",
     "gpt-3-encoder": "^1.1.4",
+    "html-to-text": "^9.0.5",
     "http-errors": "~1.6.3",
     "jade": "~1.11.0",
     "moment": "^2.29.4",
@@ -54,6 +55,7 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-oauth2-refresh": "^2.1.0",
     "pdf.js-extract": "^0.2.1",
+    "puppeteer": "^20.6.0",
     "rimraf": "^3.0.2"
   },
   "babel": {

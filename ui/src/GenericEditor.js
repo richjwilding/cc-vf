@@ -106,7 +106,7 @@ export default function GenericEditor({item, primitive,...props}) {
                     return {
                       key: d.key,
                       title: d.title,
-                      action: async ()=>{setWaiting(true); console.log( await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id}));setWaiting(false);}
+                      action: async ()=>{setWaiting(true); console.log( await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id, source: primitive.id}));setWaiting(false);}
                     }
                   })
                   } title='Action' className='shrink-0 grow-0 h-8' dropdownWidth='w-max' align='left'/>}

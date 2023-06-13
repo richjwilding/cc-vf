@@ -27,6 +27,7 @@ import { AssessmentCard } from './AssessmentCard';
 import PrimitiveExplorer from './PrimitiveExplorer';
 import CollectionViewer from './CollectionViewer';
 import CardGrid from './CardGrid';
+import DropdownButton from './DropdownButton';
 
 
 let mainstore = MainStore()
@@ -67,7 +68,7 @@ export function PrimitivePage({primitive, ...props}) {
     let task = primitive.originTask
     //let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
 
-    const hasDocumentViewer = primitive.type === "result" && primitive.referenceParameters?.notes
+    const hasDocumentViewer = primitive.type === "result" && (primitive.referenceParameters?.notes || primitive.referenceParameters?.url)
     const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
     const callbackId = useRef(null)
     const [editMetric, setEditMetric] = useState(null)
@@ -93,9 +94,10 @@ export function PrimitivePage({primitive, ...props}) {
 
     useDataEvent("relationship_update set_field", primitive.id, updateRelationships)
 
-    const hasNestedEvidence = primitive.isTask
     const showOutcomes = primitive.type !== "assessment"// && !(showWorkingPane && hasNestedEvidence)
-    const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
+    //const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
+    const nestedEvidence = useMemo(()=>primitive.primitives.descendants.filter((d)=>d.type==="evidence"), [primitive.id])
+    const hasNestedEvidence = primitive.isTask || nestedEvidence.length > 0
     const showMetrics = (primitive.isTask || primitive.type === "cohort" ) && primitive.metadata.metrics
 
     const hasQuestions = (task && task.metadata.sections?.questions) || (primitive && primitive.metadata.sections?.questions)
@@ -214,9 +216,14 @@ export function PrimitivePage({primitive, ...props}) {
                   </div>
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5 @lg:col-span-2">
                     { primitive.isTask && <PrimitiveCard.Users primitive={primitive} title={`Team members`} asTable={true}/>}
-                    { !primitive.isTask && task && 
+                    { primitive.origin && 
+                        <Panel key='relatedOrigin' title={`Related ${primitive.origin.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
+                          <PrimitiveCard variant={false} compact={true} primitive={primitive.origin}  disableHover={true} showLink={true}/>
+                        </Panel>
+                    }
+                    { !primitive.isTask && task && task.id !== primitive.origin.id && 
                         <Panel key='relatedTask' title={`Related ${task.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
-                          <PrimitiveCard compact={true} primitive={task}  disableHover={true} showLink={true}/>
+                          <PrimitiveCard variant={false} compact={true} primitive={task}  disableHover={true} showLink={true}/>
                         </Panel>
                     }
                     { primitive.type === "assessment" && primitive.venture && 
@@ -519,7 +526,7 @@ export function PrimitivePage({primitive, ...props}) {
                                       <div key='evidence' className="mt-6 flow-root">
                                         <ul role="list" className="p-1 space-y-2">
                                           {outcomesList.map((p)=>(
-                                              <PrimitiveCard key={p.id} showMenu menuProps={{showVisitPage:false, showDelete: "origin", showUnlink: true}} relatedTo={primitive} compact={true} primitive={p} showMeta="large" onClick={()=>resultViewer.current && resultViewer.current.showPrimitive(p.id)}/>
+                                              <PrimitiveCard key={p.id} showMenu showEdit doubleClickToEdit menuProps={{showVisitPage:false, showDelete: "origin", showUnlink: true}} relatedTo={primitive} compact={true} primitive={p} showMeta="large" onClick={()=>resultViewer.current && resultViewer.current.showPrimitive(p.id)}/>
                                           ))}
                                         </ul>
                                       </div>
@@ -580,7 +587,7 @@ export function PrimitivePage({primitive, ...props}) {
               </div>
             </section>}
           </div>
-        <PrimitivePopup primitive={selected} contextOf={primitive} editing={true} setPrimitive={setSelected}/>
+        {selected && <PrimitivePopup primitive={selected} contextOf={primitive} editing={true} setPrimitive={setSelected}/>}
         <MetricPopup selected={selectedMetric?.metric} contextOf={selectedMetric?.primitive} highlight={selectedMetric?.highlight} setSelected={setSelectedMetric}/>
         {editMetric && <MetricEditor metric={editMetric} primitive={primitive} setOpen={()=>setEditMetric(null)}/> }
         {showAIPopup && <AIStatusPopup category={showAIPopup.category} path={showAIPopup.path} primitive={primitive} close={()=>setShowAIPopup(false)}/>}

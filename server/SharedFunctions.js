@@ -3,9 +3,11 @@ import Category from './model/Category';
 import Counter from './model/Counter';
 import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
-import {enrichCompanyFromLinkedIn, pivotFromLinkedIn} from './linkedin_helper'
-import {buildCategories, categorize, summarizeMultiple} from './openai_helper';
+import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn} from './linkedin_helper'
+import { extractArticlesFromCrunchbase } from './crunchbase_helper';
+import {buildCategories, categorize, summarizeMultiple, processPromptOnText} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
+import { getDocumentAsPlainText } from './google_helper';
 var ObjectId = require('mongoose').Types.ObjectId;
 
 const parser = PrimitiveParser()
@@ -97,11 +99,82 @@ export async function primitiveChildren(primitive, types){
     }
     return list
 } 
-export async function doPrimitiveAction(primitive, actionKey, options){
+export async function primitiveDescendents(primitive, types){
+    let out = []
+    const a = Array.isArray(types) ? types : [types]
+    const list = await primitiveChildren( primitive)
+    for( const d of list){
+        console.log(`adding ${d.plainId} - ${d.type}`)
+        out.push(d)
+        if( !a.includes(d.type) ){
+            out = out.concat( await primitiveDescendents(d, a ))
+        }
+    }
+    return out
+
+
+}
+
+export async function getDataForAction(primitive, action, options = {}){
+    let list = []
+    const target = options.target || action.target || "children"
+    const referenceId = options.referenceId || action.referenceId
+    const type = options.type || action.type
+
+    const parameter = options.parameter ? options.parameter : (options.field ? undefined : action.parameter)
+    const field = options.field || action.field
+
+    if(target === "descend"){
+        list = await primitiveDescendents(primitive, type)
+    }
+    if(target === "children"){
+        list = await primitiveChildren(primitive)
+    }
+    if(target === "level2"){
+        list = await primitiveChildren(primitive)
+        list = (await Promise.all(list.map(async (d)=>await primitiveChildren(d)))).flat()
+    }
+    if( type ){
+        list = list.filter((d)=>d.type === type)
+    }
+    if( referenceId ){
+        list = list.filter((d)=>d.referenceId === referenceId)
+    }
+    if( options.childPrimitiveIds ){
+        list = list.filter((d)=>options.childPrimitiveIds.includes(d._id.toString()))
+    }
+    return [list, list.map((d)=>{
+        if( parameter && d.referenceParameters){
+            return d.referenceParameters[parameter]
+        }
+        if( field ){
+            return d[field]
+        }
+
+    }).filter((d)=>d)]
+
+}
+
+export async function doPrimitiveAction(primitive, actionKey, options, req){
+
+
+    try{
+
     const category = await Category.findOne({id: primitive.referenceId})
     let done = false
     let result
     if( category && category.actions ){
+    
+        const findResultPathFor = (id)=>{
+            if( category.resultCategories === undefined){
+                return undefined
+            }
+            debugger
+            return category.resultCategories.findIndex((d)=>d.resultCategoryId === id)
+
+
+        }
+
         const action = category.actions.find((d)=>d.key === actionKey)
         if( action ){
             const command = action.command || actionKey
@@ -113,7 +186,90 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                     return false
                 }
             }
+            if( command === "cascade"){
+                console.log(`Running cascade ------>`)
+                result = []
+
+                const pre = (action.requiredAction || []).filter((d)=>!primitive.action_tracker || !primitive.action_tracker[d])
+                console.log(`Need to do ${pre.join(", ")}`)
+                for( const a of pre){
+                    console.log(`-- ${a}:`)
+                    const sub = await doPrimitiveAction(primitive, a, {}, req)
+                    if( sub ){
+                        result = result.concat(sub   )
+                    }
+                }
+
+
+                const [targets] = await getDataForAction(primitive, action)
+                console.log(`got ${targets.length} items`)
+                for( const child of targets){
+                    console.log(` + ${child._id.toString()}`)
+                    const thisSet = (action.cascadeKey || []).filter((d)=>!child.action_tracker || !child.action_tracker[d])
+                    console.log(`Now doing  ${thisSet.join(", ")}`)
+                    for( const a of thisSet){
+                        console.log(`-- ${a}:`)
+                        debugger
+                        const sub = await doPrimitiveAction(child, a, {}, req)
+                        debugger
+                        if( sub ){
+                            result = result.concat( sub  )
+                        }
+                    }
+                }
+                done = true
+            }
             
+            if( primitive.type === "result" ){
+                if( command === "extract"){
+                  //  if( actionKey === "extract_problems_addressed") {
+                        const text = await getDocumentAsPlainText( primitive._id.toString(), req )
+
+                        let title = primitive.title
+                        if( action.titleSource === "origin"){
+                            const originId = Object.keys(primitive.parentPrimitives || {}).filter((d)=>primitive.parentPrimitives[d].includes("primitives.origin"))[0]
+                        console.log(originId)
+                            if( originId ){
+                                const origin = await Primitive.findOne({_id:  new ObjectId(originId)})
+                                if( origin ){
+                                    title = origin.title
+                                }
+                            }
+                        }
+                        console.log(title)
+
+                        const output = await processPromptOnText(text?.plain, {title: title, prompt: options.prompt || action.prompt, type: action.dataType ,extractNoun: action.extractNoun, transformPrompt: action.transformPrompt})
+                        if( output && output.success && output.output){
+                            console.log(output)
+                            const items = []
+                            for( const item of output.output){
+                                const title = item[action.extractNoun]
+                                if( title ) {
+                                    items.push( await createPrimitive({
+                                        workspaceId: primitive.workspaceId,
+                                        parent: options.parent || primitive.id,
+                                        paths: ['origin'],
+                                        data:{
+                                            type: action.type,
+                                            referenceId: action.resultCategory,
+                                            title: title,
+                                            quote: item.quote,
+                                            quoted: item.quote ? "true" : false
+                                        }
+                                        
+                                    }))
+                                    done = true
+                                }
+                            }
+                            result = [{
+                                type: "new_primitives",
+                                data: items
+                            }]
+                            done = true
+                        }
+                    }
+//                }
+            }
             if( primitive.type === "entity" ){
                 if( command === "enrich"){
                     result = await enrichCompanyFromLinkedIn(primitive, true)
@@ -126,6 +282,28 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                     }]
                     done = true
                 }
+                if( command === "extract"){
+                    const path = options.path || `results.${findResultPathFor(options.resultCategory  || action.resultCategory)}`
+                    if( actionKey === "find_articles_linked") {
+                        const output = await extractUpdatesFromLinkedIn(primitive, {path: path , type: options.type || action.type, referenceId: options.resultCategory || action.resultCategory})
+                        if( output.error === undefined){
+                            result = [{
+                                type: "new_primitives",
+                                data: output
+                            }]
+                            done = true
+                        }
+                    }else if( actionKey === "find_articles_crunchbase") {
+                        const output = await extractArticlesFromCrunchbase(primitive, {path: path, type: options.type || action.type, referenceId: options.resultCategory || action.resultCategory})
+                        if( output.error === undefined){
+                            result = [{
+                                type: "new_primitives",
+                                data: output
+                            }]
+                            done = true
+                        }
+                    }
+                }
             }
             if( primitive.type === "category" ){
                 if( command === "summarize" ){
@@ -133,31 +311,8 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                     
                     const childPrimitiveIds = primitive.primitives ? new Proxy(primitive.primitives, parser).uniqueAllIds : []
                     
-                    let list 
-                    let data
+                    const [list, data] = await getDataForAction(source, action, {childPrimitiveIds: childPrimitiveIds})
 
-                    if(action.target === "children"){
-                        list = await primitiveChildren(source)
-                    }
-                    if(action.target === "level2"){
-                        list = await primitiveChildren(source)
-                        list = (await Promise.all(list.map(async (d)=>await primitiveChildren(d)))).flat()
-                    }
-                    if( action.type ){
-                        list = list.filter((d)=>d.type === action.type)
-                    }
-                    list = list.filter((d)=>childPrimitiveIds.includes(d._id.toString()))
-                    if( list !== undefined){
-                        data = list.map((d)=>{
-                            if( action.parameter && d.referenceParameters){
-                                return d.referenceParameters[action.parameter]
-                            }
-                            if( action.field ){
-                                return d[action.field]
-                            }
-
-                        }).filter((d)=>d)
-                    }
                     if( data && data.length > 0){
 
                         
@@ -186,31 +341,18 @@ export async function doPrimitiveAction(primitive, actionKey, options){
             }
             if( primitive.type === "activity" || primitive.type === "task" ){
                 if( command === "categorize" || command === "mark_categories"){
-                    let list
-                    let data
-                    if(action.target === "children"){
-                        list = await primitiveChildren(primitive)
+                    const source = await Primitive.findById(options.source)
+                    const dataOptions = {
+                        type: source.referenceParameters?.type, 
+                        target: source.referenceParameters?.target, 
+                        referenceId: source.referenceParameters?.referenceId,
+                        parameter: source.referenceParameters?.field || source.referenceParameters?.parameter,
+                        field: source.referenceParameters?.field
                     }
-                    if(action.target === "level2"){
-                        list = await primitiveChildren(primitive)
-                        list = (await Promise.all(list.map(async (d)=>await primitiveChildren(d)))).flat()
-                    }
-                    if( action.type ){
-                        list = list.filter((d)=>d.type === action.type)
-                    }
-                    if( action.referenceId ){
-                        list = list.filter((d)=>d.referenceId === action.referenceId)
-                    }
-                    if( list !== undefined){
-                        data = list.map((d)=>{
-                            if( action.parameter && d.referenceParameters){
-                                return d.referenceParameters[action.parameter]
-                            }
-                            if( action.field ){
-                                return d[action.field]
-                            }
 
-                        }).filter((d)=>d)
+                    const [list, data] = await getDataForAction(primitive, action, dataOptions)
+                    console.log(`got ${list.length}`)
+                    if( list !== undefined){
                         
                         if( command === "categorize"){
                             const catData = await buildCategories( data, {count: options.count || action.count || 15, types: options.dataTypes || action.dataTypes, themes: options.theme || action.theme} )
@@ -237,8 +379,7 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                             }
                         }
                         if( command === "mark_categories" ){
-                            console.log(options.source)
-                            const catOptions = await primitiveChildren( await Primitive.findById(options.source), "category")
+                            const catOptions = await primitiveChildren( source, "category")
                             const categoryList = catOptions.map((d)=>d.title)
                             const categoryIds = catOptions.map((d)=>d._id.toString())
 
@@ -298,9 +439,25 @@ export async function doPrimitiveAction(primitive, actionKey, options){
                     }
                 }
             }
+            if( done ){
+                primitive.set(`action_tracker.${action.key}`, true)
+                primitive.markModified("crunchbaseData")
+                await primitive.save()
+            }
+        }else{
+            console.log(`cant find action ${actionKey}`)
+            console.log(category)
         }
-    }
+
+    }else{
+            console.log(`cant find category or has no actions`)
+            console.log(category)
+        }
     return done ? result : false
+    }catch(error){
+        console.log(`doPrimitiveAction error ${primitive ? primitive._id.toString() : ""} ${actionKey}`)
+        console.log(error)
+    }
 }
 
 export async function createPrimitive( data ){
@@ -350,7 +507,7 @@ export async function createPrimitive( data ){
             let changed = false
             for( const action of category.actions){
                 if( action.onCreate ){
-                    const res = await doPrimitiveAction( newPrimitive, action.key )
+                    const res = await doPrimitiveAction( newPrimitive, action.key, undefined, req )
                     if( res ){
                         changed = true
                     }

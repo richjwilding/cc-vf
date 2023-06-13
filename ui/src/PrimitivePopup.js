@@ -38,7 +38,7 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
 
     const results = primitive?.origin?.metadata?.resultCategories
     const summary = results ? results[0].views?.list?.summary : undefined
-    const contact = primitive.referenceParameters.contact
+    const contact = primitive?.referenceParameters?.contact
 
     const mainstore = MainStore()
 

@@ -44,6 +44,7 @@ const ExpandArrow = function(props) {
 let mainstore = MainStore()
 
   const RenderItem = ({item, ...props})=>{
+    console.log(item)
     let icon = item.icon && typeof(item.icon) === "object" && item.icon.library === "fa" && <FontAwesomeIcon icon={item.icon.icon} className='mr-1 text-slate-500'/>
       if( item.type === "boolean"){
         return (
@@ -191,6 +192,7 @@ let mainstore = MainStore()
       setShowDeletePrompt( null )
     }
 
+    
     const items = (props.custom || []).concat([
       {
         title: 'Open page',
@@ -211,7 +213,11 @@ let mainstore = MainStore()
         skip: (props.showUnlink === false || props.showUnlink === undefined) ? true : (props.relatedTo === undefined ) || (props.relatedTo && props.relatedTo.id === primitive.origin.id) || !(props.relatedTo && props.relatedTo?.primitives.includes(primitive))
       },
       
-    ]).filter((d)=>!d.skip)
+    ]).concat(
+      primitive.metadata.actions
+      ? primitive.metadata.actions.filter((d)=>d.menu).map((d)=>{return {title: d.title, icon: d.icon || "PlayIcon", action: async ()=>{const res = await MainStore().doPrimitiveAction(primitive, d.key);console.log(res?.message)}}})
+      : [] 
+    ).filter((d)=>!d.skip)
     const baseColor = props.color || "gray"
 
 
@@ -467,7 +473,10 @@ const Parameters = function({primitive, ...props}){
   }, [])
 
 
-  let parameters = primitive.metadata?.parameters || undefined
+
+  let parameters = props.showParents && primitive.origin ? primitive.origin.childParameters : primitive.metadata?.parameters
+  let source = props.showParents && primitive.origin ? primitive.referenceParameters : primitive.referenceParameters
+  console.log(props.showParents, parameters)
   if( !parameters ){ return <></> }
   let fields = Object.keys(parameters).sort((a,b)=>(parameters[a].order === undefined ? 99 : parameters[a].order ) - (parameters[b].order === undefined ? 99 : parameters[b].order) )
   if( props.fields ){
@@ -487,7 +496,7 @@ const Parameters = function({primitive, ...props}){
   }
   fields = fields.filter((d)=>!parameters[d].hidden)
   let details = fields.map((k)=>{
-    return {...parameters[k], value: primitive.referenceParameters[k], autoId: primitive.referenceParameters[`${k}Id`], key: k}
+    return {...parameters[k], value: source[k], autoId: source[`${k}Id`], key: k}
   })
 
   if( !props.editing ){
@@ -640,7 +649,8 @@ const Details = function({primitive, ...props}){
   const eventTracker = useDataEvent(props.noEvents ? undefined : ["set_parameter","set_field"], primitive.id )
   let metadata = primitive.metadata
   let parameters = primitive.metadata?.parameters || undefined
-  if( !parameters ){ return <></> }
+  let showParents = primitive.origin?.childParameters
+  if( !parameters && !primitive.parentParameters ){ return <></> }
   
   const panelTitle = <>{props.title || "Details"}{metadata.do_discovery && <AIProcessButton active="discovery" primitive={primitive} process={(p)=>p.analyzer().doDiscovery({force: true})}/>}</>
   
@@ -648,6 +658,7 @@ const Details = function({primitive, ...props}){
         <Panel {...props} title={panelTitle} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
           <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200`}>
             <Parameters primitive={primitive} editing={editing}/>
+            {showParents && <Parameters primitive={primitive} editing={editing} showParents/>}
           </dl>
           {!props.hideFooter && 
             <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
@@ -999,11 +1010,7 @@ const Entity=({primitive, ...props})=>{
                 action: ()=>props.onEnter ? props.onEnter() : undefined,
                 icon: ExpandArrow,
               },
-            ].concat(
-              primitive.metadata.actions
-              ? primitive.metadata.actions.filter((d)=>d.manual && d.menu).map((d)=>{return {title: d.title, icon: d.icon || "PlayIcon", action: async ()=>{const res = await MainStore().doPrimitiveAction(primitive, d.key);console.log(res?.message)}}})
-              : [] 
-            )}
+            ]}
             />}
             {content}
     </div>
@@ -1212,6 +1219,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         <EditableTextField 
           callback={updateTitle}
           editable={props.showEdit ? ()=> setEditing( true ) : undefined}
+          doubleClickToEdit={props.doubleClickToEdit}
           stopEditing={()=>setEditing(false)}
           editing={editing}
           value = {primitive.title}
@@ -1293,7 +1301,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         onClick={props.onClick }
         onKeyDown={props.onEnter ? handleEnter : undefined}
         tabIndex='0'
-        id={primitive.plainId}
+        id={props.fullId ? primitive.id : primitive.plainId}
         style={style}
         className={
         [

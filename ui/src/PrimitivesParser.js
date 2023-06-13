@@ -340,13 +340,29 @@ export default function PrimitiveParser(obj){
                     if(prop === "descendants"){
                         return receiver.descendantIds.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
+                    if(prop === "___descendantIds"){
+                        const childrenIds = receiver.uniqueAllIds
+                        const out = childrenIds.map((id)=>obj.primitive(id)).map((d)=>{
+                            return d ? d.primitives.descendantIds : undefined
+                        }).flat().filter((d)=>d)
+                        return uniqueArray([childrenIds,out].flat())
+                    }
                     if(prop === "descendantIds"){
-                        const children = receiver.allItems
-                        let out = children.map((d)=>d.id)
-                        children.forEach((d)=>{
-                            out = out.concat( d.primitives.descendantIds )
-                        })
-                        return uniqueArray(out.filter((d)=>d))
+                        return receiver._buildDescendantIds( {}, true )
+                    }
+                    if(prop === "_buildDescendantIds"){
+                        return function(temp = {}, first = true){
+                            const childrenIds = receiver.uniqueAllIds
+                            childrenIds.forEach((id)=>{
+                                if( id && temp[id] === undefined){
+                                    temp[id] = true
+                                    obj.primitive(id)?.primitives._buildDescendantIds( temp, false)
+                                }
+                            })
+                            if( first ){
+                                return Object.keys( temp )
+                            }
+                        }
                     }
                 }
                 if( target[null]){

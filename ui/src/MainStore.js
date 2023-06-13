@@ -663,15 +663,15 @@ function MainStore (prims){
             //let data = obj.primitives().find((p)=>p.id === id)
 //            let data = obj._cache_prim[id]
             let data = obj.data.primitives[id]
-            if( !data ){
+            if( !data && !isNaN(id) ){
                 data = this.primitiveByPlain(id)
                 if( data ){
                     console.warn(`Primitive lookup ${id} by plainId`)
                 }
             }
-                if( data === undefined){
+/*                if( data === undefined){
                     console.warn(`Primitive lookup ${id} found nothing`)
-                }
+                }*/
             return data
         },
         workspace:function(id){
@@ -829,7 +829,7 @@ function MainStore (prims){
                 primitive = this.primitive(primitive)
             }
             await primitive.removeChildren()
-            if( this.controller.removePrimitive(primitive) ){
+            if( await this.controller.removePrimitive(primitive) ){
                 const ids = []
                 primitive.parentPrimitives.forEach((parent)=>{
                     const rels = primitive.parentPaths(parent.id)
@@ -1041,13 +1041,14 @@ function MainStore (prims){
                 if( prop === "validateParameter"){
                     return function( parameterName, value ){
                         const metadata = receiver.metadata
-                        if( !metadata ){
+                        const parameters = {...receiver.metadata?.parameters, ...(receiver.origin.childParameters || {})}
+                        if( Object.keys(parameters).length === 0 ){
                             return false
                         }
                         const root = parameterName.split('.')[0]
-                        if( !(root in metadata.parameters) ){
+                        if( !(root in parameters) ){
                             if( root.slice(-2) === "Id"){
-                                if( (root.slice(0, -2) in metadata.parameters) ){
+                                if( (root.slice(0, -2) in parameters) ){
                                     if( value !== undefined){
                                         return true
                                     }
@@ -1055,7 +1056,7 @@ function MainStore (prims){
                             }
                             return false
                         }
-                        const pConfig = metadata.parameters[ root ]
+                        const pConfig = parameters[ root ]
                         switch( pConfig.type ){
                             case "string": return pConfig.optional || value !== ""
                         }

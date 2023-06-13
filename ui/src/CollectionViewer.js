@@ -78,6 +78,12 @@ export default function CollectionViewer({primitive, category, ...props}){
     if( resultCategory.parameters.notes ){
         createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
     }
+    
+    (primitive.metadata.actions || []).forEach((d)=>{
+        if( d.canCreate && d.resultCategory === resultCategory.id){
+            createButtons.push( {title: d.title, action: async ()=>await mainstore.doPrimitiveAction(primitive, d.key, {path: `results.${category.id}`})})
+        }
+    })
 
     const showBar = (allowed.length > 1 || props.closeButton) && view !== "explore"
     const buttons = <>

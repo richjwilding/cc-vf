@@ -445,7 +445,7 @@ router.post('/set_field', async function(req, res, next) {
                 if( action.onUpdate ){
                     const lastField = data.field.split('.').slice(-1)?.[0]
                     if( action.onUpdate === true || (Array.isArray(action.onUpdate) && action.onUpdate.includes(lastField) )){
-                        result = await doPrimitiveAction(prim, action.key)
+                        result = await doPrimitiveAction(prim, action.key, undefined, req)
                     }else{
 
                         console.log('wont do ')
@@ -552,8 +552,7 @@ router.post('/remove_primitive', async function(req, res, next) {
         const removed = await Primitive.findOneAndDelete({"_id": new ObjectId(data.id)})
 
         try{
-            let notes = removed.referenceParameters?.notes
-            if( notes ){
+            if( removed.referenceParameters?.notes || removed.referenceParameters?.url ){
                 await removeDocument( data.id )
             }
             if( removed.parentPrimitives ){
@@ -683,7 +682,7 @@ router.get('/primitive/:id/action/:action', async function(req, res, next) {
         const primitive = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
 
         if( primitive){
-            result = await doPrimitiveAction(primitive, action, req.query)
+            result = await doPrimitiveAction(primitive, action, req.query, req)
         }
         if( result && result.error ){
             res.json({success: false, error: result.error})

@@ -2,8 +2,62 @@ import Primitive from "./model/Primitive";
 import {createPrimitive, flattenPath, doPrimitiveAction} from './SharedFunctions'
 import moment from 'moment';
 import { replicateURLtoStorage } from './google_helper';
+import { htmlToText } from "html-to-text";
 var ObjectId = require('mongoose').Types.ObjectId;
 
+
+
+export async function extractUpdatesFromLinkedIn(primitive, options = {}, force = false){
+    let linkedInData = primitive.linkedInData
+    if( !options.path || !options.type || !options.referenceId){
+        console.log(`Extract failed - params not set`)
+        console.log(options)
+        return undefined
+    }
+
+    if(force || !primitive.linkedin_done ){
+        linkedInData = await enrichCompanyFromLinkedIn(primitive)
+        if( linkedInData.error ){
+            return {error: linkedInData.error}
+        }
+    }
+
+    if( !linkedInData === undefined ){
+        return {error: "no_data"}
+    }
+
+    let out = []
+
+    if( linkedInData.updates){
+        const id = primitive._id.toString()
+        for( const update of linkedInData.updates){
+            let full_text
+            let extract_error = false
+
+            const newData = {
+                workspaceId: primitive.workspaceId,
+                paths: ['origin', options.path, `extract.${id}`],
+                parent: id,
+                data:{
+                    type: options.type,
+                    referenceId: options.referenceId,
+                    title: update.text,
+                    referenceParameters:{
+                        url: update.article_link,
+                        source:"LinkedIn Profile Page",
+                        fullText: full_text,
+                        extractStatus: extract_error ? "ERROR" : "Done",
+                        imageUrl: update.image
+                    }
+                }
+            }
+            const newPrim = await createPrimitive( newData )
+            out.push(newPrim)
+        }
+    }
+    return out
+
+}
 export async function pivotFromLinkedIn(primitive, force = false){
     let linkedInData = primitive.linkedInData
 

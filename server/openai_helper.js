@@ -85,12 +85,42 @@ export async function buildCategories(list, options = {} ){
     return {success: true, categories: final, interim: interim}
 }
 
+export async function processPromptOnText( text, options = {}){
+    if( !text || text === ""){return {success:false}}
+    const list = text.split(`\n`)
+    const type = options.type || "document"
+    const extractType = options.extractNoun || "problem"
+    const transformPrompt = options.transformPrompt || "" 
+    let opener = `Here is a ${type}: `
+    let prompt =  options.prompt || `Extract a series of ${extractType}s referred to in the ${type}.  Do not create ${extractType}s that are not mentioned in the ${type}`
+    if( options.title ){
+        opener = opener.replace('{title}', options.title)
+        prompt = prompt.replace('{title}', options.title)
+    }
+
+    const interim = await processInChunk( list,
+            [
+                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "user", "content": opener}],
+            [
+                {"role": "user", "content": prompt},
+                {"role": "user", "content": `Provide the result as a json object  with an array called results. Each entry in the array must have a \"quote\" field containing the original text and a \"${extractType}\" field containing the ${extractType} you identify ${transformPrompt}. If there is are no ${extractType}s then set the results field to an empty array.`}
+
+            ],
+            {field: "results", temperature: 0.3, no_num: true, debug:true, debug_content: false})
+    return {success: true, output: interim}
+}
+
+
 async function processInChunk( list, pre, post, options = {} ){
 
     const field = options.field || "answer"
 
-    const maxTokens = 3200
-    const fullContent = list.map((d, idx)=>`${idx}). ${(d instanceof Object ? d.content : d).replaceAll('\n'," ")}`)
+    const maxTokens = options.maxTokens || 3200
+    const fullContent = list.map((d, idx)=>{
+        const start = options.no_num ? "" : `{${idx}). `
+        return `${start}${(d instanceof Object ? d.content : d).replaceAll('\n'," ")}`
+    })
     const maxIdx = fullContent.length - 1
     let interim = []
     let startIdx = 0
@@ -122,6 +152,14 @@ async function processInChunk( list, pre, post, options = {} ){
         ].flat()
 
 
+        if( options.debug){
+            console.log(`-----------------------`)
+            console.log(pre)
+            console.log(options.debug_content ? content: "[...]")
+            console.log(post)
+            console.log(`-----------------------`)
+
+        }
         const result = await executeAI( messages, options )
 
         if( result.success && result.response ){
@@ -186,9 +224,15 @@ async function executeAI(messages, options = {}){
     if( response.status === 200){                
         const answers = response.data?.choices[0]?.message?.content
         try{
+            const p1 = answers.replace(/,([\s\n\r]*[}\]])/g, '$1')
+            const regex = /\{[\s\S]*\}/;
+            const match = p1.match(regex);
+            if( match ){
+                const unpack = JSON.parse(match[0])
+                return {response: unpack, success: true, instructions: messages[2], raw: answers}
+            }
+            return {success: false, instructions: messages[2], raw: answers}
 
-            const unpack = JSON.parse(answers.replace(/,([\s\n\r]*[}\]])/g, '$1'))
-            return {response: unpack, success: true, instructions: messages[2], raw: answers}
         }catch(error){
             console.log(error)
             console.log(response.data)
@@ -212,10 +256,10 @@ export  async function categorize(list, categories, options = {} ){
             ],
             [
                 {"role": "user", "content": `And here are a list of numbered categories: ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
-                {"role": "user", "content": `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match.   If there is a strong match assign the ${targetType} to the category number - otherwise assign it the label "NOMATCH'`} ,
+                {"role": "user", "content": `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match.   If there is a strong match assign the ${targetType} to the category number - otherwise assign it -1`} ,
                 {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item and a 'category' field set to the assigned number or label. Do not put anything other than the raw JSON in the response .`}
             ],
-            {field: "results", temperature: 0.3})
+            {field: "results", temperature: 0.3, maxTokens: 1500})
     return interim
 }
 export default async function analyzeDocument(options = {}){
@@ -292,8 +336,14 @@ export default async function analyzeDocument(options = {}){
         const answers = response.data?.choices[0]?.message?.content
         try{
 
-            const unpack = JSON.parse(answers.replace(/,([\s\n\r]*[}\]])/g, '$1'))
-            return {response: unpack, success: true, instructions: messages[2], raw: answers}
+            const p1 = answers.replace(/,([\s\n\r]*[}\]])/g, '$1')
+            const regex = /\{[\s\S]*\}/;
+            const match = p1.match(regex);
+            if( match ){
+                const unpack = JSON.parse(match[0])
+                return {response: unpack, success: true, instructions: messages[2], raw: answers}
+            }
+                return {success: false, instructions: messages[2], raw: answers}
         }catch(error){
             return {error: "Couldnt parse JSON", success: false, raw: answers, instructions: messages[2]}
         }

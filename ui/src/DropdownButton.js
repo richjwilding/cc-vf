@@ -35,10 +35,10 @@ export default function DropdownButton({...props}) {
       {!props.flat &&
       <button
         type="button"
-        onClick={(e)=>{e.stopPropagation();props.items[0]?.action && props.items[0]?.action()}}
+        onClick={props.main ? undefined : (e)=>{e.stopPropagation();props.items[0]?.action && props.items[0]?.action()}}
         className={`relative inline-flex items-center rounded-l-md border  px-4 py-2 text-sm font-medium focus:z-20 focus:outline-none focus:ring-2  focus:ring-offset-2 ${colors} w-full `}
       >
-        {selected?.title || props.title || items[0].title}
+        {props.main ||  selected?.title || props.title || items[0].title}
       </button>}
       <Menu as="div" className="relative -ml-px block">
         {props.flat 
