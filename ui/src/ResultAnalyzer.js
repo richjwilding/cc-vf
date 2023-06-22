@@ -25,11 +25,14 @@ export default function ResultAnalyzer(primitive){
                 for( const key of Object.keys(response.result.response) ){
                     const answer = response.result.response[key]?.answer
                     if( key === "name"){
-                        let contact = mainstore.contacts().find((c)=>c.name === answer)
-                        if( contact === undefined ){
-                            contact = await mainstore.createContact({name: answer})
+                        if( !["[name]", "none", "unknown", "n/a", "unspecified", "na"].includes(answer.toLowerCase())){
+
+                            let contact = mainstore.contacts().find((c)=>c.name === answer)
+                            if( contact === undefined ){
+                                contact = await mainstore.createContact({name: answer})
+                            }
+                            primitive.setParameter( "contactId", contact ? contact.id : null)
                         }
-                        primitive.setParameter( "contactId", contact ? contact.id : null)
                     }else if( key === "summary"){
                         primitive.setField( key, answer)
                     }else{
@@ -112,6 +115,7 @@ export default function ResultAnalyzer(primitive){
             primitive.setField("ai_processing", {state: "underway", process:"questions", started: new Date})
 
             let hasError = false
+            let errors = []
             const response = await primitive.doQuestionsAnalysis( ids )
             console.log(response)
             const promptTracker = {}
@@ -120,6 +124,7 @@ export default function ResultAnalyzer(primitive){
                     console.log(`Got set of results for category ${set.categoryId}`)
                     if( set.result === undefined ){
                         hasError = true
+                        errors.push(`Error - no results for categry ${set.categoryId}`)
                     }else{
                         for( const promptSet of set.result ){
                             const prompt = mainstore.primitive(promptSet.id)
@@ -129,6 +134,7 @@ export default function ResultAnalyzer(primitive){
                                 console.log(`--- got ${promptSet.results?.length} results for ${prompt.plainId}`)
                                 if( promptSet.results === undefined ){
                                     hasError = true
+                                    errors.push(`Error - no results for ${promptSet.results?.length} for ${prompt.plainId}`)
                                 }else{
                                     for( const response of promptSet.results ){
                                         console.log(`${resultField} = ${response[resultField]}`)
@@ -156,7 +162,7 @@ export default function ResultAnalyzer(primitive){
                 for(const p of Object.keys(promptTracker)){
                     await primitive.setField(`ai_prompt_track.${p}`, promptTracker[p])
                 }
-                primitive.setField("ai_processing", hasError ? {state: "error"}  : null)
+                primitive.setField("ai_processing", hasError ? {state: "error", errors: errors}  : null)
             }
 
         },

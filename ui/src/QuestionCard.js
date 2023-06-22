@@ -46,7 +46,7 @@ export default function QuestionCard({primitive, ...props}){
                 <Panel 
                     key='prompt_panel'
                     collapsable={true} 
-                    className='mt-0'
+                    className='!mt-0'
                     title={<div key='ai_title' className="font-semibold flex place-items-center">
                             <FontAwesomeIcon icon="fa-solid fa-robot" className="mr-1"/>Question will be processed by AI
                             {props.relatedTo && 

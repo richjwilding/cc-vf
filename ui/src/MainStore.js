@@ -94,11 +94,13 @@ function MainStore (prims){
                                 const parent = obj.primitive( entry.id)
                                 const target = obj.primitive( entry.target)
                                 parent.addRelationship(target, entry.path, true)
+                                obj.triggerCallback("relationship_update", [entry.id, entry.target])
                             console.log(  ` Add rel ${parent.id} > ${target.id} : ${entry.path}` )
                         }else if(entry.type === "remove_relationship"){
                                 const parent = obj.primitive( entry.id)
                                 const target = obj.primitive( entry.target)
                                 parent.removeRelationship(target, entry.path, true)
+                                obj.triggerCallback("relationship_update", [entry.id, entry.target])
                             console.log(  ` Remove rel ${parent.id} > ${target.id} : ${entry.path}` )
                         }else if(entry.type === "set_fields"){
                             if( entry.fields){
@@ -841,7 +843,7 @@ function MainStore (prims){
                 this.deletePrimitive( primitive.id )
                 console.log(ids)
                 obj.triggerCallback("relationship_update", ids )
-                obj.triggerCallback("delete_primitive", ids )
+                obj.triggerCallback("delete_primitive", primitive.id )
             }else{
                 console.warn(`Couldn't remove ${primitive.id}`)
                 throw new Error("Error removing")
@@ -1250,7 +1252,7 @@ function MainStore (prims){
                 }
                 if( prop === "removeChildren"){
                     return async function(dry_run = false){
-                        let directs = [receiver.primitives.origin.allItems, receiver.primitives.auto.allItems].flat()
+                        let directs = [receiver.primitives.origin.uniqueAllItems, receiver.primitives.auto.uniqueAllItems].flat()
                         directs = directs.filter((d)=>!d.lock)
                         let nested = [] 
                         for( d of directs ){
@@ -1498,7 +1500,7 @@ function MainStore (prims){
                 obj.data.companies = companies
                 obj.data.contacts = contacts.map((d)=>{
                     d.id = d.id !== undefined ? d.id : d._id; 
-                    if( !d.avatarUrl && d.avatarPresent){
+                    if( d.avatarPresent){
                         d.avatarUrl = `/api/avatarImage/${d.id}?${d.updatedAt ? new Date(d.updatedAt).getTime() : ""}`
                     }
                     return d} )

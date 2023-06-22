@@ -93,6 +93,7 @@ export default function CategoryCard({primitive, ...props}){
             key='panel'
             collapsable={true} 
             className='!mt-0 w-full'
+            editButton={(e)=>{e.stopPropagation();setEditPrompt(primitive)}}
             title={<div key='title' className="flex place-items-center w-full" >
                     <p>{primitive.title}</p>
                     {primitive.primitives.allCategory.length > 0 && 
@@ -103,14 +104,6 @@ export default function CategoryCard({primitive, ...props}){
                             process={async ()=>await MainStore().doPrimitiveAction(primitive.origin, "mark_categories", {source: primitive.id})}
                             />
                     }
-                <div
-                    key='edit' 
-                    type="button"
-                    onClick={(e)=>{e.stopPropagation();setEditPrompt(primitive)}}
-                    className="flex ml-auto h-6 w-6 -mt-0.5 invisible group-hover:visible flex-none items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                    <PencilIcon className="h-4 w-4" aria-hidden="true" />
-                </div>
                     </div>}>
             {!props.showDetails && 
                 primitive.primitives.allCategory.length > 0 && 

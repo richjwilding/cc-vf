@@ -11,13 +11,12 @@ import PrimitiveExplorer from "./PrimitiveExplorer";
 
 export default function CollectionViewer({primitive, category, ...props}){
     const mainstore = MainStore()
-    const active = Object.keys(category.views.options)
+    const active = Object.keys(category.views.options || {})
     const allowed = (props.permittedViews || ["table","cards","explore","list"]).filter((d)=>active.includes(d) && (!props.excludeViews || !props.excludeViews.includes(d) ))
 
     const pickDefault = ()=>{
-        const view = props.defaultWide ? category.views.options.defaultWide : category.views.options.default
-        console.log(props.defaultWide, view, allowed[0])
-        return view || allowed[0]
+        const view = props.defaultWide ? category.views.options?.defaultWide : category.views.options?.default
+        return view || allowed[0] || "cards"
     }
 
     const [view, setView] = useState( pickDefault() )
@@ -27,7 +26,7 @@ export default function CollectionViewer({primitive, category, ...props}){
         setView( pickDefault() )
     }, [primitive.id, category.id])
 
-    let cardConfig = category.views.options[view]
+    let cardConfig = category.views.options?.[view] || {fields: ['title']}
 
     let list = primitive.primitives.results ?  primitive.primitives.results[category.id].map((d)=>d) : []
 
@@ -45,7 +44,6 @@ export default function CollectionViewer({primitive, category, ...props}){
             }
         })
     }
-    console.log(allowed)
 
     const createResult = async( options = {}, open = false )=>{
         const newObj = await mainstore.createPrimitive({
@@ -67,7 +65,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                     {category.plurals || category.title}
                     <button
                     type="button"
-                    //onClick={(e)=>{e.stopPropagation();setShowAIPopup({category:resultCategory, path: category.id})}}
+                    onClick={props.setShowAIPopup ? (e)=>{e.stopPropagation();props.setShowAIPopup({category:resultCategory, path: category.id})} : undefined}
                     className="text-xs ml-2 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full text-gray-400 font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
                         <FontAwesomeIcon icon="fa-solid fa-robot" />
                     </button>

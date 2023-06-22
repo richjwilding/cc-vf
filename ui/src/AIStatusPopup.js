@@ -6,7 +6,10 @@ import { useReducer } from "react"
 
 export default function AIStatusPopup({primitive,...props}){
     const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
-    const list = primitive.primitives.results ?  primitive.primitives.results[props.path].map((d)=>d) : []
+    const list = (primitive.primitives.results ?  primitive.primitives.results[props.path].map((d)=>d) : []).filter((d)=>d.referenceParameters?.notes || d.referenceParameters?.url)
+
+
+
     useDataEvent("set_field", undefined, (p)=>{
         if( p ){
             const checkIds = primitive.primitives.allIds
@@ -92,7 +95,7 @@ export default function AIStatusPopup({primitive,...props}){
                       }
                     }
                     return (<>
-                          <div className='py-2 border-gray-200 border-b '>{d.title}</div>
+                          <div className='py-2 border-gray-200 border-b '>{d.title === "New User Interview" ? `Interview with ${d.referenceParameters?.contactName}` : d.title}</div>
                           {banner && <div className='col-start-2 col-span-2 py-1 border-gray-200 border-b justify-center flex place-items-center'>{banner}</div>}
                           {!banner && <>
                             <div className='py-1 border-gray-200 border-b justify-center flex'>

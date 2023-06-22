@@ -11,6 +11,7 @@ import {
   UserIcon,
   PaperClipIcon,
   UserPlusIcon,
+  FlagIcon as SolidFlagIcon
 } from '@heroicons/react/20/solid'
 import { HeroIcon, SolidHeroIcon } from './HeroIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -23,7 +24,7 @@ import useDataEvent from './CustomHook';
 import ContactPicker from './ContactPicker';
 import QuestionCard from './QuestionCard';
 import CategoryCard, { CategoryCardPill } from './CategoryCard';
-import {  BuildingOffice2Icon,  ChevronRightIcon,  LinkIcon,  TrashIcon } from '@heroicons/react/24/outline';
+import {  BuildingOffice2Icon,  ChevronRightIcon,  FlagIcon,  LinkIcon,  TrashIcon } from '@heroicons/react/24/outline';
 import { Bars3Icon } from '@heroicons/react/20/solid';
 import ConfirmationPopup from './ConfirmationPopup';
 import AIProcessButton from './AIProcessButton';
@@ -31,6 +32,7 @@ import { Menu, Popover } from '@headlessui/react';
 import { Float } from '@headlessui-float/react';
 import PrimitivePicker from './PrimitivePicker';
 import { VFImage } from './VFImage';
+import SegmentCard from './SegmentCard';
 
 const ExpandArrow = function(props) {
   return (
@@ -44,13 +46,20 @@ const ExpandArrow = function(props) {
 let mainstore = MainStore()
 
   const RenderItem = ({item, ...props})=>{
-    console.log(item)
     let icon = item.icon && typeof(item.icon) === "object" && item.icon.library === "fa" && <FontAwesomeIcon icon={item.icon.icon} className='mr-1 text-slate-500'/>
       if( item.type === "boolean"){
         return (
           <dd className="text-gray-500 font-medium">{item.value ? "Yes" : "No"}</dd>
         )
 
+      }else if( item.type === "flag"){
+        if( props.editing || props.editable ){
+        }
+        return <div className={`w-full relative justify-end flex ${props.editing ? 'ring-2 ring-indigo-500 ring-offset-2' : ''}`}
+            onClick={props.editing  ? ()=>props.primitive.setParameter(item.key, item.value ? undefined : true)  : undefined}
+          >
+          {item.value ? <SolidFlagIcon className={`w-5 h-5 ${`text-${item.color}-400` || 'text-red-400'}`}/> : <FlagIcon className={`w-5 h-5 ${`text-${item.color}-400` || 'text-red-400'}`}/>}
+          </div>
       }else if( item.type === "link"){
         return <EditableResourceField
                 {...props} 
@@ -101,8 +110,14 @@ let mainstore = MainStore()
           </div>
       }else if( item.type === "options"){
         return (<select 
+                  value={item.value}
                   className='border border-gray-200 p-1 rounded-md grow text-end'
-                  onChange={(e)=>props.callback(e.currentTarget.value)}
+                  onChange={props.callback
+                      ? (e)=>props.callback(e.currentTarget.value) 
+                      : (e)=>{
+                            return props.primitive.setParameter(item.key, e.currentTarget.value)
+                      }}
+
                 >
             <option value={undefined} ></option>
             {item.options.map((option)=>(
@@ -201,6 +216,12 @@ let mainstore = MainStore()
         skip: props.showVisitPage === undefined ? false : !props.showVisitPage
       },
       {
+        title: 'Open details',
+        action: ()=>mainstore.sidebarSelect(primitive),
+        icon: ArrowTopRightOnSquareIcon,
+        skip: props.showInSidebar === undefined ? true : !props.showInSidebar
+      },
+      {
         title: 'Delete',
         action: ()=>setShowDeletePrompt(true),
         icon: TrashIcon,
@@ -214,7 +235,7 @@ let mainstore = MainStore()
       },
       
     ]).concat(
-      primitive.metadata.actions
+      primitive.metadata?.actions
       ? primitive.metadata.actions.filter((d)=>d.menu).map((d)=>{return {title: d.title, icon: d.icon || "PlayIcon", action: async ()=>{const res = await MainStore().doPrimitiveAction(primitive, d.key);console.log(res?.message)}}})
       : [] 
     ).filter((d)=>!d.skip)
@@ -435,7 +456,7 @@ const Banner = function({primitive, ...props}){
                 type="button"
                 className="ml-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>
+              <Link to={`/item/${primitive.id}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>
             </button>}
         </h1>
         {metadata && <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>}
@@ -476,7 +497,6 @@ const Parameters = function({primitive, ...props}){
 
   let parameters = props.showParents && primitive.origin ? primitive.origin.childParameters : primitive.metadata?.parameters
   let source = props.showParents && primitive.origin ? primitive.referenceParameters : primitive.referenceParameters
-  console.log(props.showParents, parameters)
   if( !parameters ){ return <></> }
   let fields = Object.keys(parameters).sort((a,b)=>(parameters[a].order === undefined ? 99 : parameters[a].order ) - (parameters[b].order === undefined ? 99 : parameters[b].order) )
   if( props.fields ){
@@ -523,7 +543,8 @@ const Parameters = function({primitive, ...props}){
     setEditing( null )
   }
 
-  if( details.length === 0){
+  if( details.length === 0 ){
+    return <></>
     return <p className='py-3 text-center text-gray-400 text-sm'>Nothing to show</p>
   }
 
@@ -734,7 +755,7 @@ const Title = function({primitive, ...props}){
               type="button"
               className="ml-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-            {props.showLink && <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>}
+            {props.showLink && <Link to={`/item/${primitive.id}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>}
           </button>
         }
       </h3>
@@ -818,9 +839,9 @@ const Categories = function({primitive, ...props}){
   }
 
   return (
-    <Panel key='analysis' title={(<>Categories{button}</>)} collapsable={true} open={list && list.length > 0} titleButton={{title:'Create new',small:true,action: createCategory}} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
+    <Panel key='analysis' title={(<>Categories{button}</>)} collapsable={true} open={props.panelOpen !== undefined ? props.panelOpen : list && list.length > 0 } titleButton={{title:'Create new',small:true,action: createCategory}} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
       <dd className="mt-1 text-sm text-gray-900">
-        <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
+        <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200 space-y-2">
           {(list === undefined || list.length === 0) && 
             <div className='w-full p-2'>
               <button
@@ -833,7 +854,7 @@ const Categories = function({primitive, ...props}){
             </div>
           }
           {list.map((primitive, idx) => (
-            <CategoryCard key={primitive.id} primitive={primitive} {...props} aiProcessSummary={aiProcessSummary}/>
+            <CategoryCard key={primitive.id} primitive={primitive} {...props} aiProcessSummary={aiProcessSummary} disableHover/>
           ))}
         </ul>
       </dd>
@@ -874,7 +895,7 @@ const Questions = function({primitive, ...props}){
   const list = primitive.primitives.allQuestion
 
   return (
-    <Panel key='analysis' title={(<>Questions{button}</>)} collapsable={true} open={list && list.length > 0} titleButton={{title:'Create new',small:true,action: createQuestion}} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
+    <Panel key='analysis' title={(<>Questions{button}</>)} collapsable={true} open={props.panelOpen !== undefined ? props.panelOpen : list && list.length > 0} titleButton={{title:'Create new',small:true,action: createQuestion}} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
       <dd className="mt-1 text-sm text-gray-900">
         <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
           {(list === undefined || list.length === 0) && 
@@ -983,7 +1004,7 @@ const Entity=({primitive, ...props})=>{
         onClick={props.onClick }
         onKeyDown={props.onEnter ? handleEnter : undefined}
         tabIndex='0'
-        id={primitive.plainId}
+        id={props.fullId ? primitive.id : primitive.plainId}
         style={style}
         className={
         [
@@ -1028,6 +1049,9 @@ const Variant=({primitive, ...props})=>{
   }
   if( type === 'category' ){
     return <CategoryCard primitive={primitive} {...props}/>
+  }
+  if( type === 'segment' ){
+    return <SegmentCard primitive={primitive} {...props}/>
   }
   if( type === 'category_pill' ){
     return <CategoryCard.Pill primitive={primitive} {...props}/>
@@ -1349,7 +1373,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
                   <p className='pl-2 border-l-4 text-gray-500 italic text-sm line-clamp-6'><strong>Original text:</strong> {primitive.quote}</p>
               </div>
           }
-        {showDetails === true && <PrimitiveCard.Details primitive={primitive}/>}
+        {showDetails === true && <PrimitiveCard.Details primitive={primitive} editing={props.editing}/>}
         {showUsers === true && <PrimitiveCard.Users primitive={primitive}/>}
         {(showDetails === "panel" || showUsers === "panel") && <Panel title="More" collapsable={true} open={false}>
             {showDetails === "panel" && <PrimitiveCard.Details primitive={primitive}/>}

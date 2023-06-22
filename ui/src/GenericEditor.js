@@ -113,7 +113,7 @@ export default function GenericEditor({item, primitive,...props}) {
                   <button
                     type="button"
                     onClick={async (e)=>{e.stopPropagation();await primitive.removeChildren()}}
-                    className={`bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-indigo-500 focus:ring-indigo-500 h-full relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium shrink-0 grow-0 h-8 focus:outline-none`}
+                    className={`bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-indigo-500 focus:ring-indigo-500 relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium shrink-0 grow-0 h-8 focus:outline-none`}
                   >
                     Delete all
                   </button>

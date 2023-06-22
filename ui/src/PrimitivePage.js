@@ -4,7 +4,7 @@ import { HeroIcon } from './HeroIcon'
 import {Fragment, useEffect, useReducer, useRef, useState, useMemo, useCallback, useLayoutEffect} from 'react';
 import { useLinkClickHandler, useNavigate, useParams } from "react-router-dom";
 import Panel from './Panel';
-import { Tab } from '@headlessui/react'
+import { Tab, Transition } from '@headlessui/react'
 import {
   PencilIcon,
   QuestionMarkCircleIcon,
@@ -24,10 +24,12 @@ import AIProcessButton from './AIProcessButton';
 import { ComponentRow } from './ComponentRow';
 import AIStatusPopup from './AIStatusPopup';
 import { AssessmentCard } from './AssessmentCard';
-import PrimitiveExplorer from './PrimitiveExplorer';
+import PrimitiveExplorer from './PrimitiveExplorer'
 import CollectionViewer from './CollectionViewer';
 import CardGrid from './CardGrid';
 import DropdownButton from './DropdownButton';
+import ReportView from './ReportView';
+import EditableTextField from './EditableTextField';
 
 
 let mainstore = MainStore()
@@ -85,20 +87,23 @@ export function PrimitivePage({primitive, ...props}) {
     const navigate = useNavigate();
 
     const setShowWorkingPane = useCallback((value) => {
-      console.log(value)
+      if( value === false && hasDocumentViewer){value = true}
       setShowWorkingPaneReal(value)
       if( props.setWidePage ){
-        props.setWidePage( value )
+        const fullScreenExplore = value && (value === 'evidence' )
+        props.setWidePage( fullScreenExplore ? "always" : value )
       }
     })
 
     useDataEvent("relationship_update set_field", primitive.id, updateRelationships)
 
-    const showOutcomes = primitive.type !== "assessment"// && !(showWorkingPane && hasNestedEvidence)
+    const showOutcomes = primitive.type !== "assessment" && showWorkingPane !== "evidence"
     //const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
     const nestedEvidence = useMemo(()=>primitive.primitives.descendants.filter((d)=>d.type==="evidence"), [primitive.id])
     const hasNestedEvidence = primitive.isTask || nestedEvidence.length > 0
     const showMetrics = (primitive.isTask || primitive.type === "cohort" ) && primitive.metadata.metrics
+
+    const fullScreenExplore = showWorkingPane && (showWorkingPane === 'evidence' )
 
     const hasQuestions = (task && task.metadata.sections?.questions) || (primitive && primitive.metadata.sections?.questions)
     const hasCategories = (task && task.metadata.sections?.categories) || (primitive && primitive.metadata.sections?.categories)
@@ -159,54 +164,11 @@ export function PrimitivePage({primitive, ...props}) {
     let header = useRef()
 
     let outcomesList = primitive.isTask ? primitive.primitives.outcomes.allUniqueEvidence : primitive.primitives.origin.allUniqueEvidence
-
-  return (
-    <>
-      <div 
-        style={{minHeight: showWorkingPane ? "100%" : 'calc(100% - 4rem)'}}
-        className="overflow-y-scroll overscroll-contain w-full"
-        onScroll={()=>{
-            let opacity = parseInt(Math.min(page.current.scrollTop, 60) / 6) * 10
-            let last = parseInt(header.current.getAttribute('last')) || 0
-            header.current.setAttribute('last', opacity)
-            if( last !== opacity){
-                header.current.classList.remove(`shadow-gray-300/${last}`)
-                header.current.classList.add(`shadow-gray-300/${opacity}`)
-                if( last === 0){
-                    header.current.classList.add(`shadow-md`)
-                }
-                if( opacity === 0){
-                    header.current.classList.remove(`shadow-md`)
-                }
-            }
-
-
-        }}
-        ref={page}
-      >
-          <div key='banner' ref={header} className="w-full mt-10 z-40 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100">
-            <PrimitiveCard.Banner primitive={primitive} showMenu={true} showStateAction={false} className='pl-4 pr-6 mx-auto w-full max-w-3xl lg:max-w-7xl'/>
-          </div>
-
-          <div key='content' 
-            className={
-              [
-                'mx-auto mt-8 grid sm:px-6  gap-6 ',
-                showWorkingPane 
-                  ? "grid-cols-1 lg:grid-cols-[1fr_1fr_min-content] 2xl:grid-cols-[repeat(2,min-content)_auto_min-content] 2xl:grid-rows-[min-content_1fr] " 
-                  : "grid-cols-1 lg:grid-flow-col-dense lg:grid-cols-3 max-w-3xl lg:max-w-7xl",
-              ].join(" ")
-          }>
-            <div 
-              className={[
-                  "space-y-6 lg:col-span-2 lg:col-start-1",
-                  showWorkingPane ? "2xl:w-[30em] h-fit" : ""
-                ].join(" ")}
-              >
-              <section 
-                aria-labelledby="applicant-information-title"
-              
-                >
+    
+    const leftHandSection = ()=>{
+      return (
+            <>
+              <section>
                 <div className="bg-white shadow sm:rounded-lg grid grid-cols-5 @container">
                   <div className="px-4 py-5 sm:px-6 col-span-5">
                     <PrimitiveCard primitive={primitive} showEdit={true} hideTitle={true} major={true}/>
@@ -233,10 +195,10 @@ export function PrimitivePage({primitive, ...props}) {
                     }
                   </div>
                   {hasQuestions && (task || primitive.isTask) && <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
-                    <PrimitiveCard.Questions key='questions' primitive={task ? task : primitive} relatedTo={primitive} editable={true}/>
+                    <PrimitiveCard.Questions key='questions' panelOpen={false} primitive={task ? task : primitive} relatedTo={primitive} editable={true}/>
                   </div>}
                   {hasCategories && (task || primitive.isTask) && <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5">
-                    <PrimitiveCard.Categories key='categories' primitive={task ? task : primitive} relatedTo={primitive} editable={true} includeResult={false}/>
+                    <PrimitiveCard.Categories key='categories' panelOpen={false} primitive={task ? task : primitive} relatedTo={primitive} editable={true} includeResult={false}/>
                   </div>}
                   {primitive.resources && <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
                     <PrimitiveCard.Resources primitive={primitive}/>
@@ -244,8 +206,8 @@ export function PrimitivePage({primitive, ...props}) {
                   {primitive.type==="venture" && <div className="px-4 pt-2 pb-5 sm:px-6 col-span-5">
                     <AssessmentCard primitive={primitive.currentAssessment}/>
                   </div>}
-              </div>
-              </section>
+                </div>
+                </section>
                 {showMetrics && <Panel key='metrics' title='Metrics' titleButton={{action:()=>setEditMetric({new: true})}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
                   <div className='@container'>
                     <div className="gap-3  grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-3">
@@ -295,62 +257,145 @@ export function PrimitivePage({primitive, ...props}) {
                         })}
                     </div>
                   </div>
-                </Panel>}
+                </Panel>
+              }
 
-            {hasNestedEvidence && showWorkingPane !== "evidence" &&
-                  <Panel key='evidence_panel' title="Evidence" expandButton={()=>setShowWorkingPane('evidence')} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
-                        {(nestedEvidence === undefined || nestedEvidence.length === 0) && 
-                          <div className='w-full p-2'>
-                            <button
-                            type="button"
-                            className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                          >
-                            <span className="mt-2 block text-sm font-semibold text-gray-900">Nothing to show</span>
-                          </button>
-                          </div>
-                        }
-                    <PrimitiveCard.EvidenceList onCardClick={(p)=>props.selectPrimitive(p)} showCategories={primitive.primitives.allCategory.length > 0} relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
-                  </Panel>}
-            {primitive.type === "assessment" && primitive.framework &&
-                  <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>
-                    { Object.values(primitive.framework.components).map((c) => {
-                      return (<ComponentRow onClick={()=>{setShowWorkingPane('assessment');setComponentView(c)}} primitive={primitive} compact={true} evidenceDetail={false} key={c.id} component={c}/>)
-                      })
-                    }                    
-                  </Panel>}
+              {hasNestedEvidence && showWorkingPane !== "evidence" &&
+                    <Panel key='evidence_panel' title="Evidence" expandButton={()=>setShowWorkingPane('evidence')} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                          {(nestedEvidence === undefined || nestedEvidence.length === 0) && 
+                            <div className='w-full p-2'>
+                              <button
+                              type="button"
+                              className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            >
+                              <span className="mt-2 block text-sm font-semibold text-gray-900">Nothing to show</span>
+                            </button>
+                            </div>
+                          }
+                      <PrimitiveCard.EvidenceList onCardClick={(p)=>props.selectPrimitive(p)} showCategories={primitive.primitives.allCategory.length > 0} relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
+                    </Panel>}
+              {primitive.type === "assessment" && primitive.framework &&
+                    <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>
+                      { Object.values(primitive.framework.components).map((c) => {
+                        return (<ComponentRow onClick={()=>{setShowWorkingPane('assessment');setComponentView(c)}} primitive={primitive} compact={true} evidenceDetail={false} key={c.id} component={c}/>)
+                        })
+                      }                    
+                    </Panel>}
 
-            {primitive.metadata?.resultCategories && primitive.metadata.resultCategories.map((category,idx)=>{
-              return !(showWorkingPane instanceof Object && showWorkingPane.type === "result" && showWorkingPane.index === idx) ?
-                <CollectionViewer 
-                  primitive={primitive} 
-                  category={category} 
-                  excludeViews='explore'
-                  setSelected={setSelected} 
-                  onExpand={()=>setShowWorkingPane( {type: 'result', index: idx} )}
-                  onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
-                  onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}
-                  onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
-                  selected={selected}
-                  /> : undefined
-            })}
-            {primitive.summary &&
-                  <Panel key='analysis' title='Auto analysis' collapsable={true}>
-                  <div className="bg-white shadow sm:overflow-hidden sm:rounded-lg mb-6 p-4 mt-2">
-                    <dd className="mt-1 text-sm text-gray-900">
-                      <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
-                          <li key='sumamry' className=" py-3 pl-3 pr-4 text-sm">
-                              <p className="text-medium ml-2 flex-1 truncate">Summary</p>
-                              <p className="text-gray-600 ml-4 mt-2 pl-2 flex-1 border-l-2 border-gray-200">{primitive.summary}</p>
-                          </li>
-                      </ul>
-                    </dd>
-                  </div>
-                  </Panel>
-            
+              {primitive.metadata?.resultCategories && primitive.metadata.resultCategories.map((category,idx)=>{
+                return !(showWorkingPane instanceof Object && showWorkingPane.type === "result" && showWorkingPane.index === idx) ?
+                  <CollectionViewer 
+                    primitive={primitive} 
+                    category={category} 
+                    excludeViews='explore'
+                    setSelected={setSelected} 
+                    setShowAIPopup={setShowAIPopup}
+                    onExpand={()=>setShowWorkingPane( {type: 'result', index: idx} )}
+                    onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
+                    onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}
+                    onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
+                    selected={selected}
+                    /> : undefined
+              })}
+              {primitive.summary &&
+                    <Panel key='analysis' title='Auto analysis' collapsable={true}>
+                    <div className="bg-white shadow sm:overflow-hidden sm:rounded-lg mb-6 p-4 mt-2">
+                      <dd className="mt-1 text-sm text-gray-900">
+                        <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200">
+                            <li key='sumamry' className=" py-3 pl-3 pr-4 text-sm">
+                                <p className="text-medium ml-2 flex-1 truncate">Summary</p>
+                                <EditableTextField
+                                  {...props} 
+                                  editable={true}
+                                  submitOnEnter={true} 
+                                  value={primitive.summary} 
+                                  callback={(value)=>{
+                                      return primitive.setField("summary", value)
+                                  }}
+                                  fieldClassName={`text-gray-600 ml-4 mt-2 pl-2 flex-1 border-l-2 border-gray-200`}
+                                />
+                            </li>
+                        </ul>
+                      </dd>
+                    </div>
+                    </Panel>
+              
+              }
+              {primitive.metadata?.reports && 
+                                    <Panel.MenuButton title='Reports' action={()=>setShowWorkingPane("report")}/>
+              }
+        </>
+      )
+    }
+
+  return (
+    <>
+      <div 
+        style={{minHeight: showWorkingPane ? "100%" : 'calc(100% - 4rem)'}}
+        className="overflow-y-scroll overscroll-contain w-full"
+        onScroll={()=>{
+            let opacity = parseInt(Math.min(page.current.scrollTop, 60) / 6) * 10
+            let last = parseInt(header.current.getAttribute('last')) || 0
+            header.current.setAttribute('last', opacity)
+            if( last !== opacity){
+                header.current.classList.remove(`shadow-gray-300/${last}`)
+                header.current.classList.add(`shadow-gray-300/${opacity}`)
+                if( last === 0){
+                    header.current.classList.add(`shadow-md`)
+                }
+                if( opacity === 0){
+                    header.current.classList.remove(`shadow-md`)
+                }
             }
-            </div>
 
-              <section 
+
+        }}
+        ref={page}
+      >
+          {!props.hideBanner && 
+            <div key='banner' ref={header} className={`w-full mt-10 z-40 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100 ${props.bannerClassName}`}>
+              <PrimitiveCard.Banner primitive={primitive} showMenu={true} showStateAction={false} className='pl-4 pr-6 mx-auto w-full max-w-3xl lg:max-w-7xl'/>
+            </div>
+          }
+
+          <div key='content' 
+            className={
+              [
+                'mx-auto mt-8 grid sm:px-6 ',
+                fullScreenExplore ? "" :"gap-6",
+                showWorkingPane 
+                  ? "grid-cols-1 lg:grid-cols-[1fr_1fr_min-content] 2xl:grid-cols-[repeat(2,min-content)_auto_min-content] 2xl:grid-rows-[min-content_1fr] " 
+                  : "grid-cols-1 lg:grid-flow-col-dense lg:grid-cols-3 max-w-3xl lg:max-w-7xl",
+              ].join(" ")
+          }>
+             {!fullScreenExplore && 
+                <div 
+                  className={[
+                      "space-y-6 lg:col-span-2 lg:col-start-1",
+                      showWorkingPane ? "2xl:w-[30em] h-fit" : ""
+                    ].join(" ")}
+                  >
+                  {leftHandSection()}
+                </div>
+              }
+             {fullScreenExplore &&              
+                  <Transition
+                  show={props.showDetailPane || false}
+                    as={Fragment}
+                    enter="transition ease-out duration-100"
+                    enterFrom="transform opacity-0 scale-95"
+                    enterTo="transform opacity-100 scale-100"
+                    leave="transition ease-in duration-75"
+                    leaveFrom="transform opacity-100 scale-100"
+                    leaveTo="transform opacity-0 scale-95"
+                  >
+                <div className="space-y-6 lg:col-span-2 lg:col-start-1 absolute min-w-[30em] h-fit max-h-[80vh] top-[4em] left-[3.5em] overflow-y-scroll rounded-b-lg p-4 z-50 shadow-2xl shadow-gray-300 bg-white border border-t-0 ">
+                      {leftHandSection()}
+                  </div>
+                  </Transition>
+              }
+
+              {!fullScreenExplore && <section 
                 key='notes'
                 className={[
                     'col-start-1 lg:col-span-2',
@@ -442,28 +487,25 @@ export function PrimitivePage({primitive, ...props}) {
                     </div>
                   </div>
                 </div>
-              </section>
-            {showWorkingPane  && 
-              <div style={{minWidth:0, minHeight:0}} className='h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'>
+              </section>}
+            {(hasDocumentViewer || showWorkingPane)  && 
+              <div 
+                  style={{minWidth:0, minHeight:0}} 
+                  className={[
+                    fullScreenExplore
+                      ? 'h-[calc(100vh_-_8em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'
+                      : 'h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'
+                    ].join(" ")}
+                >
                 <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col p-2 @container'>
                     {showWorkingPane === "evidence" &&
-                          <PrimitiveExplorer closeButton={()=>setShowWorkingPane(false)} categoryIds={[10]} list={nestedEvidence} onCardClick={(p)=>props.selectPrimitive(p)}  showOriginInfo={[{contact: 'contactName'}, 'company']} primitive={primitive}/>
+                          <PrimitiveExplorer closeButton={()=>setShowWorkingPane(false)} allowedCategoryIds={nestedEvidence.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} list={nestedEvidence} onCardClick={(p)=>props.selectPrimitive(p)}  primitive={primitive} fields={['important', 'top']}/>
                     }
-                    {hasDocumentViewer && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
+                    {showWorkingPane === "report" &&
+                      <ReportView primitive={primitive}/>
+                    }
+                    {hasDocumentViewer && (typeof(showWorkingPane) === 'boolean')  && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
                     {showWorkingPane === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
-                    {false && showWorkingPane === "results" && 
-                          <PrimitiveExplorer 
-                            primitive={primitive}
-                            types='entity'
-                            renderProps={{
-                              hideCover: true,
-                              urlShort: true,
-                              fixedSize: "16rem"
-                            }}
-                            onCardClick ={(p)=>props.selectPrimitive(p)}
-                            closeButton={()=>setShowWorkingPane(false)} 
-                            />
-                    }
                     {(showWorkingPane instanceof Object && showWorkingPane.type === "result" ) && primitive?.metadata?.resultCategories?.[showWorkingPane.index] && 
                       <CollectionViewer 
                           closeButton={()=>setShowWorkingPane()}
@@ -526,7 +568,13 @@ export function PrimitivePage({primitive, ...props}) {
                                       <div key='evidence' className="mt-6 flow-root">
                                         <ul role="list" className="p-1 space-y-2">
                                           {outcomesList.map((p)=>(
-                                              <PrimitiveCard key={p.id} showMenu showEdit doubleClickToEdit menuProps={{showVisitPage:false, showDelete: "origin", showUnlink: true}} relatedTo={primitive} compact={true} primitive={p} showMeta="large" onClick={()=>resultViewer.current && resultViewer.current.showPrimitive(p.id)}/>
+                                              <PrimitiveCard 
+                                                key={p.id} 
+                                                showMenu 
+                                                showEdit 
+                                                doubleClickToEdit 
+                                                menuProps={{showVisitPage:false, showDelete: "origin", showUnlink: true, showInSidebar: true}} 
+                                                relatedTo={primitive} compact={true} primitive={p} showMeta="large" onClick={()=>resultViewer.current && resultViewer.current.showPrimitive(p.id)}/>
                                           ))}
                                         </ul>
                                       </div>

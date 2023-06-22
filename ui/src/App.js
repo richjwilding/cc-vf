@@ -89,9 +89,12 @@ function App() {
             <Routes>
               <Route path="/login" element={<SignIn/>}/>
               <Route path="/" element={<SideNav workspace={workspaceView} setWorkspace={setWorkspaceView}><HomeScreen workspace={workspaceView} setWorkspace={setWorkspaceView}/></SideNav>}/>
-              <Route path="/item/:id" element={<SideNav key='sidebar' widePage={widePage} workspace={workspaceView} setWorkspace={setWorkspaceView}>
-                <PrimitivePage setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
-              </SideNav>}/>
+              <Route path="/item/:id" element={
+                <SideNav key='sidebar' widePage={widePage} workspace={workspaceView} setWorkspace={setWorkspaceView}>
+                  {(props)=>(
+                    <PrimitivePage {...props} primitive={props.primitive} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
+                  )}
+                </SideNav>}/>
             </Routes>
           <Sidebar open={open} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
           </BrowserRouter>

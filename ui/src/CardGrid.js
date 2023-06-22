@@ -3,7 +3,8 @@ import { PrimitiveCard } from "./PrimitiveCard"
 import Panel from "./Panel"
 import MainStore from "./MainStore"
 export default function CardGrid({primitive, category, list, categoryConfig, fields, ...props}){
-    if( category === undefined ){
+    const hasButton = props.createButton
+    if( hasButton && category === undefined ){
         if( primitive.metadata.resultCategories ){
             category = primitive.metadata?.resultCategories[0]
         }else{
@@ -11,9 +12,9 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
         }
     }        
     
-    let cardConfig = category.views?.options["cards"]
     
     if( fields === undefined ){
+        let cardConfig = category?.views?.options?.["cards"] || undefined //{fields: ["title"]}
         fields = cardConfig?.fields
     }
 
@@ -32,7 +33,6 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
     }
     const resultCategory = category ? MainStore().category(category.resultCategoryId) : undefined
 
-    const hasButton = props.createButton
 
     return (<>
     {hasButton && <div className="w-full p-2 flex h-12 space-x-2 sticky top-0 z-20 bg-white">
@@ -43,7 +43,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
         className={
             [`gap-3 space-y-3 no-break-children `,
             props.className,
-            props.columnClass].join(" ")
+            props.columnClass || '@md:columns-2 @xl:columns-3 @2xl:columns-4'].join(" ")
         }>
         {list.map((p,idx)=>{
             return (
@@ -64,9 +64,10 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                     showExpand={true}
                     showState={true} 
                     showAsSecondary={true}
+                    imageOnly={props.imageOnly}
                     showEvidence="compact"
-                    relationships={category.relationships} 
-                    relationship={primitive.primitives.relationships(p.id, ["results", category.id])}/>
+                    relationships={category?.relationships} 
+                    relationship={category ? primitive.primitives.relationships(p.id, ["results", category.id]) : undefined}/>
                 </div>
             )}
         )}

@@ -73,7 +73,7 @@ export function Sidebar({primitive, ...props}) {
                 </div>
             </div>
         <div className="pb-2 pl-4 pr-4 pt-4">
-            <PrimitiveCard primitive={primitive} showQuote showDetails={true} showLink={false} major={true} showEdit={true} className='mb-6'/>
+            <PrimitiveCard primitive={primitive} showQuote showDetails={true} showLink={false} major={true} showEdit={true} editing={true} className='mb-6'/>
             {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
                 <Panel title="Significance" collapsable={true} open={true} major>
                     <PrimitiveCard.EvidenceHypothesisRelationship primitive={primitive} title={false} />

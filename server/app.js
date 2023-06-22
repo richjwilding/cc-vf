@@ -237,8 +237,6 @@ var ensureAuthenticated = async function(req, res, next) {
             }
             return next();
         }
-        req.session.returnTo = req.originalUrl; 
-        res.redirect('/login')
     } 
     else{
         res.redirect('/login')
@@ -317,9 +315,14 @@ if (process.env.NODE_ENV === 'production') {
   
     const path = require('path')
     app.get('*', function(req, res) {
-      res.sendFile(path.resolve('dist-server', 'ui', 'build', 'index.html'), {etag: false})
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+      res.sendFile(path.resolve('dist-server', 'ui', 'build', 'index.html'), { etag: false})
     })
   }
+  
 
 
 export default app;

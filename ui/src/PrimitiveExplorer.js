@@ -1,6 +1,6 @@
 import MainStore from './MainStore';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { ArrowsPointingInIcon } from '@heroicons/react/24/outline';
+import { ArrowsPointingInIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
 import { PrimitiveCard } from './PrimitiveCard';
 //import html2canvas from 'html2canvas';
 //import MiroExporter from './MiroExporter'; 
@@ -8,36 +8,43 @@ import Panel from './Panel';
 import {useGesture, usePinch} from '@use-gesture/react'
 import { useLayoutEffect } from 'react';
 import useDataEvent from './CustomHook';
+import MyCombo from './MyCombo';
 
 
 const mainstore = MainStore()
-//window.html2canvas = html2canvas
-//window.miroExporter = MiroExporter()
 
 export default function PrimitiveExplorer({primitive, ...props}){
-    const [filters, setFilters] = React.useState(props.categoryIds ? [(d)=>props.categoryIds.includes(d.referenceId)] : [])
+
+    const [selectedCategoryIds, setSelectedCategoryIds] = React.useState( (primitive.plainId === 70 ? [10] : props.allowedCategoryIds) || undefined )
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
-    useDataEvent("relationship_update", primitive.id, forceUpdate)
+
+    function updateFilters(){
+        let out = []
+        if( props.categoryIds ){
+            out.push((d)=>props.categoryIds.includes(d.referenceId))
+        }
+        if( props.allowedCategoryIds ){
+            out.push((d)=>selectedCategoryIds.includes(d.referenceId))
+        }        
+        
+        return out
+    }
+
+    const filters = React.useMemo(()=>{
+        forceUpdate()
+        return updateFilters()
+    }, [selectedCategoryIds])
+
 
     
     let items = React.useMemo(()=>{
         const types = [props.types].flat()
         return(props.list || primitive.primitives.uniqueAllItems.filter((d)=>types.includes(d.type) )).filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true))
     },[primitive.id, update])
+    
+    useDataEvent("relationship_update", [primitive.id, items.map((d)=>d.id)].flat(), forceUpdate)
 
     const axisOptions = useMemo(()=>{
-        function addCategories(p){
-            return p.primitives.allUniqueCategory.map((d)=>{
-                const options = d.primitives.allUniqueCategory
-                return {
-                    type: "category",
-                    id: d.id,
-                    order: [undefined,options.map((d)=>d.id)].flat(),
-                    values: ["None", options.map((d)=>d.title)].flat(),
-                    title: `By ${d.title}`
-                }
-            })
-        }
         function findCategories( list, access = 0 ){
             const catIds = {}
             let type
@@ -65,9 +72,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 return {
                     type: "category",
                     id: d.id,
+                    category: d,
                     order: [undefined,options.map((d)=>d.id)].flat(),
                     values: ["None", options.map((d)=>d.title)].flat(),
-                    title: `${type} - By ${d.title}`,
+                    title: `By ${d.title}`,
+                    allowMove: access === 0,
                     access: access
                 }
             })
@@ -76,9 +85,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
         function txParameters(p, access){
             const out = []
             const catIds = p.map((d)=>d.referenceId).filter((v,idx,a)=>a.indexOf(v)=== idx)
-            catIds.forEach((id)=>{
-                const category = MainStore().category(id)
-                const parameters = category.parameters
+
+            function process(parameters, title){
                 if( parameters ){
                     Object.keys(parameters).forEach((parameter)=>{
                         const type = parameters[parameter].type
@@ -89,12 +97,22 @@ export default function PrimitiveExplorer({primitive, ...props}){
                             return
                         }
                         if(  type === "contact"){
-                            out.push( {type: 'parameter', parameter: "contactName", title: `${category.title} - ${parameters[parameter].title}`, access: access})
+                            out.push( {type: 'parameter', parameter: "contactName", title: `${title} - ${parameters[parameter].title}`, access: access})
                         }else{
-                            out.push( {type: 'parameter', parameter: parameter, title: `${category.title} - ${parameters[parameter].title}`, access: access})
+                            out.push( {type: 'parameter', parameter: parameter, title: `${title} - ${parameters[parameter].title}`, access: access})
                         }
                     })
                 }
+
+            }
+
+            catIds.forEach((id)=>{
+                const category = MainStore().category(id)
+                process(category.parameters, category.title) //
+            })
+            p.map((d)=>d.origin && d.origin.childParameters ? d.origin.id : undefined).filter((d,idx,a)=>d && a.indexOf(d)===idx).forEach((d)=>{
+                const o = mainstore.primitive(d)
+                process(o.childParameters, o.metadata?.title)
             })
 
             return out.filter((filter)=>{
@@ -129,8 +147,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
         return out
     }, [primitive.id, update])
 
-    const [colSelection, setColSelection] = React.useState(0)
-    const [rowSelection, setRowSelection] = React.useState(axisOptions.length > 1 ? 1 : 0)
+    const [colSelection, setColSelection] = React.useState(axisOptions.length > 2 ? 2 : 0)
+    const [rowSelection, setRowSelection] = React.useState(0)//axisOptions.length > 1 ? 1 : 0)
 
     const pickProcess = ( mode )=>{
         const option = axisOptions[mode]
@@ -162,6 +180,27 @@ export default function PrimitiveExplorer({primitive, ...props}){
         return (p)=>""
     }
 
+    async function updateProcess (  primitive, mode,from, to ){
+        const option = axisOptions[mode]
+        if( option ){
+            if( option.type === "category"){
+                console.log(`Moving for ${option.category.title}`)
+                
+                if( from ){
+                    const prim = option.category.primitives.allUniqueCategory.find((d)=>d.title === from)
+                    if( prim ){
+                        await prim.removeRelationship( primitive, 'ref')
+                    }
+                }
+                if( to ){
+                    const prim = option.category.primitives.allUniqueCategory.find((d)=>d.title === to)
+                    if( prim ){
+                        await prim.addRelationship( primitive, 'ref')
+                    }
+                }
+            }
+        }
+    }
     const column = pickProcess( colSelection )
     const row = pickProcess( rowSelection )
     const group = (d)=>d.referenceParameters?.category
@@ -177,13 +216,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
         })
         },[primitive.id, colSelection, rowSelection, update])
 
-    let fields = ["title", "scale", "specificity","category"]
+    let fields = ["title", props.fields].flat()
     let originFields = [{contact: "contactName"}]
 
 
     const targetRef = useRef()
     const gridRef = useRef()
-    const primitivePositions = useRef()
+    const myState = useRef({})
 
     const restoreState = ()=>{
         const [translateX = 0, translateY = 0] = gridRef.current.style.transform.match(/translate\((.*?)\)/)?.[1]?.split(',') || [];
@@ -212,66 +251,200 @@ export default function PrimitiveExplorer({primitive, ...props}){
             setScale(scale)
         }
 
-    }, [gridRef.current, primitive.id, colSelection, rowSelection])
+    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds])
 
     function rebuildPrimitivePosition(){
-        const selector = '.pcard'
+        myState.current.primitivePositions = rebuildPosition('.pcard')
+        myState.current.dropsites = rebuildPosition('.dropzone')
+    }
+    function rebuildPosition(selector){
         if(gridRef.current){
             const out = []
             for(const node of gridRef.current.querySelectorAll(selector)){
-                out.push( {x: node.offsetLeft, y: node.offsetTop, width:node.offsetWidth, height: node.offsetHeight, id: node.getAttribute('id')} )
+                out.push( {x1: node.offsetLeft, y1: node.offsetTop, x2:node.offsetLeft + node.offsetWidth, y2: node.offsetTop + node.offsetHeight, id: node.getAttribute('id'), el: node} )
             }
-            primitivePositions.current = out
-            console.log("SET")
             return out
         }
     }
     function primitivesAt(x,y, xo, yo){
-        const [translateX, translateY, initialScale] = restoreState()
-
-        const ax = ((x) * initialScale)  - translateX * initialScale
-        const ay = ((y) * initialScale)   - translateY * initialScale
-        console.log(`${x}, ${y} -> ${ax}, ${ay}`)
-        
-        if( primitivePositions.current ){
-            console.log( primitivePositions.current.find((d)=>d.id === '647f4d56dec5a686541a31c9') )
-
+        if( myState.current.primitivePositions ){
+            const results = myState.current.primitivePositions.filter((d)=>(x >= d.x1 && x <= d.x2 && y >= d.y1 && y <= d.y2))
+            return results
         }
     }
+
+    function dropsAt(x,y){
+        if( myState.current.primitivePositions ){
+            const results = myState.current.dropsites.filter((d)=>(x >= d.x1 && x <= d.x2 && y >= d.y1 && y <= d.y2))
+            return results
+        }
+    }
+    
+    async function moveItem(primitiveId, startZone, endZone){
+        console.log(`${primitiveId} - >${startZone} > ${endZone}`)
+        const primitive = mainstore.primitive(primitiveId)
+        if( primitive ){
+            const [sc,sr] = startZone.split('-')
+            const [ec,er] = endZone.split('-')
+            if( sc !== ec){
+                await updateProcess(primitive, colSelection, columnExtents[sc], columnExtents[ec])
+            }
+            if( sr !== er){
+                await updateProcess(primitive, rowSelection, rowExtents[sr], rowExtents[er])
+            }
+        }
+
+    }
+
+    async function copyToClipboard(){
+        let htmlData = list.map((p)=>[p.primitive.plainId,p.primitive.title, p.primitive.origin?.referenceParameters?.contactName || p.primitive.origin.title, p.column, p.row].map((f)=>`<td>${f}</td>`).join("")).map((r)=>`<tr>${r}</tr>`).join("")
+        htmlData = '<table><tbody>' + htmlData + '</tbody></text>'
+
+        const textarea = document.createElement('template');
+        textarea.innerHTML = htmlData.trim()
+        const el = textarea.content.childNodes[0]
+        document.body.appendChild(el);
+
+        const range = document.createRange();
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        try {
+            range.selectNodeContents(el);
+            sel.addRange(range);
+        } catch (e) {
+            range.selectNode(el);
+            sel.addRange(range);
+        }
+        document.execCommand('copy');
+        document.body.removeChild(el);
+    }
+        
+
   
     useGesture({
-      /*  onDrag:(state)=>{
+        onDrag:(state)=>{
             state.event.preventDefault()
             let memo = state.memo
             if( state.first ){
-                console.log("DRAG START")
                 rebuildPrimitivePosition()
-                const gwidth = gridRef.current.offsetWidth
-                const gheight = gridRef.current.offsetHeight
-//                const { width:gwidth, height:gheight} = gridRef.current.getBoundingClientRect()
-                const { width, height, x, y } = targetRef.current.getBoundingClientRect()
-                memo = [x,y, width / 2,height /2, gwidth / 2, gheight / 2]
-                console.log(memo)
             }
-            const [px, py] = state.xy
-            const tx = px - memo[0] 
-            const ty = py - memo[1] 
-            console.log(tx)
+                
+            if( state.first || myState.current?.needRecalc){
+                const parent=targetRef.current            
+                const grid = gridRef.current
 
-        const [translateX, translateY, initialScale] = restoreState()
+                const { width, height, x, y } = targetRef.current.getBoundingClientRect()
+                var parentRect = parent.getBoundingClientRect();
+                var gridRect = grid.getBoundingClientRect();
 
-        const x1 = tx - translateX
-        const x2 = x1 - memo[2] 
-        const x3 = x2 / initialScale
-        const x4 = x3 + memo[4]
+                var transformString = window.getComputedStyle(grid).getPropertyValue('transform');
+                var transformMatrix = transformString.match(/^matrix\((.+)\)$/)[1].split(',').map(parseFloat);
 
-        console.log(`start = ${tx} / ${x1} mid = ${memo[2]} = ${x2} ^ ${x3} = ${x4}`)
+                memo = {px:parentRect.x, py:parentRect.y, dx:gridRect.x - parentRect.x, dy:gridRect.y - parentRect.y, scale: transformMatrix[0]}
+                myState.current.needRecalc = false
+            }
+            const [mouseX, mouseY] = state.xy
+          
+            const adjustedX = mouseX - memo.px
+            const adjustedY = mouseY - memo.py
+            const inGridX= (adjustedX - memo.dx) / memo.scale
+            const inGridY = (adjustedY - memo.dy) / memo.scale
+          
+            if( state.first ){
+                const hits = primitivesAt(inGridX, inGridY )
+                if( hits && hits.length > 0){
 
+                    const start = dropsAt(inGridX, inGridY )
+                    myState.current.dragging = {...hits[0]}
+                    if( start && start[0] ){
+                        const [c,r] = start[0].id.split('-')
+                        myState.current.dragging.startZone = start[0]
+                        if( axisOptions[rowSelection].allowMove !== true || axisOptions[colSelection].allowMove !== true){
 
-         //   primitivesAt(tx , ty, memo[2], memo[3] )
+                            myState.current.dragging.constrain = {
+                                col: axisOptions[rowSelection].allowMove ? c : undefined, 
+                                row: axisOptions[colSelection].allowMove ? r : undefined
+                            }
+                        }
+
+                    }
+                    
+                    const clone = myState.current.dragging.el.cloneNode(true);
+                    clone.style.position = "absolute"
+                    clone.style.left = `${myState.current.dragging.x1}px`
+                    clone.style.top = `${myState.current.dragging.y1}px`
+                    clone.style.zIndex = `100`
+                    clone.classList.add('shadow-2xl')
+                    clone.classList.add('ring')
+                    
+                    myState.current.dragging.helper = clone
+                    myState.current.dragging.el.style.opacity = 0.5
+
+                    myState.current.dragOffset = {
+                        x: inGridX - myState.current.dragging.x1,
+                        y: inGridY - myState.current.dragging.y1
+                    }
+
+                    gridRef.current.appendChild(clone);
+
+                }else{
+                    myState.current.dragging = undefined
+                }
+            }
+            if( myState.current?.dragging){
+                if( myState.current.dragging.helper){
+                    myState.current.dragging.helper.style.left = `${inGridX - myState.current.dragOffset.x}px`
+                    myState.current.dragging.helper.style.top = `${inGridY - myState.current.dragOffset.y}px`
+                }
+                const hits = dropsAt(inGridX, inGridY )
+                if( hits && hits.length > 0){
+                    const target = hits[0]
+                    if( !myState.current.dragging.startZone || target.id !==  myState.current.dragging.startZone.id){
+                        const [c,r] = target.id.split('-')
+                        if( !myState.current.dragging.constrain ||
+                            ((myState.current.dragging.constrain.col !== undefined && myState.current.dragging.constrain.col === c) ||
+                            (myState.current.dragging.constrain.row !== undefined && myState.current.dragging.constrain.row === r))){
+
+                                if( myState.current.dragging.dropzone && myState.current.dragging.dropzone !== target){
+                                    myState.current.dragging.dropzone.el.style.background = null
+                                }
+                                target.el.style.background = "#6ee7b7"
+                                myState.current.dragging.dropzone = target
+                            }
+                    }
+                }else{
+                    if( myState.current.dragging.dropzone ){
+                        myState.current.dragging.dropzone.el.style.background = null
+                    }
+                    myState.current.dragging.dropzone = undefined
+                }
+
+                
+            }
+            if( state.last ){
+                if( myState.current.dragging){
+                    const hits = dropsAt(inGridX, inGridY )
+                    if( hits && hits.length > 0){
+                        const target = hits[0]
+                        if( !(myState.current.dragging.startZone && target.id ===  myState.current.dragging.startZone.id)){
+                            moveItem( myState.current.dragging.id, myState.current.dragging.startZone.id, target.id)
+                        }
+                    }
+                    if( myState.current.dragging.helper){
+                        gridRef.current.removeChild(myState.current.dragging.helper);
+                    }
+                    if( myState.current.dragging.dropzone ){
+                        myState.current.dragging.dropzone.el.style.background = null
+                    }
+                    myState.current.dragging.dropzone = undefined
+                    myState.current.dragging.el.style.opacity = null
+                    myState.current.dragging = undefined
+                    myState.current.cancelClick = true
+                }
+            }
 
             return memo
-        },*/
+        },
         onWheel: (state) => {
             if( !state.ctrlKey ){
                 const [translateX, translateY, initialScale] = restoreState()
@@ -279,10 +452,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 const x = translateX - ((state.delta[0] ) * 3)
                 const y = translateY - ((state.delta[1] )  * 3)
                 gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${initialScale})`
+                myState.current.needRecalc = true
                 state.event.preventDefault()
             }
         },
         onPinch: (state) => {
+            state.event.preventDefault()
             let memo = state.memo
             const ox = state.origin[0]
             const oy = state.origin[1]
@@ -304,6 +479,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
             gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${thisScale})`
             setScale(thisScale)
+            myState.current.needRecalc = true
 
             return memo
         }
@@ -311,12 +487,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
             target: targetRef,
             eventOptions: { 
                 passive: false,
-                preventDefault: true,
+  //              preventDefault: true,
             },
             drag:{
+                delay: 150,
+                threshold: 10,
                 eventOptions: { 
                     passive: false,
-                    capture: true
+//                    
                 }
 
             },
@@ -332,7 +510,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
   const columnExtents = React.useMemo(()=>list.map((d)=>d.column).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection, update])
   const rowExtents = React.useMemo(()=>list.map((d)=>d.row).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection, update])
 
-  if( list === undefined || list.length === 0){return <></>} 
 
 
   const colors = ["rose","ccgreen","ccpurple","amber","cyan","fuchsia", "ccblue"] 
@@ -342,24 +519,28 @@ export default function PrimitiveExplorer({primitive, ...props}){
       return Math.max(...Object.values(list.filter((d)=>d.column == col).reduce((o, d)=>{o[d.row] = (o[d.row] || 0) + 1;return o},{})))
     })
 
-    const options = axisOptions.map((d, idx)=>(
+    const _options = axisOptions.map((d, idx)=>(
         <option value={idx}>{d.title}</option>
     ))
+    const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
 
     const hasColumnHeaders = (columnExtents.length > 1)
     const hasRowHeaders = (rowExtents.length > 1)
-    
+
 
 
   return (
-        <div ref={targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain'>
-            <div key='control' className='z-20 bg-white w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex'>
+    <>
+      <div key='control' className='z-20 bg-white w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex'>
                 {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
+                <Panel.MenuButton icon={<ClipboardDocumentIcon className='w-4 h-4 -mx-1'/>} action={copyToClipboard}/>
                 {props.buttons}
                 <p>{list?.length} items</p>
-                <select className='border rounded-sm' key='cols' id="cols" value={colSelection} onChange={(e)=>setColSelection(e.target.value)}>{options}</select>
-                <select className='border rounded-sm' key='rows' id="rows" value={rowSelection} onChange={(e)=>setRowSelection(e.target.value)}>{options}</select>
+                {props.allowedCategoryIds && <MyCombo prefix="Showing: " items={props.allowedCategoryIds.map((id)=>mainstore.category(id))} selectedItem={selectedCategoryIds} setSelectedItem={setSelectedCategoryIds}/>}
+                <MyCombo items={options} prefix="Columns: " selectedItem={colSelection} setSelectedItem={setColSelection}/>
+                <MyCombo items={options} prefix="Rows: " selectedItem={rowSelection} setSelectedItem={setRowSelection}/>
             </div>
+                <div ref={targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain'>
                 <div 
                     key='grid'
                     ref={gridRef}
@@ -378,26 +559,48 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         </>}
 
                     { rowExtents.map((row, rIdx)=>{
+                        let rowOption = axisOptions[rowSelection]
                         return <React.Fragment>
                             {hasRowHeaders && <p key={`ct${rIdx}`} className='vfbgtitle z-[2] font-bold text-sm text-center p-2 text-2xl self-center'>{row && typeof(row) === "string" ? row?.split('/').join(" ") : row}</p>}
                             {columnExtents.map((column, cIdx)=>{
+                                let colOption = axisOptions[colSelection]
                                 let subList = list.filter((item)=>item.column === column && item.row === row).sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
-                                return <div style={{columns: Math.floor(Math.sqrt(columnColumns[cIdx] ))}} className='z-[2] w-fit m-4 p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children'>
-                                        {subList.map((wrapped, idx)=>{
-                                            let item = wrapped.primitive
-                                            let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth:'16rem'}
-                                            let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
-                                            const staggerScale = scale  + (scale / 200 * (idx % 20))
-                                            if( props.render ){
-                                                return props.render( item, staggerScale)
-                                            }
-                                           return <PrimitiveCard fullId key={item.id} border={false} primitive={item} scale={staggerScale} fields={undefined} {...size} className='m-2' {...props.renderProps} onClick={props.onCardClick ? ()=>props.onCardClick(item) : undefined}/>
-                                        })}
-                                    </div>
+                                return <div 
+                                        style={{columns: Math.floor(Math.sqrt(columnColumns[cIdx] ))}} 
+                                        id={`${cIdx}-${rIdx}`}                                        
+                                        className={`${colOption?.allowMove || rowOption?.allowMove ? "dropzone" : ""} z-[2] w-full  p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children`}>
+                                            {subList.map((wrapped, idx)=>{
+                                                let item = wrapped.primitive
+                                                let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth:'16rem'}
+                                                let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
+                                                const staggerScale = scale  + (scale / 200 * (idx % 20))
+                                                if( props.render ){
+                                                    return props.render( item, staggerScale)
+                                                }
+                                            return <PrimitiveCard 
+                                                fullId 
+                                                key={item.id} 
+                                                border={false} 
+                                                primitive={item} 
+                                                scale={staggerScale} 
+                                                fields={fields} 
+                                                {...size} 
+                                                className='m-2' 
+                                                {...props.renderProps} 
+                                                onClick={props.onCardClick ? ()=>{
+                                                    if( myState.current?.cancelClick ){
+                                                        myState.current.cancelClick = false
+                                                        return
+                                                    }
+                                                    props.onCardClick(item) 
+                                                }: undefined}/>
+                                            })}
+                                        </div>
                         })}
                         </React.Fragment>
                     })}
                 </div>
         </div>
+        </>
   )
 }

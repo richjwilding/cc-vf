@@ -14,7 +14,7 @@
 */
 import { Fragment, useState } from 'react'
 import { Dialog, Menu, Transition } from '@headlessui/react'
-import { Bars3CenterLeftIcon, Bars4Icon, ClockIcon, HomeIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { Bars3CenterLeftIcon, Bars4Icon, ChevronDoubleDownIcon, ChevronDownIcon, ClockIcon, HomeIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import {
   ChevronRightIcon,
   ChevronUpDownIcon,
@@ -22,7 +22,8 @@ import {
   MagnifyingGlassIcon,
 } from '@heroicons/react/20/solid'
 import MainStore from './MainStore'
-import { useLinkClickHandler, useNavigate } from 'react-router-dom'
+import { useLinkClickHandler, useNavigate, useParams } from 'react-router-dom'
+import { PrimitiveCard } from './PrimitiveCard'
 
 
 function classNames(...classes) {
@@ -32,7 +33,16 @@ function classNames(...classes) {
 export default function SideNav(props) {
   const workspaces = MainStore().activeUser.info.workspaces.map((d)=>MainStore().workspace(d))
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [pageDetailPane, setPageDetailPane] = useState(false)
   const sizeToggle = props.widePage ? "3xl" : "xl"
+  const forceSmall = props.widePage === "always"
+  let primitive
+  
+
+  const { id } = useParams();
+  if( primitive === undefined && id){
+    primitive = MainStore().primitive(isNaN(id) ? id : parseInt(id))
+  }
 
   const navigate = useNavigate()
 
@@ -123,6 +133,7 @@ const mainMenu = navigation.map((item) => (
                   </div>
                 </>
   
+  console.log(props.children instanceof Function)
 
   return (
     <>
@@ -130,10 +141,10 @@ const mainMenu = navigation.map((item) => (
         <Transition.Root show={sidebarOpen} as={Fragment}>
           <Dialog as="div" className={[
                 'relative z-40',
-                sizeToggle === "lg" ? "lg:hidden" : "",
-                sizeToggle === "xl" ? "xl:hidden" : "",
-                sizeToggle === "2xl" ? "2xl:hidden" : "",
-                sizeToggle === "3xl" ? "3xl:hidden" : "",
+                !forceSmall && sizeToggle === "lg" ? "lg:hidden" : "",
+                !forceSmall && sizeToggle === "xl" ? "xl:hidden" : "",
+                !forceSmall && sizeToggle === "2xl" ? "2xl:hidden" : "",
+                !forceSmall && sizeToggle === "3xl" ? "3xl:hidden" : "",
             ].join(" ")} onClose={setSidebarOpen}>
             <Transition.Child
               as={Fragment}
@@ -226,13 +237,11 @@ const mainMenu = navigation.map((item) => (
             //`hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col lg:border-r lg:border-gray-200 lg:bg-gray-100 lg:pb-4 lg:pt-5`
             [
                 `hidden fixed inset-y-0 w-64 flex-col border-r border-gray-200 pb-4 pt-5`,
-                //'bg-gray-100',
                 'bg-gradient-to-b from-white via-white to-gray-50',
-//                'bg-grid-slate-100',
-                sizeToggle === "lg" ? "lg:flex" : "",
-                sizeToggle === "xl" ? "xl:flex" : "",
-                sizeToggle === "2xl" ? "2xl:flex" : "",
-                sizeToggle === "3xl" ? "3xl:flex" : "",
+                !forceSmall && sizeToggle === "lg" ? "lg:flex" : "",
+                !forceSmall && sizeToggle === "xl" ? "xl:flex" : "",
+                !forceSmall && sizeToggle === "2xl" ? "2xl:flex" : "",
+                !forceSmall && sizeToggle === "3xl" ? "3xl:flex" : "",
             ].join(" ")
 
             }>
@@ -336,18 +345,18 @@ const mainMenu = navigation.map((item) => (
         {/* Main column */}
         <div className={[
                 'flex flex-col h-screen',
-                sizeToggle === "lg" ? "lg:pl-64" : "",
-                sizeToggle === "xl" ? "xl:pl-64" : "",
-                sizeToggle === "2xl" ? "2xl:pl-64" : "",
-                sizeToggle === "3xl" ? "3xl:pl-64" : "",
+                !forceSmall && sizeToggle === "lg" ? "lg:pl-64" : "",
+                !forceSmall && sizeToggle === "xl" ? "xl:pl-64" : "",
+                !forceSmall && sizeToggle === "2xl" ? "2xl:pl-64" : "",
+                !forceSmall && sizeToggle === "3xl" ? "3xl:pl-64" : "",
             ].join(" ")}>
           {/* Search header */}
           <div className={[
             'sticky top-0 z-20 flex h-16 flex-shrink-0 border-b border-gray-200 bg-white',
-                sizeToggle === "lg" ? "lg:hidden" : "",
-                sizeToggle === "xl" ? "xl:hidden" : "",
-                sizeToggle === "2xl" ? "2xl:hidden" : "",
-                sizeToggle === "3xl" ? "3xl:hidden" : "",
+              !forceSmall && sizeToggle === "lg" ? "lg:hidden" : "",
+              !forceSmall && sizeToggle === "xl" ? "xl:hidden" : "",
+              !forceSmall && sizeToggle === "2xl" ? "2xl:hidden" : "",
+              !forceSmall && sizeToggle === "3xl" ? "3xl:hidden" : "",
             ].join(" ")}>
             <button
               type="button"
@@ -357,25 +366,16 @@ const mainMenu = navigation.map((item) => (
               <span className="sr-only">Open sidebar</span>
               <Bars3CenterLeftIcon className="h-6 w-6" aria-hidden="true" />
             </button>
-            <div className="flex flex-1 justify-between px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-1 justify-between px-4 sm:px-2 lg:px-4">
+              <button
+                type="button"
+                className="px-2 text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-ccgreen-500"
+                onClick={() => setPageDetailPane(!pageDetailPane)}
+              >
+              <ChevronDownIcon className={`h-6 w-6 ${pageDetailPane ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
               <div className="flex flex-1">
-                <form className="flex w-full md:ml-0" action="#" method="GET">
-                  <label htmlFor="search-field" className="sr-only">
-                    Search
-                  </label>
-                  <div className="relative w-full text-gray-400 focus-within:text-gray-600">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center">
-                      <MagnifyingGlassIcon className="h-5 w-5" aria-hidden="true" />
-                    </div>
-                    <input
-                      id="search-field"
-                      name="search-field"
-                      className="block h-full w-full border-transparent py-2 pl-8 pr-3 text-gray-900 focus:border-transparent focus:outline-none focus:ring-0 focus:placeholder:text-gray-400 sm:text-sm"
-                      placeholder="Search"
-                      type="search"
-                    />
-                  </div>
-                </form>
+                <PrimitiveCard.Banner primitive={primitive} small showMenu={true} showStateAction={false} className='pl-4 pr-6 w-full '/>
               </div>
               <div className="flex items-center">
                 {/* Profile dropdown */}
@@ -408,7 +408,13 @@ const mainMenu = navigation.map((item) => (
               </div>
             </div>
           </div>
-          {props.children}
+              {props.children instanceof Function ? props.children({
+                  primitive: primitive,
+                  hideBanner: forceSmall,
+                  showDetailPane: pageDetailPane,
+                  bannerClassName: `hidden ${sizeToggle}:flex`
+
+              }) : props.children}
         </div>
       </div>
     </>

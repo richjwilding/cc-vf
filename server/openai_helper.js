@@ -2,6 +2,9 @@ import {Configuration, OpenAIApi} from "openai"
 import {encode, decode} from 'gpt-3-encoder'
 
 export async function summarizeMultiple(list, options = {} ){
+    if(options.asList){
+        return await summarizeMultipleAsList(list, options)
+    }    
 
     let listIntro = `Here are a list of ${options.types || "items"}: `
 
@@ -10,8 +13,8 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
                 {"role": "user", "content": listIntro}],
             [
-                {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single sumamry covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
-                {"role": "user", "content": `Provide the result as a json object with an single field called 'summary' with conatins a string with your summary. Do not put anything other than the raw json object in the response .`},
+                {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
+                {"role": "user", "content": `Provide the result as a json object with a single field called 'summary' with conatins "a string with your summary. Do not put anything other than the raw json object in the response .`},
             ],
             {field: "summary", temperature: 0.3})
 
@@ -20,16 +23,18 @@ export async function summarizeMultiple(list, options = {} ){
         console.log(interim)
         return interim
     }
+    console.log(interim)
 
     let final = []
 
-    if( interim.length > 0){
+    if( interim.length > 1 ){
         const result = await processInChunk( interim, 
             [
                 {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here is a list of summaries:`}],
             [
-                {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single summary.`},
+                {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single summary.`                    
+                            },
                 {"role": "user", "content": `Provide the result as a json object with an single field called 'summary' with conatins a string with your summary. Do not put anything other than the raw json object in the response .`},
             ],
             {field: "summary", temperature: 0.3})
@@ -39,10 +44,59 @@ export async function summarizeMultiple(list, options = {} ){
         }else{
             final = result
         }
+        console.log(`done`)
+        console.log(final)
 
         return {success: true, summary: final[0], interim: interim}
     }
     return {success: true, summary: interim[0]}
+
+}
+export async function summarizeMultipleAsList(list, options = {} ){
+
+    let listIntro = `Here are a list of ${options.types || "items"}: `
+
+    const interim = await processInChunk( list, 
+            [
+                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "user", "content": listIntro}],
+            [
+                {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
+                {"role": "user", "content": `Provide the result as a json object with a single field called 'summary' with conatins an array of results with each entry being an object with  two fields - 1) a field called 'summary' with your summary and 2) a separate field called 'ids' containing an array with the numbers of the original problem statements contritbuting to the summary. Do not put anything other than the raw json object in the response .`},
+            ],
+            {field: "summary", temperature: 0.3})
+
+
+    if( Object.hasOwn(interim, "success")){
+        console.log(interim)
+        return interim
+    }
+    console.log(interim)
+
+    let final = []
+
+    if( interim.length > (options.asList || 1) ){
+        const result = await processInChunk( interim.map((d)=>d.summary), 
+            [
+                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "user", "content": `Here is a list of summaries:`}],
+            [
+                {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into ${options.asList} new summaries, or as close to that number as possible, such that all similar summaries are grouped together`},
+                {"role": "user", "content": `Provide the result as a json object with an single field called 'summary' with conatins an array of new summaries with each entry bein an object with a field called 'summary' with your summary and a field called 'ids' containing an array with wth the numbers of the original summaries you have merged. Do not put anything other than the raw json object in the response .`},
+            ],
+            {field: "summary", temperature: 0.3})
+
+        if( Object.hasOwn(result, "success")){
+            return result
+        }else{
+            final = result
+        }
+        console.log(`done`)
+        console.log(final)
+
+        return {success: true, summary: options.asList ? final : final[0], interim: interim}
+    }
+    return {success: true, summary: options.asList ? interim : interim[0]}
 
 }
 export async function buildCategories(list, options = {} ){
@@ -116,9 +170,9 @@ async function processInChunk( list, pre, post, options = {} ){
 
     const field = options.field || "answer"
 
-    const maxTokens = options.maxTokens || 3200
+    const maxTokens = options.maxTokens || 12000
     const fullContent = list.map((d, idx)=>{
-        const start = options.no_num ? "" : `{${idx}). `
+        const start = options.no_num ? "" : `${idx}). `
         return `${start}${(d instanceof Object ? d.content : d).replaceAll('\n'," ")}`
     })
     const maxIdx = fullContent.length - 1
@@ -191,7 +245,7 @@ async function executeAI(messages, options = {}){
     const request = async ()=>{
         try{
             response = await openai.createChatCompletion({
-                model:"gpt-3.5-turbo",
+                model:"gpt-3.5-turbo-16k",
                 temperature: options.templerature || 0.7,
                 messages: messages
             });
@@ -259,11 +313,14 @@ export  async function categorize(list, categories, options = {} ){
                 {"role": "user", "content": `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match.   If there is a strong match assign the ${targetType} to the category number - otherwise assign it -1`} ,
                 {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item and a 'category' field set to the assigned number or label. Do not put anything other than the raw JSON in the response .`}
             ],
-            {field: "results", temperature: 0.3, maxTokens: 1500})
+            {field: "results", temperature: 0.3, maxTokens: 8000})
     return interim
 }
 export default async function analyzeDocument(options = {}){
-    const text = options.text
+    let text = options.text
+
+    text = text.replace('Hi, I’m [NAME] and I am an entrepreneur in residence with a venture studio called Co-Created.  We explore new ideas and we’re currently looking into climate goals among businesses. We’re  excited to learn more about your company', "")
+
     const prompts = options.prompts
     const opener = options.opener || 'here is a transcript of an interview:'
     const descriptor = options.descriptor || 'You must extract a series of problems which are explicitly stated by the interviewee.  Assume any sentence ending in a question mark is from the interviewer and should be ignored when extracting problems'
@@ -303,7 +360,7 @@ export default async function analyzeDocument(options = {}){
     const request = async ()=>{
         try{
             response = await openai.createChatCompletion({
-                model:"gpt-3.5-turbo",
+                model:"gpt-3.5-turbo-16k",
                 temperature: 0.7,
                 messages: messages
             });

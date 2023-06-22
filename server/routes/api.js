@@ -145,7 +145,7 @@ router.get('/enrichContact', async function(req, res, next) {
                 res.json({result: data})
                 contact.profileInfo = data
                 contact.avatarPresent = await replicateURLtoStorage( data.profile_pic_url, contact.id, 'bucket-profiles-vf-cc' )
-                contact.avatarUrl = avatarUrl
+                contact.avatarUrl = false
                 contact.markModified("profileInfo")
                 contact.markModified("avatarUrl")
                 contact.markModified("avatarPresent")
@@ -258,7 +258,8 @@ router.get('/primitives', async function(req, res, next) {
       //  const results = await Primitive.find({})
       let query = {$and: [
                     { workspaceId: { $in: workspaces }},
-                    { type: { $in: ['activity','experiment','venture'] }}
+                    { type: { $in: ['activity','experiment','venture'] }},
+                    { deleted: {$exists: false}}
                 ]}
     
         if( owns !== undefined ){
@@ -278,13 +279,22 @@ router.get('/primitives', async function(req, res, next) {
 
       if( workspaceId !== undefined){
         query = {
-            $or: [
-                {workspaceId: workspaceId},
-                query
+            $and: [
+                {$or: [
+                    {workspaceId: workspaceId},
+                    query
+                ]},
+                { deleted: {$exists: false}}
             ]
+                
         }
         if( workspaceId === "all"){
-            query = { workspaceId: { $in: workspaces }}
+            query = { 
+                $and: [
+                    {workspaceId: { $in: workspaces }},
+                    { deleted: {$exists: false}}
+                ]
+            }
         }
       }
         
@@ -516,6 +526,7 @@ router.post('/add_contact', async function(req, res, next) {
 
 
 const removeParentReference = async (target, parentId)=>{
+    console.log(`API: removeParentReference ${target.id} ${parentId}`)
     if( !(target instanceof Object)){
         target = await Primitive.findOne({"_id": new ObjectId(target)})
     }
@@ -547,9 +558,18 @@ const removeParentReference = async (target, parentId)=>{
 
 router.post('/remove_primitive', async function(req, res, next) {
     let data = req.body
+    console.log(`API: remove_primitive ${data.id}`)
 
     try {
-        const removed = await Primitive.findOneAndDelete({"_id": new ObjectId(data.id)})
+        const removed = //await Primitive.findOneAndDelete({"_id": new ObjectId(data.id)})
+                    await Primitive.findOneAndUpdate(
+                        {
+                            "_id": new ObjectId(data.id),
+                        }, 
+                        {
+                            $set: {deleted: true}
+                        })
+                
 
         try{
             if( removed.referenceParameters?.notes || removed.referenceParameters?.url ){
@@ -563,6 +583,7 @@ router.post('/remove_primitive', async function(req, res, next) {
             if( removed.primitives ){
                 const childPrimitiveIds = new Proxy(removed.primitives, parser).uniqueAllIds
                 for( const childId of childPrimitiveIds ){
+                    console.log(`API: remove ${removed.id} from child parentPrimitives of ${childId}`)
                     await Primitive.findOneAndUpdate(
                         {
                             "_id": new ObjectId(childId),
@@ -573,10 +594,14 @@ router.post('/remove_primitive', async function(req, res, next) {
                 }
             }
         }catch(err){
+            console.log(`Error deleting - inner`)
+            console.log(err)
             throw err
         }
         res.json({success: true})
       } catch (err) {
+        console.log(`Error deleting`)
+        console.log(err)
         res.status(400).json({error: err.message})
     }
 })
@@ -584,7 +609,7 @@ router.post('/add_primitive', async function(req, res, next) {
     let data = req.body
 
     try {
-        const newPrimitive = await createPrimitive( data )        
+        const newPrimitive = await createPrimitive( data, req )        
         if( newPrimitive === undefined ){
             throw new Error("No primitive created")
         }
@@ -601,44 +626,10 @@ router.post('/set_relationship', async function(req, res, next) {
     let data = req.body
     console.log(data)
 
-    const doRemove = async (path)=>{
-        await Primitive.findOneAndUpdate(
-            {
-                    "_id": new ObjectId(data.receiver),
-                    [path]: {$in: [data.target]}
-            }, 
-            {$pull: { [path]: data.target }},
-            {new: true})
-    }
-
     try {
         const path = flattenPath( data.path )
-        //const parentPath = `parentPrimitives.${data.receiver}`
         
         if( data.set ){
-            /*try{
-                await Primitive.findOneAndUpdate(
-                    {
-                        "_id": new ObjectId(data.target),
-                        [parentPath]: {$nin: [path]}
-                    }, 
-                    {$push: { [parentPath]: path }})
-            }
-            catch{
-                throw new Error("Couldn't find target")
-            }
-            await Primitive.findOneAndUpdate(
-                {
-                     "_id": new ObjectId(data.receiver),
-                     [path]: {$nin: [data.target]}
-                }, 
-                {$push: { [path]: data.target }})
-
-            const check = await Primitive.find({"_id": new ObjectId(data.target)})
-            if( check.length === 0){
-                doRemove( path )
-                throw new Error("Couldn't find target")
-            }*/
            try{
                await addRelationship( data.receiver, data.target, path)
            }catch(error){
@@ -646,19 +637,6 @@ router.post('/set_relationship', async function(req, res, next) {
            }
 
         }else{
-            /*try{
-
-                await Primitive.findOneAndUpdate(
-                    {
-                        "_id": new ObjectId(data.target),
-                        [parentPath]: {$in: [path]}
-                    }, 
-                    {$pull: { [parentPath]: path }})
-            }
-            catch{
-                throw new Error("Couldn't find target")
-            }
-           doRemove(path)*/
            try{
                await removeRelationship( data.receiver, data.target, path)
            }catch(error){
@@ -944,9 +922,6 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
             }
 
             const extract = await getDocumentAsPlainText( primitiveId, req )
-           /* const out = locateQuote("we as a firm assume the data is wrong coming up with a strategy that helps us to understand the difference in error for example, in commercial real estate, there are a fixed number of vendors who investors rely on for doing their underwriting they all have different approaches to generating a data set e.g. avg rent, price per square foot some do it by surveying owners or tenants some use reits as a way to back out data others leverage partnerships with operators e.g. the greystars", extract.data)
-            res.json({success: success, result: out})
-            return */
 
             const text = extract.plain
             for( const group of Object.values(groups)){
@@ -959,41 +934,6 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
                     prompts: group.prompts.map((p)=>p.text)
                 })
 
-               /* result = {
-                  //  response: JSON.parse('{\n  "T0": {\n    "results": [\n      {\n        "quote": "Trying to implement consistency and drive data quality",\n        "need": "Consistency and data quality"\n      },\n      {\n        "quote": "The data quality issue is the most impactful",\n        "need": "Data quality"\n      },\n      {\n        "quote": "Having one single view of what our standardized data sets are",\n        "need": "Standardization of data sets"\n      },\n      {\n        "quote": "Trying to apply that model to data sets in your organization",\n        "need": "Data set organization"\n      },\n      {\n        "quote": "Being able to reconcile to a single individual",\n        "need": "Entity resolution"\n      }\n    ]\n  }\n}'),
-                    response: {
-                        "T0": [
-                            {
-                                "quote": "Everyone has a slightly different view of headcount for the organization",
-                                "problem": "It sucks that there is no centralized version of truth for organization-wide data like headcount.",
-                                "scale": 7
-                            },
-                            {
-                                "quote": "Because the way our data is stored is siloed, any changes I make won’t carry through to other members of the department",
-                                "problem": "It sucks that changes made to data in one department won't reflect across the entire organization due to silos.",
-                                "scale": 8
-                            },
-                            {
-                                "quote": "The surprise would be that none of these data sets are really joined up. You kind of assume that there is a lot more connection between data sets and data sources than there actually are.",
-                                "problem": "It sucks that there is a lack of data provenance across the organization, with data sets not being joined up.",
-                                "scale": 6
-                            }
-                        ],
-                        "T1": [
-                            {
-                                "quote": "Trying to implement consistency and drive data quality.",
-                                "problem": "It sucks that there are inconsistencies and poor data quality across the organization.",
-                                "scale": 6
-                            }
-                        ],
-                        "T2": [
-                            {
-                                "quote": "None"
-                            }
-                        ]
-                    },
-                    success:true}*/
-                    
 
                 if( result ){
                     success = true

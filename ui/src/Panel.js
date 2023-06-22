@@ -1,9 +1,9 @@
 import React from 'react';
 import { Disclosure, Transition } from '@headlessui/react'
 import {
-  PencilIcon,
   ChevronRightIcon,
 } from '@heroicons/react/20/solid'
+import { PencilIcon } from "@heroicons/react/24/outline";
 import DropdownButton from './DropdownButton';
 import { ArrowsPointingOutIcon } from '@heroicons/react/24/outline';
 
@@ -17,6 +17,16 @@ const Title = (props)=>(
                     ? <div className='flex'>{props.title || "Details"}<span className="inline-flex items-center rounded-full bg-gray-200 ml-2 my-0.5 px-2 py-0.5 text-xs font-medium text-gray-400">{props.count}</span></div>
                     : <div className='flex'>{props.title || "Details"}</div>
                 }
+              {props.editButton &&
+                <div
+                    key='edit' 
+                    type="button"
+                    onClick={props.editButton}
+                    className="flex ml-auto h-6 w-6 -mt-0.5 invisible group-hover:visible flex-none items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                    <PencilIcon className="h-4 w-4" aria-hidden="true" />
+                </div>
+              }
               {props.editToggle &&
               (props.editing 
                 ? <PencilIcon
