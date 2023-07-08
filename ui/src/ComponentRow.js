@@ -285,8 +285,9 @@ export function ComponentRow(props) {
                   key='progress' 
                   id='progress' 
                   layout
-                  className={`absolute bg-${color.base}-600 h-5 top-6 sticky z-20 row-start-1 col-start-2 w-full`} 
+                  className={`absolute bg-${color.base}-600 h-5 top-6 sticky z-20 row-start-1 col-start-2`} 
                   style={{
+                    width: 'calc(100% - 2px)',
                     gridColumnStart: 2,
                     gridColumnEnd: 3 + current_level_idx}}
                     />}

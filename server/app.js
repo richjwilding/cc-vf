@@ -16,6 +16,9 @@ import * as refresh from 'passport-oauth2-refresh';
 import {Miro} from '@mirohq/miro-api'
 import { setRefreshTokenHandler } from './google_helper';
 import { google } from "googleapis";
+import { SIO } from './socket';
+
+import QueueAI from './ai_queue';
 
 dotenv.config()
 
@@ -60,10 +63,12 @@ setRefreshTokenHandler(refresh)
 
 var app = express();
 
-app.use(cookieSession({
+const session = cookieSession({
     name: 'google-auth-session',
     keys: ['eman', 'monkey']
-}))
+})
+
+app.use(session)
 
 // register regenerate & save after the cookieSession middleware initialization
 app.use(function(request, response, next) {
@@ -193,16 +198,16 @@ app.get('/api/status', (req, res) => {
 })
 
 var ensureAuthenticated = async function(req, res, next) {
-    if( ['/login', '/manifest.json', '/logo192.png'].includes(req.originalUrl) ){
+    if( ['/login', '/manifest.json', '/logo192.png'].includes(req?.originalUrl) ){
         return next()
     }
-    if( req.originalUrl.slice(0,12) === '/static/css/' ){
+    if( req.originalUrl?.slice(0,12) === '/static/css/' ){
         return next()
     }
-    if( req.originalUrl.slice(0,11) === '/static/js/' ){
+    if( req.originalUrl?.slice(0,11) === '/static/js/' ){
         return next()
     }
-    if( req.originalUrl.slice(0,8) === '/images/' ){
+    if( req.originalUrl?.slice(0,8) === '/images/' ){
         return next()
     }
     if (req.isAuthenticated()){
@@ -242,6 +247,8 @@ var ensureAuthenticated = async function(req, res, next) {
         res.redirect('/login')
     }
 }
+
+SIO.setAuthentication(session)
 
 app.use(ensureAuthenticated);
 app.use('/api', apiRouter);
@@ -301,6 +308,7 @@ app.get('/api/refresh', async (req, res) => {
         })
     }
 })
+
 
 if (process.env.NODE_ENV === 'production') {
     app.use(express.static('ui/build',{

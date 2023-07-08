@@ -33,6 +33,7 @@ import { Float } from '@headlessui-float/react';
 import PrimitivePicker from './PrimitivePicker';
 import { VFImage } from './VFImage';
 import SegmentCard from './SegmentCard';
+import { Grid } from  'react-loader-spinner'
 
 const ExpandArrow = function(props) {
   return (
@@ -459,7 +460,7 @@ const Banner = function({primitive, ...props}){
               <Link to={`/item/${primitive.id}`}><ArrowTopRightOnSquareIcon className="h-4 w-4" aria-hidden="true" /></Link>
             </button>}
         </h1>
-        {metadata && <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>}
+        {!props.small && metadata && <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>}
       </div>
       {props.showMenu &&
         <CardMenu primitive={primitive} showVisitPage={false} size='12' bg='transparent'/>
@@ -519,7 +520,7 @@ const Parameters = function({primitive, ...props}){
     return {...parameters[k], value: source[k], autoId: source[`${k}Id`], key: k}
   })
 
-  if( !props.editing ){
+  if( !props.fullList ){
     details = details.filter((item)=>item.value !== undefined || item.default) 
   }else{
     details = details.filter((item)=>item.value || !item.extra) 
@@ -673,13 +674,26 @@ const Details = function({primitive, ...props}){
   let showParents = primitive.origin?.childParameters
   if( !parameters && !primitive.parentParameters ){ return <></> }
   
-  const panelTitle = <>{props.title || "Details"}{metadata.do_discovery && <AIProcessButton active="discovery" primitive={primitive} process={(p)=>p.analyzer().doDiscovery({force: true})}/>}</>
+  const panelTitle = <>{props.title || "Details"}{metadata.do_discovery && <AIProcessButton active="document_discovery" primitive={primitive} process={(p)=>p.analyzer().doDiscovery({force: true})}/>}</>
+
+  const enrichmentActive = primitive?.processing?.enrich
   
   return (
         <Panel {...props} title={panelTitle} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
-          <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200`}>
-            <Parameters primitive={primitive} editing={editing}/>
-            {showParents && <Parameters primitive={primitive} editing={editing} showParents/>}
+          <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200 relative`}>
+            <Parameters primitive={primitive} editing={!enrichmentActive} fullList={editing}/>
+            {showParents && <Parameters primitive={primitive} editing={true} fullList={editing} showParents/>}
+            {enrichmentActive && <div className='absolute top-0 left-0 w-full h-full backdrop-blur-sm bg-white/40 place-items-center flex'>
+                <Grid
+                  height="40%"
+                  color="#4fa94d"
+                  ariaLabel="grid-loading"
+                  radius="12.5"
+                  wrapperStyle={{}}
+                  wrapperClass="mx-auto"
+                  visible={true}
+                  />
+              </div>}
           </dl>
           {!props.hideFooter && 
             <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
@@ -940,7 +954,7 @@ const Entity=({primitive, ...props})=>{
 
   if( props.imageOnly || (props.fixedSize && props.scale < 0.4) ){
     
-      content = logoImg ? <VFImage className="p-4 min-w-[2rem] min-h-[2rem] w-full h-full object-scale" src={`/api/image/${primitive.id}`} /> : <BuildingOffice2Icon className='text-gray-500 p-4'/>
+      content = logoImg ? <VFImage className="p-4 min-w-[2rem] min-h-[2rem] w-full h-full object-contain m-auto" src={`/api/image/${primitive.id}`} /> : <BuildingOffice2Icon className='text-gray-500 p-4'/>
        
       buttonSize = props.compact ? 5 : 16
   }else{
@@ -960,7 +974,7 @@ const Entity=({primitive, ...props})=>{
       content = <>
         <div className='w-full px-4 pt-2 flex place-items-center'>
           { logoImg && (logoImg !== null) &&
-            <VFImage className="w-8 h-8 object-scale" src={`/api/image/${primitive.id}`} />
+            <VFImage className="w-8 h-8 object-contain my-auto" src={`/api/image/${primitive.id}`} />
             }
             <p className={`${props.fixedSize ? "line-clamp-2" : "py-2"} px-2 text-lg text-gray-700 font-semibold`}>{primitive.title}</p>
           </div>
@@ -998,6 +1012,7 @@ const Entity=({primitive, ...props})=>{
     style.maxHeight = props.fixedSize || "4rem"
   }
   
+  const showAsProcessing = primitive.processing?.pivot
 
   return (
     <div 
@@ -1034,6 +1049,7 @@ const Entity=({primitive, ...props})=>{
             ]}
             />}
             {content}
+          {showAsProcessing && ProcessingPane()}
     </div>
   )
 }
@@ -1319,6 +1335,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     style.minHeight = props.fixedSize
     style.maxHeight = props.fixedSize
   }
+  const showAsProcessing = primitive.processing?.pivot
 
   return (
     <div 
@@ -1393,9 +1410,49 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
             <CategoryCardPill primitive={category}/>
           ))}
         </div>}
+        {showAsProcessing && ProcessingPane()}
     </div>
   )
 }
+
+
+function ProcessingBase({primitive, ...props}){
+  useDataEvent("set_field", primitive?.id)
+  
+  let showAsProcessing = primitive?.processing && (primitive.processing.pivot || primitive.processing.ai)
+
+  if( !showAsProcessing ){
+    if( primitive?.processing?.expanding){
+      if( Object.values(primitive.processing.expanding).filter((d)=>d).length > 0){
+        showAsProcessing = true
+      }
+    }
+  }
+
+  if( !showAsProcessing){
+    return <></>
+  }
+  return (<div
+      className="w-full h-2 absolute bottom-0 left-0 before:bg-gradient-to-r before:from-transparent before:via-ccgreen-600/100 before:to-transparent before:absolute before:bottom-0 before:left-0 before:w-full before:h-[6px] before:-translate-x-[90%] before:animate-[shimmer_4s_infinite]"
+    >
+  </div>)
+}
+
+function ProcessingPane(){
+ return (<div className='absolute top-0 left-0 w-full h-full backdrop-blur-sm bg-white/40 place-items-center flex'>
+            <Grid
+              height="40%"
+              color="#4fa94d"
+              ariaLabel="grid-loading"
+              radius="12.5"
+              wrapperStyle={{}}
+              wrapperClass="mx-auto"
+              visible={true}
+              />
+          </div>)
+}
+
+PrimitiveCard.ProcessingBase = ProcessingBase
 PrimitiveCard.Variant = Variant
 PrimitiveCard.Details = Details
 PrimitiveCard.Questions = Questions

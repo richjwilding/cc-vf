@@ -550,25 +550,25 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         gridTemplateRows: `${hasColumnHeaders ? "5em" : ""} repeat(${rowExtents.length}, min-content)`
                     }}
                     className='vfExplorer touch-none grid relative gap-8 w-fit h-fit'>
-                    {!hasColumnHeaders && !hasRowHeaders && <div key={`croot`} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[0] || "slate"}-200/20 border-2 border-${colors[0] || "slate"}-200/40`}></div>}
-                    {hasColumnHeaders && columnExtents.map((col, cIdx)=>(<div key={`c${cIdx}`} style={{gridColumnStart:cIdx + (hasRowHeaders ? 2 : 1), gridColumnEnd:cIdx + (hasRowHeaders ? 3 : 2)}} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[cIdx] || "slate"}-200/20 border-2 border-${colors[cIdx] || "slate"}-200/40`}></div>))}
-                    {hasRowHeaders && rowExtents.map((col, cIdx)=>(<div key={`r${cIdx}`} style={{gridRowStart:cIdx + (hasColumnHeaders ? 2 : 1), gridRowEnd:cIdx + (hasColumnHeaders ? 3 : 2)}} className={`vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-slate-200/40 border-2 border-slate-200/50`}></div>))}
+                    {!hasColumnHeaders && !hasRowHeaders && <div key={`croot`} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[0] || "slate"}-200/20 border-2 border-${colors[0] || "slate"}-200/40`}></div>}
+                    {hasColumnHeaders && columnExtents.map((col, cIdx)=>(<div key={`c${cIdx}`} style={{gridColumnStart:cIdx + (hasRowHeaders ? 2 : 1), gridColumnEnd:cIdx + (hasRowHeaders ? 3 : 2)}} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[cIdx] || "slate"}-200/20 border-2 border-${colors[cIdx] || "slate"}-200/40`}></div>))}
+                    {hasRowHeaders && rowExtents.map((col, cIdx)=>(<div key={`r${cIdx}`} style={{gridRowStart:cIdx + (hasColumnHeaders ? 2 : 1), gridRowEnd:cIdx + (hasColumnHeaders ? 3 : 2)}} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-slate-200/40 border-2 border-slate-200/50`}></div>))}
                     {hasColumnHeaders && <>
                         {hasRowHeaders && <p></p>}
-                        {columnExtents.map((col,idx)=>(<p key={`rt${idx}`} className='vfbgtitle z-[2] font-bold text-lg text-center p-2 text-2xl self-center'>{col}</p>))}
+                        {columnExtents.map((col,idx)=>(<p key={`rt${idx}`} className='touch-none vfbgtitle z-[2] font-bold text-lg text-center p-2 text-2xl self-center'>{col}</p>))}
                         </>}
 
                     { rowExtents.map((row, rIdx)=>{
                         let rowOption = axisOptions[rowSelection]
                         return <React.Fragment>
-                            {hasRowHeaders && <p key={`ct${rIdx}`} className='vfbgtitle z-[2] font-bold text-sm text-center p-2 text-2xl self-center'>{row && typeof(row) === "string" ? row?.split('/').join(" ") : row}</p>}
+                            {hasRowHeaders && <p key={`ct${rIdx}`} className='touch-none vfbgtitle z-[2] font-bold text-sm text-center p-2 text-2xl self-center'>{row && typeof(row) === "string" ? row?.split('/').join(" ") : row}</p>}
                             {columnExtents.map((column, cIdx)=>{
                                 let colOption = axisOptions[colSelection]
                                 let subList = list.filter((item)=>item.column === column && item.row === row).sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
                                 return <div 
                                         style={{columns: Math.floor(Math.sqrt(columnColumns[cIdx] ))}} 
                                         id={`${cIdx}-${rIdx}`}                                        
-                                        className={`${colOption?.allowMove || rowOption?.allowMove ? "dropzone" : ""} z-[2] w-full  p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children`}>
+                                        className={`${colOption?.allowMove || rowOption?.allowMove ? "dropzone" : ""} z-[2] w-full  p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children touch-none `}>
                                             {subList.map((wrapped, idx)=>{
                                                 let item = wrapped.primitive
                                                 let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth:'16rem'}
@@ -585,7 +585,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 scale={staggerScale} 
                                                 fields={fields} 
                                                 {...size} 
-                                                className='m-2' 
+                                                className='m-2 touch-none ' 
                                                 {...props.renderProps} 
                                                 onClick={props.onCardClick ? ()=>{
                                                     if( myState.current?.cancelClick ){

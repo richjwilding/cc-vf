@@ -11,8 +11,11 @@ import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { getDocument, getDocumentAsPlainText, importGoogleDoc, removeDocument, replicateURLtoStorage } from '../google_helper';
 import analyzeDocument from '../openai_helper';
-import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship} from '../SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
+import { SIO } from '../socket';
+import QueueAI from '../ai_queue';
+import QueueDocument from '../document_queue';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -433,6 +436,7 @@ router.post('/set_field', async function(req, res, next) {
     console.log(`${data.receiver} - ${data.field} = ${data.value}`)
     let result
 
+
     try {
 
         const prim = await Primitive.findOneAndUpdate(
@@ -445,8 +449,18 @@ router.post('/set_field', async function(req, res, next) {
             {new: true})
         
             if( data.field === 'referenceParameters.notes'){                
-                console.log(`purging old doumcent for ${data.receiver}`)
-                removeDocument(data.receiver)
+                console.log(`Queue purging of old document for ${data.receiver}`)
+               // removeDocument(data.receiver)
+                QueueDocument().add(`doc_refresh_${data.receiver}`, 
+                    {
+                        command: "refresh", 
+                        id: data.receiver, 
+                        value: data.value, 
+                        req: {user: {
+                            accessToken: req.user.accessToken,
+                            refreshToken: req.user.refreshToken
+                        }}
+                    })
             }
 
         const category = await Category.findOne({id: prim.referenceId})
@@ -465,6 +479,13 @@ router.post('/set_field', async function(req, res, next) {
         }
         
 
+        SIO.notifyPrimitiveEvent(prim, [
+            {
+                type: "set_fields",
+                primitiveId: data.receiver,
+                fields:{[data.field]:data.value}
+            }
+        ])
 
         res.json({success: true, result: result})
       } catch (err) {
@@ -525,80 +546,16 @@ router.post('/add_contact', async function(req, res, next) {
 })
 
 
-const removeParentReference = async (target, parentId)=>{
-    console.log(`API: removeParentReference ${target.id} ${parentId}`)
-    if( !(target instanceof Object)){
-        target = await Primitive.findOne({"_id": new ObjectId(target)})
-    }
-
-
-    try{
-        const updates = target.parentPrimitives[parentId].reduce((o,pp)=>{
-            o[pp] = {$function: {
-                    body: `function(arr){ return arr ? arr.filter((p)=>p != '${target.id}') : undefined;}`,
-                    args: [`$${pp}`],
-                    lang: "js"
-                }}
-            return o
-        }, {})
-
-        await Primitive.findOneAndUpdate(
-            {
-                "_id": new ObjectId(parentId),
-            }, 
-            [{
-                $set: updates
-            }]
-        )
-    }catch(err){
-        throw err
-    }
-
-}
 
 router.post('/remove_primitive', async function(req, res, next) {
     let data = req.body
     console.log(`API: remove_primitive ${data.id}`)
 
     try {
-        const removed = //await Primitive.findOneAndDelete({"_id": new ObjectId(data.id)})
-                    await Primitive.findOneAndUpdate(
-                        {
-                            "_id": new ObjectId(data.id),
-                        }, 
-                        {
-                            $set: {deleted: true}
-                        })
-                
 
-        try{
-            if( removed.referenceParameters?.notes || removed.referenceParameters?.url ){
-                await removeDocument( data.id )
-            }
-            if( removed.parentPrimitives ){
-                for( const parentId of Object.keys(removed.parentPrimitives) ){
-                    await removeParentReference( removed, parentId)
-                }
-            }
-            if( removed.primitives ){
-                const childPrimitiveIds = new Proxy(removed.primitives, parser).uniqueAllIds
-                for( const childId of childPrimitiveIds ){
-                    console.log(`API: remove ${removed.id} from child parentPrimitives of ${childId}`)
-                    await Primitive.findOneAndUpdate(
-                        {
-                            "_id": new ObjectId(childId),
-                        }, 
-                        {
-                            $unset: { [`parentPrimitives.${removed.id}`]:"" }
-                        })
-                }
-            }
-        }catch(err){
-            console.log(`Error deleting - inner`)
-            console.log(err)
-            throw err
-        }
-        res.json({success: true})
+        const removedIds = await removePrimitiveById(data.id)
+
+        res.json({success: true, result: removedIds})
       } catch (err) {
         console.log(`Error deleting`)
         console.log(err)
@@ -684,7 +641,7 @@ router.get('/primitive/:id/getDocument', async function(req, res, next) {
         res.set('Cache-Control', 'public, max-age=31557600');
         remoteReadStream.pipe(res);
     }catch(error){
-        res.status(501).json({message: "Error"})
+        res.status(501).json({message: error})
     }
 
 })
@@ -721,6 +678,10 @@ router.get('/primitive/:id/discover', async function(req, res, next) {
     let success = false
 
     try{
+
+        dispatchControlUpdate(primitiveId, "processing.discovery", "active")
+        dispatchControlUpdate(primitiveId, "processing.ai.document_discovery", {state: "active", started: new Date()})
+
         const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
         const category = await Category.findOne({id: prim.referenceId})
         const extract = await getDocumentAsPlainText( primitiveId, req )
@@ -760,14 +721,17 @@ router.get('/primitive/:id/discover', async function(req, res, next) {
             }
             await prim.save()
             res.json({success: success, result: result})
+            dispatchControlUpdate(primitiveId, "processing.discovery", "done")
         }else{
             res.json({success: false, result: "Document not extracted"})
         }
-
-            
+        dispatchControlUpdate(primitiveId, "processing.ai.document_discovery", null)
+        dispatchControlUpdate(primitiveId, "processing.discovery", null)
     }catch(err){
         console.log(err)
         res.status(400).json( {error: err.message})
+        dispatchControlUpdate(primitiveId, "processing.discovery", null)
+        dispatchControlUpdate(primitiveId, "processing.ai.document_discovery",{state:"error", message:err})
         return
     }
 

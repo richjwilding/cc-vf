@@ -23,8 +23,6 @@ export async function refreshToken(req){
       return undefined
     }
     let user = req.user
-    console.log(user.expiry_date)
-
     try{
 
         return await new Promise((resolve, reject) => {
@@ -188,8 +186,6 @@ export async function extractPlainTextFromPdf(id, req){
                     })
                 })
 
-
-                //resolve(data)
                 resolve({plain: data.pages.map((p)=>p.content.map((c)=>c.ignore ? "" : c.str).join(" ")).join(" "), data: data})
             })
         }catch(err){
@@ -229,7 +225,10 @@ export async function getDocument(id, req){
         const file = bucket.file(fileName);
 
         if( !(await file.exists())[0] ){
-            await importDocument(id, req)
+            const result = await importDocument(id, req)
+            if( !result ){
+                throw "Not found"
+            }
         }
 
         const remoteReadStream = file.createReadStream()
@@ -271,7 +270,8 @@ export async function importDocument(id, req){
                 }
                 console.log(result)
                 if( result ){
-                    primitive.referenceParameters.notes.lastFetched = new Date()
+                    result = new Date()
+                    primitive.referenceParameters.notes.lastFetched = result
                     primitive.markModified('referenceParameters.notes.lastFetched')
                     await primitive.save()
                 }
@@ -403,7 +403,6 @@ export async function importGoogleDoc(id, fileId, req, pdf = true){
 
     const doRequest = async function(retry = 3){
         const auth = new google.auth.OAuth2();
-        console.log(req.user.accessToken)
         auth.setCredentials({ access_token: req.user.accessToken });
         
         const drive = google.drive({ version: 'v3', auth });

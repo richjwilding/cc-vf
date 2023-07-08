@@ -12,6 +12,7 @@ import MainStoreTests from './mainstore_tests';
 import SideNav from './SideNav';
 import SignIn from './SignIn';
 import HomeScreen from './HomeScreen';
+import toast, { Toaster } from 'react-hot-toast';
 
 library.add(fas, faLinkedin)
 
@@ -92,7 +93,21 @@ function App() {
               <Route path="/item/:id" element={
                 <SideNav key='sidebar' widePage={widePage} workspace={workspaceView} setWorkspace={setWorkspaceView}>
                   {(props)=>(
+                  <>
+                    <Toaster 
+                      position="bottom-right"
+                      reverseOrder={true}
+                      gutter={8}
+                      containerClassName=""
+                      toastOptions={{
+                        className: '',
+                        style: {
+                          background: '#f3fcf6',
+                          border:'1px solid #00d967'
+                        }}}
+                    />
                     <PrimitivePage {...props} primitive={props.primitive} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
+                  </>
                   )}
                 </SideNav>}/>
             </Routes>

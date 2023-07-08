@@ -48,7 +48,7 @@ export function Sidebar({primitive, ...props}) {
             enterTo="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem]"
             leaveFrom="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem]"
             leaveTo="min-w-0 w-0"
-            className={`${props.overlay ? "absolute right-0 z-50 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen`}>
+            className={`${props.overlay ? "absolute right-0 z-50 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl`}>
         <div className='min-w-max'>
         <div className='max-w-[24rem] sm:max-w-[28rem]'>
             <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky z-50 top-0 bg-white">

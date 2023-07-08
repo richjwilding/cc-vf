@@ -1,18 +1,4 @@
-/*
-  This example requires some changes to your config:
-  
-  ```
-  // tailwind.config.js
-  module.exports = {
-    // ...
-    plugins: [
-      // ...
-      require('@tailwindcss/forms'),
-    ],
-  }
-  ```
-*/
-import { Fragment, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
 import { Dialog, Menu, Transition } from '@headlessui/react'
 import { Bars3CenterLeftIcon, Bars4Icon, ChevronDoubleDownIcon, ChevronDownIcon, ClockIcon, HomeIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import {
@@ -24,6 +10,7 @@ import {
 import MainStore from './MainStore'
 import { useLinkClickHandler, useNavigate, useParams } from 'react-router-dom'
 import { PrimitiveCard } from './PrimitiveCard'
+import PrimitivePicker from './PrimitivePicker'
 
 
 function classNames(...classes) {
@@ -36,6 +23,8 @@ export default function SideNav(props) {
   const [pageDetailPane, setPageDetailPane] = useState(false)
   const sizeToggle = props.widePage ? "3xl" : "xl"
   const forceSmall = props.widePage === "always"
+  const [showPicker, setShowPicker] = useState(false)
+  const searchRef = useRef()
   let primitive
   
 
@@ -200,6 +189,23 @@ const mainMenu = navigation.map((item) => (
                     <nav className="px-2">
                       <div className="space-y-1">
                         {mainMenu}
+                  <a
+                    key='search'
+                    onClick={()=>setShowPicker(true)}
+                    className={classNames(
+                      'text-gray-700 hover:bg-gray-100 hover:text-gray-900',
+                      'group flex items-center rounded-md px-2 py-2 text-sm font-medium cursor-pointer'
+                    )}
+                  >
+                    <MagnifyingGlassIcon
+                      className={classNames(
+                        'text-gray-400 group-hover:text-gray-500',
+                        'mr-3 h-6 w-6 flex-shrink-0'
+                      )}
+                      aria-hidden="true"
+                    />
+                    Search
+                  </a>
                       </div>
                       <div className="mt-8">
                         <h3 className="px-3 text-sm font-medium text-gray-500" id="mobile-teams-headline">
@@ -307,7 +313,9 @@ const mainMenu = navigation.map((item) => (
                 <input
                   type="text"
                   name="search"
+                  ref={searchRef}
                   id="search"
+                  onKeyDown={()=>setShowPicker(true)}
                   className="block w-full rounded-md border-0 py-1.5 pl-9 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-ccgreen-600 focus:outline-none sm:text-sm sm:leading-6"
                   placeholder="Search"
                 />
@@ -352,7 +360,7 @@ const mainMenu = navigation.map((item) => (
             ].join(" ")}>
           {/* Search header */}
           <div className={[
-            'sticky top-0 z-20 flex h-16 flex-shrink-0 border-b border-gray-200 bg-white',
+            'sticky top-0 z-20 flex h-16 flex-shrink-0 border-b border-gray-200 bg-white overflow-x-hidden',
               !forceSmall && sizeToggle === "lg" ? "lg:hidden" : "",
               !forceSmall && sizeToggle === "xl" ? "xl:hidden" : "",
               !forceSmall && sizeToggle === "2xl" ? "2xl:hidden" : "",
@@ -375,7 +383,8 @@ const mainMenu = navigation.map((item) => (
               <ChevronDownIcon className={`h-6 w-6 ${pageDetailPane ? "rotate-180" : ""}`} aria-hidden="true" />
             </button>
               <div className="flex flex-1">
-                <PrimitiveCard.Banner primitive={primitive} small showMenu={true} showStateAction={false} className='pl-4 pr-6 w-full '/>
+                {primitive && <PrimitiveCard.Banner primitive={primitive} small showMenu={true} showStateAction={false}  className='pl-4 pr-6 w-full '/>}
+              <PrimitiveCard.ProcessingBase primitive={primitive}/>
               </div>
               <div className="flex items-center">
                 {/* Profile dropdown */}
@@ -417,6 +426,7 @@ const mainMenu = navigation.map((item) => (
               }) : props.children}
         </div>
       </div>
+      {showPicker && <PrimitivePicker  type={showPicker.type} callback={(p)=>{setTimeout(()=>searchRef.current?.blur(),100);MainStore().sidebarSelect(p)}} setOpen={()=>setShowPicker(null)} />}
     </>
   )
 }

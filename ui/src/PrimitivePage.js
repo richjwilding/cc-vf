@@ -86,24 +86,37 @@ export function PrimitivePage({primitive, ...props}) {
     const cvRef = useRef()
     const navigate = useNavigate();
 
+    const doFullScreenExplore = (val)=>{
+      if( val ){
+        if( val === 'evidence'){
+          return true
+        } 
+        if( val.type === "result"){
+          console.log(val)
+          return primitive.metadata?.resultCategories?.[val.index]?.views?.options?.fullPageExplorer
+        }
+      }
+      return false
+    }
+
     const setShowWorkingPane = useCallback((value) => {
       if( value === false && hasDocumentViewer){value = true}
       setShowWorkingPaneReal(value)
       if( props.setWidePage ){
-        const fullScreenExplore = value && (value === 'evidence' )
+        const fullScreenExplore = doFullScreenExplore(value)
         props.setWidePage( fullScreenExplore ? "always" : value )
       }
     })
 
-    useDataEvent("relationship_update set_field", primitive.id, updateRelationships)
+    useDataEvent("relationship_update set_field set_parameter", primitive.id, updateRelationships)
 
-    const showOutcomes = primitive.type !== "assessment" && showWorkingPane !== "evidence"
+    const fullScreenExplore = doFullScreenExplore(showWorkingPane )
+    const showOutcomes = primitive.type !== "assessment" && showWorkingPane !== "evidence" && !fullScreenExplore
     //const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
     const nestedEvidence = useMemo(()=>primitive.primitives.descendants.filter((d)=>d.type==="evidence"), [primitive.id])
     const hasNestedEvidence = primitive.isTask || nestedEvidence.length > 0
     const showMetrics = (primitive.isTask || primitive.type === "cohort" ) && primitive.metadata.metrics
 
-    const fullScreenExplore = showWorkingPane && (showWorkingPane === 'evidence' )
 
     const hasQuestions = (task && task.metadata.sections?.questions) || (primitive && primitive.metadata.sections?.questions)
     const hasCategories = (task && task.metadata.sections?.categories) || (primitive && primitive.metadata.sections?.categories)
@@ -112,7 +125,7 @@ export function PrimitivePage({primitive, ...props}) {
       console.log(`re run effect ${primitive.id}`)
       setShowWorkingPane(hasDocumentViewer ? true : false)//(primitive.metadata?.title === "Market scan" && primitive.primitives.allEntity.length > 0 ? "results" : false) )
       mainstore.setActiveWorkspaceFrom( primitive )
-    }, [primitive.id])
+    }, [primitive.id, hasDocumentViewer])
 
     /*const registerCallbacks = ()=>{
       callbackId.current = mainstore.registerCallback(callbackId.current, "relationship_update", updateRelationships, primitive.id )
@@ -353,8 +366,9 @@ export function PrimitivePage({primitive, ...props}) {
         ref={page}
       >
           {!props.hideBanner && 
-            <div key='banner' ref={header} className={`w-full mt-10 z-40 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100 ${props.bannerClassName}`}>
+            <div key='banner' ref={header} className={`w-full overflow-hidden mt-10 z-40 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100 ${props.bannerClassName}`}>
               <PrimitiveCard.Banner primitive={primitive} showMenu={true} showStateAction={false} className='pl-4 pr-6 mx-auto w-full max-w-3xl lg:max-w-7xl'/>
+              <PrimitiveCard.ProcessingBase primitive={primitive}/>
             </div>
           }
 

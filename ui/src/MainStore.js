@@ -4,10 +4,14 @@ import ExperimentAnalyzer from "./ExperimentAnalyzer";
 import ContactHelper from "./ContactHelper";
 import {default as PrimitiveConfig} from "./PrimitiveConfig";
 import AssessmentAnalyzer from "./AssessmentAnalyzer";
+import { io } from 'socket.io-client';
+import toast, { Toaster } from 'react-hot-toast';
+
+
 
 let instance = undefined
 function MainStore (prims){
-    if( !prims && instance ){
+    if( instance ){
         return instance
     }
     window.contactHelper = ContactHelper()
@@ -33,10 +37,16 @@ function MainStore (prims){
                             }
                         }
                         obj.activeWorkspaceId = primitive.workspaceId
+                        obj.joinChannel(obj.activeWorkspaceId)
                         resolve(true)
                     })
                 })
             })
+        },
+        joinChannel:async function(newChannel){
+            if( obj.socket ){
+                obj.socket.emit("room", newChannel)
+            }
         },
         setActiveWorkspaceFrom:async function(primitive){
             if( primitive.workspaceId ){
@@ -59,72 +69,78 @@ function MainStore (prims){
            const data =  await response.json()
            obj.data.primitives = data.reduce((o,d)=>{o[d.id || d._id] = primitive_access(d, "primitive"); return o}, {})
 
+            obj.joinChannel(obj.activeWorkspaceId)
             obj.loadControl(true)
+
+        },
+        processServerActions( list ){
+            list.forEach((entry)=>{
+                if(entry.type === "new_primitives"){
+                    for(const rData of entry.data){
+                        obj.addPrimitive( rData )
+                        const newObj = obj.primitive(rData.id)
+                        const list = [newObj]
+                        
+                        for(const parentId of Object.keys(rData.parentPrimitives || {})){
+                            const paths = rData.parentPrimitives[parentId].map((d)=>d.replace('primitives.',''))
+                            const parent = obj.primitive( parentId )
+                            if( parent ){
+                                list.push(parent)
+                                paths.forEach((p)=>{
+                                    parent.addRelationship( newObj, p, true)
+                                })
+                            }
+                        }
+                        obj.triggerCallback("relationship_update", list)
+                        obj.triggerCallback("new_primitive", [newObj] )
+                    }
+                }else if(entry.type === "add_relationship"){
+                        const parent = obj.primitive( entry.id)
+                        const target = obj.primitive( entry.target)
+                        parent.addRelationship(target, entry.path, true)
+                        obj.triggerCallback("relationship_update", [entry.id, entry.target])
+                    console.log(  ` Add rel ${parent.id} > ${target.id} : ${entry.path}` )
+                }else if(entry.type === "remove_relationship"){
+                        const parent = obj.primitive( entry.id)
+                        const target = obj.primitive( entry.target)
+                        parent.removeRelationship(target, entry.path, true)
+                        obj.triggerCallback("relationship_update", [entry.id, entry.target])
+                    console.log(  ` Remove rel ${parent.id} > ${target.id} : ${entry.path}` )
+                }else if(entry.type === "set_fields"){
+                    console.log(`SET FIELD CALL BACK`, entry)
+                    if( entry.fields){
+                        const target = obj.primitive( entry.primitiveId)
+                        if( target ){
+                            console.log(  `Updating fields on  ${target.id}` )
+
+                            Object.keys(entry.fields).forEach((field)=>{
+                                const frag = field.split('.')
+                                const root = frag.shift()
+                                let val = entry.fields[field]
+
+                                if( val === null){
+                                    val = undefined
+                                }
+
+                                if( root === 'referenceParameters'){
+                                    console.log(`setting reference ${frag.join(".")}`)
+                                    target.setParameter(frag.join("."), val, true, true)
+                                    obj.triggerCallback("set_parameter", [target] )
+                                }else{
+                                    target.setField(field, val, undefined, true)
+                                    obj.triggerCallback("set_field", [target] )
+                                }
+                            })
+                        }
+                    }
+                }
+            })
 
         },
         ajaxResponseHandler(response){
             if( response.success){
                 if( response.result && Array.isArray(response.result)){
-                    let out
-                    response.result.forEach((entry)=>{
-                        if(entry.type === "new_primitives"){
-                            out = []
-                            for(const rData of entry.data){
-                                obj.addPrimitive( rData )
-                                const newObj = obj.primitive(rData.id)
-                                const list = [newObj]
-                                
-                                for(const parentId of Object.keys(rData.parentPrimitives || {})){
-                                    const paths = rData.parentPrimitives[parentId].map((d)=>d.replace('primitives.',''))
-                                    const parent = obj.primitive( parentId )
-                                    if( parent ){
-                                        list.push(parent)
-                                        paths.forEach((p)=>{
-                                            parent.addRelationship( newObj, p, true)
-                                        })
-                                    }
-                                }
-                                obj.triggerCallback("relationship_update", list)
-                                obj.triggerCallback("new_primitive", [newObj] )
-                                out.push(newObj)
-                            }
-                            console.log(  `Added ${out.length} new items` )
-//                            out = {data:out, message: `Added ${out.length} new items`, type: entry.type}
-                        }else if(entry.type === "add_relationship"){
-                                const parent = obj.primitive( entry.id)
-                                const target = obj.primitive( entry.target)
-                                parent.addRelationship(target, entry.path, true)
-                                obj.triggerCallback("relationship_update", [entry.id, entry.target])
-                            console.log(  ` Add rel ${parent.id} > ${target.id} : ${entry.path}` )
-                        }else if(entry.type === "remove_relationship"){
-                                const parent = obj.primitive( entry.id)
-                                const target = obj.primitive( entry.target)
-                                parent.removeRelationship(target, entry.path, true)
-                                obj.triggerCallback("relationship_update", [entry.id, entry.target])
-                            console.log(  ` Remove rel ${parent.id} > ${target.id} : ${entry.path}` )
-                        }else if(entry.type === "set_fields"){
-                            if( entry.fields){
-                                const target = obj.primitive( entry.primitiveId)
-                                if( target ){
-                                    console.log(  `Updating fields on  ${target.id}` )
-
-                                    Object.keys(entry.fields).forEach((field)=>{
-                                        const val = entry.fields[field] //'referenceParameters.url': linkedInData.website,
-                                        const frag = field.split('.')
-                                        const root = frag.shift()
-                                        if( root === 'referenceParameters'){
-                                            target.setParameter(frag.join("."), val, true, true)
-                                            obj.triggerCallback("set_parameter", [target] )
-                                        }else{
-                                            target.setField(root, val, undefined, true)
-                                            obj.triggerCallback("set_field", [target] )
-                                        }
-                                    })
-                                }
-                            }
-                        }
-                    })
-
+                    this.processServerActions(response.result)
                 }
                 return true
             }            
@@ -287,7 +303,7 @@ function MainStore (prims){
                 .then(
                   (res) => {
                     if( obj.ajaxResponseHandler( res )){
-                       result = true
+                       result = res.result
                     }
                   },
                   (error) => {
@@ -830,20 +846,24 @@ function MainStore (prims){
             if( !(primitive instanceof Object)){
                 primitive = this.primitive(primitive)
             }
-            await primitive.removeChildren()
-            if( await this.controller.removePrimitive(primitive) ){
-                const ids = []
-                primitive.parentPrimitives.forEach((parent)=>{
-                    const rels = primitive.parentPaths(parent.id)
-                    ids.push(parent.id)
-                    rels.forEach((path)=>{
-                        parent.primitives.remove( primitive.id, path)
+        //    await primitive.removeChildren()
+            const removedIds = await this.controller.removePrimitive(primitive) 
+            if( removedIds ){
+                console.log(`Server deleted ${removedIds.length} items`)
+                const notifyIds = []
+                for( const targetId of removedIds ){
+                    const target = this.primitive(targetId)
+                    target.parentPrimitives.forEach((parent)=>{
+                        const rels = target.parentPaths(parent.id)
+                        notifyIds.push(parent.id)
+                        rels.forEach((path)=>{
+                            parent.primitives.remove( target.id, path)
+                        })
                     })
-                })
-                this.deletePrimitive( primitive.id )
-                console.log(ids)
-                obj.triggerCallback("relationship_update", ids )
-                obj.triggerCallback("delete_primitive", primitive.id )
+                    this.deletePrimitive( target.id )
+                }
+                obj.triggerCallback("relationship_update", notifyIds )
+                obj.triggerCallback("delete_primitive", removedIds )
             }else{
                 console.warn(`Couldn't remove ${primitive.id}`)
                 throw new Error("Error removing")
@@ -933,6 +953,45 @@ function MainStore (prims){
             return  newObj
         }
     }
+
+    obj.socket = io(window.location.hostname === "localhost" ? "http://localhost:3001" : undefined, {
+        withCredentials: true
+    })
+    obj.socket.on('control', (data)=>{
+        obj.joinChannel( obj.activeWorkspaceId )
+    })
+    obj.socket.on('message', (data)=>{
+        let items = data
+        console.log(data)
+        if( !Array.isArray(data) ){
+            items = data.data
+            if( data.track ){
+                const key = data.field
+                if( obj.controlResolver && obj.controlResolver[key]){
+                    obj.controlResolver[key]()
+                    obj.controlResolver[key] = undefined
+                    console.log(`!!!!!!\nCLOSING DOWN ${key}`)
+                }else{
+                    obj.controlResolver = obj.controlResolver || {}
+                    
+                    function sleep(key) {
+                        return new Promise(resolve=>{
+                            obj.controlResolver[key] = resolve
+                        })
+                    }
+                    
+                    toast.promise(
+                        sleep(key),
+                        {
+                            loading: data.text,
+                            success: <b>Done!</b>,
+                            error: <b>Error.</b>,
+                        })
+                }
+            }
+        }
+        obj.processServerActions(items)
+    })
 
     obj.structure = PrimitiveParser(obj)
     obj.referenceParametersParser = {
@@ -1043,7 +1102,7 @@ function MainStore (prims){
                 if( prop === "validateParameter"){
                     return function( parameterName, value ){
                         const metadata = receiver.metadata
-                        const parameters = {...receiver.metadata?.parameters, ...(receiver.origin.childParameters || {})}
+                        const parameters = {...receiver.metadata?.parameters, ...(receiver.origin?.childParameters || {})}
                         if( Object.keys(parameters).length === 0 ){
                             return false
                         }

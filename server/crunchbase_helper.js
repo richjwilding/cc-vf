@@ -15,6 +15,11 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
     }
 
     const categoryList = data.categories
+
+    if( categoryList === undefined ){
+        return out
+    }
+    
     const maxVariants = options.maxVariants || 10
     if( categoryList.length < minMatch ){
         return {error: `Category information is too small or missing`}
@@ -48,9 +53,14 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
       
       
     const items = categoryList;
+
+    if( items === undefined ){
+        return out
+    }
+
     const minMatch = options.minMatch || 2
     const maxCreation = options.maxCreation || 4
-    const maxRuns = options.maxRuns || 20
+    const maxRuns = options.maxRuns || 100
     console.log(`Minimum set to ${minMatch}`)
 
     function generateCombinations(items) {
@@ -124,9 +134,8 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
             return {error: response}
         }
         const data = await response.json();
-        console.log(data)
         if( data ){
-            console.log(`-- got ${data.count} back`)
+//            console.log(`-- got ${data.count} back`)
             if( data.entities ){
                 for( const entity of data.entities){
                     if( out.length < maxCreation){
@@ -143,9 +152,9 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
                                 `http://${url}/`]}
                         })
                         if( existing ){
-                            console.log(`-- SKIP for ${properties.name}`)
+//                            console.log(`-- SKIP for ${properties.name}`)
                         }else{
-                            console.log(`-- creating entry for ${properties.name}`)
+  //                          console.log(`-- creating entry for ${properties.name}`)
                             const parent = Object.keys(primitive.parentPrimitives).find((d)=>primitive.parentPrimitives[d].includes('primitives.origin'))
                             const paths = primitive.parentPrimitives[parent].map((d)=>d.replace('primitives.', ''))
                             if( paths && parent ){
@@ -194,8 +203,8 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
 
       }
 
-
     let runs = 0
+
     let threshold = items.length > 5 ? parseInt( items.length * 0.66) : items.length
     for(const combo of generateCombinations(items).sort((a,b)=>b.length - a.length)){
         if( out.length >= maxCreation || runs > maxRuns ){

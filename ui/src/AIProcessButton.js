@@ -1,27 +1,28 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { ArrowPathIcon } from "@heroicons/react/24/outline";
+import useDataEvent from "./CustomHook";
 
 export default function AIProcessButton({primitive, ...props}){
+
+  useDataEvent("set_field", primitive.id)
+
     let title = <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
     let action = async (e)=>{
         e.stopPropagation();
         if( props.process ){
             if( props.markOnProcess ){
-              primitive.setField("ai_processing", {state: "underway", process: props.active || "unknown", started: new Date})
-              const result = await props.process(primitive)
-              primitive.setField("ai_processing", result ? null : {state: "error"})
-              return
+              console.warn("DEPRECATED")
             }
             props.process(primitive)
         }
     }
     let disable = false
-    if( primitive.ai_processing){
-        const error = primitive.ai_processing.state === "error"
-        disable = !error && props.active && primitive.ai_processing.process !== props.active
-        const active = !error && (props.active === undefined || (props.active && primitive.ai_processing.process === props.active))
+    if( primitive.processing?.ai){
+        const error = props.active && primitive.processing.ai[props.active]?.state === "error"
+        disable = !error && props.active && primitive.processing.ai[props.active]
+        const active = !error && (props.active === undefined || primitive.processing.ai[props.active])
 
-      if( error || (new Date() - new Date(primitive.ai_processing.started)) > (5 * 60 *1000) ){
+      if( error || (new Date() - new Date(primitive.processing.ai?.[props.active]?.started)) > (5 * 60 *1000) ){
         title = <div className='text-red-600'><FontAwesomeIcon icon='triangle-exclamation'/> Error</div>
       }else if(active){
         action = (e)=>{e.stopPropagation();}

@@ -71,6 +71,17 @@ module.exports = {
       '3xl': '1600px',
     },
     extend: {
+      
+      "keyframes": {
+        "shimmer": {
+          "50%": {
+            "transform": "translateX(90%)",
+          },
+          "100%": {
+            "transform": "translateX(-90%)",
+          },
+        },
+      },
     colors:{
       ccgreen:{
         25: '#fbfefc',

@@ -16,8 +16,8 @@ export default function ResultAnalyzer(primitive){
             const mainstore = MainStore()
 
             let hasError = false
-            primitive.setField( "discoveryDone", null )
-            primitive.setField("ai_processing", {state: "underway", process:"discovery", started: new Date})
+//            primitive.setField( "discoveryDone", null )
+  //          primitive.setField("ai_processing", {state: "underway", process:"discovery", started: new Date})
             const response = await primitive.doDiscovery()
             console.log(response)
 
@@ -39,9 +39,9 @@ export default function ResultAnalyzer(primitive){
                         primitive.setParameter( key, answer)
                     }
                 }
-                primitive.setField( "discoveryDone", true )
+             //   primitive.setField( "discoveryDone", true )
             }
-            primitive.setField("ai_processing", hasError ? {state: "error"}  : null)
+         //   primitive.setField("ai_processing", hasError ? {state: "error"}  : null)
         },
         aiProcessSummary:function(){
             let origin = primitive.origin

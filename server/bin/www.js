@@ -5,6 +5,7 @@
  */
 
 import app from '../app';
+import { SIO } from '../socket';
 import debugLib from 'debug';
 import http from 'http';
 const debug = debugLib('your-project-name:server');
@@ -26,6 +27,8 @@ var server = http.createServer(app);
 /**
  * Listen on provided port, on all network interfaces.
  */
+
+SIO.init( server )
 
 server.listen(port);
 server.on('error', onError);

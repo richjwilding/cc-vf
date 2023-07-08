@@ -94,12 +94,13 @@ const SearchPanel = (props)=>{
     })
   }, [filterSet.map((f)=>f.name), props.root?.id])
 
+  const ql = query.toLowerCase()
   const filteredPrimitives =
-    query === ''
+    (query === ''
       ? primitives
       : primitives.filter((p) => {
-          return p.title.toLowerCase().includes(query.toLowerCase())
-        })
+          return (p.title?.toLowerCase().includes(ql) || p.plainId.toString().slice(0,ql.length) === ql)
+        })).slice(0, (props.maxListLength || 200))
 
   let lastGroup = undefined
 

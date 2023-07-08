@@ -83,7 +83,7 @@ const MyToolBar = ( props ) => {
 
 const ResultViewer = forwardRef(function ResultViewer({...props}, ref){
 
-   useDataEvent("relationship_update", props.primitive.id, ()=>setNotes(processNotesFromEvidence()))
+   useDataEvent("relationship_update set_field set_parameter", props.primitive.id, ()=>setNotes(processNotesFromEvidence()))
 
     const processNotesFromEvidence = ()=>{
         const evidenceList = props.evidenceList || props.primitive?.primitives.allUniqueEvidence
@@ -132,13 +132,18 @@ const ResultViewer = forwardRef(function ResultViewer({...props}, ref){
 
   let noteId = notes.length;
 
-  if( !url && props.primitive ){
-        const fetchDoc = async function(){
-          const data = await props.primitive.getDocument( )
-          setUrl( {data: new Uint8Array( data)})
-        }
-        fetchDoc()
-  }
+
+  useEffect(() => {
+    let active = true
+    load()
+    return () => { active = false }
+  
+    async function load() {
+      const data = await props.primitive.getDocument( )
+      if (!active) { return }
+      setUrl( {data: new Uint8Array( data)})
+    }
+    }, [props.primitive.id, props.primitive.referenceParameters.notes, props.primitive.referenceParameters.notes?.lastFetched, props.primitive.referenceParameters.url])
 
 
 
@@ -208,22 +213,26 @@ const highlightPluginInstance = props.enableEvidence ? highlightPlugin({
 
 
   return (
-    <Worker workerUrl="https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.js">
-      <div className='h-full flex flex-col divide-y divide-gray-200'>
-          {toolbar}
-        <div ref={viewer} className='flex-1 overflow-y-scroll pt-2 bg-gray-200 shadow-inner'>
-          <Viewer
-              fileUrl={url.data}
-              plugins={[
-                toolbarPluginInstance,
-                pageNavigationPluginInstance,
-                highlightPluginInstance,
-              ].filter((d)=>d)}
-          />
-          </div>
-      </div>
-      <div className='bg-gray-200 rounded-b-lg shadow-lg flex flex-col py-2'/>
-  </Worker>)
+    <>
+    {props.primitive.processing?.document_refresh && <p className='text-xs'>processing</p>}
+    {!props.primitive.processing?.document_refresh && 
+        <Worker workerUrl="https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.js">
+        <div className='h-full flex flex-col divide-y divide-gray-200'>
+            {toolbar}
+            <div ref={viewer} className='flex-1 overflow-y-scroll pt-2 bg-gray-200 shadow-inner'>
+            <Viewer
+                fileUrl={url.data}
+                plugins={[
+                    toolbarPluginInstance,
+                    pageNavigationPluginInstance,
+                    highlightPluginInstance,
+                ].filter((d)=>d)}
+            />
+            </div>
+        </div>
+        <div className='bg-gray-200 rounded-b-lg shadow-lg flex flex-col py-2'/>
+    </Worker>}
+    </>)
 
 })
 export default ResultViewer
