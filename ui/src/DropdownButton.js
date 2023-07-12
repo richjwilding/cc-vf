@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
 import { Menu, Transition } from '@headlessui/react'
 import { ChevronDownIcon } from '@heroicons/react/20/solid'
+import { Float } from '@headlessui-float/react'
 
 
 function classNames(...classes) {
@@ -28,20 +29,10 @@ export default function DropdownButton({...props}) {
         baseColor = (selected ? selected[props.colorKey] : undefined) || "gray"
         colors = `bg-${baseColor}-200 border-${baseColor}-400  text-${baseColor}-800 hover:bg-${baseColor}-300 focus:ring-${baseColor}-700 focus:ring-offset-${baseColor}-700` 
     }
-    
 
-  return (
-    <div className={`inline-flex rounded-md ${props.flat ? "hover:shadow-sm" : "shadow-sm"} ${props.className || ""}`}>
-      {!props.flat &&
-      <button
-        type="button"
-        onClick={props.main ? undefined : (e)=>{e.stopPropagation();props.items[0]?.action && props.items[0]?.action()}}
-        className={`relative inline-flex items-center rounded-l-md border  px-4 py-2 text-sm font-medium focus:z-20 focus:outline-none focus:ring-2  focus:ring-offset-2 ${colors} w-full `}
-      >
-        {props.main ||  selected?.title || props.title || items[0].title}
-      </button>}
-      <Menu as="div" className="relative -ml-px block">
-        {props.flat 
+
+    const actualMenu = [
+        props.flat 
           ? <Menu.Button className={`h-full relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium focus:z-20 focus:outline-none  ${colors}`}>
             {props.title}
             <ChevronDownIcon className="h-5 w-5 ml-1" aria-hidden="true" />
@@ -51,16 +42,7 @@ export default function DropdownButton({...props}) {
           <span className="sr-only">Open options</span>
           <ChevronDownIcon className="h-5 w-5" aria-hidden="true" />
           </Menu.Button>
-        }
-        <Transition
-          as={Fragment}
-          enter="transition ease-out duration-100"
-          enterFrom="transform opacity-0 scale-95"
-          enterTo="transform opacity-100 scale-100"
-          leave="transition ease-in duration-75"
-          leaveFrom="transform opacity-100 scale-100"
-          leaveTo="transform opacity-0 scale-95"
-        >
+        ,
           <Menu.Items className={[
               'absolute z-20 mt-2 -mr-1 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none',
               props.align === 'left' ? 'left-0' : 'right-0',
@@ -88,7 +70,24 @@ export default function DropdownButton({...props}) {
               )})}
             </div>
           </Menu.Items>
-        </Transition>
+    ]
+    
+
+  return (
+    <div className={`inline-flex rounded-md ${props.flat ? "hover:shadow-sm" : "shadow-sm"} ${props.className || ""}`}>
+      {!props.flat &&
+      <button
+        type="button"
+        onClick={props.main ? undefined : (e)=>{e.stopPropagation();props.items[0]?.action && props.items[0]?.action()}}
+        className={`relative inline-flex items-center rounded-l-md border  px-4 py-2 text-sm font-medium focus:z-20 focus:outline-none focus:ring-2  focus:ring-offset-2 ${colors} w-full `}
+      >
+        {props.main ||  selected?.title || props.title || items[0].title}
+      </button>}
+      <Menu as="div" className="relative -ml-px block">
+        {props.portal
+          ? <Float portal placement='bottom-end'>{actualMenu}</Float>
+          : actualMenu}
+
       </Menu>
     </div>
   )

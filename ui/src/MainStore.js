@@ -64,10 +64,8 @@ function MainStore (prims){
             console.log(`Removing ${toPurge.length} items`)
 
             const response = await fetch(`/api/primitives?workspace=${obj.activeWorkspaceId}`)
-          //  obj._cache_prim = undefined
-           // obj.data.primitives = await response.json()
-           const data =  await response.json()
-           obj.data.primitives = data.reduce((o,d)=>{o[d.id || d._id] = primitive_access(d, "primitive"); return o}, {})
+            const data =  await response.json()
+            obj.data.primitives = data.reduce((o,d)=>{o[d.id || d._id] = primitive_access(d, "primitive"); return o}, {})
 
             obj.joinChannel(obj.activeWorkspaceId)
             obj.loadControl(true)
@@ -91,23 +89,26 @@ function MainStore (prims){
                                 })
                             }
                         }
-                        obj.triggerCallback("relationship_update", list)
                         obj.triggerCallback("new_primitive", [newObj] )
+                        obj.triggerCallback("relationship_update", list)
                     }
                 }else if(entry.type === "add_relationship"){
                         const parent = obj.primitive( entry.id)
                         const target = obj.primitive( entry.target)
-                        parent.addRelationship(target, entry.path, true)
                         obj.triggerCallback("relationship_update", [entry.id, entry.target])
-                    console.log(  ` Add rel ${parent.id} > ${target.id} : ${entry.path}` )
+                        parent.addRelationship(target, entry.path, true)
+                    //console.log(  ` Add rel ${parent.id} > ${target.id} : ${entry.path}` )
                 }else if(entry.type === "remove_relationship"){
                         const parent = obj.primitive( entry.id)
                         const target = obj.primitive( entry.target)
-                        parent.removeRelationship(target, entry.path, true)
                         obj.triggerCallback("relationship_update", [entry.id, entry.target])
-                    console.log(  ` Remove rel ${parent.id} > ${target.id} : ${entry.path}` )
+                        parent.removeRelationship(target, entry.path, true)
+                    //console.log(  ` Remove rel ${parent.id} > ${target.id} : ${entry.path}` )
+                }else if(entry.type === "remove_primitives"){
+                    if( entry.primitiveIds && Array.isArray(entry.primitiveIds) ){
+                        obj.removePrimitive(undefined, entry.primitiveIds)
+                    }
                 }else if(entry.type === "set_fields"){
-                    console.log(`SET FIELD CALL BACK`, entry)
                     if( entry.fields){
                         const target = obj.primitive( entry.primitiveId)
                         if( target ){
@@ -808,6 +809,7 @@ function MainStore (prims){
                 return response
         },
         doPrimitiveDocumentQuestionsAnalysis:async function ( primitive, ids ){
+            console.log(ids)
             
             let url = `/api/primitive/${primitive.id}/analyzeQuestions`
             if( ids ){
@@ -842,25 +844,34 @@ function MainStore (prims){
             this.data.contacts.push(data)
             return data
         },
-        removePrimitive:async function(primitive){
-            if( !(primitive instanceof Object)){
-                primitive = this.primitive(primitive)
+        removePrimitive:async function(primitive, skip = false){
+            if( !skip ){
+                if(!(primitive instanceof Object)){
+                    primitive = this.primitive(primitive)
+                }
+                console.log(`removing ${primitive.id}`)
             }
-        //    await primitive.removeChildren()
-            const removedIds = await this.controller.removePrimitive(primitive) 
+            let removedIds
+            if(!skip){
+                removedIds = await this.controller.removePrimitive(primitive) 
+            }else{
+                removedIds = skip
+            }
             if( removedIds ){
-                console.log(`Server deleted ${removedIds.length} items`)
+                //console.log(`Server deleted ${removedIds.length} items`)
                 const notifyIds = []
                 for( const targetId of removedIds ){
                     const target = this.primitive(targetId)
-                    target.parentPrimitives.forEach((parent)=>{
-                        const rels = target.parentPaths(parent.id)
-                        notifyIds.push(parent.id)
-                        rels.forEach((path)=>{
-                            parent.primitives.remove( target.id, path)
+                    if( target ){
+                        target.parentPrimitives.forEach((parent)=>{
+                            const rels = target.parentPaths(parent.id)
+                            notifyIds.push(parent.id)
+                            rels.forEach((path)=>{
+                                parent.primitives.remove( target.id, path)
+                            })
                         })
-                    })
-                    this.deletePrimitive( target.id )
+                        this.deletePrimitive( target.id )
+                    }
                 }
                 obj.triggerCallback("relationship_update", notifyIds )
                 obj.triggerCallback("delete_primitive", removedIds )
@@ -966,12 +977,11 @@ function MainStore (prims){
         if( !Array.isArray(data) ){
             items = data.data
             if( data.track ){
-                const key = data.field
+                const key = data.track
                 if( obj.controlResolver && obj.controlResolver[key]){
                     obj.controlResolver[key]()
                     obj.controlResolver[key] = undefined
-                    console.log(`!!!!!!\nCLOSING DOWN ${key}`)
-                }else{
+                }else if(data.text){
                     obj.controlResolver = obj.controlResolver || {}
                     
                     function sleep(key) {

@@ -95,8 +95,8 @@ export default function CollectionViewer({primitive, category, ...props}){
             {showBar && <div className="flex w-full p-2 space-x-2">
                 {buttons}
             </div>}
-            {(list === undefined || list.length === 0) && 
-                <div className='w-full p-2'>
+            {(list === undefined || list.length === 0)  
+            ? <div className='w-full p-2'>
                     <button
                         type="button"
                         onClick={()=>createResult(undefined, true)}
@@ -105,56 +105,59 @@ export default function CollectionViewer({primitive, category, ...props}){
                     <span className="mt-2 block text-sm font-semibold text-gray-900">Create a new {category.title}</span>
                     </button>
                 </div>
-            }
-            {
-            view === "table" && <div key="table" className="p-2 bg-white rounded-md h-[60vh]">
-                <PrimitiveTable 
-                    onDoubleClick={props.onPreviewFromList} 
-                    columns={cardConfig.fields} 
-                    primitives={list} className='w-full min-h-[24em] bg-white'/> 
-            </div>
-            }
-            {view === "explore" &&
-                <PrimitiveExplorer 
-                    primitive={primitive}
-                    types='entity'
-                    renderProps={{
-                        hideCover: true,
-                        urlShort: true,
-                        fixedSize: "16rem"
-                    }}
-                    onCardClick ={props.onShowInfo}
-                    buttons={buttons} 
-                />
-            }
-            {view === "list" && <CardGrid 
-                key="card_list"
-                primitive={primitive}
-                category={category}
-                selectedItem={props.selected}
-                cardClick={(e)=>e.currentTarget.focus()}
-                onEnter={props.onPreviewFromList}
-                onDoubleClick={props.onNavigate}
-                list={list} 
-                showDetails={true}
-                columnClass='mt-2'
-                />}
-            {view === "cards" && <CardGrid  
-                key="card_grid"
-                primitive={primitive}
-                category={category}
-                selectedItem={props.selected}
-                cardClick={(e)=>e.currentTarget.focus()}
-                onEnter={props.onPreviewFromList}
-                onDoubleClick={props.onNavigate}
-                list={list} 
-                columnClass={
-                    cardConfig?.wide 
-                        ? `@xl:columns-2 @[70rem]:columns-3 @[95rem]:columns-4 @[120rem]:columns-5`
-                        : `@md:columns-2 @xl:columns-3 @2xl:columns-4`
+            : <>
+                {
+                view === "table" && <div key="table" className="p-2 bg-white rounded-md h-[60vh]">
+                    <PrimitiveTable 
+                        onDoubleClick={props.onNavigate} 
+                        onEnter={props.onPreviewFromList} 
+                        columns={cardConfig.fields} 
+                        primitives={list} className='w-full min-h-[24em] bg-white'/> 
+                </div>
                 }
-                />}
+                {view === "explore" &&
+                    <PrimitiveExplorer 
+                        primitive={primitive}
+                        types='entity'
+                        renderProps={{
+                            hideCover: true,
+                            urlShort: true,
+                            fixedSize: "16rem"
+                        }}
+                        onCardClick ={props.onShowInfo}
+                        buttons={buttons} 
+                    />
+                }
+                {view === "list" && <CardGrid 
+                    key="card_list"
+                    primitive={primitive}
+                    category={category}
+                    selectedItem={props.selected}
+                    cardClick={(e)=>e.currentTarget.focus()}
+                    onEnter={props.onPreviewFromList}
+                    onDoubleClick={props.onNavigate}
+                    list={list} 
+                    showDetails={true}
+                    columnConfig={{"sm":1}}
+                    />}
+                {view === "cards" && <CardGrid  
+                    key="card_grid"
+                    primitive={primitive}
+                    category={category}
+                    selectedItem={props.selected}
+                    cardClick={(e)=>e.currentTarget.focus()}
+                    onEnter={props.onPreviewFromList}
+                    onDoubleClick={props.onNavigate}
+                    list={list} 
+                    columnConfig={
+                        cardConfig?.wide
+                            ? {"xl":2, "6xl":3, "9xl":4, "11xl":5}
+                            : {"md":2, "xl":3, "2xl":4}
+                    }
+                    />}
             </>
+        }
+     </>
 
     
     return props.hidePanel 

@@ -6,6 +6,12 @@ export default function PrimitiveParser(obj){
             get(target, prop, receiver) {
                 if( prop === "flattenPath" ){
                     return function(path){
+                        if( typeof(path) === "string"){
+                            if( path.slice(0, 11) !== "primitives."){
+                                path = "primitives." + path
+                            }
+                            return path
+                        }
                         let out = ['primitives']
                         const nest = (node)=>{
                             if( node instanceof Object ){
@@ -39,7 +45,9 @@ export default function PrimitiveParser(obj){
                             }
                             target = target.null
                         }
-                        target.push( item )
+                        if(!target.includes(item)){
+                            target.push( item )
+                        }
                         return receiver 
                     }
                 }
@@ -234,6 +242,9 @@ export default function PrimitiveParser(obj){
                         let node = receiver                        
                         if( typeof(path) === "string"){
                             path = path.split('.')
+                            if( path[0] === "primitives"){
+                                path.shift()
+                            }
                             const last = path.pop()
                             if( path.length === 0){
                                 path = last

@@ -9,7 +9,7 @@ import Category from '../model/Category';
 import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
-import { getDocument, getDocumentAsPlainText, importGoogleDoc, removeDocument, replicateURLtoStorage } from '../google_helper';
+import { getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
 import analyzeDocument from '../openai_helper';
 import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
@@ -456,10 +456,7 @@ router.post('/set_field', async function(req, res, next) {
                         command: "refresh", 
                         id: data.receiver, 
                         value: data.value, 
-                        req: {user: {
-                            accessToken: req.user.accessToken,
-                            refreshToken: req.user.refreshToken
-                        }}
+                        req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}
                     })
             }
 
@@ -675,68 +672,35 @@ router.get('/primitive/:id/getDocumentAsPlainText', async function(req, res, nex
 router.get('/primitive/:id/discover', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id
-    let success = false
+    let success = true
 
     try{
-
-        dispatchControlUpdate(primitiveId, "processing.discovery", "active")
-        dispatchControlUpdate(primitiveId, "processing.ai.document_discovery", {state: "active", started: new Date()})
-
         const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
-        const category = await Category.findOne({id: prim.referenceId})
-        const extract = await getDocumentAsPlainText( primitiveId, req )
-        if( extract ){
-            const text = extract.plain
-            
-            let result = await analyzeDocument( {
-                opener: category.openai.opener,
-                descriptor: category.openai.descriptor,
-                responseInstructions: category.openai.responseInstructions,
-                text: text, 
-                prompts: category.openai.prompts
-            })
-            
-            if( result ){
-                success = true
-                if( result.success ){
-                    const out = {}
-                    const fieldMap = category.openai.prompts.filter((p)=>p.type !== "instruction").map((p)=>p.field)
-                    Object.values(result.response).forEach((item, idx)=>{
-                        let obj = Array.isArray(item) ? item[0] : item
-                        if( obj.answer ){
-                            if( obj.answer.toLowerCase().indexOf('not specified') === -1){
-                                if( fieldMap[idx] ){
-                                    out[fieldMap[idx]] = obj
-                                }
-                            }
-                        }
-                    })
-                    result.response = out
-                    prim.set("openai_error", null)
-                }else{
-                    prim.set("openai_error", result.status)
-                }
-            }else{
-                prim.set("openai_error", "UNKNOWN")
-            }
-            await prim.save()
-            res.json({success: success, result: result})
-            dispatchControlUpdate(primitiveId, "processing.discovery", "done")
-        }else{
-            res.json({success: false, result: "Document not extracted"})
-        }
-        dispatchControlUpdate(primitiveId, "processing.ai.document_discovery", null)
-        dispatchControlUpdate(primitiveId, "processing.discovery", null)
+        const result = await QueueDocument().documentDiscovery( prim, req )
+        res.json({success: success})
     }catch(err){
         console.log(err)
         res.status(400).json( {error: err.message})
-        dispatchControlUpdate(primitiveId, "processing.discovery", null)
-        dispatchControlUpdate(primitiveId, "processing.ai.document_discovery",{state:"error", message:err})
         return
     }
 
 })
 router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
+    let data = req.body
+    const primitiveId = req.params.id
+    const qIds = req.query.questionIds ? [req.query.questionIds].flat() : undefined
+    let out = []
+    try{
+        const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
+        await QueueDocument().processQuestions(prim, qIds, req)
+        res.json({success: true})
+    }catch(err){
+        console.log(err)
+        res.status(400).json( {error: err.message})
+    }
+    
+})
+router.get('/primitive/:id/_analyzeQuestions', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id
     const qIds = req.query.questionIds
@@ -785,105 +749,6 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
                 }
             }
 
-            const locateQuote = (oQuote, document)=>{
-                const quote = oQuote.toLowerCase().replaceAll(/\./g," ").replaceAll(/\s+/g," ")
-                console.log(`looking for ${quote}`)
-                let startPage = 0
-                let endPage = 0
-                let startIdx = 0
-                let endIdx = 0
-                let terminate = false
-                const subset = (fwd)=>{
-                    const final = (data)=>{
-                        return data.join(" ").toLowerCase().replaceAll(/\./g," ").replaceAll(/\s+/g," ")
-                    }
-                    let str = []
-                    if( startIdx >= document.pages[endPage].content.length ){
-                        startIdx = 0
-                        startPage++
-
-                    }
-
-                    if( startPage === endPage && startIdx > endIdx){
-                        return final(str)
-                    }
-
-                    if( fwd && endIdx >= document.pages[endPage].content.length ){
-                        const oldIdx = endIdx
-                        endIdx = 0
-                        endPage++
-                        if( endPage === document.pages.length ){
-                            terminate = true
-                            endPage--
-                            endIdx = oldIdx - 1                            
-                            return final(str)
-                        }
-                    }
-                    for( let p = startPage; p <= endPage; p++){
-                        const start = p === startPage ? startIdx : 0
-                        const max = document.pages[p].content.length
-                        for( let i = start; i < max; i++){
-                            if( (p === endPage) && (i > endIdx)){
-                                continue
-                            }
-                            if( !document.pages[p].content[i].ignore ){
-                                str.push( document.pages[p].content[i].str )
-                            }
-                        }
-                    }
-                    return final(str)
-                }
-                // first pass
-                while( subset(true).indexOf(quote) === -1 && !terminate){
-                    endIdx++
-                }
-                console.log(`found end page ${endPage} / ${endIdx}`)
-
-                let out = undefined
-                if( !terminate ){
-
-                    terminate = false
-                
-                    while( subset(false).indexOf(quote) !== -1 && !terminate){
-                        startIdx++
-                    }
-                    if(!terminate){
-                        if( startIdx === 0 ){
-                            startPage--
-                            startIdx = document.pages[startPage].content.length - 1
-
-                        }else{
-                            startIdx--
-                        }
-                        console.log(`found start at page ${startPage} / ${startIdx} - ${endPage} / ${endIdx}`)
-                        out = []
-                        for( let p = startPage; p <= endPage; p++){
-                            const start = p === startPage ? startIdx : 0
-                            const max = document.pages[p].content.length
-                            for( let i = start; i < max; i++){
-                                if( (p === endPage) && (i > endIdx)){
-                                    continue
-                                }
-                                const item = document.pages[p].content[i]
-                                if( item){
-
-                                    const w = document.pages[p].pageInfo.width / 100
-                                    const h = document.pages[p].pageInfo.height / 100
-                                    out.push( {
-                                        pageIndex:p,
-                                        left: item.x / w,
-                                        top: (item.y - item.height) / h,
-                                        width: item.width / w,
-                                        height: item.height / h,
-                                    })
-                                }
-                            }
-                        }
-                    }
-                }
-                return out
-
-            }
 
             const extract = await getDocumentAsPlainText( primitiveId, req )
 

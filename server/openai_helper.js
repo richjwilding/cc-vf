@@ -10,7 +10,7 @@ export async function summarizeMultiple(list, options = {} ){
 
     const interim = await processInChunk( list, 
             [
-                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": listIntro}],
             [
                 {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
@@ -30,7 +30,7 @@ export async function summarizeMultiple(list, options = {} ){
     if( interim.length > 1 ){
         const result = await processInChunk( interim, 
             [
-                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here is a list of summaries:`}],
             [
                 {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single summary.`                    
@@ -58,7 +58,7 @@ export async function summarizeMultipleAsList(list, options = {} ){
 
     const interim = await processInChunk( list, 
             [
-                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": listIntro}],
             [
                 {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
@@ -78,7 +78,7 @@ export async function summarizeMultipleAsList(list, options = {} ){
     if( interim.length > (options.asList || 1) ){
         const result = await processInChunk( interim.map((d)=>d.summary), 
             [
-                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here is a list of summaries:`}],
             [
                 {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into ${options.asList} new summaries, or as close to that number as possible, such that all similar summaries are grouped together`},
@@ -100,19 +100,35 @@ export async function summarizeMultipleAsList(list, options = {} ){
 
 }
 export async function buildCategories(list, options = {} ){
-    const interim = await processInChunk( list, 
+    let theme = options.themes
+    if( theme === ""){
+        theme = undefined
+    }
+    let interim = await processInChunk( list, 
             [
-                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here are a list of numbered ${options.types || "items"}: `}],
             [
-                {"role": "user", "content": `Categorize each item into one of no more than ${options.count || 10} categories ${options.themes ? `related to ${[options.themes].flat().join(", ")}` : ""} which covers the full list. Each category should be no more than 3 words.`},
-                {"role": "user", "content": `Provide the result as a json object with an array of categories with each entry being a string containing the category. Do not put anything other than the raw json object in the response .`},
+                options.themes 
+                    ? {"role": "user", "content": `Summarize the ${options.themes} of each item in no more than 3 words`}
+                    : {"role": "user", "content": `Categorize each item into one of no more than ${options.count || 10} categories which covers the full list. Each category should be no more than 3 words.`},
+                options.themes 
+                    ? {"role": "user", "content": `Provide the result as a json object with an array called "summaries" with each  summary as a string. Do not put anything other than the raw json object in the response .`}
+                    : {"role": "user", "content": `Provide the result as a json object with an array called "categories" with each entry being a string containing the category. Do not put anything other than the raw json object in the response .`},
             ],
-            {field: "categories", temperature: 0.3})
+            {field: options.themes ? "summaries" : "categories", temperature: 0.3})
     if( Object.hasOwn(interim, "success")){
         console.log(interim)
         return interim
     }
+
+    if( options.themes){
+        console.log(`Have ${interim.length} items `)
+        console.log(interim)
+        interim = interim.filter((d,idx,a)=>a.indexOf(d)===idx)
+        console.log(`---- ${interim.length} items `)
+    }
+
 
     let final = []
 
@@ -120,7 +136,7 @@ export async function buildCategories(list, options = {} ){
 
         const result = await processInChunk( interim, 
             [
-                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here is a list of categories: `}],
             [
                 {"role": "user", "content": `Rationalize this list into no more than ${options.count  || 10} items. Each category should be no more than 3 words.`},
@@ -138,6 +154,27 @@ export async function buildCategories(list, options = {} ){
 
     return {success: true, categories: final, interim: interim}
 }
+export async function analyzeTextAgainstTopics( text, topics, options = {}){
+    if( !text || text === ""){return {success:false}}
+    const list = text.split(`\n`)
+    const single = topics.split(",").length > 1 
+    const type = options.type || "description"
+    
+    let opener = `Here is a ${type}: `
+    let prompt =  options.prompt || `Determine how strongly the ${type} relates to ${single ? "the topic of" : "one or more of the following topics:"} ${topics}. Use one of the following assessment scores: "strongly", "clearly","somewhat", "hardly", "not at all"`
+
+    const interim = await processInChunk( list,
+            [
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                {"role": "user", "content": opener}],
+            [
+                {"role": "user", "content": prompt},
+                {"role": "user", "content": `Provide the result as a json object with a single field called 'result' containing your assessment.`}
+
+            ],
+            {field: "result", temperature: 0.3, no_num: true})
+    return {success: true, output: interim[0]}
+}
 
 export async function processPromptOnText( text, options = {}){
     if( !text || text === ""){return {success:false}}
@@ -154,7 +191,7 @@ export async function processPromptOnText( text, options = {}){
 
     const interim = await processInChunk( list,
             [
-                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format"},
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": opener}],
             [
                 {"role": "user", "content": prompt},
@@ -217,8 +254,19 @@ async function processInChunk( list, pre, post, options = {} ){
         const result = await executeAI( messages, options )
 
         if( result.success && result.response ){
+            if( options.debug ){
+                console.log(result.response)
+                console.log(field)
+            }
             if( result.response[field]){
                 interim = interim.concat(result.response[field])
+            }else{
+                if( Object.keys( result.response ).length > 0 ){
+                    interim = interim.concat(result.response)
+                    if( options.debug ){
+                        console.log(`${field} not present but have data - returning that`)
+                    }
+                }
             }
         }else{
             return result
@@ -246,6 +294,7 @@ async function executeAI(messages, options = {}){
         try{
             response = await openai.createChatCompletion({
                 model:"gpt-3.5-turbo-16k",
+              //  model:"gpt-4-0613",
                 temperature: options.templerature || 0.7,
                 messages: messages
             });
@@ -305,7 +354,7 @@ export  async function categorize(list, categories, options = {} ){
     const targetType = options.types || "items"
     const interim = await processInChunk( list, 
             [
-                {"role": "system", "content": "You are analysing data for a computer programe to process.  Responses must be in json format only"},
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format only"},
                 {"role": "user", "content": `Here are a list of numbered ${targetType}: `}
             ],
             [
@@ -315,6 +364,85 @@ export  async function categorize(list, categories, options = {} ){
             ],
             {field: "results", temperature: 0.3, maxTokens: 8000})
     return interim
+}
+export async function analyzeText(text, options = {}){
+    if( !text || text === "" || !options.prompts || options.prompts.length === 0){return {success:false}}
+    const list = text.split(`\n`)
+
+    const promptType = options.promptType || "question"
+    const opener = options.opener || 'Here is an input document: '
+    let responseInstructions = options.responseInstructions
+    const descriptor = options.descriptor || ''
+    const skipQuote = options.skipQuote
+    
+    //const responseInstructions = options.responseInstructions || 
+
+
+    const prompts = options.prompts.map((d,idx)=>{
+        return `${promptType === "task" ? "T" : "Q"}${idx}. ${d instanceof Object ? d.prompt : d}`
+    })
+
+    const singlePrompt = prompts.length === 1
+
+    if( singlePrompt ){
+        prompts.push(promptType === "task" ? "End of tasks." : "End of questions")
+    }
+
+    if( responseInstructions === undefined ){
+        let fieldList = ""
+        if( options.responseFields ){
+            const fieldSet = Object.keys(options.responseFields).map((d)=>`a ${d} field containing the ${options.responseFields[d]}`)
+            const lastField = fieldSet.pop()
+            fieldList = `, ${fieldSet.join(", ")}and ${lastField}`
+        }else{
+            fieldList = `, a 'answer' field set to the answer`
+        }
+
+        if( singlePrompt ){
+            responseInstructions = `Return your results in a json object with an array called "results". Each entry should be an object with the following fields: `
+        }else{
+            responseInstructions = `Return your results in a json object with a field called "results" which in an object with a field for each ${promptType} containing an array for responses to that ${promptType}.  Each entry in the array should be an object with the following fields: `
+        }
+        
+        responseInstructions += `an 'answered' field set to true if you found an answer to the specific ${promptType} - otherwise set to false${skipQuote ? "" : ", a 'quote' containing the exact text used to prodece the answer"}${fieldList}.Do not put anything other than the raw JSON in the response .`        
+    }
+
+    let interim = await processInChunk( list, 
+            [
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format only"},
+                {"role": "user", "content": opener}
+            ],
+            [
+                {"role": "user", "content": descriptor},
+                {"role": "user", "content": prompts.join("\n")},
+                {"role": "user", "content": responseInstructions}
+            ],
+            {field: "results", temperature: 0.3, no_num: true, debug: false })
+        
+    if( Object.hasOwn(interim, "success")){
+        console.log(interim)
+        return interim
+    }
+    if( singlePrompt ){
+        interim = interim.map((d)=>{return {id: 0, ...d}})
+    }else{
+        interim = interim.map((inner)=>{
+            return Object.keys(inner).map((key)=>{
+                if( inner[key] ){
+                    return inner[key].map((d)=>{return {id: key, ...d}})
+                }
+            }).flat()
+        }).flat().filter((d)=>d)
+    }
+    /*if( options.normalize){
+        interim = interim.reduce((o, c)=>{
+            Object.keys(c).forEach((k)=>{
+                o[k] = (o[k] || []).concat( c[k] )
+            })
+            return o
+        }, {})
+    }*/
+    return {success: true, response: interim}
 }
 export default async function analyzeDocument(options = {}){
     let text = options.text
@@ -346,7 +474,7 @@ export default async function analyzeDocument(options = {}){
         return `T${idx}. ${p}`
     }).join("\n")
     const messages = [
-            {"role": "system", "content": "You are analysing interview transcripts for a computer programe to process.  Responses must be in json format"},
+            {"role": "system", "content": "You are analysing interview transcripts for a computer program to process.  Responses must be in json format"},
             {"role": "user", "content": opener + text},
             {"role": "user", "content": descriptor + '\n' + promptsToSend + '\n' + responseInstructions},
 

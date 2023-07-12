@@ -47,12 +47,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const axisOptions = useMemo(()=>{
         function findCategories( list, access = 0 ){
             const catIds = {}
-            let type
+           // let type
             function topLevelCategory( item ){
                 const cats = item.categories
                 if( cats.length == 0){
                     if( item.type === "category" ){
-                        return item
+                        return [item]
                     }                    
                 }else{
                     return cats.map((d)=>topLevelCategory(d)).flat()
@@ -60,7 +60,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 return []
             }
             list.forEach((d)=>{
-                type = type || d.metadata.title
+                //type = type || d.metadata.title
                 topLevelCategory(d).forEach((d)=>{
                     if( !catIds[d.id] ){
                         catIds[d.id] = d
@@ -108,7 +108,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
             catIds.forEach((id)=>{
                 const category = MainStore().category(id)
-                process(category.parameters, category.title) //
+                if( category ){
+
+                    process(category.parameters, category.title) //
+                }
             })
             p.map((d)=>d.origin && d.origin.childParameters ? d.origin.id : undefined).filter((d,idx,a)=>d && a.indexOf(d)===idx).forEach((d)=>{
                 const o = mainstore.primitive(d)
@@ -121,6 +124,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
 
         let out = [{type: "none", title: "None"}]
+
+        const baseCategories = primitive.primitives.allUniqueCategory
+        out = out.concat( findCategories( baseCategories ) )
+
         out = out.concat( findCategories( items ) )
 
         if( items ){
@@ -142,9 +149,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 
             }
         }
-        
-        
-        return out
+       console.log(out) 
+        return out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>d2.id === d.id) === idx))
     }, [primitive.id, update])
 
     const [colSelection, setColSelection] = React.useState(axisOptions.length > 2 ? 2 : 0)
@@ -505,10 +511,22 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
     )
 
+    
 
 
-  const columnExtents = React.useMemo(()=>list.map((d)=>d.column).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection, update])
-  const rowExtents = React.useMemo(()=>list.map((d)=>d.row).filter((v,idx,a)=>a.indexOf(v)===idx).sort(),[primitive.id, colSelection, rowSelection, update])
+  const columnExtents = React.useMemo(()=>{
+        if( axisOptions[colSelection].type === "category" ){
+            return axisOptions[colSelection].values
+        }
+        return list.map((d)=>d.column).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
+    },[primitive.id, colSelection, rowSelection, update])
+  
+    const rowExtents = React.useMemo(()=>{
+        if( axisOptions[rowSelection].type === "category" ){
+            return axisOptions[rowSelection].values
+        }
+        return list.map((d)=>d.row).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
+    },[primitive.id, colSelection, rowSelection, update])
 
 
 
@@ -519,9 +537,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
       return Math.max(...Object.values(list.filter((d)=>d.column == col).reduce((o, d)=>{o[d.row] = (o[d.row] || 0) + 1;return o},{})))
     })
 
-    const _options = axisOptions.map((d, idx)=>(
-        <option value={idx}>{d.title}</option>
-    ))
     const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
 
     const hasColumnHeaders = (columnExtents.length > 1)

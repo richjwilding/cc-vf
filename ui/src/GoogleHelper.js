@@ -83,6 +83,9 @@ export default function GoogleHelper(){
                   }
                 }
 
+                  await MainStore().refreshUser()
+                  instance.token = MainStore().activeUser.accessToken
+
 
 
                   var view_shared = new google.picker.DocsView(google.picker.ViewId.DOCS)

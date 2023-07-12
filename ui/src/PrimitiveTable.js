@@ -31,19 +31,11 @@ const ExpandArrow = function(props) {
                     header: () => d.name,
                     sortingFn: d.field === "contact" 
                             ? (a,b,idx)=>{
-                                return a.original.primitive.referenceParameters?.contactName?.localeCompare(b.original.primitive.referenceParameters?.contactName) || 0
+                                return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
                             }
                             : "text",
                     minSize: 100,
                 })
-        })
-    }
-    const mapRows = (rows, columns) =>{
-        return rows.map((d)=>{
-            return columns.reduce((r, c)=>{
-                r[c.field] = d.referenceParameters ? d.referenceParameters[c.field] : undefined
-                return r
-            },{primitive: d})
         })
     }
 
@@ -57,6 +49,17 @@ export function PrimitiveTable(props) {
         columnSizingStart: [],}
 
     const ids = props.primitives.map((d)=>d.id)
+    
+    const mapRows = (rows, columns) =>{
+
+        return rows.map((d)=>{
+            const metadata = d.metadata
+            return columns.reduce((r, c)=>{
+                r[c.field] = (d.referenceParameters ? d.referenceParameters[c.field] : undefined) || metadata?.parameters?.[c.field]?.default
+                return r
+            },{primitive: d})
+        })
+    }
 
     const [totalWidth, setTotalWidth] = useState( null )
     const [selected, setSelected] = useState( null )
@@ -113,6 +116,12 @@ export function PrimitiveTable(props) {
     const navigate = (delta)=>{
         let rows = table.getRowModel().rows
         let index = selected ? rows.findIndex((d)=>d.original.primitive.id === selected) : 0
+
+        if( delta === 0){
+            props.onEnter(undefined,rows[index].original.id, table.getRowModel().rows.map((d)=>d.original.primitive),index)
+            return
+        }
+
         index += delta
         if( index < 0){index = 0}
         if( index >= rows.length){index = rows.length - 1}
@@ -128,9 +137,18 @@ export function PrimitiveTable(props) {
     const keyHandler = (e)=>{
         if(e.key == "ArrowUp"){
             navigate(-1)
+            e.stopPropagation()
+            e.preventDefault()
         }
         if(e.key == "ArrowDown"){
             navigate(1)
+            e.stopPropagation()
+            e.preventDefault()
+        }
+        if(e.key == "Enter"){
+            navigate(0)
+            e.stopPropagation()
+            e.preventDefault()
         }
     }
     const updateFocus = (e)=>{
@@ -155,6 +173,7 @@ export function PrimitiveTable(props) {
         }
         },props.onDoubleClick ? 200 : 0)
       };
+
     return (
         <div 
             ref={gridRef}
@@ -201,8 +220,8 @@ export function PrimitiveTable(props) {
                 return (
                     <>
                     <div className="contents group">
-                    <div 
-                        onClick={(e)=>{e.stopPropagation();props.onDoubleClick(e,primitive, table.getRowModel().rows.map((d)=>d.original.primitive),idx)}}
+                    <div                         
+                        onClick={(e)=>{e.stopPropagation();props.onEnter(e,primitive, table.getRowModel().rows.map((d)=>d.original.primitive),idx)}}
                         className={`group-hover:bg-gray-100 flex justify-center place-items-center pl-1 cursor-pointer text-gray-200 group-hover:text-gray-400 hover:text-gray-600 border-b border-gray-100 outline-none ${selected === primId ? "bg-ccgreen-100" : ""}`}>
                         <ExpandArrow className='w-4 h-4 '/>
                     </div>

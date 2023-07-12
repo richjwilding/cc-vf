@@ -9,19 +9,17 @@ import ConfirmationPopup from './ConfirmationPopup'
 import { Spinner } from '@react-pdf-viewer/core'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import Popup from './Popup'
+import PrimitiveConfig from './PrimitiveConfig'
 
 
 export default function GenericEditor({item, primitive,...props}) {  
   
-  const [waiting, setWaiting] = useState(false)
   const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [deleteMessage, setDeleteMessage] = useState( `Are you sure you want to delete this ${primitive.displayType}?` )
 
-  const text = ()=>{
-    updateRelationships()
-  }
-  useDataEvent("relationship_update", primitive.id, text)
+  useDataEvent("relationship_update set_field", primitive.id, updateRelationships)
+    const [parameters, setParameters] = useState({})
   
   const [open, setOpen] = useState(true)
   const list = useMemo(()=>{
@@ -75,6 +73,22 @@ export default function GenericEditor({item, primitive,...props}) {
       }
   }
 
+  const waiting = primitive.processing?.ai?.categorize
+
+    function validateAndSetParameter( paramaterName, paramater, value ){
+        if( paramater.type === "float" ){
+            console.log(value)
+            if( isNaN(parseFloat(value)) ){
+                return false
+            }            
+        }
+        setParameters({
+            ...parameters,
+            [paramaterName]: value
+        })
+        return true
+
+    }
 
   return (
     <>
@@ -84,6 +98,11 @@ export default function GenericEditor({item, primitive,...props}) {
               
               <PrimitiveCard.Banner key='banner' primitive={primitive}/>
               <PrimitiveCard key='title' primitive={primitive} showEdit={true} showId={false} major={true}/>
+              {list && <p className='mt-4 text-gray-500 text-xs'>Parameters</p>}
+              <div className='p-4 bg-gray-50 rounded-md border border-gray-200'>
+                <PrimitiveCard.Parameters primitive={primitive} editing={true} fullList={true} />
+              </div>
+              {list && <p className='mt-4 text-gray-500 text-xs'>Category items</p>}
               {list && <div className='overscroll-contain overflow-y-scroll max-h-[50vh] rounded-md border border-gray-200 p-3 my-2 space-y-3 bg-gray-50 '>
                 {(list.length === 0) && 
                   <div className='w-full p-2'>
@@ -106,7 +125,7 @@ export default function GenericEditor({item, primitive,...props}) {
                     return {
                       key: d.key,
                       title: d.title,
-                      action: async ()=>{setWaiting(true); console.log( await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id, source: primitive.id}));setWaiting(false);}
+                      action: async ()=>await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id, source: primitive.id})
                     }
                   })
                   } title='Action' className='shrink-0 grow-0 h-8' dropdownWidth='w-max' align='left'/>}

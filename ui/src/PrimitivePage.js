@@ -259,13 +259,13 @@ export function PrimitivePage({primitive, ...props}) {
                               transitionEnd: { zIndex: 0 }
                             };
                             const id = `m${metric.id}`
-                            return <motion.div 
+                            return <div 
                                         animate={
                                           selectedMetric?.metric === metric.id ? open : closed
                                         }
-                                      key={id} layoutId={id}>
+                                      key={id} >
                                         {selectedMetric?.metric !== metric.id && m}
-                                  </motion.div> 
+                                  </div> 
                           }
                         })}
                     </div>

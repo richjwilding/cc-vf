@@ -16,24 +16,34 @@ export default function AIProcessButton({primitive, ...props}){
             props.process(primitive)
         }
     }
-    let disable = false
+    let active = false
+    let error = false
     if( primitive.processing?.ai){
-        const error = props.active && primitive.processing.ai[props.active]?.state === "error"
-        disable = !error && props.active && primitive.processing.ai[props.active]
-        const active = !error && (props.active === undefined || primitive.processing.ai[props.active])
+        error = props.active && primitive.processing.ai[props.active]?.state === "error"
+        active = !error && (props.active === undefined || primitive.processing.ai[props.active])
+        if( props.subset && primitive.processing.ai[props.active]?.subset ){
+          if( !primitive.processing.ai[props.active].subset.includes(props.subset)){
+            active = false
+          }
+        }
 
       if( error || (new Date() - new Date(primitive.processing.ai?.[props.active]?.started)) > (5 * 60 *1000) ){
         title = <div className='text-red-600'><FontAwesomeIcon icon='triangle-exclamation'/> Error</div>
+        active = false
+        error = true
       }else if(active){
-        action = (e)=>{e.stopPropagation();}
         title = <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin"/>{props.small ? "" :" Processing"}</div>
+        //action = (e)=>{e.stopPropagation();}
       }
       
     }
-    return (<button
+    return (<div
                 type="button"
-                disabled={disable}
-                className="text-xs ml-2 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full bg-white text-gray-400 font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                className={[
+                  'text-xs ml-2 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full  font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                  active ? "bg-ccgreen-100 border-ccgreen-600 text-ccgreen-800 border" : 
+                    error ? "bg-red-100 border-red-600 text-red-800 border" : "bg-white text-gray-400"
+                ].join(" ")}
                 onClick={action}>
-            {title}</button>)
+            {title}</div>)
 }

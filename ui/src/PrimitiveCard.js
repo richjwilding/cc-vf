@@ -34,6 +34,8 @@ import PrimitivePicker from './PrimitivePicker';
 import { VFImage } from './VFImage';
 import SegmentCard from './SegmentCard';
 import { Grid } from  'react-loader-spinner'
+import PrimitiveConfig from './PrimitiveConfig';
+import MyCombo from './MyCombo';
 
 const ExpandArrow = function(props) {
   return (
@@ -52,6 +54,96 @@ let mainstore = MainStore()
         return (
           <dd className="text-gray-500 font-medium">{item.value ? "Yes" : "No"}</dd>
         )
+
+      }else if( item.type === "category_source"){
+        const task = props.primitive.task
+        if( !task?.metadata){
+          return <></>
+        }
+
+        const defaultConfig = task.metadata.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
+
+        const list = []
+        task.metadata.evidenceCategories?.forEach((d)=>{
+          list.push({key: d, isEvidence: true, title: `Evidence: ${mainstore.category(d).title}`})
+        })
+        task.metadata.resultCategories?.forEach((d)=>{
+          list.push({key: `results.${d.id}`, title: d.title})
+        })
+
+        const setSource = (idx)=>{
+          const source = list[idx]
+          console.log(idx, source)
+          if( source.isEvidence ){
+            props.primitive.setParameter("referenceId", source.key  )
+            props.primitive.setParameter(item.key, "evidence" )
+          }else{
+            props.primitive.setParameter(item.key, source.key )
+          }
+        }
+        let index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) || item.value === d.key) 
+        if( index == -1 ){
+          index = list.findIndex((d)=>(defaultConfig.target === "evidence" && d.key === defaultConfig.referenceId) || defaultConfig.target === d.key) 
+        }
+
+        return <MyCombo 
+          selectedItem={index} 
+          setSelectedItem={setSource}
+          items={list.map((d, idx)=>{return {id:idx, ...d}})}
+          className='ml-auto'
+          />
+
+      }else if( item.type === "category_field"){
+        const task = props.primitive.task
+        if( !task?.metadata){
+          return <></>
+        }
+
+        const defaultConfig = task.metadata.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
+        let sourceMeta
+
+        let _target = props.primitive?.referenceParameters?.target ? props.primitive.referenceParameters.target : defaultConfig.target
+        let _refId =  (props.primitive?.referenceParameters?.target == "evidence" ? props.primitive.referenceParameters.referenceId : defaultConfig.referenceId) || defaultConfig.referenceId
+
+        if(_target === "evidence"){
+          sourceMeta =  mainstore.category(_refId) 
+        }
+        else if( _target.slice(0,7) === "results"){
+          sourceMeta = mainstore.category(task.metadata?.resultCategories[_target.slice(8)].resultCategoryId)
+        }
+        console.log(sourceMeta)
+        if( !sourceMeta ){
+          return <></>
+        }
+
+        const list = [{
+          key: "title", title: "Title"
+        }]
+        if( sourceMeta.parameters ){
+          Object.keys(sourceMeta.parameters).forEach((d)=>{
+            const param = sourceMeta.parameters[d]
+            if( (param.type === "string" || param.type === "long_string") && !param.hidden){
+              list.push({key: `param.${d}`, title: param.title})
+            }
+          })
+        }
+
+        let index = list.findIndex((d)=>item.value === d.key)
+        if( index === -1 ){
+          index = list.findIndex((d)=>defaultConfig.field === d.key)
+        }
+
+        const setField = (idx=>{
+          const field = list[idx]
+          props.primitive.setParameter(item.key, field.key)
+        })
+
+        return <MyCombo 
+          selectedItem={index} 
+          setSelectedItem={setField}
+          items={list.map((d, idx)=>{return {id:idx, ...d}})}
+          className='ml-auto'
+          />
 
       }else if( item.type === "flag"){
         if( props.editing || props.editable ){
@@ -496,8 +588,9 @@ const Parameters = function({primitive, ...props}){
 
 
 
-  let parameters = props.showParents && primitive.origin ? primitive.origin.childParameters : primitive.metadata?.parameters
-  let source = props.showParents && primitive.origin ? primitive.referenceParameters : primitive.referenceParameters
+  let parameters = props.showParents && primitive.origin ? (primitive.origin.childParameters || PrimitiveConfig.metadata[primitive.origin.type]?.parameters) : (primitive.metadata?.parameters || PrimitiveConfig.metadata[primitive.type]?.parameters)
+  let source = primitive.referenceParameters 
+  
   if( !parameters ){ return <></> }
   let fields = Object.keys(parameters).sort((a,b)=>(parameters[a].order === undefined ? 99 : parameters[a].order ) - (parameters[b].order === undefined ? 99 : parameters[b].order) )
   if( props.fields ){
@@ -549,12 +642,14 @@ const Parameters = function({primitive, ...props}){
     return <p className='py-3 text-center text-gray-400 text-sm'>Nothing to show</p>
   }
 
+  let potentialTarget = fieldsBeingProcessed(primitive)
+
   return (
     details.map((item, idx)=>(
       <div 
         key={idx} 
         tabIndex={listEditable ? 1 : undefined}
-        onDoubleClick={listEditable ? ()=>setEditing(idx) : undefined}
+        onClick={listEditable ? ()=>setEditing(idx) : undefined}
         onKeyDown={listEditable ? (e)=>listKeyHandler(e,idx) : undefined}
         className={[
           "flex text-sm place-items-center py-2",
@@ -563,12 +658,41 @@ const Parameters = function({primitive, ...props}){
         ].join(" ")}
         >
         {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 mr-2 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
-        <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+        {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
+          ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
+          : <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+        }
         {props.inline && (idx < (details.length - 1)) && <p className='pl-1 text-slate-400'>•</p> }
       </div>
     )))
   
 }
+const fieldsBeingProcessed = function(primitive){
+
+  const checkSection = ( section)=>{
+    if( !section || !(section instanceof Object)){return []}
+      const temp = Object.values(section).filter((d)=>{
+        if( d && d.targetFields ){
+          if( d.started ){
+            if( (new Date() - new Date(d.started)) > (5 * 60 *1000) ){
+              return false
+            }
+          }
+          return true
+        }
+        return false
+      })
+      return temp.reduce((o,a)=>{o = o.concat(a.targetFields);return o}, [])
+  }
+
+  if( primitive  && primitive.processing){
+    return [
+      checkSection( primitive.processing.ai),
+      checkSection( primitive.processing),
+    ].flat()
+  }
+}
+
 const EvidenceList = function({primitive, ...props}){
   let evidence = props.evidenceList || primitive?.primitives.allUniqueEvidence
   useDataEvent('relationship_update', evidence.map((d)=>d.id))
@@ -676,24 +800,12 @@ const Details = function({primitive, ...props}){
   
   const panelTitle = <>{props.title || "Details"}{metadata.do_discovery && <AIProcessButton active="document_discovery" primitive={primitive} process={(p)=>p.analyzer().doDiscovery({force: true})}/>}</>
 
-  const enrichmentActive = primitive?.processing?.enrich
   
   return (
         <Panel {...props} title={panelTitle} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
           <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200 relative`}>
-            <Parameters primitive={primitive} editing={!enrichmentActive} fullList={editing}/>
+            <Parameters primitive={primitive} editing={true} fullList={editing}/>
             {showParents && <Parameters primitive={primitive} editing={true} fullList={editing} showParents/>}
-            {enrichmentActive && <div className='absolute top-0 left-0 w-full h-full backdrop-blur-sm bg-white/40 place-items-center flex'>
-                <Grid
-                  height="40%"
-                  color="#4fa94d"
-                  ariaLabel="grid-loading"
-                  radius="12.5"
-                  wrapperStyle={{}}
-                  wrapperClass="mx-auto"
-                  visible={true}
-                  />
-              </div>}
           </dl>
           {!props.hideFooter && 
             <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase mt-2 place-items-center justify-end mt-2`}>
@@ -903,7 +1015,7 @@ const Questions = function({primitive, ...props}){
   let button
   
   if( props.relatedTo && props.relatedTo !== primitive ){
-    button = <AIProcessButton active="questions" primitive={props.relatedTo} process={(p)=>p.analyzer().analyzeQuestions()}/>
+    button = <AIProcessButton active="document_questions" primitive={props.relatedTo} process={(p)=>p.analyzer().analyzeQuestions()}/>
   }
 
   const list = primitive.primitives.allQuestion
@@ -987,7 +1099,7 @@ const Entity=({primitive, ...props})=>{
           }
           {props.hideCategories !== true && <div className='w-full px-4 flex flex-wrap'>
             {primitive.categories.map((category)=>(
-              <CategoryCardPill primitive={category}/>
+              <CategoryCardPill key={category.id} primitive={category}/>
             ))}
           </div>}
           {primitive.referenceParameters?.url && 
@@ -1385,9 +1497,9 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
             <PrimitiveCard.Parameters primitive={props.origin || primitive.origin} inline={true} showAsSecondary={true} noEvents={props.noEvents}  compact={true} showTitles={false} fields={props.showOriginInfo} />
           </div>}
         {showRelationships && <PrimitiveCard.Relationships primitive={primitive}/>}
-          {props.showQuote === true && primitive.quote && 
+          {props.showQuote === true && (primitive.quote || primitive.referenceParameters?.quote) && 
               <div className='w-full px-6 py-2 '>
-                  <p className='pl-2 border-l-4 text-gray-500 italic text-sm line-clamp-6'><strong>Original text:</strong> {primitive.quote}</p>
+                  <p className='pl-2 border-l-4 text-gray-500 italic text-sm line-clamp-6'><strong>Original text:</strong> {primitive.quote || primitive.referenceParameters?.quote}</p>
               </div>
           }
         {showDetails === true && <PrimitiveCard.Details primitive={primitive} editing={props.editing}/>}
@@ -1419,11 +1531,16 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
 function ProcessingBase({primitive, ...props}){
   useDataEvent("set_field", primitive?.id)
   
-  let showAsProcessing = primitive?.processing && (primitive.processing.pivot || primitive.processing.ai)
+  let showAsProcessing = primitive?.processing && (primitive.processing.pivot || primitive.processing.enrich)
 
   if( !showAsProcessing ){
     if( primitive?.processing?.expanding){
       if( Object.values(primitive.processing.expanding).filter((d)=>d).length > 0){
+        showAsProcessing = true
+      }
+    }
+    if( primitive?.processing?.ai){
+      if( Object.values(primitive.processing.ai).filter((d)=>d).length > 0){
         showAsProcessing = true
       }
     }

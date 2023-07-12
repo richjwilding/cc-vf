@@ -97,7 +97,7 @@ export default function Panel({...props}){
               {titleButton && (
                 titleButton instanceof Array
                 ? 
-                  <DropdownButton items={titleButton.map((d)=>{return {...d, action:()=>{ensureOpen();d.action()}}})} className='shrink-0 grow-0 h-10' />
+                  <DropdownButton portal items={titleButton.map((d)=>{return {...d, action:()=>{ensureOpen();d.action()}}})} className='shrink-0 grow-0 h-10' />
                 : <MenuButton title={titleButton.title} icon={titleButton.icon} action={()=>{ensureOpen();titleButton.action()}} small={titleButton.small}/>
               )}
               {props.expandButton && <MenuButton icon={<ArrowsPointingOutIcon className='w-4 h-4 -mx-1'/>} action={()=>{props.expandButton()}} />}

@@ -1,20 +1,30 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { useState } from "react";
+import { useMemo, useReducer, useState } from "react";
 import { PrimitiveCard, Prompt } from "./PrimitiveCard";
 import { PencilIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
 import Panel from "./Panel";
 import GenericEditor from './GenericEditor';
 import MainStore from "./MainStore";
+import useDataEvent from "./CustomHook";
+import AIProcessButton from "./AIProcessButton";
 
 export default function QuestionCard({primitive, ...props}){
-    let aiSummary = props.aiProcessSummary
+    const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
+    useDataEvent('relationship_update', [primitive.id, primitive.primitives.allPrompt.map((d)=>d.id)].flat(), updateRelationships)
     const [editPrompt, setEditPrompt] = useState(null)
-    if( !aiSummary ){
+
+    //let aiSummary = props.aiProcessSummary
+    
+    const aiSummary = useMemo(()=>{
         const source = (props.relatedTo || primitive)
-        if( source.analyzer ){
-            aiSummary = source.analyzer().aiProcessSummary()
+        if( source ){
+            if( source.analyzer ){
+                const refresh = MainStore().primitive( source.id )
+                return refresh.analyzer().aiProcessSummary()
+            }
         }
-    }
+    }, [eventRelationships])
+    
     return (
         <>
         <div 
@@ -49,15 +59,7 @@ export default function QuestionCard({primitive, ...props}){
                     className='!mt-0'
                     title={<div key='ai_title' className="font-semibold flex place-items-center">
                             <FontAwesomeIcon icon="fa-solid fa-robot" className="mr-1"/>Question will be processed by AI
-                            {props.relatedTo && 
-                                <div
-                                    key='reprocess' 
-                                    type="button"
-                                    onClick={(e)=>{e.stopPropagation();props.relatedTo.analyzer().analyzeQuestions(true, [primitive])}}
-                                    className="flex ml-2 h-6 w-6 -mt-0.5 invisible group-hover:visible flex-none items-center justify-center rounded-full ext-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                >
-                                    <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
-                                </div>}
+                            {props.relatedTo && <AIProcessButton small subset={primitive.id} active="document_questions" primitive={props.relatedTo} process={(p)=>p.analyzer().analyzeQuestions(true, [primitive])}/>}
 
                             </div>}>
                 

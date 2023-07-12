@@ -44,7 +44,7 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
     if( !category ){return <></>}
 
     let categoryConfig = contextOf.metadata.resultCategories[category[0]]
-    let fields = categoryConfig.views.list[categoryConfig.views.default]
+    let fields = categoryConfig.views.options[categoryConfig.views.default]?.fields
 
     let relationships =  [
         {
@@ -77,9 +77,8 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
             {selected && 
             <>
             <Overlay key='overlay' isSelected={selected} setSelected={setSelected}/>
-            <motion.div 
+            <div 
                 key='frame' 
-                layoutId={id} 
                 className='grid place-items-center absolute z-30 h-[100vh] top-0 left-0 sm:h-[90vh] sm:top-[5vh] sm:left-[5vw]  md:h-[80vh] md:top-[10vh] md:left-[10vw] w-[100vw] sm:w-[90vw] md:w-[80vw] lg:w-[70vw] lg:h-[70vh] lg:top-[15vh] lg:left-[15vw]'
                 >
                 <div className='p-4 bg-white rounded-2xl shadow-xl w-full '>
@@ -107,7 +106,7 @@ export function MetricPopup({contextOf, selected, setSelected, ...props}){
                         </button>
                         </div>
                 </div>
-            </motion.div>
+            </div>
             </>}
         </AnimatePresence>
     )

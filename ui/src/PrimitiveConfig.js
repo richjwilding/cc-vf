@@ -3,6 +3,32 @@ const PrimitiveConfig = {
         "hypothesis": {
             icon: "LightBulbIcon",
             title: "Hypothesis"
+        },
+        "category":{
+            parameters:{
+                "target":{
+                    "title": "Categorize",
+                    "description": "Items to categorize",
+                    "type":"category_source"
+                },
+                "referenceId":{
+                    "title": "Evidence",
+                    "description": "Type of evidence",
+                    "type":"categoryId",
+                    "hidden": true
+                },
+                "field":{
+                    "title": "Field",
+                    "description": "Field of item to use",
+                    "type":"category_field"
+                },
+                "theme":{
+                    "title": "Categorization theme",
+                    "description": "Categorization theme",
+                    "optional": true,
+                    "type":"string"
+                }
+            }
         }
     },
     typeConfig:{

@@ -526,3 +526,119 @@ export async function grabUrlAsPdf(url, id, req){
     }
 
 }
+export function locateQuote(oQuote, document){
+    const quote = oQuote.toLowerCase().replaceAll(/\./g," ").replaceAll(/\s+/g," ").replace(/[`’]/g, "'").trim()
+    let startPage = 0
+    let endPage = 0
+    let startIdx = 0
+    let endIdx = 0
+    let terminate = false
+    let _test = 1
+    const subset = (fwd)=>{
+        const final = (data)=>{
+            return data.join(" ").toLowerCase().replaceAll(/\./g," ").replaceAll(/\s+/g," ").replace(/[`’]/g, "'").trim()
+        }
+        let str = []
+        if( startIdx >= document.pages[endPage].content.length ){
+            startIdx = 0
+            startPage++
+
+        }
+
+        if( startPage === endPage && startIdx > endIdx){
+            return final(str)
+        }
+
+        if( fwd && endIdx >= document.pages[endPage].content.length ){
+            const oldIdx = endIdx
+            endIdx = 0
+            endPage++
+            if( endPage === document.pages.length ){
+                terminate = true
+                endPage--
+                endIdx = oldIdx - 1                            
+                return final(str)
+            }
+        }
+        for( let p = startPage; p <= endPage; p++){
+            const start = p === startPage ? startIdx : 0
+            const max = document.pages[p].content.length
+            for( let i = start; i < max; i++){
+                if( (p === endPage) && (i > endIdx)){
+                    continue
+                }
+                if( !document.pages[p].content[i].ignore ){
+                    str.push( document.pages[p].content[i].str )
+                }
+            }
+        }
+       /*let temp = final(str)
+        if( temp.length > 3000 && _test > 0){
+           temp = temp.slice(3000)
+           
+           console.log("RESULT")
+           console.log(temp)
+           if( temp.length > 400 ){
+                console.log(quote)
+                console.log( temp.indexOf(quote))
+                let idx = 1
+                do{
+                    let _b = quote.slice(0,idx)
+                         console.log("'" + _b + "'")
+                       console.log( temp.indexOf(_b))
+                    idx++
+                }while(idx <= quote.length)
+                _test--
+            }
+        }*/
+        return final(str)
+    }
+    // first pass
+    while( subset(true).indexOf(quote) === -1 && !terminate){
+        endIdx++
+    }
+
+    let out = undefined
+    if( !terminate ){
+
+        terminate = false
+    
+        while( subset(false).indexOf(quote) !== -1 && !terminate){
+            startIdx++
+        }
+        if(!terminate){
+            if( startIdx === 0 ){
+                startPage--
+                startIdx = document.pages[startPage].content.length - 1
+
+            }else{
+                startIdx--
+            }
+            out = []
+            for( let p = startPage; p <= endPage; p++){
+                const start = p === startPage ? startIdx : 0
+                const max = document.pages[p].content.length
+                for( let i = start; i < max; i++){
+                    if( (p === endPage) && (i > endIdx)){
+                        continue
+                    }
+                    const item = document.pages[p].content[i]
+                    if( item){
+
+                        const w = document.pages[p].pageInfo.width / 100
+                        const h = document.pages[p].pageInfo.height / 100
+                        out.push( {
+                            pageIndex:p,
+                            left: item.x / w,
+                            top: (item.y - item.height) / h,
+                            width: item.width / w,
+                            height: item.height / h,
+                        })
+                    }
+                }
+            }
+        }
+    }
+    return out
+
+}
