@@ -67,6 +67,9 @@ function App() {
       setOverlay(false)
       return
     }
+    if( !(primitive instanceof Object) ){
+      primitive = mainstore.primitive(primitive)
+    }
     setOpen(true)
     setOverlay(overlay)
     setPrimitive(primitive)

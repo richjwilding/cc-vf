@@ -141,7 +141,7 @@ export default function PrimitiveParser(obj){
                             return out.length > 0 ? out : undefined
                         }
                         let result = find( target, "" )
-                        if( arguments.length == 2){
+                        if( result && arguments.length == 2){
                             let str = arguments[1] instanceof(Array) ? `.${arguments[1].join('.')}.` : arguments[1]
                             let len = str.length
                             result = result.filter((p)=>p.slice(0, len) === str)

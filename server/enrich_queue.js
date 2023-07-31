@@ -5,6 +5,7 @@ import Primitive from "./model/Primitive";
 import { dispatchControlUpdate, primitiveOrigin, primitiveParentPath, primitiveRelationship } from "./SharedFunctions";
 import { enrichCompanyFromLinkedIn } from "./linkedin_helper";
 import { findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
+import Category from "./model/Category";
 
 
 let instance
@@ -19,9 +20,8 @@ export default function EnrichPrimitive(){
     });
 
     instance.searchCompanies = (primitive, options )=>{
-        console.log("here")
         if( primitive.type === "activity"){
-            const field = "processing.search_company"
+            const field = `processing.expanding.0`
             dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date()})
             instance.add(`search_topcics_${primitive.id}` , {id: primitive.id, target: "entity", mode: "search_company", options: options})
         }
@@ -32,11 +32,20 @@ export default function EnrichPrimitive(){
             instance.add(`enrich_${primitive.id}_from_${source}` , {id: primitive.id, source: source, target: "entity", mode: "enrich", force: force})
         }
     }
-    instance.pivotCompany = (primitive, source, req)=>{
-        if( primitive.type === "entity"){
+    instance.pivotCompany = async (primitive, source, action)=>{
+        if( primitive.type === "entity" || primitive.type === "activity"){
             
-            const parentId = primitiveOrigin(primitive)
-            const resultSet = primitiveParentPath(primitive, "result", parentId, true)?.[0]
+            const parentId = primitive.type === "entity" ?  primitiveOrigin(primitive) : primitive.id
+            let resultSet
+            if( primitive.type === "entity"){
+                resultSet = primitiveParentPath(primitive, "result", parentId, true)?.[0]
+            }else{
+                const category = await Category.findOne({id: primitive.referenceId})
+                if( category ){
+                    resultSet = category.resultCategories && category.resultCategories.find((d)=>d.resultCategoryId === action.referenceId)?.id
+                }
+            }
+
             if( resultSet !== undefined){
                 const field = `processing.expanding.${resultSet}`
                 console.log(parentId)
@@ -44,8 +53,8 @@ export default function EnrichPrimitive(){
                 if( parentId ){
                     dispatchControlUpdate(parentId, field, {status: "pending", node: primitive.id})
                 }
-                dispatchControlUpdate(primitive.id, "processing.pivot" , {status: "pending"}, {user: req?.user?.id, track: primitive.id, text:"Finding similar companies"})
-                instance.add(`pivot_${primitive.id}_from_${source}` , {id: primitive.id, source: source, target: "entity", mode: "pivot", parentId: parentId, field: field})
+                dispatchControlUpdate(primitive.id, "processing.pivot" , {status: "pending"}, {track: primitive.id, text:"Finding similar companies"})
+                instance.add(`pivot_${primitive.id}_from_${source}` , {id: primitive.id, action: action, source: source, target: "entity", mode: "pivot", parentId: parentId, field: field})
             }
         }
     }
@@ -56,9 +65,7 @@ export default function EnrichPrimitive(){
         if( primitive){
             if( job.data.mode === "search_company" ){
                 console.log(`search_company ${primitive.id} ${primitive.referenceParameters?.topics}`)
-                if( primitive.referenceParameters?.topics){
-                    await findOrganizationsFromCB( primitive, primitive.referenceParameters?.topics, job.data.options )
-                }
+                await findOrganizationsFromCB( primitive, job.data.options )
             }
             if( job.data.mode === "enrich" ){
                 console.log(`Processing enrichment for ${primitive.id}`)
@@ -75,7 +82,7 @@ export default function EnrichPrimitive(){
                     console.log(`Processing pviot for ${primitive.id}`)
                     if( job.data.target === "entity" ){
                         if( job.data.source === "crunchbase" ){
-                            const newPrims = await pivotFromCrunchbase(primitive)
+                            const newPrims = await pivotFromCrunchbase(primitive, job.data.action)
                         }
                     }
                 }catch(error){

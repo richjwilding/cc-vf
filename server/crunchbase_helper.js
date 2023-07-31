@@ -1,23 +1,115 @@
 import Primitive from "./model/Primitive";
-import {createPrimitive, flattenPath, doPrimitiveAction, primitiveOrigin} from './SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, primitiveOrigin, primitiveChildren} from './SharedFunctions'
 import { replicateURLtoStorage } from "./google_helper";
-import { analyzeTextAgainstTopics } from "./openai_helper";
+import { analyzeListAgainstTopics, analyzeText, analyzeTextAgainstTopics, buildKeywordsFromList } from "./openai_helper";
 import Category from "./model/Category";
 var ObjectId = require('mongoose').Types.ObjectId;
 
+const rejectWords = ["somewhat","hardly", "not at all"]
 
-export async function findOrganizationsFromCB(parent, keywords, options){
+async function filterEntitiesByTopics( list, topics){
+    console.log(`Have ${list.length}`)
+    //list=list.slice(0,100)
+    list = list.filter((d)=>d.properties.description && d.properties.description.trim() !== "" )
+    console.log(`Now: ${list.length}`)
+
+    if( list && list.length > 0){
+        const result = await analyzeListAgainstTopics(list.map((d)=>d.properties.description.replaceAll("\n",". ")), topics, {prefix: "Organization", type: "organization", maxTokens: 6000})
+//        console.log( `GOT BACK - ${result.output?.length} results` )
+  //      console.log( result )
+        if( !result.success){
+            return undefined
+        }
+        list = list.filter((d,idx)=>{
+            const score = result.output.find((d)=>d.i === idx)
+            d.assessment = score.s
+            return !rejectWords.includes(score.s) 
+        })
+        console.log(`Now: ${list.length}`)
+    }
+    return list
+}
+
+async function createPrimitiveFromCBData( entity, referenceId, parent, paths ){
+    const properties = entity?.properties
+    if( !(entity && properties) ){
+        return false
+    }
+    if( parent && parent.referenceParameters?.topics){
+        
+    }
+
+    if(properties.website_url){
+        const url = properties.website_url.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2");
+        const existing = await Primitive.findOne({
+            "workspaceId": parent.workspaceId,
+            deleted: {$exists: false},
+            "referenceParameters.url": {$in: [
+                url,
+                `https://${url}`,
+                `https://${url}/`,
+                `http://${url}`,
+                `http://${url}/`]}
+            })
+        if( existing ){
+            console.log(`-- SKIP for ${properties.name}`)
+            return false
+        }
+    }else{
+        return false
+    }
+    console.log(`--- Adding ${properties.name}`)
+    const newData = {
+        workspaceId: parent.workspaceId,
+        parent: parent.id,
+        paths: paths || ['origin'],
+        data:{
+            type: "entity",
+            referenceId: referenceId,
+            title: properties.name,
+            referenceParameters:{
+                url: properties.website_url,
+                hasImg: properties.image_url,
+                description: properties.description,
+                assessment: entity?.assessment
+            }
+        }
+    }
+    const newPrim = await createPrimitive( newData )
+    if( newPrim ){
+        const store = {
+            id: entity.uuid,
+            name: entity.properties.name,
+            description: entity.properties.description,
+            short_description: entity.properties.short_description,
+            image_url:entity.properties.image_url,
+            website_url: entity.properties.website_url,
+            categories: entity.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}})
+            
+        }
+        newPrim.set("crunchbaseData", store)
+        newPrim.markModified("crunchbaseData")
+        await newPrim.save()
+        if( properties.image_url ){
+            replicateURLtoStorage(entity.properties.image_url, newPrim._id.toString(), "cc_vf_images")
+        }
+    }
+    return newPrim
+}
+
+export async function findOrganizationsFromCB(parent, options){
+    let totalCount = 0
     try{
         const url = `https://api.crunchbase.com/api/v4/searches/organizations`
         const maxCreation = 25
         
+        console.log(options)
+        const keywords = options.keywords 
         const category = await Category.findOne({id: parent.referenceId})
         const resultSet =  category && category.resultCategories.find((d)=>d.resultCategoryId == options.referenceId)?.id
-        if( !category || resultSet === undefined){
-            return
+        if( !category || resultSet === undefined || !keywords || keywords.trim() === ""){
+            return totalCount
         }
-        console.log(resultSet)
-        console.log(options)
         const lookup = async ( keyword) => {
             const params = JSON.stringify(
                 {
@@ -49,7 +141,7 @@ export async function findOrganizationsFromCB(parent, keywords, options){
                             ]
                         }
                     ],
-                    "limit": 100
+                    "limit": options.lookupCount || 500 
             })
             console.log(`Doing Crunchbase query`)
             const response = await fetch(url,{
@@ -63,79 +155,22 @@ export async function findOrganizationsFromCB(parent, keywords, options){
             if( response.status !== 200){
                 console.log(`Error from crunchbase`)
                 console.log(response)
-                return {error: response}
+                return totalCount
             }
             const data = await response.json();
             if( data ){
                 if( data.entities ){
                     console.log(`For ${keyword} for ${data.entities.length}`)
                     let count = 0
-                    for( const entity of data.entities){
+                    const filteredList = await filterEntitiesByTopics(data.entities, parent.referenceParameters?.topics)
+                    for( const entity of filteredList){
                         if( count < maxCreation){
-                            const properties = entity.properties
-                            
-                            let skip = false
-
-                            if(properties.website_url){
-                                const url = properties.website_url.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2");
-                                const existing = await Primitive.findOne({
-                                    "workspaceId": parent.workspaceId,
-                                    deleted: {$exists: false},
-                                    "referenceParameters.url": {$in: [
-                                        url,
-                                        `https://${url}`,
-                                        `https://${url}/`,
-                                        `http://${url}`,
-                                        `http://${url}/`]}
-                                    })
-                                if( existing ){
-                                    skip = true
-                                }
-                            }else{
-                                skip = true
-                            }
-                            console.log(`DRY - CB CREATION`)
-                            if( skip ){
-                                console.log(`-- SKIP for ${properties.name}`)
-                            }else{
-                                    const newData = {
-                                        workspaceId: parent.workspaceId,
-                                        parent: parent.id,
-                                        paths: ['origin', `results.${resultSet}`],
-                                        data:{
-                                            type: "entity",
-                                            referenceId: options.referenceId,
-                                            title: properties.name,
-                                            referenceParameters:{
-                                                url: properties.website_url,
-                                                hasImg: properties.image_url,
-                                                description: properties.description
-                                            }
-                                        }
-                                    }
-                                    const newPrim = await createPrimitive( newData )
-                                    if( newPrim ){
-                                        const store = {
-                                            id: entity.uuid,
-                                            name: entity.properties.name,
-                                            description: entity.properties.description,
-                                            short_description: entity.properties.short_description,
-                                            image_url:entity.properties.image_url,
-                                            website_url: entity.properties.website_url,
-                                            categories: entity.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}})
-                                            
-                                        }
-                                        newPrim.set("crunchbaseData", store)
-                                        newPrim.markModified("crunchbaseData")
-                                        await newPrim.save()
-                                        if( properties.image_url ){
-                                            replicateURLtoStorage(entity.properties.image_url, newPrim._id.toString(), "cc_vf_images")
-                                        }
-                                    }
-                                    count++
+                            if( await createPrimitiveFromCBData( entity, options.referenceId, parent, ['origin', `results.${resultSet}`])){
+                                count++
                             }
                         }
                     }
+                    totalCount += count
                 }
             }
         }
@@ -144,17 +179,19 @@ export async function findOrganizationsFromCB(parent, keywords, options){
         console.log(set)
 
         for(let keyword of set){
-            lookup( keyword.trim() )
+            await lookup( keyword.trim() )
         }
     }catch(error){
         console.log(`Error on findOrganizationsFromCB`)
         console.log(error)
     }
+    console.log(totalCount)
+    return totalCount
 }
 
-export async function pivotFromCrunchbase(primitive, options = {}, force = false){
+export async function pivotFromCrunchbaseCategories(primitive, options = {}, force = false){
     let data = primitive.crunchbaseData
-    let out = []
+    let count = 0
 
     if(force || !data ){
         data = await fetchCompanyDataFromCrunchbase(primitive)
@@ -166,7 +203,7 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
     const categoryList = data.categories
 
     if( categoryList === undefined ){
-        return out
+        return 
     }
     const parent = await Primitive.findOne({_id: primitiveOrigin( primitive )}) 
     
@@ -205,7 +242,7 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
     const items = categoryList;
 
     if( items === undefined ){
-        return out
+        return 
     }
 
     const minMatch = options.minMatch || 2
@@ -266,7 +303,7 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
                     "values": categoryList.map((d)=>d.uuid)
                   }
                 ],
-                "limit": 100
+                "limit": 20
         })
         console.log(`Doing Crunchbase query`)
         console.log(options)
@@ -286,83 +323,12 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
         const data = await response.json();
         if( data ){
             if( data.entities ){
-                console.log(data.entities)
-                for( const entity of data.entities){
-                    if( out.length < maxCreation){
-
-                        const properties = entity.properties
-
-                        if( parent && parent.referenceParameters?.topics){
-                            console.log(`---------------------`)
-                            console.log(`check description against ${parent.referenceParameters.topics}`)
-                            console.log(properties.description)
-                            if( !properties.description || properties.description.trim() === ""){
-                                console.log('Blank')
-                                continue
-                            }
-                            const result = await analyzeTextAgainstTopics(properties.description, parent.referenceParameters.topics)
-                            console.log(result.output)
-                            if( ["somewhat","hardly", "not at all"].includes(result.output) ){
-                                console.log(`SKIPPING !!!!`)
-                                continue
-                            }
-                            console.log(`---------------------`)
-                            
-                        }
-
-
-                        const url = properties.website_url.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2");
-                        const existing = await Primitive.findOne({
-                            "workspaceId": primitive.workspaceId,
-                            "referenceParameters.url": {$in: [
-                                url,
-                                `https://${url}`,
-                                `https://${url}/`,
-                                `http://${url}`,
-                                `http://${url}/`]}
-                        })
-                        if( existing ){
-//                            console.log(`-- SKIP for ${properties.name}`)
-                        }else{
-                            const paths = primitive.parentPrimitives[parent.id].map((d)=>d.replace('primitives.', ''))
-                            if( paths && parent ){
-                                const newData = {
-                                    workspaceId: primitive.workspaceId,
-                                    paths: paths,
-                                    parent: parent.id,
-                                    data:{
-                                        type: primitive.type,
-                                        referenceId: primitive.referenceId,
-                                        title: properties.name,
-                                        referenceParameters:{
-                                            url: properties.website_url,
-                                            hasImg: properties.image_url,
-                                            description: properties.description
-                                        }
-                                    }
-                                }
-                                const newPrim = await createPrimitive( newData )
-                                if( newPrim ){
-
-                                    const store = {
-                                        id: entity.uuid,
-                                        name: entity.properties.name,
-                                        description: entity.properties.description,
-                                        short_description: entity.properties.short_description,
-                                        image_url:entity.properties.image_url,
-                                        website_url: entity.properties.website_url,
-                                        categories: entity.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}})
-                                        
-                                    }
-                                    newPrim.set("crunchbaseData", store)
-                                    newPrim.markModified("crunchbaseData")
-                                    await newPrim.save()
-                                    if( properties.image_url ){
-                                        replicateURLtoStorage(entity.properties.image_url, newPrim._id.toString(), "cc_vf_images")
-                                    }
-                                    out.push(newPrim)
-                                }
-                            }
+                const filteredList = await filterEntitiesByTopics(data.entities, parent.referenceParameters?.topics)
+                for( const entity of filteredList){
+                    if( count < maxCreation){
+                        const paths = primitive.parentPrimitives[parent.id].map((d)=>d.replace('primitives.', ''))
+                        if( await createPrimitiveFromCBData( entity, primitive.referenceId, parent, paths)){
+                            count++
                         }
                     }
                 }
@@ -375,20 +341,175 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
 
     let threshold = items.length > 5 ? parseInt( items.length * 0.66) : items.length
     for(const combo of generateCombinations(items).sort((a,b)=>b.length - a.length)){
-        if( out.length >= maxCreation || runs > maxRuns ){
+        if( count >= maxCreation || runs > maxRuns ){
             break
         }
         if( combo.length > threshold){
             console.log(`skipping - ${combo.length} items of ${items.length}`)
             continue
         }
-        console.log(`Run ${runs} (${out.length} created - got ${combo.length} categories`)
+        console.log(`Run ${runs} (${count} created - got ${combo.length} categories`)
         await doLookup( combo )
         runs++
     }
-    return out
+    return count
+}
+export async function pivotFromCrunchbase(primitive, options = {}, force = false){
+    let count = 0
+    let targetCount = 20
 
+    console.log(`-- Checking by description`)
+    count += await pivotFromCrunchbaseDescription( primitive, options )
+    console.log(count)
+    if( primitive.type === "entity"){
+        if( count < targetCount){
+            console.log(`-- Checking articles`)
+            count += await pivotFromCrunchbaseArticles( primitive, options )
+        }
+        if( count < targetCount){
+            console.log(`-- Checking by category`)
+            count += await pivotFromCrunchbaseCategories( primitive, options )
+        }
+    }
+}
+export async function pivotFromCrunchbaseDescription(primitive, options = {}){
+    let parent = primitive
+    let list =  [primitive.referenceParameters?.description]
+    let keywordCount = 5
+    let referenceId
+    console.log(`pivot from Description`, options)
 
+    if( primitive.type === "activity"){
+        keywordCount = 10
+        list = (await primitiveChildren(parent, "entity")).map((d)=>d?.referenceParameters?.description).filter((d)=>d)
+        referenceId = options.referenceId
+    }else{
+        parent = await Primitive.findOne({_id: primitiveOrigin( primitive )}) 
+        referenceId = primitive.referenceId
+    }
+
+    let count = 0
+    if( parent.referenceParameters?.topics){
+        const keywords = await buildKeywordsFromList(list, {types: "organizations", count: keywordCount })
+        console.log(keywords)
+        if( keywords.success && keywords.keywords.length > 0){
+            count += await findOrganizationsFromCB(parent, {keywords: keywords.keywords.join(", "), referenceId: referenceId, lookupCount: options.lookupCount })
+        }
+    }
+    return count
+}
+export async function pivotFromCrunchbaseArticles(primitive, options = {}, force = false){
+    let data = primitive.crunchbaseData
+    let count = 0
+
+    if(force || !data ){
+        data = await fetchCompanyDataFromCrunchbase(primitive)
+        if( data.error ){
+            return {error: data.error}
+        }
+    }
+    let articles = data.articles
+
+    if( articles === undefined){
+        articles = await fetchCompanyArtcilesFromCrunchbase(primitive, data.id)
+        
+    }
+    if( articles === undefined ){
+        return {error: "no_data"}
+    }
+        if( data.error ){
+            return {error: data.error}
+        }
+
+    let out = []
+    const parent = await Primitive.findOne({_id: primitiveOrigin( primitive )}) 
+    
+    if( parent && articles){
+        const paths = primitive.parentPrimitives[parent.id].map((d)=>d.replace('primitives.', ''))
+        let lookups = []
+        for( const update of articles){
+            if( update.activity_entities ){
+                for( const entity of update.activity_entities){
+                    const existing = await Primitive.findOne({
+                        "workspaceId": parent.workspaceId,
+                        [`parentPrimitives.${parent.id}`]: {$in: ['primitives.origin']},
+                        deleted: {$exists: false},
+                        "crunchbaseData.id": entity.uuid
+                    })
+                    
+                    if( existing){
+                    }else{
+                        lookups.push(entity.uuid)
+                    }
+                }
+            }
+            
+        }
+        console.log(`Got list of ${lookups.length} companies to check`)
+        while( lookups.length > 0){
+            const thisCheck = lookups.slice(0,100)
+            lookups = lookups.slice(100)
+            console.log(`checking ${thisCheck.length}`)
+
+            const url = `https://api.crunchbase.com/api/v4/searches/organizations`
+            const options = JSON.stringify(
+                {
+                    "field_ids": [
+                    "identifier",
+                    "categories",
+                    "location_identifiers",
+                    "short_description",
+                    "website_url",
+                    "image_url",
+                    "name",
+                    "description",
+                    "rank_org"
+
+                    ],
+                    "order": [
+                    {
+                        "field_id": "rank_org",
+                        "sort": "asc"
+                    }
+                    ],
+                    "query": [
+                    {
+                        "type": "predicate",
+                        "field_id": "uuid",
+                        "operator_id": "includes",
+                        "values": lookups
+                    }
+                    ],
+                    "limit": 100
+            })
+            console.log(`Doing Crunchbase query`)
+            console.log(options)
+            const response = await fetch(url,{
+                method: 'POST',
+                headers: {
+                    'X-cb-user-key': `${process.env.CRUNCHBASE_KEY}`
+                },
+                body:options
+            });
+            
+            if( response.status !== 200){
+                console.log(`Error from crunchbase`)
+                console.log(response)
+                return {error: response}
+            }
+            const data = await response.json();
+            if( data ){
+                if( data.entities ){
+                    const filteredList = await filterEntitiesByTopics(data.entities, parent.referenceParameters?.topics)
+                    for( const entity of filteredList){
+                        await createPrimitiveFromCBData( entity, primitive.referenceId, parent, paths)
+                        count++
+                    }
+                }
+            }
+        }
+    }
+    return count
 }
 export async function extractArticlesFromCrunchbase(primitive, options = {}, force = false){
 
@@ -565,7 +686,8 @@ export async function fetchCompanyArtcilesFromCrunchbase( primitive, cbId ){
                         url: d.url?.value,
                         published: d.publisher,
                         title: d.title,
-                        posted_on: d.posted_on
+                        posted_on: d.posted_on,
+                        activity_entities: d.activity_entities
                     }
                 })
                 primitive.set("crunchbaseData.articles", store)

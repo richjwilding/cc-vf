@@ -36,6 +36,7 @@ import SegmentCard from './SegmentCard';
 import { Grid } from  'react-loader-spinner'
 import PrimitiveConfig from './PrimitiveConfig';
 import MyCombo from './MyCombo';
+import { InputPopup } from './InputPopup';
 
 const ExpandArrow = function(props) {
   return (
@@ -64,7 +65,10 @@ let mainstore = MainStore()
         const defaultConfig = task.metadata.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
 
         const list = []
-        task.metadata.evidenceCategories?.forEach((d)=>{
+
+        const evidenceCategories = [task.metadata.evidenceCategories, task.primitives.descendants.filter((d)=>d.type === "evidence").map((d)=>d.referenceId)].flat().filter((c,idx,a)=>c && a.indexOf(c)===idx)
+
+        evidenceCategories.forEach((d)=>{
           list.push({key: d, isEvidence: true, title: `Evidence: ${mainstore.category(d).title}`})
         })
         task.metadata.resultCategories?.forEach((d)=>{
@@ -73,12 +77,15 @@ let mainstore = MainStore()
 
         const setSource = (idx)=>{
           const source = list[idx]
-          console.log(idx, source)
           if( source.isEvidence ){
             props.primitive.setParameter("referenceId", source.key  )
             props.primitive.setParameter(item.key, "evidence" )
           }else{
             props.primitive.setParameter(item.key, source.key )
+          }
+          const fieldKey = Object.keys(props.primitive.metadata.parameters).filter((d,idx,a)=>props.primitive.metadata.parameters[d].type === "category_field")?.[0]
+          if( fieldKey ){
+            props.primitive.setParameter( fieldKey, 'title' )
           }
         }
         let index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) || item.value === d.key) 
@@ -292,6 +299,7 @@ let mainstore = MainStore()
 
   const CardMenu = function({primitive,...props}){
     const [showDeletePrompt, setShowDeletePrompt] = React.useState(false)
+    const [manualInputPrompt, setManualInputPrompt] = React.useState(false)
     const navigate = useNavigate();
     const buttonClass = `${props.size > 6 ? 'p-1' : 'p-0.5'} shrink-0 grow-0 self-center rounded-md border ${props.bg === "transparent" ? "border-transparent hover:border-gray-300 hover:bg-white hover:shadow-sm" : `border-gray-300 ${props.bg || "bg-white"} shadow-sm`} font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
 
@@ -329,13 +337,27 @@ let mainstore = MainStore()
       
     ]).concat(
       primitive.metadata?.actions
-      ? primitive.metadata.actions.filter((d)=>d.menu).map((d)=>{return {title: d.title, icon: d.icon || "PlayIcon", action: async ()=>{const res = await MainStore().doPrimitiveAction(primitive, d.key);console.log(res?.message)}}})
+      ? primitive.metadata.actions.filter((d)=>d.menu).map((d)=>{
+          return {
+            title: d.title, 
+            icon: d.icon || "PlayIcon", 
+            action: async ()=>{
+              
+              if( d.manualFields ){
+                setManualInputPrompt({
+                  confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs),
+                })
+              }else{
+                const res = await MainStore().doPrimitiveAction(primitive, d.key)
+              }
+            }}})
       : [] 
     ).filter((d)=>!d.skip)
     const baseColor = props.color || "gray"
 
 
     return(<>
+      {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
       {showDeletePrompt && <ConfirmationPopup message={`This will also delete all items that belong to this ${primitive.displayType}`} title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
       <div className={[`h-${props.size || 8} w-${props.size || 8}`, 'shrink-0', props.className].join(" ")}>
         <Menu>
@@ -1433,8 +1455,8 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     }
   }
 
-  const packedFields = fields ? fields.filter((d)=>d.indexOf(",") >= 0).map((d)=>d.split(",")).flat() : undefined
-  fields = fields ? fields.filter((d)=> (d !== "title") && (d.indexOf(",") === -1)) : undefined
+  const packedFields = fields ? fields.filter((d)=>d?.indexOf(",") >= 0).map((d)=>d.split(",")).flat() : undefined
+  fields = fields ? fields.filter((d)=> (d !== "title") && (d?.indexOf(",") === -1)) : undefined
 
   let style = {}
   if( props.fixedWidth){

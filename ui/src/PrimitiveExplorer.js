@@ -15,7 +15,7 @@ const mainstore = MainStore()
 
 export default function PrimitiveExplorer({primitive, ...props}){
 
-    const [selectedCategoryIds, setSelectedCategoryIds] = React.useState( (primitive.plainId === 70 ? [10] : props.allowedCategoryIds) || undefined )
+    const [selectedCategoryIds, setSelectedCategoryIds] = React.useState( props.allowedCategoryIds )
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
 
     function updateFilters(){
@@ -176,7 +176,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     for(let idx = 0; idx < option.access; idx++){
                         item = item.origin
                     }
-                    return item.referenceParameters[option.parameter]
+                    return item?.referenceParameters[option.parameter]
                 }
             }else if( option.type === "specificity"){
                 fields = fields.filter((d)=>d!=="specificity")
@@ -515,6 +515,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
   const columnExtents = React.useMemo(()=>{
+        if( !axisOptions || !axisOptions[colSelection]){return []}
         if( axisOptions[colSelection].type === "category" ){
             return axisOptions[colSelection].values
         }
@@ -522,6 +523,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     },[primitive.id, colSelection, rowSelection, update])
   
     const rowExtents = React.useMemo(()=>{
+        if( !axisOptions || !axisOptions[rowSelection]){return []}
         if( axisOptions[rowSelection].type === "category" ){
             return axisOptions[rowSelection].values
         }
@@ -543,6 +545,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const hasRowHeaders = (rowExtents.length > 1)
 
 
+    const renderProps = {
+        "entity": {
+            hideCover: true,
+            urlShort: true,
+            fixedSize: "16rem"
+        }
+    }
 
   return (
     <>
@@ -552,8 +561,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 {props.buttons}
                 <p>{list?.length} items</p>
                 {props.allowedCategoryIds && <MyCombo prefix="Showing: " items={props.allowedCategoryIds.map((id)=>mainstore.category(id))} selectedItem={selectedCategoryIds} setSelectedItem={setSelectedCategoryIds}/>}
-                <MyCombo items={options} prefix="Columns: " selectedItem={colSelection} setSelectedItem={setColSelection}/>
-                <MyCombo items={options} prefix="Rows: " selectedItem={rowSelection} setSelectedItem={setRowSelection}/>
+                {options && <MyCombo items={options} prefix="Columns: " selectedItem={options[colSelection] ? colSelection :  0} setSelectedItem={setColSelection}/>}
+                {options && <MyCombo items={options} prefix="Rows: " selectedItem={options[rowSelection] ? rowSelection : 0} setSelectedItem={setRowSelection}/>}
             </div>
                 <div ref={targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain'>
                 <div 
@@ -601,7 +610,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 fields={fields} 
                                                 {...size} 
                                                 className='m-2 touch-none ' 
-                                                {...props.renderProps} 
+                                                {...(props.renderProps || renderProps[item.type] || {})} 
                                                 onClick={props.onCardClick ? ()=>{
                                                     if( myState.current?.cancelClick ){
                                                         myState.current.cancelClick = false

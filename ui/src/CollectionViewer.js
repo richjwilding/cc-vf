@@ -5,15 +5,61 @@ import GoogleHelper from './GoogleHelper';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Panel from './Panel';
 import { useEffect, useState } from "react";
-import { ArrowsPointingInIcon } from '@heroicons/react/24/outline';
+import { ArrowsPointingInIcon, ListBulletIcon, RectangleGroupIcon, TableCellsIcon } from '@heroicons/react/24/outline';
 import PrimitiveExplorer from "./PrimitiveExplorer";
+import HierarchyView from "./HierarchyView";
+import { HeroIcon } from "./HeroIcon";
 
+const allViews = ["cluster", "explore", "cards","table", "list" ]
+const icons = {
+    "explore": <RectangleGroupIcon className="w-5 h-5"/>,
+    "cluster": <HeroIcon icon='Nest' className="w-5 h-5"/>,
+    "table": <TableCellsIcon className="w-5 h-5"/>,
+    "list": <ListBulletIcon className="w-5 h-5"/>,
+    "cards": <HeroIcon icon='LargeGrid' className="w-5 h-5"/>,
+}
 
 export default function CollectionViewer({primitive, category, ...props}){
     const mainstore = MainStore()
-    const active = Object.keys(category.views.options || {})
-    const allowed = (props.permittedViews || ["table","cards","explore","list"]).filter((d)=>active.includes(d) && (!props.excludeViews || !props.excludeViews.includes(d) ))
 
+    if( category === undefined){
+        category = {
+            views: {
+                options: {
+                    cluster: {},
+                    explore:{},
+                    cards:{
+                        "fields":["title"]
+                    },
+                    table: {
+                        fields: [
+                            {
+                                "field": "id",
+                                "name": "Id"
+                            },
+                            {
+                                "field": "title",
+                                "name": "Item"
+                            },
+                            {
+                                "field": "referenceName",
+                                "name": "Type"
+                            }
+                        ],
+                    },
+                   // defaultWide: 'table'                
+                }
+            },
+        }
+    }
+
+    const active = Object.keys(category.views.options || {}) 
+    let allowed = (props.permittedViews || allViews).filter((d)=>active.includes(d) && (!props.excludeViews || !props.excludeViews.includes(d) ))
+    if( !primitive.clusters ){
+        allowed = allowed.filter((d)=>d !== "cluster")   
+    }
+    
+    
     const pickDefault = ()=>{
         const view = props.defaultWide ? category.views.options?.defaultWide : category.views.options?.default
         return view || allowed[0] || "cards"
@@ -22,13 +68,25 @@ export default function CollectionViewer({primitive, category, ...props}){
     const [view, setView] = useState( pickDefault() )
 
     useEffect(()=>{
-        console.log(`resetting ${category.id}`)
         setView( pickDefault() )
-    }, [primitive.id, category.id])
+    }, [primitive.id, category?.id])
 
-    let cardConfig = category.views.options?.[view] || {fields: ['title']}
+    let cardConfig = category?.views.options?.[view] || {fields: ['title']}
 
-    let list = primitive.primitives.results ?  primitive.primitives.results[category.id].map((d)=>d) : []
+    let list
+    if( props.nested ){
+        list = primitive.primitives.descendants
+        if( props.nestedTypes ){
+            const types = [props.nestedTypes].flat()
+            list = list.filter((d)=>types.includes( d.type ) )
+        }
+        if( props.nestedReferenceIds ){
+            const ids = [props.nestedReferenceIds].flat()
+            list = list.filter((d)=>ids.includes( d.referenceId ) )
+        }
+    }else{        
+        list = primitive.primitives.results ?  primitive.primitives.results[category.id].map((d)=>d) : []
+    }     
 
     const resultCategory = mainstore.category(category.resultCategoryId)
 
@@ -59,9 +117,12 @@ export default function CollectionViewer({primitive, category, ...props}){
 
     }
 
+    let title
+    let createButtons
 
-    const title = (resultCategory.openai || resultCategory.doDiscovery) 
-                ? <div className='flex place-items-center'>
+    if( resultCategory && !props.hidePanel ){
+        title = (resultCategory.openai || resultCategory.doDiscovery) 
+        ? <div className='flex place-items-center'>
                     {category.plurals || category.title}
                     <button
                     type="button"
@@ -71,23 +132,24 @@ export default function CollectionViewer({primitive, category, ...props}){
                     </button>
                     </div>
                 : category.plurals || category.title
-
-    let createButtons = [{title:"Create new", action: ()=>createResult(undefined, true)}]
-    if( resultCategory.parameters.notes ){
-        createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
+                
+                createButtons = [{title:"Create new", action: ()=>createResult(undefined, true)}]
+                if( resultCategory.parameters.notes ){
+                    createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
+                }
+                
+                (primitive.metadata.actions || []).forEach((d)=>{
+                    if( d.canCreate && d.resultCategory === resultCategory.id){
+                        createButtons.push( {title: d.title, action: async ()=>await mainstore.doPrimitiveAction(primitive, d.key, {path: `results.${category.id}`})})
+                    }
+                })
     }
-    
-    (primitive.metadata.actions || []).forEach((d)=>{
-        if( d.canCreate && d.resultCategory === resultCategory.id){
-            createButtons.push( {title: d.title, action: async ()=>await mainstore.doPrimitiveAction(primitive, d.key, {path: `results.${category.id}`})})
-        }
-    })
 
     const showBar = (allowed.length > 1 || props.closeButton) && view !== "explore"
     const buttons = <>
                 {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
                 {allowed.length > 1 && category.views?.options && Object.keys(category.views.options).map((d)=>{
-                    return  allowed.includes(d) && category.views.options[d] ? <Panel.MenuButton title={d} onClick={()=>setView(d)}/> : undefined
+                    return  allowed.includes(d) && category.views.options[d] ? <Panel.MenuButton title={icons[d] || d} onClick={()=>setView(d)}/> : undefined
                 })}
             </>
 
@@ -107,23 +169,21 @@ export default function CollectionViewer({primitive, category, ...props}){
                 </div>
             : <>
                 {
-                view === "table" && <div key="table" className="p-2 bg-white rounded-md h-[60vh]">
+                view === "table" && <div key="table" className={`p-2 bg-white rounded-md ${props.defaultWide ?  "h-full" : "h-[60vh]"}`}>
                     <PrimitiveTable 
                         onDoubleClick={props.onNavigate} 
                         onEnter={props.onPreviewFromList} 
                         columns={cardConfig.fields} 
+                        onClick ={props.onShowInfo}
                         primitives={list} className='w-full min-h-[24em] bg-white'/> 
                 </div>
                 }
                 {view === "explore" &&
                     <PrimitiveExplorer 
                         primitive={primitive}
-                        types='entity'
-                        renderProps={{
-                            hideCover: true,
-                            urlShort: true,
-                            fixedSize: "16rem"
-                        }}
+                        list={list}
+                        fields={[cardConfig.fields, "top", "important"].flat()}
+                        allowedCategoryIds={list.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} 
                         onCardClick ={props.onShowInfo}
                         buttons={buttons} 
                     />
@@ -131,7 +191,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                 {view === "list" && <CardGrid 
                     key="card_list"
                     primitive={primitive}
-                    category={category}
+                    category={category?.id ? category : undefined}
                     selectedItem={props.selected}
                     cardClick={(e)=>e.currentTarget.focus()}
                     onEnter={props.onPreviewFromList}
@@ -143,7 +203,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                 {view === "cards" && <CardGrid  
                     key="card_grid"
                     primitive={primitive}
-                    category={category}
+                    category={category?.id ? category : undefined}
                     selectedItem={props.selected}
                     cardClick={(e)=>e.currentTarget.focus()}
                     onEnter={props.onPreviewFromList}
@@ -155,6 +215,10 @@ export default function CollectionViewer({primitive, category, ...props}){
                             : {"md":2, "xl":3, "2xl":4}
                     }
                     />}
+
+                {view === "cluster" && 
+                    <HierarchyView primitive={primitive}
+                />}
             </>
         }
      </>

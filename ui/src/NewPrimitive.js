@@ -170,7 +170,6 @@ export default function NewPrimitive({...props}) {
                 {selectedCategory && items.length === 1 && <CategoryCard item={selectedCategory}/>}
                 {pickCategory && <Popup padding='false' setOpen={()=>setPickCategory(false)}><CategorySelection items={items} setSelectedCategory={(item)=>{changeCategory(item);setPickCategory(false)}}/></Popup>}
                 <textarea
-                    className='mt-4'
                     rows={5}
                     tabIndex={1}
                     onKeyDown={(e)=>{

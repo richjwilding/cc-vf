@@ -8,6 +8,8 @@ import { useReactTable,
         getCoreRowModel } from '@tanstack/react-table'
 import MainStore from "./MainStore";
 import useDataEvent from "./CustomHook";
+import { ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/solid";
+import { min } from "date-fns";
   
 
 const ExpandArrow = function(props) {
@@ -23,17 +25,25 @@ const ExpandArrow = function(props) {
         const columnHelper = createColumnHelper()
 
         return columns.map((d)=>{
+
+            if( d.field === "contact"){
             return columnHelper.accessor(d.field,
                 {
-                    cell: d.field === "contact" 
-                            ? info => <PrimitiveCard.RenderItem compact={true} item={{type:'contact', value: info.getValue() }}/>
-                            : info => <p className="truncate">{info.getValue()}</p>,
+                    cell: info => <PrimitiveCard.RenderItem compact={true} item={{type:'contact', value: info.getValue() }}/>,
                     header: () => d.name,
-                    sortingFn: d.field === "contact" 
-                            ? (a,b,idx)=>{
+                    sortingFn: (a,b,idx)=>{
                                 return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
-                            }
-                            : "text",
+                            },
+                    minSize: 100,
+                })
+
+            }
+            return columnHelper.accessor(d.field,
+                {
+                    cell: info => <p className="truncate">{info.getValue()}</p>,
+                    header: () => d.name,
+                    sortingFn: "text",
+                    startSize: d.field === "id" ? 100 : undefined,
                     minSize: 100,
                 })
         })
@@ -55,7 +65,17 @@ export function PrimitiveTable(props) {
         return rows.map((d)=>{
             const metadata = d.metadata
             return columns.reduce((r, c)=>{
-                r[c.field] = (d.referenceParameters ? d.referenceParameters[c.field] : undefined) || metadata?.parameters?.[c.field]?.default
+                if( c.field === 'title')
+                {
+                    r[c.field] = d.title                    
+                }else if( c.field === "referenceName"){
+                    r[c.field] = d.metadata?.title
+                }else if( c.field === "id"){
+                    r[c.field] = d.plainId
+                }else{
+
+                    r[c.field] = (d.referenceParameters ? d.referenceParameters[c.field] : undefined) || metadata?.parameters?.[c.field]?.default
+                }
                 return r
             },{primitive: d})
         })
@@ -93,7 +113,7 @@ export function PrimitiveTable(props) {
             console.log(gridRef.current)
             setTotalWidth(parentWidth)
             Array.from(gridRef.current.children).slice(1, columns.length).forEach((el, idx)=>{
-                eWidths[columns[idx].accessorKey] = parentWidth / columns.length
+                eWidths[columns[idx].accessorKey] = columns[idx].startSize || parentWidth / columns.length 
             })
 
             table.setColumnSizing( eWidths )
@@ -111,7 +131,6 @@ export function PrimitiveTable(props) {
     }
 
     gridWidths = gridWidths.map((d)=>d ? `${d}px` : '1fr')
-    window.table = table
 
     const navigate = (delta)=>{
         let rows = table.getRowModel().rows
@@ -163,6 +182,9 @@ export function PrimitiveTable(props) {
         switch (e.detail) {
           case 1:
             setSelected(primitive.id)
+            if( props.onClick ){
+                props.onClick( primitive )
+            }
             break;
           case 2:
             if(props.onDoubleClick){
@@ -173,6 +195,13 @@ export function PrimitiveTable(props) {
         }
         },props.onDoubleClick ? 200 : 0)
       };
+
+
+      const handleHeaderClick = (e, column)=>{
+        if( e.target.classList.contains('myheader') ){
+            column.getToggleSortingHandler()(e)
+        }
+      }
 
     return (
         <div 
@@ -193,12 +222,18 @@ export function PrimitiveTable(props) {
                     return (
                     <div 
                         key={header.id}
-                        onClick={header.column.getToggleSortingHandler()}
-                        className="relative px-2 sticky top-0 z-10 bg-white border-b border-gray-200 py-2 font-semibold"
+                        onClick={(e)=>handleHeaderClick(e, header.column)}
+                        className={`myheader flex place-items-center space-x-2 relative px-2 sticky top-0 z-10 bg-white border-b border-gray-200 py-2 font-semibold`}
                         >
                     {header.isPlaceholder
                         ? null
-                        : flexRender(header.column.columnDef.header,header.getContext())}
+                        : <p>{flexRender(header.column.columnDef.header,header.getContext())}</p>
+                    }
+                        {
+                            {
+                                "asc": <ChevronDownIcon className='w-4 h-4'/>,
+                                "desc": <ChevronUpIcon className='w-4 h-4'/>,
+                            }[ header.column.getIsSorted() ] ?? null}
                         <div
                             onMouseDown ={header.getResizeHandler()}
                             onTouchStart = {header.getResizeHandler()}

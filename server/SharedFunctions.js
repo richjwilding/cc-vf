@@ -5,13 +5,20 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
 import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn} from './linkedin_helper'
 import { extractArticlesFromCrunchbase, pivotFromCrunchbase } from './crunchbase_helper';
-import {buildCategories, categorize, summarizeMultiple, processPromptOnText} from './openai_helper';
+import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
 import { getDocumentAsPlainText, removeDocument } from './google_helper';
 import { SIO } from './socket';
 import EnrichPrimitive from './enrich_queue';
 import QueueAI from './ai_queue';
 import QueueDocument from './document_queue';
+import Embedding from './model/Embedding';
+import DBSCAN from '@cdxoo/dbscan';
+import { kmeans } from 'ml-kmeans';
+import skmeans from 'skmeans';
+//import silhouetteScore from '@robzzson/silhouette';
+import { agnes } from 'ml-hclust';
+import { localeData } from 'moment';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -330,6 +337,16 @@ export async function primitiveDescendents(primitive, types, options={}){
 export function primitiveOrigin(primitive ){
     return primitiveWithRelationship(primitive, "origin")
 }
+export async function primitiveTask(primitive ){
+    const origin = await Primitive.findOne({_id:  primitiveWithRelationship(primitive, "origin") })
+    if( origin ){
+        if( ["activity", "task", "experiment"].includes(origin.type) ){
+            return origin
+        }
+        return primitiveTask( origin )
+    }
+    return undefined
+}
 export function primitiveWithRelationship(primitive, relationship){
     const match = `primitives.${relationship}`
     return Object.keys(primitive.parentPrimitives).filter((parentId)=>{
@@ -355,7 +372,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
         source = primitive
     }
 
-    const type = primitive.referenceParameters?.type || action.type
+    let type = primitive.referenceParameters?.type || action.type
     const target = primitive.referenceParameters?.target || action.target || "children"
     const referenceId = primitive.referenceParameters?.referenceId || action.referenceId
     const field = primitive.referenceParameters?.field || action.field
@@ -374,6 +391,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
         list = startList || await primitiveChildren(source)
     }else if(target === "evidence"){
         list = startList || await primitiveDescendents(source, undefined, {fullDocument:true})
+        type = "evidence"
         console.log(`GOT ${list.length}`)
     }else if(target === "level2" ){
         list = startList || await primitiveChildren(source)
@@ -399,22 +417,26 @@ export async function getDataForProcessing(primitive, action, source, options = 
         return []
     }
     
-    const param = field.slice(0,6) === "param." ? field.slice(6) : undefined
+    if( field){
 
-    const oldSize = list.length
-    list = list.filter((d)=>{
-        return (param ? d.referenceParameters?.[param] : d[field]) !== undefined
-    })
-    if( oldSize !== list.length){
-        console.log(`+++++ HAD ${oldSize} now ${list.length} +++++`)
-    }
-
-
-    return [list, 
+        const param = field.slice(0,6) === "param." ? field.slice(6) : undefined
+        
+        const oldSize = list.length
+        list = list.filter((d)=>{
+            return (param ? d.referenceParameters?.[param] : d[field]) 
+        })
+        if( oldSize !== list.length){
+            console.log(`+++++ HAD ${oldSize} now ${list.length} +++++`)
+        }
+        
+        
+        return [list, 
             (param 
-            ? list.map((d) => d.referenceParameters?.[param])
-            : list.map((d) => d[field])
-            )]
+                ? list.map((d) => d.referenceParameters?.[param])
+                : list.map((d) => d[field])
+                )]
+    }
+    return [list]
 }
 
 export async function getDataForAction(primitive, action, options = {}){
@@ -558,6 +580,220 @@ export async function dispatchControlUpdate(id, controlField, status, flags = {}
         console.log(`Error dispatching ${controlField} for ${id}`)
         console.log(error)
     }
+}
+async function treeToCluster( tree){
+    let id = 0
+    let nodeCount = 0
+    const lookup = {}
+    const labelTree = (node, parent )=>{
+        node.id = id
+        if( parent){
+            node.parent = parent            
+        }
+        lookup[node.id] = node
+        id++
+        if( node.isLeaf){
+            nodeCount++
+        }else{
+            for(const c of node.children){
+                labelTree(c, node)
+            }
+        }
+    }
+    const run = (targetH) => {
+        let latch = false
+        const nodes = {}
+        const flattenTree = (node, parent, unpack)=>{
+
+            if( unpack ){
+                if(!nodes[parent]){
+                    nodes[parent] = {primitives: [], id: parent}
+                }
+                if( node.isLeaf ){
+                    nodes[parent].primitives.push( node.primitiveId)
+                }else{
+                    for(const c of node.children){
+                        flattenTree(c, parent, true)
+                    }
+                }
+            }else{
+                if( node.height > targetH ){
+                    for(const c of node.children){
+                        flattenTree(c, undefined, false)
+                    }
+                }else{
+                    if( node.isLeaf){
+                        nodes[node.id] = {primitives: [node.primitiveId], id: node.id, wasLeaf: true}
+                    }else{
+                        for(const c of node.children){
+                            flattenTree(c, node.id, true)
+                        }
+                    }
+                }
+            }
+        }
+        flattenTree(tree)
+        return nodes
+    }
+
+    labelTree( tree )
+
+    const alignTree = (minClusters)=>{
+
+        let nodes
+        let clusterCount
+        let nodeCount
+        let layer1Heights = [...tree.children.map((d)=>d.height)].filter((d)=>d)
+        let targetH
+        if( layer1Heights.length > 0){
+            targetH = layer1Heights.reduce((a,c)=>a+c,0) / layer1Heights.length
+            let maxIter = 20
+            do{
+                nodes = run(targetH)
+                clusterCount = Object.keys(nodes).length
+                nodeCount = Object.values(nodes).map((d)=>d.length).reduce((a,c)=>a+c,0)
+                targetH *= 0.8
+            }while( (maxIter-- > 0) && (clusterCount < minClusters ))
+        }
+        console.log( `For target ${minClusters} got ${clusterCount} clusters at height ${targetH}`)
+        return nodes
+    }
+    let targetCount = [0.02, 0.015, 0.01,0.0025, 0.0012].map((d)=>Math.round(d * nodeCount))
+    targetCount = targetCount.map((d)=>d < 3 ? 3 : d).filter((d,idx,a)=>a.indexOf(d)===idx)
+    console.log(targetCount)
+
+    const findRoutes = (node, targets, found = [], depth = 0)=>{
+        if( targets.includes(node.id) ){
+            found.push( node.id )
+            return found
+        }
+        if( !node.isLeaf ){
+            for( const c of node.children){
+                found = findRoutes( c, targets, found, depth + 1)
+            }                        
+        }
+        return found
+    }
+
+    let lastNodes 
+    let nodes = {}
+    targetCount.forEach((target)=>{
+        const newNodes = alignTree( target )
+        if( lastNodes ){
+            let targets = lastNodes
+            for(const cid of Object.keys(newNodes)){
+                const node = lookup[cid]
+                if( node ){
+                    const found = findRoutes(node, targets)
+                    if( found.length > 0){
+                        for(const tid of found){
+                            if( tid !== newNodes[cid].id ){
+                                newNodes[cid].children = newNodes[cid].children || []
+                                newNodes[cid].children.push(tid)
+                                nodes[tid].parent = node.id
+                                if( newNodes[cid].primitives){
+                                    const source = newNodes[cid].sparsePrimitives ? newNodes[cid].sparsePrimitives : newNodes[cid].primitives
+                                    newNodes[cid].sparsePrimitives = source.filter((d)=>!nodes[tid].primitives.includes(d))
+                                }
+                            }
+                        }
+                        targets = targets.filter((d)=>!found.includes(d))
+                    }
+                }
+            }
+        }
+        lastNodes = Object.keys(newNodes).map((d)=>parseInt(d))
+        for(const k of Object.keys(newNodes)){
+            nodes[k] = {...(nodes[k] || {}), ...newNodes[k]}
+        }
+    })
+    Object.values(nodes).forEach((node)=>{
+        if( node.sparsePrimitives){
+            node.primitives = node.sparsePrimitives
+            delete node["sparsePrimitives"]
+        }
+    })
+
+    console.log(Object.values(nodes).map((d)=>d.sparsePrimitives ? d.sparsePrimitives.length : (d.primitives?.length  || 0)).reduce((a,c)=>a+c,0))
+    console.log(nodeCount)
+
+
+
+
+
+    return nodes
+
+}
+async function summarizeClusters( nodes ){
+    let needSummary, lastNeed
+    console.log(`Do summary...`)
+
+    do{
+        lastNeed = needSummary?.length
+        needSummary = Object.values(nodes).filter((d)=>!d.summary)
+        if( needSummary.length > 0 && needSummary.length !== lastNeed){
+            console.log(`${needSummary.length} nodes need a summary (${lastNeed})`)
+            const toProcess = needSummary.filter((d)=>!d.children || d.children.reduce((a, d)=>a && (nodes[d].summary ? true : false), true))
+            let idx = 0
+            for(const node of toProcess){
+                console.log(node.parent, node.primitives?.length)
+                
+                const items = node.primitives
+                console.log(`Cluster ${idx} / ${toProcess.length} = ${node.id} : ${items?.length} items`)
+                if( items.length > 0){
+                    
+                    const list = (await Primitive.find({_id: {$in: items}}))
+                    
+                    const titles = list.map((d)=>d.title)
+                    
+                    let summary = await summarizeMultiple( titles, {types: "problem statements", prompt: "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'"})
+                    if( summary.success ){
+                        node.summary = summary.summary
+                    }
+                }
+                if( node.children && node.children.length > 0){
+                    console.log(`Need to combine with others`)
+                    const summaries = node.children.map((d)=>nodes[d].summary)
+                    if( node.summary ){
+                        summaries.push( node.summary )
+                    }
+                    const overall = await summarizeMultiple( summaries, {types: "problem statements", prompt: "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'"})
+                    if( overall.success ){
+                        console.log(`GOT BACK SUMMARY OF SUMMARY`)
+                        node.summary = overall.summary
+                        
+                        
+                        let attempts = 3
+                        let updates 
+                        do{
+                            console.log(`Preparing summaries - attempt ${attempts}`)
+                            updates = await simplifyHierarchy( node.summary, summaries )
+                            console.log( updates)
+                            attempts--
+                        }while( attempts > 0 && updates.success !== true)
+                        if( updates.success ){
+                            node.children.forEach((d,idx)=>{
+                                if( idx === parseInt(updates.summaries[idx].id)){
+
+                                    nodes[d].short = updates.summaries[idx].summary
+                                }else{
+                                    console.log(`mismatch ${idx}`, updates.summaries[idx])
+                                }
+                            })
+                            console.log(node.children)
+                        }
+
+                    }
+
+
+                }
+                console.log(node.summary)
+                idx++    
+            }
+        }
+    }while(needSummary.length > 0 && needSummary.length !== lastNeed)
+    return nodes
+
 }
 
 async function validateAndRebuildSegments( primitive ){
@@ -703,7 +939,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
 
 
-                const [targets] = await getDataForAction(primitive, action)
+                const [targets] = await getDataForProcessing(primitive, action)
                 console.log(`got ${targets.length} items`)
                 for( const child of targets){
                     console.log(` + ${child._id.toString()}`)
@@ -740,11 +976,37 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         }
                         console.log(title)
 
-                        const output = await processPromptOnText(text?.plain, {title: title, prompt: options.prompt || action.prompt, type: action.dataType ,extractNoun: action.extractNoun, transformPrompt: action.transformPrompt})
+                        let topics = options.topics || action.topics
+                        if( topics === "{parent_topic}"){
+                            const task = await primitiveTask( primitive )
+                            if( task ){
+                                topics = task.referenceParameters?.topics
+                            }
+                        }
+
+                        const output = await processPromptOnText(text?.plain, {title: title, topics: topics, prompt: options.prompt || action.prompt, type: action.dataType, extractField: action.extractField ,extractNoun: action.extractNoun, transformPrompt: action.transformPrompt})
                         if( output && output.success && output.output){
+                            let extracted = output.output 
+
                             console.log(output)
+                            console.log(output.output?.results)
                             const items = []
-                            for( const item of output.output){
+                            
+                            console.log( `GOT`, extracted)
+
+                            if( topics ){
+                                console.log(`DO FILTER CHECK`)
+                                const result = await analyzeListAgainstTopics(extracted.map((d)=>d[action.extractNoun].replaceAll("\n",". ")), topics, {prefix: "Problem", type: "problem", maxTokens: 6000})
+                                console.log( result.output )
+                                if( result.success ){
+                                    extracted = extracted.filter((d,idx)=>!(["hardly", "not at all"].includes( result.output[idx].s ) ))
+                                }
+                                console.log(extracted)
+                            }
+
+                            // do filter
+
+                            for( const item of extracted){
                                 const title = item[action.extractNoun]
                                 if( title ) {
                                     items.push( await createPrimitive({
@@ -774,9 +1036,101 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             if( primitive.type === "activity" ){
                 if( command === "search"){
-                        result = await EnrichPrimitive().searchCompanies( primitive, {referenceId: action.referenceId} )
+                        result = await EnrichPrimitive().searchCompanies( primitive, {referenceId: action.referenceId, keywords: options.keywords} )
                         done = true
                 }
+                    if(command === "pivot_cb" ){
+                        result = EnrichPrimitive().pivotCompany(primitive, "crunchbase", action)
+                        done = true
+                    }
+                    if(command === "roll_up" ){
+                        if( primitive.tree){
+                            if( !primitive.clusters ){
+                                const clusters = await treeToCluster( primitive.tree )
+                                const summarized = await summarizeClusters( clusters )
+                                await dispatchControlUpdate(primitive.id, "clusters", summarized )
+                            }else{
+                                const topNodes = Object.values(primitive.clusters).filter((d)=>d.parent === undefined)
+                                console.log(`got ${topNodes}`)
+                            
+                                const summaries = topNodes.map((d)=>d.summary)
+                                const overall = await summarizeMultiple( summaries, {types: "problem statements", prompt: "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'"})
+                                if( overall.success ){
+                                    console.log(`GOT BACK SUMMARY OF SUMMARY`)
+
+                                    const updates = await simplifyHierarchy( overall.summary, summaries )
+                                    if( updates.success ){
+                                        topNodes.forEach((d,idx)=>{
+                                            if( idx === parseInt(updates.summaries[idx].id)){
+                                                d.short = updates.summaries[idx].summary
+                                            }else{
+                                                console.log(`mismatch ${idx}`, updates.summaries[idx])
+                                            }
+                                        })
+                                        await dispatchControlUpdate(primitive.id, "clusters", primitive.clusters )
+                                    }
+
+                                }
+                            }
+                        }else{
+                            let [list, data] = await getDataForProcessing(primitive, action)
+                            if(data){
+                                if( data.length !== list.length){
+                                    console.log(`Mismatch on data vs list size`)
+                                }else{
+                                // list = list.slice(0,200)
+                                    //data = data.slice(0,200)
+    //                                console.log(data.map((d,idx)=>`${idx}: ${d}`))
+                                    let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}})
+                                    const missingIdx = list.map((d, idx)=>embeddings.find((e)=>e.foreignId === d.id) ? undefined : idx).filter((d)=>d  !== undefined)
+                                    console.log( `missingIdx = ${missingIdx.join(", ")}`)
+                                    for(const idx of missingIdx){
+                                        console.log(`Embeddings for ${idx} - ${list[idx].id}`)
+                                        const response = await buildEmbeddings(data[idx])
+                                        if( response.success){
+                                            const dbUpdate = await Embedding.findOneAndUpdate({
+                                                type: "primitive.title",
+                                                foreignId: list[idx].id
+                                            },{
+                                                embeddings: response.embeddings
+                                            },{upsert: true, new: true})
+                                            embeddings.push( dbUpdate )
+                                        }
+                                    }
+                                    console.log(`fetched`)
+                                    const ids = list.map((d)=>d.id)
+                                    list = list.sort((a,b)=>a.id.localeCompare(b.id))
+                                    embeddings = embeddings.filter((d)=>ids.includes(d.foreignId))
+                                    embeddings = embeddings.sort((a,b)=>a.foreignId.localeCompare(b.foreignId))
+                                    const ensureOrder = list.map((d,idx)=>d.id === embeddings[idx].foreignId).reduce((o,a)=>o && a, true)
+                                    if( !ensureOrder ){
+                                        throw new Error(`Items out of order`)
+                                    }
+                                    console.log(`build cache`)
+                                    const toProcess = embeddings.map((d)=>d.embeddings)
+
+                                    console.log(`doing calcs`)
+                                    let bestClusters, bestScore, bestE
+
+                                    const tree = agnes(toProcess, {
+                                        method: 'ward',
+                                    });
+                                    const flattenTree = (node)=>{
+                                        if( node.isLeaf ){
+                                            node.primitiveId = list[node.index].id
+                                        }else{
+                                            for(const c of node.children){
+                                                flattenTree(c)
+                                            }
+                                        }
+                                    }
+                                    flattenTree(tree)
+                                    await dispatchControlUpdate(primitive.id, "tree", tree )
+                                }
+                            }
+                            done = true
+                        }
+                    }
             }
             if( primitive.type === "entity" ){
                 if( command === "enrich"){
@@ -792,7 +1146,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         done = true
                     }
                     if(actionKey === "pivot_cb" ){
-                        result = EnrichPrimitive().pivotCompany(primitive, "crunchbase")
+                        result = EnrichPrimitive().pivotCompany(primitive, "crunchbase", action)
                         done = true
                     }
                 }
@@ -1010,3 +1364,95 @@ export const flattenPath = (path)=>{
     }
     return nest( path).join(".")
 }
+
+
+function cosineSimilarity(A, B) {
+    var dotproduct = 0;
+    var mA = 0;
+    var mB = 0;
+
+    for(var i = 0; i < A.length; i++) {
+        dotproduct += A[i] * B[i];
+   //     mA += A[i] * A[i];
+     //   mB += B[i] * B[i];
+    }
+    //console.log(mA,mB)
+
+//    mA = Math.sqrt(mA);
+  //  mB = Math.sqrt(mB);
+  return dotproduct
+    var similarity = dotproduct / (mA * mB);
+
+    return similarity;
+}
+
+const _euclideanCache = {}
+
+function euclideanDistance(point1, point2) {
+    if (point1.length !== point2.length) {
+      throw new Error("Both points must have the same dimensionality.");
+    }
+  
+    let sum = 0;
+    for (let i = 0; i < point1.length; i++) {
+      sum += Math.pow(point1[i] - point2[i], 2);
+    }
+  
+    return Math.sqrt(sum);
+  }
+  
+  function silhouetteScore(data, clusters) {
+    let scoreSum = 0;
+    let numPoints = 0;
+
+    let clusterMax = Math.max(...clusters) + 1
+  
+    for (let i = 0; i < data.length; i++) {
+      const clusterIdx = clusters[i];
+      const clusterPoints = data.filter((_, idx) => clusters[idx] === clusterIdx);
+      const a_i = clusterPoints.reduce((sum, point) => sum + euclideanDistance(data[i], point), 0) / clusterPoints.length;
+  
+      let b_i = Infinity;
+      for (let j = 0; j < clusterMax; j++) {
+        if( j !== clusterIdx) {
+          const otherClusterPoints = data.filter((_, idx) => clusters[idx] === j);
+          const avgDist = otherClusterPoints.reduce((sum, point) => sum + euclideanDistance(data[i], point), 0) / otherClusterPoints.length;
+          b_i = Math.min(b_i, avgDist);
+        }
+      }
+  
+      const silhouette_i = (b_i - a_i) / Math.max(a_i, b_i);
+      scoreSum += silhouette_i;
+      numPoints++;
+    }
+  
+    return scoreSum / numPoints;
+  }
+  function silhouetteScoreFast(data, clusters, dist) {
+    let scoreSum = 0;
+    let numPoints = 0;
+
+    let clusterMax = Math.max(...clusters) + 1
+  
+    for (let i = 0; i < data.length; i++) {
+      const clusterIdx = clusters[i];
+      const clusterPoints = data.filter((_, idx) => clusters[idx] === clusterIdx);
+      const a_i = data.reduce((sum, point, i2) => sum + (clusters[i2] === clusterIdx ? dist[i][i2] : 0), 0) / clusterPoints.length;
+  
+      let b_i = Infinity;
+      for (let j = 0; j < clusterMax; j++) {
+        if( j !== clusterIdx) {
+          const otherClusterPoints = data.filter((_, idx) => clusters[idx] === j);
+          const avgDist = data.reduce((sum, point,i2) => sum + (clusters[i2] === j ? dist[i][i2] : 0), 0) / otherClusterPoints.length;
+
+          b_i = Math.min(b_i, avgDist);
+        }
+      }
+  
+      const silhouette_i = (b_i - a_i) / Math.max(a_i, b_i);
+      scoreSum += silhouette_i;
+      numPoints++;
+    }
+  
+    return scoreSum / numPoints;
+  }

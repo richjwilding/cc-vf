@@ -45,8 +45,9 @@ export default function QueueAI(){
     }
     
     new Worker('aiQueue', async job => {
-
+//"gpt4"
         console.log('AI QUEUE GOT JOB')
+        const action = job.data.action
         const primitive = await Primitive.findOne({_id: job.data.id})
         if( primitive){
             if( job.data.mode === "mark_categories" || job.data.mode === "categorize" ){
@@ -59,9 +60,8 @@ export default function QueueAI(){
                     if( list !== undefined && data.length > 0){
                         if( job.data.mode === "categorize" ){
                             try{
-                                const action = job.data.action
 
-                                const catData = await buildCategories( data, {count: primitive.referenceParameters?.count || action.count || 15, types: primitive.referenceParameters?.dataTypes || action.dataTypes, themes: primitive.referenceParameters?.theme || action.theme} )
+                                const catData = await buildCategories( data, {count: primitive.referenceParameters?.count || action.count || 8, types: primitive.referenceParameters?.dataTypes || action.dataTypes, themes: primitive.referenceParameters?.theme || action.theme, engine:  primitive.referenceParameters?.engine || action.engine} )
                                 if( catData.success && catData.categories){
                                     console.log(catData.categories)
                                     for( const title of catData.categories){
@@ -105,7 +105,7 @@ export default function QueueAI(){
                                     }
                                 }
                                 
-                                const categoryAlloc = await categorize(data, categoryList)
+                                const categoryAlloc = await categorize(data, categoryList, {engine:  primitive.referenceParameters?.engine || action.engine})
                                 //console.log(categoryAlloc)
                                 
                                 if( Object.hasOwn(categoryAlloc, "success")){

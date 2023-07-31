@@ -30,6 +30,7 @@ import CardGrid from './CardGrid';
 import DropdownButton from './DropdownButton';
 import ReportView from './ReportView';
 import EditableTextField from './EditableTextField';
+import HierarchyView from './HierarchyView';
 
 
 let mainstore = MainStore()
@@ -95,6 +96,9 @@ export function PrimitivePage({primitive, ...props}) {
           console.log(val)
           return primitive.metadata?.resultCategories?.[val.index]?.views?.options?.fullPageExplorer
         }
+      }
+      if( primitive.clusters ){
+        //return true
       }
       return false
     }
@@ -512,8 +516,35 @@ export function PrimitivePage({primitive, ...props}) {
                     ].join(" ")}
                 >
                 <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col p-2 @container'>
-                    {showWorkingPane === "evidence" &&
-                          <PrimitiveExplorer closeButton={()=>setShowWorkingPane(false)} allowedCategoryIds={nestedEvidence.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} list={nestedEvidence} onCardClick={(p)=>props.selectPrimitive(p)}  primitive={primitive} fields={['important', 'top']}/>
+                    {false && showWorkingPane === "evidence" && !primitive.clusters &&
+                          <PrimitiveExplorer 
+                            closeButton={()=>setShowWorkingPane(false)} 
+                            allowedCategoryIds={nestedEvidence.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} 
+                            list={nestedEvidence} 
+                            onCardClick={(p)=>props.selectPrimitive(p)}  
+                            primitive={primitive} 
+                            fields={['important', 'top']}/>
+                    }
+                    {false && showWorkingPane === "evidence" && primitive.clusters &&
+                          <HierarchyView primitive={primitive}/>
+                    }
+                    {showWorkingPane === "evidence" && 
+                      <CollectionViewer 
+                          closeButton={()=>setShowWorkingPane()}
+                          hidePanel={true} 
+                          className='w-full h-full overflow-y-scroll'
+                          defaultWide
+                          primitive={primitive} 
+                          onShowInfo={(p)=>props.selectPrimitive(p)}
+                          setSelected={setSelected} 
+                          onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
+                          onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}
+                          onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
+                          selected={selected}
+                          nested
+                          nestedTypes='evidence'
+                          //nestedReferenceIds={10}
+                          />
                     }
                     {showWorkingPane === "report" &&
                       <ReportView primitive={primitive}/>
