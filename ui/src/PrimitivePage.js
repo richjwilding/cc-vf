@@ -515,7 +515,7 @@ export function PrimitivePage({primitive, ...props}) {
                       : 'h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'
                     ].join(" ")}
                 >
-                <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col p-2 @container'>
+                <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col @container'>
                     {false && showWorkingPane === "evidence" && !primitive.clusters &&
                           <PrimitiveExplorer 
                             closeButton={()=>setShowWorkingPane(false)} 

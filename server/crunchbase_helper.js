@@ -8,26 +8,35 @@ var ObjectId = require('mongoose').Types.ObjectId;
 const rejectWords = ["somewhat","hardly", "not at all"]
 
 async function filterEntitiesByTopics( list, topics){
+    if( !topics ){
+        return list
+    }
     console.log(`Have ${list.length}`)
     //list=list.slice(0,100)
     list = list.filter((d)=>d.properties.description && d.properties.description.trim() !== "" )
+
+    const process = async (list)=>{
     console.log(`Now: ${list.length}`)
 
-    if( list && list.length > 0){
-        const result = await analyzeListAgainstTopics(list.map((d)=>d.properties.description.replaceAll("\n",". ")), topics, {prefix: "Organization", type: "organization", maxTokens: 6000})
-//        console.log( `GOT BACK - ${result.output?.length} results` )
-  //      console.log( result )
-        if( !result.success){
-            return undefined
+        if( list && list.length > 0){
+            const result = await analyzeListAgainstTopics(list.map((d)=>d.properties.description.replaceAll("\n",". ")), topics, {prefix: "Organization", type: "organization", maxTokens: 6000})
+            if( !result.success){
+                return undefined
+            }
+            
+            list = list.filter((d,idx)=>{
+                const score = result.output.find((d)=>d.i === idx)
+                if(score ){
+                    d.assessment = score.s
+                    return !rejectWords.includes(score.s) 
+                }
+                return false
+            })
+            console.log(`Now: ${list.length}`)
         }
-        list = list.filter((d,idx)=>{
-            const score = result.output.find((d)=>d.i === idx)
-            d.assessment = score.s
-            return !rejectWords.includes(score.s) 
-        })
-        console.log(`Now: ${list.length}`)
+        return list
     }
-    return list
+    return await process( await process( list ) )
 }
 
 async function createPrimitiveFromCBData( entity, referenceId, parent, paths ){
@@ -359,6 +368,7 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
     let targetCount = 20
 
     console.log(`-- Checking by description`)
+
     count += await pivotFromCrunchbaseDescription( primitive, options )
     console.log(count)
     if( primitive.type === "entity"){
@@ -389,7 +399,7 @@ export async function pivotFromCrunchbaseDescription(primitive, options = {}){
     }
 
     let count = 0
-    if( parent.referenceParameters?.topics){
+    if( list && list.length > 0){
         const keywords = await buildKeywordsFromList(list, {types: "organizations", count: keywordCount })
         console.log(keywords)
         if( keywords.success && keywords.keywords.length > 0){

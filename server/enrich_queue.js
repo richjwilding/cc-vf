@@ -6,6 +6,7 @@ import { dispatchControlUpdate, primitiveOrigin, primitiveParentPath, primitiveR
 import { enrichCompanyFromLinkedIn } from "./linkedin_helper";
 import { findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
 import Category from "./model/Category";
+import { fetchArticlesFromGNews } from "./gnews_helper";
 
 
 let instance
@@ -19,6 +20,13 @@ export default function EnrichPrimitive(){
         connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT },
     });
 
+    instance.findArticles = (primitive, options )=>{
+        if( primitive.type === "activity"){
+            const field = `processing.articles`
+            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Finding articles"})
+            instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: "find_articles", options: options})
+        }
+    }
     instance.searchCompanies = (primitive, options )=>{
         if( primitive.type === "activity"){
             const field = `processing.expanding.0`
@@ -63,6 +71,11 @@ export default function EnrichPrimitive(){
     new Worker('enrichQueue', async job => {
         const primitive = await Primitive.findOne({_id: job.data.id})
         if( primitive){
+            if( job.data.mode === "find_articles" ){
+                console.log(`find_articles ${primitive.id} ${primitive.referenceParameters?.topics}`)
+                await fetchArticlesFromGNews( primitive, job.data.options )
+                dispatchControlUpdate(primitive.id, "processing.pivot" , null, {track: primitive.id})
+            }
             if( job.data.mode === "search_company" ){
                 console.log(`search_company ${primitive.id} ${primitive.referenceParameters?.topics}`)
                 await findOrganizationsFromCB( primitive, job.data.options )

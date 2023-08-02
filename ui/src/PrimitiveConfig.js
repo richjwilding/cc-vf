@@ -37,13 +37,19 @@ const PrimitiveConfig = {
             needParent:true,
             needCategory:true,
         },
+        "view": {
+            allowedParents:["activity","experiment"],
+            needParent:true,
+            needCategory:false,
+            defaultReferenceId: 38
+        },
         "assessment": {
             allowedParents: ["venture"],
             needParent:true,
             needCategory:true,
         },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment"],
+    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view"],
     stateInfo:{
         "experiment":{
             "open": {title: "Not started", colorBase: "blue"},

@@ -16,7 +16,7 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
                 {"role": "user", "content": `Provide the result as a json object with a single field called 'summary' with conatins "a string with your summary. Do not put anything other than the raw json object in the response .`},
             ],
-            {field: "summary", temperature: 0.3, debug: false})
+            {field: "summary", temperature: 0.3, debug: false, engine: options.engine })
 
 
     if( Object.hasOwn(interim, "success")){
@@ -45,7 +45,7 @@ export async function summarizeMultiple(list, options = {} ){
         console.log(`done`)
         console.log(final)
 
-        return {success: true, summary: final[0], interim: interim}
+        return {success: true, summary: final[0], interim: interim, engine: options.engine }
     }
     return {success: true, summary: interim[0]}
 
@@ -98,14 +98,16 @@ export async function summarizeMultipleAsList(list, options = {} ){
 
 }
 export async function simplifyHierarchy(top, list, options = {} ){
+    const types = options.types || 'problem statement'
+    const subTypes = options.subTypes || "sub-problems"
     let interim = await processInChunk( list, 
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
-                {"role": "user", "content": `Here is a problem statement '${top}'`},
-                {"role": "user", "content": `And here is a list of numbered sub-problems related to the problem statement:`}],
+                {"role": "user", "content": `Here is a ${types} '${top}'`},
+                {"role": "user", "content": `And here is a list of numbered ${subTypes} related to the ${types}:`}],
             [
-                {"role": "user", "content": "Replace each numbered sub-problems with a single shorter summary of no more than 15 words which is normalized across all sub-problems and emphasises the difference between the other numbered sub-problems"},
-                {"role": "user", "content": `Provide the response in a json object with an array called "output" with each entry having a field called 'summary' set to the new summary, and a field called 'id' set to the original numbered sub-problem. Do not put anything other than the raw json object in the response`},
+                {"role": "user", "content": `Replace each numbered ${subTypes} with a single shorter summary of no more than 15 words which makes clear the difference between the other numbered ${subTypes}`},
+                {"role": "user", "content": `Provide the response in a json object with an array called "output" with each entry having a field called 'summary' set to the new summary, and a field called 'id' set to the original numbered ${subTypes}. Do not put anything other than the raw json object in the response`},
             ],
             {field: "output", temperature: 0.2, engine: options.engine, debug: true, debug_content: true})
     if( Object.hasOwn(interim, "success")){
@@ -221,7 +223,7 @@ export async function analyzeListAgainstTopics( list, topics, options = {}){
     const type = options.type || "description"
     
     let opener = `Here is a list of ${options.plural ? options.plural : `${type}s`}: `
-    let prompt =  options.prompt || `Assess how strongly each ${type} relates to ${single ? "the topic of" : "one or more of the following topics:"} ${topics}. Use one of the following assessment scores: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`
+    let prompt =  options.prompt || `Assess the degree to which each ${type} relates to ${single ? "the topic of" : "one or more of the following topics:"} ${topics}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`
 
     const interim = await processInChunk( list,
             [
@@ -251,6 +253,9 @@ export async function processPromptOnText( text, options = {}){
     if( options.title ){
         opener = opener.replace('{title}', options.title)
         prompt = prompt.replace('{title}', options.title)
+    }
+    if( options.topics ){
+        prompt = prompt.replace('{topic}', options.topics)
     }
 
     const interim = await processInChunk( list,
@@ -429,7 +434,7 @@ export  async function categorize(list, categories, options = {} ){
                 {"role": "user", "content": `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match.   If there is a strong match assign the ${targetType} to the category number - otherwise assign it -1`} ,
                 {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item and a 'category' field set to the assigned number or label. Do not put anything other than the raw JSON in the response .`}
             ],
-            {field: "results", temperature: 0.3, maxTokens: (options.engine === "gpt4" ? 5000 : 12000), engine:  options.engine})
+            {field: "results", temperature: 0.3, maxTokens: (options.engine === "gpt4" ? 2000 : 8000), engine:  options.engine})
     return interim
 }
 export async function analyzeText(text, options = {}){

@@ -1092,7 +1092,6 @@ const Entity=({primitive, ...props})=>{
        
       buttonSize = props.compact ? 5 : 16
   }else{
-
     header = <>
           {props.hideCover !== true && bgImg && (bgImg !== null) &&
               <VFImage className="object-cover h-24 w-full rounded-t-lg" src={`/api/image/${primitive.id}-background`}/>
@@ -1499,6 +1498,13 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
               className='w-4 h-4'
             />
           </div>}
+          {
+            primitive.type === "result" && primitive.referenceParameters?.hasImg && 
+              <>
+                <div className="bg-gray-200 h-[8.25rem] mb-2 w-full rounded-t-lg"/>
+                <VFImage className="absolute top-0 left-0 object-cover h-36 w-full rounded-t-lg" src={`/api/image/${primitive.id}`}/>
+              </>
+          }
         {header}
       {fields && (packedFields === undefined || fields.length > 0) &&
         <div className={[

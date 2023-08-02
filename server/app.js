@@ -161,15 +161,29 @@ var checkToken = async (req, res, next) => {
     if (moment().subtract(user.expiry_date, "s").format("X") > -300) {
         console.log(`NEED TO REFRESH with ${user.refreshToken}`)
 
-        await refresh.requestNewAccessToken('google', user.refreshToken, function(err, accessToken, refreshToken) {
-            if (err || !accessToken){
-                console.log(err)
-                return next(err);
-            } 
-            req.user.accessToken = accessToken
-            req.user.expiry_date = moment().add( 1000 * 60 * 60 * 24 * 7).format("X")
-            next();
-          });
+        const doRefresh = async () => {
+            await refresh.requestNewAccessToken('google', user.refreshToken, function(err, accessToken, refreshToken) {
+                if (err || !accessToken){
+                    console.log(err)
+                    return next(err);
+                } 
+                req.user.accessToken = accessToken
+                req.user.expiry_date = moment().add( 1000 * 60 * 60 * 24 * 7).format("X")
+                next();
+            });
+        }
+        try{
+            await doRefresh()
+        }catch(error){
+            try{
+                await doRefresh()
+            }catch(error){
+                console.log(`Error refreshing`)        
+                    console.log(error)
+                next();
+            }
+        }
+
     }else{
         next()
     }

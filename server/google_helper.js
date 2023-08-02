@@ -441,23 +441,28 @@ export async function importGoogleDoc(id, fileId, req, pdf = true){
 }
 
 export async function replicateURLtoStorage(url, id, bucketName){
-    console.log(`replicating`)
-    if(!url || !id || !bucketName){return false}
-    if( url.slice(0,4) !== "http"){return false}
-    const storage = new Storage({
-        projectId: process.env.GOOGLE_PROJECT_ID,
-      });
+    try{
 
-    const bucket = storage.bucket(bucketName);
-    const file = bucket.file(id)
-    if( (await file.exists())[0] ){
-        await file.delete()
+        console.log(`replicating`)
+        if(!url || !id || !bucketName){return false}
+        if( url.slice(0,4) !== "http"){return false}
+        const storage = new Storage({
+            projectId: process.env.GOOGLE_PROJECT_ID,
+        });
+        
+        const bucket = storage.bucket(bucketName);
+        const file = bucket.file(id)
+        if( (await file.exists())[0] ){
+            await file.delete()
+        }
+        const stream = file.createWriteStream()
+        
+        
+        const response = await fetch(url)
+        await finished(Readable.fromWeb(response.body).pipe(stream));
+    }catch(error){
+        console.log(`Error on replicateURLtoStorage`, url, id, bucketName)
     }
-    const stream = file.createWriteStream()
-
-
-    const response = await fetch(url)
-    await finished(Readable.fromWeb(response.body).pipe(stream));
     return true
 
 }
@@ -572,25 +577,6 @@ export function locateQuote(oQuote, document){
                 }
             }
         }
-       /*let temp = final(str)
-        if( temp.length > 3000 && _test > 0){
-           temp = temp.slice(3000)
-           
-           console.log("RESULT")
-           console.log(temp)
-           if( temp.length > 400 ){
-                console.log(quote)
-                console.log( temp.indexOf(quote))
-                let idx = 1
-                do{
-                    let _b = quote.slice(0,idx)
-                         console.log("'" + _b + "'")
-                       console.log( temp.indexOf(_b))
-                    idx++
-                }while(idx <= quote.length)
-                _test--
-            }
-        }*/
         return final(str)
     }
     // first pass

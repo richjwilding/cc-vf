@@ -555,7 +555,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
   return (
     <>
-      <div key='control' className='z-20 bg-white w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex'>
+      <div key='control' className='z-20 w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex rounded-t-lg bg-gray-50 border-b border-gray-200'>
                 {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
                 <Panel.MenuButton icon={<ClipboardDocumentIcon className='w-4 h-4 -mx-1'/>} action={copyToClipboard}/>
                 {props.buttons}

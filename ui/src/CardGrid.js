@@ -90,7 +90,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
     <div 
         ref={ref}
             style={{gridTemplateColumns: `repeat(${columnCount}, calc(${100 / columnCount}% - ${(0.75 * (columnCount - 1) / columnCount)}rem))`}}
-            className="grid gap-3"
+            className={`grid gap-3 ${props.className}`}
         >
         {
             columns.map((_, column)=>{

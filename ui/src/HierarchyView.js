@@ -277,7 +277,7 @@ export default function HierarchyView({primitive, ...props}){
                     })
                 }
             }
-            const level1 = Object.values(primitive.clusters).filter((d)=>d.parent === undefined)
+            const level1 = Object.values(primitive.clusters).filter((d)=>d.parent === undefined && d.id !== 0)
             level1.forEach((n)=>{
                 markLevels(n, root, 1)
             })
@@ -350,7 +350,13 @@ export default function HierarchyView({primitive, ...props}){
                 shw: result.width / 2,
                 shh: result.height / 2,
             }
-        updateForZoom(0, 0, 1)
+
+        const dx = (viewport.current.width / 2) - viewport.current.shw
+        const dy = (viewport.current.height / 2) - viewport.current.shh
+        
+        
+        ref.current.style.transform = `translate(${dx}px,${dy}px) scale(1)`
+        updateForZoom(dx, dy, 1)
 
 
     }, [])
@@ -446,9 +452,9 @@ export default function HierarchyView({primitive, ...props}){
             item.nestLerp = nestLerp
         }
     }
-    const zoomTo = (x1,y1,x2,y2)=>{
+    const zoomTo = (x1,y1,x2,y2,instant = false)=>{
         console.log( `zooming to `)
-        const scale = viewport.current.width * 0.9 / (x2 - x1)
+        const scale = Math.min(viewport.current.width * 0.9 / (x2 - x1), viewport.current.height * 0.9 / (y2 - y1))
         const x =  (viewport.current.shw * (scale - 1)) - (x1  * scale) + viewport.current.width * 0.05
         const y =  (viewport.current.shh * (scale - 1)) - (y1 * scale)
         
@@ -457,19 +463,22 @@ export default function HierarchyView({primitive, ...props}){
         
         const iter =  [(x - transformMatrix[4]) / 100, (y - transformMatrix[5]) / 100, (scale - transformMatrix[0]) / 100]
 
-        animate(0, 100, {
-            ease: "easeInOut",
-            onUpdate: latest => {
-                const x = transformMatrix[4] + (latest * iter[0])
-                const y = transformMatrix[5] + (latest * iter[1])
-                const s = transformMatrix[0] + (latest * iter[2])
+        if( !instant ){
 
-                const out = `translate(${x}px,${y}px) scale(${s})`
-                ref.current.style.transform = out
-                updateForZoom(x,y,s)
-            },
-            duration: 0.4
-        })
+            animate(0, 100, {
+                ease: "easeInOut",
+                onUpdate: latest => {
+                    const x = transformMatrix[4] + (latest * iter[0])
+                    const y = transformMatrix[5] + (latest * iter[1])
+                    const s = transformMatrix[0] + (latest * iter[2])
+                    
+                    const out = `translate(${x}px,${y}px) scale(${s})`
+                    ref.current.style.transform = out
+                    updateForZoom(x,y,s)
+                },
+                duration: 0.4
+            })
+        }
         
         ref.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
         setScale( scale )
