@@ -1358,6 +1358,21 @@ function MainStore (prims){
                     return receiver.primitives[type]
                 }
                 if( type === "primitive"){
+                    if( d.type === "segment"){
+                        if( prop === "nestedItems"){
+                            const segmentItems = (node)=>{
+                                return node.primitives.uniqueAllItems.map((d)=>{
+                                    if( d.type === "segment" ){
+                                        return segmentItems( d )
+                                    }else{
+                                        return d
+                                    }
+                                }).flat()
+                            } 
+                            return segmentItems( receiver)
+                        }
+
+                    }
                     if( d.type === "result"){
                         d.analyzer =  ()=>{
                             return ResultAnalyzer(receiver).init()

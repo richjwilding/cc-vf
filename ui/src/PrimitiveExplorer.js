@@ -546,6 +546,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
     const renderProps = {
+        "segment":{
+            showDetails:true
+        },
         "entity": {
             hideCover: true,
             urlShort: true,
@@ -609,15 +612,15 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 scale={staggerScale} 
                                                 fields={fields} 
                                                 {...size} 
-                                                className='m-2 touch-none ' 
+                                                className='mr-2 mb-2 touch-none ' 
                                                 {...(props.renderProps || renderProps[item.type] || {})} 
-                                                onClick={props.onCardClick ? ()=>{
+                                                onClick={ (e, p)=>{
                                                     if( myState.current?.cancelClick ){
                                                         myState.current.cancelClick = false
                                                         return
                                                     }
-                                                    props.onCardClick(item) 
-                                                }: undefined}/>
+                                                    MainStore().sidebarSelect( p, {scope: primitive} )
+                                                }}/>
                                             })}
                                         </div>
                         })}

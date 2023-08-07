@@ -5,7 +5,7 @@ import GoogleHelper from './GoogleHelper';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Panel from './Panel';
 import { useEffect, useState } from "react";
-import { ArrowsPointingInIcon, ListBulletIcon, RectangleGroupIcon, TableCellsIcon } from '@heroicons/react/24/outline';
+import { ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, ListBulletIcon, RectangleGroupIcon, TableCellsIcon } from '@heroicons/react/24/outline';
 import PrimitiveExplorer from "./PrimitiveExplorer";
 import HierarchyView from "./HierarchyView";
 import { HeroIcon } from "./HeroIcon";
@@ -23,7 +23,8 @@ const icons = {
 export default function CollectionViewer({primitive, category, ...props}){
     const mainstore = MainStore()
     const [descend, setDescend] = useState(category ? category.descend : undefined)
-    let showDescend = category.views?.options?.descend
+    const [page, setPage] = useState(0)
+    let showDescend = category?.views?.options?.descend
 
     if( category === undefined){
         category = {
@@ -78,6 +79,10 @@ export default function CollectionViewer({primitive, category, ...props}){
     useEffect(()=>{
         setView( pickDefault() )
     }, [primitive.id, category?.id])
+
+    useEffect(()=>{
+        setPage(0)
+    }, [view, descend])
 
     let cardConfig = category?.views.options?.[view] || {fields: ['title']}
 
@@ -158,13 +163,20 @@ export default function CollectionViewer({primitive, category, ...props}){
                 })
     }
 
-    const showBar = (allowed.length > 1 || props.closeButton) && view !== "explore"
+    const pageItems = view ==="table" && !props.defaultWide ? 25 : 100
+    const pages = Math.ceil( list.length / pageItems)
+    const showPagination = ["table", "list", "cards"].includes(view)
+
+    const showBar = (showPagination && pages > 1) || (allowed.length > 1 || props.closeButton) && view !== "explore"
     const buttons = <>
                 {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
                 {allowed.length > 1 && category.views?.options && Object.keys(category.views.options).map((d)=>{
                     return  allowed.includes(d) && category.views.options[d] ? <Panel.MenuButton title={icons[d] || d} onClick={()=>setView(d)}/> : undefined
                 })}
                 {showDescend && <TooggleButton enabled={descend} setEnabled={setDescend} title={`Include ${category ? category.plurals : "items"} from children`}/>}
+                {showPagination && <Panel.MenuButton narrow icon={<ChevronLeftIcon className='w-4 h-4 '/>} className='!ml-auto mr-1' action={()=>setPage(page > 0 ? page - 1 : page)}/>}
+                {showPagination && <p className="bg-white border border-gray-300 flex place-items-center px-2 rounded-md shadow-sm text-gray-600 text-sm">{page + 1} / {pages}</p>}
+                {showPagination && <Panel.MenuButton narrow icon={<ChevronRightIcon className='w-4 h-4'/>} className='mr-1' action={()=>setPage(page < (pages - 1) ? page + 1 : pages - 1)}/>}
             </>
 
     const content = <>
@@ -183,22 +195,23 @@ export default function CollectionViewer({primitive, category, ...props}){
                 </div>
             : <>
                 {
-                view === "table" && <div key="table" className={`p-2 bg-white rounded-md ${props.defaultWide ?  "h-full" : "h-[60vh]"}`}>
+                view === "table" && 
                     <PrimitiveTable 
                         onDoubleClick={props.onNavigate} 
                         onEnter={props.onPreviewFromList} 
                         columns={cardConfig.fields} 
+                        page={page}
+                        pageItems={pageItems}
                         onClick ={props.onShowInfo}
                         primitives={list} className='w-full min-h-[24em] bg-white'/> 
-                </div>
                 }
                 {view === "explore" &&
                     <PrimitiveExplorer 
                         primitive={primitive}
                         list={list}
                         fields={[cardConfig.fields, "top", "important"].flat()}
+                        onClick ={props.onShowInfo}
                         allowedCategoryIds={list.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} 
-                        onCardClick ={props.onShowInfo}
                         buttons={buttons} 
                     />
                 }
@@ -207,9 +220,11 @@ export default function CollectionViewer({primitive, category, ...props}){
                     primitive={primitive}
                     category={category?.id ? category : undefined}
                     selectedItem={props.selected}
-                    cardClick={(e)=>e.currentTarget.focus()}
+                    onCardClick ={props.onShowInfo}
                     onEnter={props.onPreviewFromList}
                     onDoubleClick={props.onNavigate}
+                    page={page}
+                    pageItems={pageItems}
                     list={list} 
                     showDetails={true}
                     className='p-2'
@@ -220,9 +235,11 @@ export default function CollectionViewer({primitive, category, ...props}){
                     primitive={primitive}
                     category={category?.id ? category : undefined}
                     selectedItem={props.selected}
-                    cardClick={(e)=>e.currentTarget.focus()}
+                    onCardClick ={props.onShowInfo}
                     onEnter={props.onPreviewFromList}
                     onDoubleClick={props.onNavigate}
+                    page={page}
+                    pageItems={pageItems}
                     list={list} 
                     className='p-2'
                     columnConfig={
@@ -241,7 +258,7 @@ export default function CollectionViewer({primitive, category, ...props}){
 
     
     return props.hidePanel 
-        ? <div className={`@container ${props.className}`}>{content}</div>
+        ? <div className={`@container  ${props.className} flex flex-col relative`}>{content}</div>
         : <Panel className='@container' expandButton={props.onExpand} key={category.title} count={list.length} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
             {content}
         </Panel>

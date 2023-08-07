@@ -674,12 +674,12 @@ const Parameters = function({primitive, ...props}){
         onClick={listEditable ? ()=>setEditing(idx) : undefined}
         onKeyDown={listEditable ? (e)=>listKeyHandler(e,idx) : undefined}
         className={[
-          "flex text-sm place-items-center py-2",
+          "flex text-sm place-items-start py-2",
           listEditable ? "hover:bg-gray-50 hover:outline-indigo-500" : "",
           props.className || ""
         ].join(" ")}
         >
-        {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 mr-2 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
+        {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
         {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
           ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
           : <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
@@ -1082,6 +1082,28 @@ const Entity=({primitive, ...props})=>{
   const bgImg =  primitive?.referenceParameters?.hasBgImg ? true : primitive.linkedInData ? primitive.linkedInData.background_cover_image_url : undefined
   const logoImg = primitive?.referenceParameters?.hasImg ? true : primitive.linkedInData ? primitive.linkedInData.profile_pic_url : undefined
 
+  if(props.micro){
+    return <div 
+          onClick={props.onClick ? (e)=>{props.onClick(e, primitive)} : undefined}
+          onKeyDown={props.onEnter ? handleEnter : undefined}
+          tabIndex='0'
+          id={primitive.id}
+          className={
+          [
+            "pcard group relative flex rounded-lg p-2",
+            ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
+            'place-items-center',
+            props.className].filter((d)=>d).join(' ')
+          }>
+
+          { logoImg && (logoImg !== null) &&
+            <VFImage className="w-8 h-8 mr-2 object-contain my-auto" src={`/api/image/${primitive.id}`} />
+            }
+            <p className='text-sm'>{primitive.title}</p>
+
+          </div>
+  }
+
   let content 
   let header
   let buttonSize = 5
@@ -1113,7 +1135,7 @@ const Entity=({primitive, ...props})=>{
           </div>
           {props.hideDescription !== true && 
             <div className='grow'>
-              <p className={`${props.fixedSize ? "line-clamp-4" : "py-2"} text-gray-500 px-4 text-sm`}>
+              <p className={`${props.fixedSize ? "line-clamp-4" : "py-2"} text-gray-500 px-4 text-sm `}>
                 {primitive.referenceParameters.description}
             </p>
           </div>
@@ -1149,7 +1171,7 @@ const Entity=({primitive, ...props})=>{
 
   return (
     <div 
-        onClick={props.onClick }
+        onClick={props.onClick ? (e)=>{props.onClick(e, primitive)} : undefined}
         onKeyDown={props.onEnter ? handleEnter : undefined}
         tabIndex='0'
         id={props.fullId ? primitive.id : primitive.plainId}
@@ -1472,7 +1494,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
 
   return (
     <div 
-        onClick={props.onClick }
+        onClick={props.onClick ? (e)=>props.onClick(e,primitive) : undefined }
         onKeyDown={props.onEnter ? handleEnter : undefined}
         tabIndex='0'
         id={props.fullId ? primitive.id : primitive.plainId}

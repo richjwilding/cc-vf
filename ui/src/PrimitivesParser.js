@@ -351,13 +351,6 @@ export default function PrimitiveParser(obj){
                     if(prop === "descendants"){
                         return receiver.descendantIds.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
-                    if(prop === "___descendantIds"){
-                        const childrenIds = receiver.uniqueAllIds
-                        const out = childrenIds.map((id)=>obj.primitive(id)).map((d)=>{
-                            return d ? d.primitives.descendantIds : undefined
-                        }).flat().filter((d)=>d)
-                        return uniqueArray([childrenIds,out].flat())
-                    }
                     if(prop === "descendantIds"){
                         return receiver._buildDescendantIds( {}, true )
                     }

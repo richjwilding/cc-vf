@@ -5,11 +5,13 @@ import { useReactTable,
         createColumnHelper,
         getSortedRowModel,
         SortingState,
-        getCoreRowModel } from '@tanstack/react-table'
+        getCoreRowModel, 
+        getPaginationRowModel} from '@tanstack/react-table'
 import MainStore from "./MainStore";
 import useDataEvent from "./CustomHook";
 import { ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/solid";
 import { min } from "date-fns";
+import { VFImage } from "./VFImage";
   
 
 const ExpandArrow = function(props) {
@@ -27,21 +29,36 @@ const ExpandArrow = function(props) {
         return columns.map((d)=>{
 
             if( d.field === "contact"){
-            return columnHelper.accessor(d.field,
-                {
-                    cell: info => <PrimitiveCard.RenderItem compact={true} item={{type:'contact', value: info.getValue() }}/>,
-                    header: () => d.name,
-                    sortingFn: (a,b,idx)=>{
-                                return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
-                            },
-                    minSize: 100,
-                })
+                return columnHelper.accessor(d.field,
+                    {
+                        cell: info => <PrimitiveCard.RenderItem compact={true} item={{type:'contact', value: info.getValue() }}/>,
+                        header: () => d.name || d.title,
+                        sortingFn: (a,b,idx)=>{
+                                    return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
+                                },
+                        minSize: 100,
+                    })
+
+            }
+            if( d.field === "logo_title"){
+                return columnHelper.accessor(d.field,
+                    {
+                        cell: info => <>
+                                            <VFImage className="object-cover w-8 h-8 mr-2" src={`/api/image/${info.row.original.primitive.id}`}/>
+                                            <p className="text-md text-color-800 truncate">{info.row.original.primitive.title}</p>
+                                        </>,
+                        header: () => d.name || d.title,
+                        sortingFn: (a,b,idx)=>{
+                                    return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
+                                },
+                        minSize: 100,
+                    })
 
             }
             return columnHelper.accessor(d.field,
                 {
                     cell: info => <p className="truncate">{info.getValue()}</p>,
-                    header: () => d.name,
+                    header: () => d.name || d.title,
                     sortingFn: "text",
                     startSize: d.field === "id" ? 100 : undefined,
                     minSize: 100,
@@ -98,12 +115,25 @@ export function PrimitiveTable(props) {
                                 columnResizeMode: "onChange",
                                 state: {
                                     sorting,
+                                    pagination:{
+                                        pageIndex: props.page,
+                                        pageSize: props.pageItems
+                                    }
                                   },
                                 onSortingChange: setSorting,
                                 getCoreRowModel: getCoreRowModel(),
+                                getPaginationRowModel: getPaginationRowModel(),
                                 getSortedRowModel: getSortedRowModel(),
                             });
  
+    useEffect(()=>{
+        console.log('update PAGES')
+        table.setPagination({
+            pageIndex: props.page,
+            pageSize: props.pageItems
+        })    
+    }, [props.page, props.pageItems])
+
     useLayoutEffect(()=>{
         if( gridRef.current ){
             const eWidths = {}
@@ -183,7 +213,7 @@ export function PrimitiveTable(props) {
           case 1:
             setSelected(primitive.id)
             if( props.onClick ){
-                props.onClick( primitive )
+                props.onClick( e, primitive )
             }
             break;
           case 2:
@@ -204,6 +234,7 @@ export function PrimitiveTable(props) {
       }
 
     return (
+        <div key="table" className={`p-2 bg-white rounded-md overflow-y-scroll `}>
         <div 
             ref={gridRef}
             data-test={count}
@@ -211,7 +242,7 @@ export function PrimitiveTable(props) {
                 gridTemplateColumns: `20px ${Object.values(gridWidths).join(" ")}`
             }}
             onKeyDown={keyHandler}
-            className="grid text-sm w-full overflow-x-auto relative overflow-y-scroll max-h-full scrollbar-hide">
+            className="grid text-sm w-full overflow-x-auto relative max-h-full">
             {table.getHeaderGroups().map(headerGroup => (
                 <>
                 <div
@@ -280,7 +311,7 @@ export function PrimitiveTable(props) {
                                 onClick={(e)=>handleClick(e, primitive)}
                                 onBlur={updateFocus}
                                 //onDoubleClick={props.onDoubleClick ? ()=>props.onDoubleClick(prim) : undefined}
-                                className={`p-2 py-3 border-b group-hover:bg-gray-100 border-gray-100 outline-none ${selected === primId ? "bg-ccgreen-100" : ""}`}
+                                className={`p-2 py-3 border-b group-hover:bg-gray-100 border-gray-100 outline-none flex place-items-center ${selected === primId ? "bg-ccgreen-100" : ""}`}
                                 key={cell.id}
                                 >
                                     {flexRender(cell.column.columnDef.cell,cell.getContext())}
@@ -290,6 +321,7 @@ export function PrimitiveTable(props) {
                             </div>
                 </>
             )})}
+        </div>
         </div>
    )
 }

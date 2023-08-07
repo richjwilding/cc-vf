@@ -76,6 +76,12 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
         }
         })
     }
+
+    if( props.pageItems ){
+        const start = props.pageItems * (props.page || 0)
+        list = list.slice(start, start + props.pageItems )
+    }
+
     const resultCategory = category ? MainStore().category(category.resultCategoryId) : undefined
 
     const columnCount = parseInt(active)
@@ -106,9 +112,9 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                         <PrimitiveCard 
                             key={p.id}
                             compact={true} primitive={p} 
-                            onClick={props.cardClick ? (e)=>props.cardClick(e,p,list,idx) : undefined}
+                            onClick={props.onCardClick ? (e,p)=>props.onCardClick(e,p,list,idx) : undefined}
                             onEnter={props.onEnter ? (e)=>props.onEnter(e,p,list,idx) : undefined}
-                            className={`h-full select-none flex flex-col justify-between ${props.selectedItem && props.selectedItem.id === p.id ? "bg-white opacity-50 blur-50" : ""}`}
+                            //className={`h-full select-none flex justify-between ${props.selectedItem && props.selectedItem.id === p.id ? "bg-white opacity-50 blur-50" : ""}`}
                             fields={fields} 
                             border={true} 
                             showDetails={props.showDetails}
@@ -119,7 +125,9 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                             imageOnly={props.imageOnly}
                             showEvidence="compact"
                             relationships={category?.relationships} 
-                            relationship={category ? primitive.primitives.relationships(p.id, ["results", category.id]) : undefined}/>
+                            relationship={category ? primitive.primitives.relationships(p.id, ["results", category.id]) : undefined}
+                            {...(props.cardProps || {})}
+                            />
                         </div>
                     )})}
                     </div>)

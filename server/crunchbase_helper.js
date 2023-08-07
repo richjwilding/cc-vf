@@ -367,6 +367,7 @@ export async function pivotFromCrunchbase(primitive, options = {}, force = false
     let count = 0
     let targetCount = 20
 
+    
     console.log(`-- Checking by description`)
 
     count += await pivotFromCrunchbaseDescription( primitive, options )

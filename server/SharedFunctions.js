@@ -12,12 +12,7 @@ import { SIO } from './socket';
 import EnrichPrimitive from './enrich_queue';
 import QueueAI from './ai_queue';
 import QueueDocument from './document_queue';
-import Embedding from './model/Embedding';
-import DBSCAN from '@cdxoo/dbscan';
-import { kmeans } from 'ml-kmeans';
-import skmeans from 'skmeans';
 //import silhouetteScore from '@robzzson/silhouette';
-import { agnes } from 'ml-hclust';
 import { localeData } from 'moment';
 
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -822,6 +817,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
 //                }
             }
+            if( primitive.type === "segment" || primitive.type === "activity" ){
+                    if(command === "define_axis" ){
+                        QueueAI().defineAxis( primitive, action )
+                    }
+            }
             if( primitive.type === "activity" ){
                 if( command === "find_articles"){
                     result = await EnrichPrimitive().findArticles( primitive, {resultCategory: action.resultCategory} )
@@ -838,6 +838,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     if(command === "roll_up" ){
                         const target = options.target || action.target
                         const field = options.field || action.field
+                        const types = options.types || action.types
+                        const subTypes = options.subTypes || action.subTypes
+                        const summaryType = options.summaryType || action.summaryType
+                        const prompt = options.prompt || action.prompt
+
                         if( target && field ){
                             let existing = (await primitiveChildren( primitive, "view")).find((d)=>d.referenceParameters?.target === target && d.referenceParameters?.field === field )
                             if( ! existing ){
@@ -851,10 +856,13 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                         title: "New view",
                                         referenceParameters:{
                                             target: target,
-                                            field: field
+                                            field: field,
+                                            types:types,
+                                            subTypes:subTypes,
+                                            summaryType: summaryType,
+                                            prompt: prompt
                                         }
                                     }
-                                    
                                 })
                             }
                             if( existing ){
@@ -906,7 +914,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
             }
-            if( primitive.type === "segment" ){
+            /*if( primitive.type === "segment" ){
                                 
                 const validateResult = await validateSegment( primitive, action )
                 const hasSubsegments = primitive.primitives?.axis
@@ -960,7 +968,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         }
                     }
                 }
-            }
+            }*/
             if( primitive.type === "activity" || primitive.type === "task" || primitive.type === "experiment" ){
                 const source = await Primitive.findById(options.source)
                 if( command === "categorize"){

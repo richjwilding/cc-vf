@@ -30,6 +30,7 @@ export default function QuestionCard({primitive, ...props}){
         <div 
             key={primitive.id}
             className=" py-3 pl-3 pr-4"
+            onClick={props.onClick ? (e)=>props.onClick(e,primitive) : undefined }
             >
         <div key='title' className="flex place-items-start justify-between group">
                 <p>{primitive.title}</p>

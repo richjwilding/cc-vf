@@ -41,6 +41,13 @@ const SearchPanel = (props)=>{
     })
   }
 
+  if( props.hasResultCategoryFor ){
+    filterSet.push({
+      name: "Result sets",
+      action: (p)=>p.metadata.resultCategories.find((d)=>props.hasResultCategoryFor.includes(d.resultCategoryId))
+    })
+  }
+
   if( props.primitive){
     filterSet.push({
       name: "Already linked",
@@ -66,10 +73,20 @@ const SearchPanel = (props)=>{
   }
 
   const primitives = useMemo(()=>{
+    console.log(props)
     const seed = ()=>{
       if( props.root ){
-        const directs = props.root.primitives.uniqueAllItems
+        let directs
+        let thisRoot = props.root.primitives
+        console.log('hello')
+        if( props.path){
+          thisRoot = thisRoot[props.path]
+          console.log(thisRoot)
+        }
         if( props.deep ){
+          directs = thisRoot.descendants
+        }else{
+          directs = thisRoot.uniqueAllItems
         }
         if( props.includeRoot ){
           return [props.root, directs].flat()
@@ -92,7 +109,7 @@ const SearchPanel = (props)=>{
       const sb = group(b) ?? 99
       return sa - sb 
     })
-  }, [filterSet.map((f)=>f.name), props.root?.id])
+  }, [filterSet.map((f)=>f.name), props.root?.id, props.hasResultCategoryFor, props.path])
 
   const ql = query.toLowerCase()
   const filteredPrimitives =

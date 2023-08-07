@@ -31,6 +31,7 @@ import DropdownButton from './DropdownButton';
 import ReportView from './ReportView';
 import EditableTextField from './EditableTextField';
 import HierarchyView from './HierarchyView';
+import PrimitiveConfig from './PrimitiveConfig';
 
 
 let mainstore = MainStore()
@@ -107,7 +108,8 @@ export function PrimitivePage({primitive, ...props}) {
       if( value === false && hasDocumentViewer){value = true}
       setShowWorkingPaneReal(value)
       if( props.setWidePage ){
-        const fullScreenExplore = doFullScreenExplore(value)
+        const fullScreenExplore = PrimitiveConfig.pageview[primitive.type]?.defaultWide ?? doFullScreenExplore(value) 
+        console.log(fullScreenExplore)
         props.setWidePage( fullScreenExplore ? "always" : value )
       }
     })
@@ -118,7 +120,7 @@ export function PrimitivePage({primitive, ...props}) {
     const showOutcomes = primitive.type !== "assessment" && showWorkingPane !== "evidence" && !fullScreenExplore
     //const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
     const nestedEvidence = useMemo(()=>primitive.primitives.descendants.filter((d)=>d.type==="evidence"), [primitive.id])
-    const hasNestedEvidence = primitive.isTask || nestedEvidence.length > 0
+    const hasNestedEvidence = (PrimitiveConfig.pageview[primitive.type]?.evidence ?? true) && (primitive.isTask || nestedEvidence.length > 0)
     const showMetrics = (primitive.isTask || primitive.type === "cohort" ) && primitive.metadata.metrics
 
 
@@ -127,7 +129,14 @@ export function PrimitivePage({primitive, ...props}) {
 
     useEffect(()=>{
       console.log(`re run effect ${primitive.id}`)
-      setShowWorkingPane(hasDocumentViewer ? true : false)//(primitive.metadata?.title === "Market scan" && primitive.primitives.allEntity.length > 0 ? "results" : false) )
+      if( hasDocumentViewer ){
+        setShowWorkingPane(true )
+
+      }else if(PrimitiveConfig.pageview[primitive?.type]?.defaultWide){
+        setShowWorkingPane( PrimitiveConfig.pageview[primitive.type].defaultWide )
+      }else{
+        setShowWorkingPane(false)
+      }
       mainstore.setActiveWorkspaceFrom( primitive )
     }, [primitive.id, hasDocumentViewer])
 
@@ -306,6 +315,7 @@ export function PrimitivePage({primitive, ...props}) {
                     category={category} 
                     excludeViews='explore'
                     setSelected={setSelected} 
+                    onShowInfo={(e,p)=>{props.selectPrimitive(null)}}
                     setShowAIPopup={setShowAIPopup}
                     onExpand={()=>setShowWorkingPane( {type: 'result', index: idx} )}
                     onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
@@ -535,7 +545,7 @@ export function PrimitivePage({primitive, ...props}) {
                           className='w-full h-full overflow-y-scroll'
                           defaultWide
                           primitive={primitive} 
-                          onShowInfo={(p)=>props.selectPrimitive(p)}
+                          onShowInfo={(e,p)=>props.selectPrimitive(p)}
                           setSelected={setSelected} 
                           onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
                           onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}
@@ -558,7 +568,7 @@ export function PrimitivePage({primitive, ...props}) {
                           className='w-full h-full overflow-y-scroll'
                           defaultWide
                           primitive={primitive} 
-                          onShowInfo={(p)=>props.selectPrimitive(p)}
+                          onShowInfo={(e,p)=>{props.selectPrimitive(p)}}
                           setSelected={setSelected} 
                           onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
                           onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}

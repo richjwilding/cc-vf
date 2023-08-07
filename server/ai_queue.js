@@ -1,67 +1,375 @@
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import { SIO } from './socket';
-import { addRelationship, createPrimitive, dispatchControlUpdate, getDataForProcessing, primitiveChildren, removeRelationship } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, getDataForProcessing, primitiveChildren, primitiveDescendents, primitivePrimitives, removePrimitiveById, removeRelationship } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
-import { buildCategories, buildEmbeddings, categorize, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
+import { buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processPromptOnText, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
-import { agnes } from "ml-hclust";
+import { Cluster, agnes } from "ml-hclust";
+import DBSCAN from "@cdxoo/dbscan";
 
 
 let instance
 
+function calculateCentroid(vectors) {
+    if (!vectors || vectors.length === 0) {
+      throw new Error("Invalid input. The 'vectors' parameter should be a non-empty array of multidimensional vectors.");
+    }
+  
+    const dimension = vectors[0].length;
+    const numberOfVectors = vectors.length;
+  
+    // Initialize an array to store the sum of values for each dimension
+    const sumByDimension = new Array(dimension).fill(0);
+  
+    // Calculate the sum of values for each dimension across all vectors
+    for (const vector of vectors) {
+      if (vector.length !== dimension) {
+        throw new Error("All vectors must have the same dimension.");
+      }
+  
+      for (let i = 0; i < dimension; i++) {
+        sumByDimension[i] += vector[i];
+      }
+    }
+  
+    // Calculate the centroid by dividing the sum by the number of vectors
+    const centroid = sumByDimension.map(sum => sum / numberOfVectors);
+  
+    return centroid;
+  }
+
+function euclideanDistance(point1, point2) {
+    if (point1.length !== point2.length) {
+      throw new Error("Both points must have the same dimensionality.");
+    }
+  
+    let sum = 0;
+    for (let i = 0; i < point1.length; i++) {
+      sum += Math.pow(point1[i] - point2[i], 2);
+    }
+ 
+    const r = Math.sqrt(sum)
+    return r;
+  }
+
+async function defineAxis( primitive, action ){
+    let axis = primitive.axis
+    const [list, data] = await getDataForProcessing(primitive, action)
+    if( true || !axis || axis.length === 0){
+
+        console.log(`Fetching suggested axis`)
+
+        //        const result = await extractAxisFromDescriptionList( data, {type: action.type} )
+        const result = {success: true, output: axis}
+
+        if( result.success ){
+            await dispatchControlUpdate(primitive.id, `axis`, result.output)
+            axis = result.output
+
+            const passCheck = axis.map((d)=>d._pass).filter((d,i,a)=>a.indexOf(d)===i)
+            if( passCheck.length > 1){
+                let newAxis
+                console.log(`NEED TO CONSOLIDATE AXIS`)
+                const forConsolidation = axis.map((d,idx)=>{return {id: idx, title: d.title, values: d.values.map((d2)=>d2.value)}})
+                if( forConsolidation ){
+
+                    console.log( forConsolidation )
+                    const result = await consoldiateAxis( JSON.stringify(forConsolidation), {debug:true, debug_content: true})
+                    console.log(result.success)
+                    console.log(result.output)
+                    if( result.success ){
+                        newAxis = result.output.map((d)=>{
+                            console.log(`Combing ${d.original.join(", ")}`)
+                            const originalAxis = d.original.map((idx)=>axis[idx].values).flat()
+                            const out = {
+                                title: d.title,
+                                values: d.values.map((v)=>{
+                                    const ids = originalAxis.map((d)=>{
+                                        const originalValues = v.o || [v.value]
+                                        const match = originalValues.includes(d.value)
+                                        if( match){
+                                            d.matched = true
+                                            return d.ids
+                                        }
+                                    }).flat().filter((d)=>d)
+                                    return {
+                                        value: v.v,
+                                        ids: ids
+                                    }
+                                })
+                            }
+                            const unmatched = originalAxis.filter((d)=>!d.matched)
+                            if( unmatched.length > 0){
+                                console.log(`couldnt match ${unmatched.length} entries`)
+                                console.log(unmatched)
+                            }
+                            console.log(out)
+                            return out
+                        })
+                        console.log(newAxis)
+                    }
+                    if( newAxis ){
+                        axis = newAxis
+                        console.log(`Finished consolidating`)
+                        await dispatchControlUpdate(primitive.id, `axis`, axis)
+                    }
+                    else{
+                        console.log(`Error consolidating`)
+                        return
+                    }
+                }
+            }
+        }
+    }
+    if( axis ){
+        const oldPrims = (await primitiveDescendents( primitive, "category")).map((d)=>d.id)
+        console.log(`Need to remove ${oldPrims.length} old categories`)
+
+        for(const id of oldPrims){
+            await removePrimitiveById( id )
+        }
+
+       /* for( const segment of list ){
+            const descriptionList = []
+            const nodes = [segment, await primitiveDescendents( segment, "segment")].flat()
+            for( const subseg of nodes ){
+                const leaves = await  primitivePrimitives(subseg, 'ref'  )
+                for( const leaf of leaves ){
+                    descriptionList.push( (leaf.referenceParameters?.description || leaf.title).replaceAll(/\n|\r/g,"") )
+                }
+            }
+            console.log(`for ${segment.id} got ${descriptionList.length}`)
+            const insights = await processPromptOnText( descriptionList.join('\n'), {
+                prompt: "Extract the 3 most significant problems referred to in the descriptions.  Do not create problems that are not mentioned in the descriptions and do not mention specific companies  or specific regions, countries or geographies", 
+                type: "list of company descriptions", 
+                output: `Provide the result as a json object  with an array called results. Each entry in the array must have a "problem" field containing the problem you identify . If there is are no problems then set the results field to an empty array`,
+                engine: 'gpt4',
+                extractNoun: "problem", 
+                debug: true, 
+                debug_content: true} )
+            console.log(insights.output)
+            
+            if( insights.success){
+                await dispatchControlUpdate(segment.id, `insights`, insights.output)
+            }
+        }*/
+
+
+        for( const a of axis ){
+            if( a.title && a.values && a.values.length ){
+                const newPrim = await createPrimitive({
+                    workspaceId: primitive.workspaceId,
+                    parent: primitive.id,
+                    data:{
+                        type: "category",
+                        title: a.title,
+                    }
+                })
+                if( newPrim ){
+                    console.log(a.title)
+                    for( const v of a.values ){
+                        const valuePrim = await createPrimitive({
+                            workspaceId: primitive.workspaceId,
+                            parent: newPrim.id,
+                            referenceId: action.resultCategory,
+                            data:{
+                                type: "category",
+                                title: v.value,
+                            }
+                        })
+                        if( valuePrim ){
+                            for( const s of v.ids){
+                                const segment = list[s]
+                                addRelationship( valuePrim.id, segment.id, 'ref')
+                            }
+                        }
+                    }
+                }
+            }
+        }        
+    }
+
+}
 
 async function rollup( primitive, target, action ){
-    let [list, data] = await getDataForProcessing(primitive, action)
+    let list, data
+    
+    
+
+    if( action.field === "param.capabilities" ){
+        [list, data] = await getDataForProcessing(primitive, {...action, field: "title"})
+        console.log(`-- back ${list.length} / ${data.length}`)
+        console.log(list?.[0])
+        const tempList = list.filter((d)=>d.referenceParameters?.capabilities === undefined)
+        if( tempList.length > 0){
+            const featureList = await extractFeautures( tempList.map((d)=>d.referenceParameters.description.replaceAll(/\n|\r/g,". ")))
+            if( featureList.success && featureList.output.length === tempList.length ){
+                for(const result of featureList.output){
+                    const p = tempList[ result.id ]
+                    const agg = []
+                    for( const field of ["capabilities", "offerings","customers"]){
+                        let res = result[field]
+                        if( res && res !== "NONE" ){
+                            if( Array.isArray(res) ){
+                                res = res.join(", ")
+                            }
+                            await dispatchControlUpdate(p.id, `referenceParameters.${field}`, res )
+                            //console.log(`updated ${field} on ${p.id}`)
+                            agg.push(res)
+                        }
+                    }
+                    if( agg.length > 0){
+                        await dispatchControlUpdate(p.id, `referenceParameters.aggregateFeatures`, agg.join(". ") )
+                    }
+                }
+            }
+        }
+        [list, data] = await getDataForProcessing(primitive, action )
+
+    }else{
+        [list, data] = await getDataForProcessing(primitive, action)
+    }
+    
+    
     if(data){
         if( data.length !== list.length){
             console.log(`Mismatch on data vs list size`)
         }else{
-            let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}})
-            const missingIdx = list.map((d, idx)=>embeddings.find((e)=>e.foreignId === d.id) ? undefined : idx).filter((d)=>d  !== undefined)
-            console.log( `missingIdx = ${missingIdx.join(", ")}`)
-            for(const idx of missingIdx){
-                console.log(`Embeddings for ${idx} - ${list[idx].id}`)
-                const response = await buildEmbeddings(data[idx])
-                if( response.success){
-                    const dbUpdate = await Embedding.findOneAndUpdate({
-                        type: "primitive.title",
-                        foreignId: list[idx].id
-                    },{
-                        embeddings: response.embeddings
-                    },{upsert: true, new: true})
-                    embeddings.push( dbUpdate )
-                }
-            }
-            console.log(`fetched`)
-            const ids = list.map((d)=>d.id)
-            list = list.sort((a,b)=>a.id.localeCompare(b.id))
-            embeddings = embeddings.filter((d)=>ids.includes(d.foreignId))
-            embeddings = embeddings.sort((a,b)=>a.foreignId.localeCompare(b.foreignId))
-            const ensureOrder = list.map((d,idx)=>d.id === embeddings[idx].foreignId).reduce((o,a)=>o && a, true)
-            if( !ensureOrder ){
-                throw new Error(`Items out of order`)
-            }
-            console.log(`build cache`)
-            const toProcess = embeddings.map((d)=>d.embeddings)
-            const tree = agnes(toProcess, {
-                method: 'ward2',
-            });
-            const flattenTree = (node)=>{
-                if( node.isLeaf ){
-                    node.primitiveId = list[node.index].id
-                }else{
-                    for(const c of node.children){
-                        flattenTree(c)
+            let revert //=  target.clusters
+            if( !revert ){
+                let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: action.field})
+                const missingIdx = list.map((d, idx)=>embeddings.find((e)=>e.foreignId === d.id) ? undefined : idx).filter((d)=>d  !== undefined)
+                console.log( `missingIdx = ${missingIdx.join(", ")}`)
+                for(const idx of missingIdx){
+                    console.log(`Embeddings for ${idx} - ${list[idx].id}`)
+                    let thisItem = data[idx]
+                    if( Array.isArray(thisItem) ){
+                        thisItem = thisItem.join(", ")
+                    }
+                    const response = await buildEmbeddings(thisItem)
+                    if( response.success){
+                        const dbUpdate = await Embedding.findOneAndUpdate({
+                            type: action.field,
+                            foreignId: list[idx].id
+                        },{
+                            embeddings: response.embeddings
+                        },{upsert: true, new: true})
+                        embeddings.push( dbUpdate )
                     }
                 }
+                console.log(`fetched`)
+                const ids = list.map((d)=>d.id)
+                list = list.sort((a,b)=>a.id.localeCompare(b.id))
+                embeddings = embeddings.filter((d)=>ids.includes(d.foreignId))
+                embeddings = embeddings.sort((a,b)=>a.foreignId.localeCompare(b.foreignId))
+                const ensureOrder = list.map((d,idx)=>d.id === embeddings[idx].foreignId).reduce((o,a)=>o && a, true)
+                if( !ensureOrder ){
+                    throw new Error(`Items out of order`)
+                }
+                console.log(`build cache`)
+                const toProcess = embeddings.map((d)=>d.embeddings)
+
+                let epsilon
+                let clusterCount
+                let clusterSet
+                let iter = 75
+                let theta = 1.25
+                let maxClusterSize = toProcess.length * 0.2
+
+                const targetClusters = toProcess.length > 1000 ? toProcess.length / 5 : toProcess.length > 200 ? toProcess.length / 3 : toProcess.length / 8
+               
+                
+                do{
+                    epsilon = epsilon ? epsilon * theta : 0.01
+                    clusterSet = DBSCAN({
+                        dataset: toProcess,
+                        epsilon: epsilon,
+                        distanceFunction: euclideanDistance
+                    });
+                    const thisCount = clusterSet.clusters?.length
+                    const counts = clusterSet.clusters.map((d)=>d.length)
+                    const maxCount = Math.max(...counts)
+                    console.log('clusters = ', thisCount, clusterSet.noise?.length, targetClusters, maxCount, epsilon)
+                    if( thisCount < (clusterCount * 0.75) || maxCount > maxClusterSize){
+                        console.log(`backup`)
+                        epsilon = epsilon / theta / theta
+                        iter = 1
+                    }
+                    clusterCount = thisCount 
+                }while( clusterCount < targetClusters && (iter--) > 0 )
+                
+
+                const newSet = [...clusterSet.clusters,...clusterSet.noise.map((d)=>[d])]
+                const newProcess = newSet.map((set)=>calculateCentroid(set.map((d)=>toProcess[d])))
+
+
+                const tree = agnes(newProcess, {
+                    method: 'ward2',
+                });
+
+                const flattenTree = (node)=>{
+                    if( node.isLeaf ){
+                        //node.primitiveId = list[node.index].id
+                        const set = newSet[node.index]
+                        const pIds = set.map((d)=>list[d].id).flat()
+                        node.primitiveIds = pIds
+                        console.log(pIds)
+                    }else{
+                        for(const c of node.children){
+                            flattenTree(c)
+                        }
+                    }
+                }
+                flattenTree(tree)
+
+                const clusters = await treeToCluster( tree, target )
+
+                const summarized = await summarizeClusters( clusters, target )
+
+                //await dispatchControlUpdate(target.id, "clusters", summarized )
+                revert = summarized
             }
-            flattenTree(tree)
+            // convert clusters to segment objects
+            const oldPrims = (await primitiveDescendents( target, "segment")).map((d)=>d.id)
+            console.log(`Need to remove ${oldPrims.length} old segments`)
 
-            const clusters = await treeToCluster( tree, target )
-            const summarized = await summarizeClusters( clusters, target )
+            for(const id of oldPrims){
+                await removePrimitiveById( id )
+            }
 
-            await dispatchControlUpdate(target.id, "clusters", summarized )
+            const convertList = async ( set, parent, root) => {
+                for( const nodeId of set ){
+                    const node = revert[nodeId]
+                    const newPrim = await createPrimitive({
+                        workspaceId: target.workspaceId,
+                        parent: parent.id,
+                        paths: ['origin'],
+                        data:{
+                            type: "segment",
+                            title: node.label ? node.label : node.summary,
+                            referenceId: action.resultCategory,
+                            referenceParameters:{
+                                root: root,
+                                short: node.short,
+                                description: node.summary,
+                            }
+                        }
+                    })
+                    if( newPrim ){
+                        if( node.primitives ){
+                            for(const primId of node.primitives){
+                                await addRelationship(newPrim.id, primId, "ref")
+                            }
+                        }
+                        if( node.children ){
+                            await convertList( node.children, newPrim, root || newPrim )
+                        }
+                    }
+
+                }
+            }
+            await convertList( [0], target)
         }
     }
 }
@@ -75,6 +383,17 @@ export default function QueueAI(){
     instance = new Queue("aiQueue", {
         connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT },
     });
+    instance.defineAxis = (primitive, action, req)=>{
+        if( primitive.type === "segment" || primitive.type === "activity"){
+            const field = `processing.ai.define_axis`
+            if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
+                console.log(`Already active - exiting`)
+                return false
+            }
+            dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Analyzing for axis"})
+            instance.add(`mark_${primitive.id}` , {id: primitive.id, action: action, mode: "define_axis", field: field})
+        }
+    }
     instance.rollUp = (primitive, target, action, req)=>{
         if( primitive.type === "experiment" || primitive.type === "activity"){
             const field = `processing.ai.rollup`
@@ -82,7 +401,7 @@ export default function QueueAI(){
                 console.log(`Already active - exiting`)
                 return false
             }
-            dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Assign to categories"})
+            dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Building clusters"})
             dispatchControlUpdate(target.id, field , {status: "pending"})
             instance.add(`mark_${primitive.id}` , {id: primitive.id, action: action, targetId: target.id, mode: "rollup", field: field})
         }
@@ -120,10 +439,20 @@ export default function QueueAI(){
         const action = job.data.action
         const primitive = await Primitive.findOne({_id: job.data.id})
         if( primitive){
+            if( job.data.mode === "define_axis" ){
+                try{
+                    await defineAxis( primitive, action )
+                }catch(error){
+                    console.log(`Error in aiQueue.defineAxis `)
+                    console.log(error)
+                }
+                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+            }
             if( job.data.mode === "rollup" ){
                 try{
                     const target = await Primitive.findOne({_id: job.data.targetId})
                     await rollup( primitive, target, action )
+                    //console.log("---- SKIP")
                 }catch(error){
                     console.log(`Error in aiQueue.rollup `)
                     console.log(error)
@@ -260,7 +589,8 @@ async function treeToCluster( tree, primitive){
                     nodes[parent] = {primitives: [], id: parent}
                 }
                 if( node.isLeaf ){
-                    nodes[parent].primitives.push( node.primitiveId)
+                    //nodes[parent].primitives.push( node.primitiveId)
+                    nodes[parent].primitives = nodes[parent].primitives.concat( node.primitiveIds)
                 }else{
                     for(const c of node.children){
                         flattenTree(c, parent, true)
@@ -273,7 +603,7 @@ async function treeToCluster( tree, primitive){
                     }
                 }else{
                     if( node.isLeaf){
-                        nodes[node.id] = {primitives: [node.primitiveId], id: node.id, wasLeaf: true}
+                        nodes[node.id] = {primitives: node.primitiveIds, id: node.id, wasLeaf: true}
                     }else{
                         for(const c of node.children){
                             flattenTree(c, node.id, true)
@@ -292,6 +622,7 @@ async function treeToCluster( tree, primitive){
 
         let nodes
         let clusterCount
+        let singletonClusters
         let nodeCount
         let layer1Heights = [...tree.children.map((d)=>d.height)].filter((d)=>d)
         let targetH
@@ -302,14 +633,23 @@ async function treeToCluster( tree, primitive){
                 nodes = run(targetH)
                 clusterCount = Object.keys(nodes).length
                 nodeCount = Object.values(nodes).map((d)=>d.length).reduce((a,c)=>a+c,0)
-                targetH *= 0.8
-            }while( (maxIter-- > 0) && (clusterCount < minClusters ))
+
+                singletonClusters = Object.values(nodes).filter((d)=>d.primitives && d.primitives.length === 1).length
+                targetH *= 0.95
+            }while( (maxIter-- > 0) && (clusterCount < minClusters ) && singletonClusters === 0 )
+            if( singletonClusters > 0){
+                console.log(`backing up`)
+                targetH /= 0.95
+                nodes = run(targetH)
+                clusterCount = Object.keys(nodes).length
+
+            }
         }
         console.log( `For target ${minClusters} got ${clusterCount} clusters at height ${targetH}`)
         return nodes
     }
     console.log(`Got ${nodeCount} total`)
-    let targetCount = (nodeCount > 500 ? [0.02, 0.015, 0.01,0.0025, 0.0012] : [0.4, 0.1,  0.02]).map((d)=>Math.round(d * nodeCount))
+    let targetCount = (nodeCount > 500 ? [0.02, 0.015, 0.01,0.0025, 0.0012] : [0.7, 0.3,  0.02]).map((d)=>Math.round(d * nodeCount))
     targetCount = targetCount.map((d)=>d < 3 ? 3 : d).filter((d,idx,a)=>a.indexOf(d)===idx)
     console.log(targetCount)
 
@@ -326,8 +666,18 @@ async function treeToCluster( tree, primitive){
         return found
     }
 
-    let lastNodes 
+    //const leaves = Object.values(lookup).filter((d)=>d.isLeaf).reduce((a,c)=>{a[c.id]=c;return a},{})
+    const leaves = Object.values(lookup).filter((d)=>d.isLeaf && d.primitiveIds.length > 1).map((d)=>d.id)
+
     let nodes = {}
+    let lastNodes = nodeCount > 200 ? undefined : leaves
+    if( lastNodes ){
+        for(const k of lastNodes){
+            const starting = lookup[k]
+            nodes[k] = {primitives: starting.primitiveIds, id: k, wasLeaf: true}
+        }
+    }
+    
     targetCount.forEach((target)=>{
         const newNodes = alignTree( target )
         if( lastNodes ){
@@ -380,13 +730,20 @@ async function treeToCluster( tree, primitive){
 async function summarizeClusters( nodes, primitive ){
     let needSummary, lastNeed
     console.log(`Do summary...`)
+    
 
     let mapP = (d)=>d.title
     if( primitive && primitive.referenceParameters?.field ){
         const field = primitive.referenceParameters?.field
         if( field.slice(0,6) === "param." ){
             const param = field.slice(6)
-            mapP = (d)=>d?.referenceParameters?.[param]
+            mapP = (d)=>{
+                let temp = d?.referenceParameters?.[param]
+                    if( Array.isArray(temp) ){
+                        temp = temp.join(", ")
+                    }
+                    return temp
+            }
         }else{
             mapP = (d)=>d?.[field]
         }
@@ -409,7 +766,7 @@ async function summarizeClusters( nodes, primitive ){
                     
                     const list = (await Primitive.find({_id: {$in: items}}))
                     
-                    const titles = list.map((d)=>mapP(d))
+                    let titles = list.map((d)=>mapP(d))
                     
                     let summary = await summarizeMultiple( titles, {types: primitive.referenceParameters?.types ||  "problem statements", prompt: primitive.referenceParameters?.prompt ||  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4"})
                     if( summary.success ){
@@ -427,26 +784,6 @@ async function summarizeClusters( nodes, primitive ){
                         console.log(`GOT BACK SUMMARY OF SUMMARY`)
                         node.summary = overall.summary
                         
-                        
-                        let attempts = 3
-                        let updates 
-                        do{
-                            console.log(`Preparing summaries - attempt ${attempts}`)
-                            updates = await simplifyHierarchy( node.summary, summaries, {types: primitive.referenceParameters?.summaryType, subTypes: primitive.referenceParameters?.subTypes, engine: "gpt4"} )
-                            console.log( updates)
-                            attempts--
-                        }while( attempts > 0 && updates.success !== true)
-                        if( updates.success ){
-                            node.children.forEach((d,idx)=>{
-                                if( idx === parseInt(updates.summaries[idx].id)){
-
-                                    nodes[d].short = updates.summaries[idx].summary
-                                }else{
-                                    console.log(`mismatch ${idx}`, updates.summaries[idx])
-                                }
-                            })
-                            console.log(node.children)
-                        }
 
                     }
 
@@ -457,6 +794,40 @@ async function summarizeClusters( nodes, primitive ){
             }
         }
     }while(needSummary.length > 0 && needSummary.length !== lastNeed)
-    return nodes
+    
+    // traverse back down
+    const rewriteLabels = async ( node, path = [])=>{
+        if( node.children ){
+            const childLabels = node.children.map((d)=>nodes[d].summary )
+            const currentLabel = node.short || node.summary
+            const thisPath = [...path, currentLabel]
 
+            console.log(`----- depth = ${thisPath.length}`)
+            console.log( thisPath )
+            console.log(childLabels)
+            const rewrites = await simplifyHierarchy( thisPath, childLabels, {engine: "gpt4"})
+            console.log(rewrites)
+            if( rewrites.success){
+                for(const r of rewrites.summaries){
+                    const childId = node.children[ r.id ]
+                    const childNode = nodes[childId]
+                    if( childNode ){
+
+                        if( childId !== undefined ){
+                            childNode.label = r.label
+                            childNode.short = r.description
+                        }
+                        console.log(childNode)
+                        await rewriteLabels( childNode, thisPath )
+                    }
+                }
+            }
+            
+        }
+    }
+
+    await rewriteLabels( nodes["0"])
+
+
+    return nodes
 }

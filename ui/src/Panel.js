@@ -49,8 +49,9 @@ const MenuButton = (props)=>{
                       type="button"
                       className={
                         [
-                          props.small ? "text-xs h-8 py-1 px-2" : "text-sm h-10 py-2 px-4 ",
-                          `shrink-0 grow-0 self-center rounded-md border border-gray-300 bg-white font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
+                          props.small ? "text-xs h-8 py-1 px-2" : `text-sm h-10 py-2 ${props.narrow ? 'px-1.5' : 'px-4'} `,
+                          `shrink-0 grow-0 self-center rounded-md border border-gray-300 bg-white font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`,
+                          props.className,
                         ].join(" ")
                       }
                       onClick={props.action || props.onClick}

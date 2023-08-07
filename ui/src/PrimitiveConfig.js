@@ -4,6 +4,15 @@ const PrimitiveConfig = {
             icon: "LightBulbIcon",
             title: "Hypothesis"
         },
+        "segment":{
+            parameters:{
+                "description":{
+                    "title": "Description",
+                    "description": "Description of segment",
+                    "type":"long_string"
+                },
+            }
+        },
         "category":{
             parameters:{
                 "target":{
@@ -50,6 +59,18 @@ const PrimitiveConfig = {
         },
     },
     types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view"],
+    pageview:{
+        "segment":{
+            evidence: false,
+            defaultWide: {type: 'result', index: 0} 
+        }
+    },
+    sidebar:{
+        "segment":{
+            source: false,
+            addToResult: "segment",
+        }
+    },
     stateInfo:{
         "experiment":{
             "open": {title: "Not started", colorBase: "blue"},

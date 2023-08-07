@@ -1,8 +1,10 @@
+import { PhotoIcon } from "@heroicons/react/24/solid"
 import { useState } from "react"
 
 export function VFImage({src, ...props}){
 
     const [count, setCount] = useState() 
+    const [loaded, setLoaded] = useState(false) 
 
 
 
@@ -15,10 +17,16 @@ export function VFImage({src, ...props}){
             },timeout)
         }
     }
-    return <img 
+    return <>
+            <img 
                 src={count ? `${src}?${count}` : src}
                 {...props}
+                className={props.className + (loaded ? '' : ' invisible max-w-[0] !mr-0')}
+                onLoad={()=>setLoaded(true)}
                 onError={error}
                 />
+            {!loaded && <PhotoIcon {...props} className={(props.className || "") + " text-gray-400"}/>}
+            
+            </>
 
 }

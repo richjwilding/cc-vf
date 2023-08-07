@@ -3,18 +3,24 @@ import { useGesture } from "@use-gesture/react"
 import MainStore from "./MainStore"
 import { animate } from "framer-motion"
 import useResizeObserver from '@react-hook/resize-observer';
+import { text } from "@fortawesome/fontawesome-svg-core";
 
-const spacing = 20
-const internalSpacing = 15
-const textPadding = `12px 15px`
+const spacing = 10
+const internalSpacing = 10
+const textPadding = `12px 20px`
+const textPaddingDesc = "0px 20px 12px 20px" 
 const test = false
+const showDescription = true 
+const minHeightPlain = 120
+const minHeightDescription = 140
+const heightTweak = 10
 
     const restoreState = (gridRef)=>{
         const [translateX = 0, translateY = 0] = gridRef.current.style.transform.match(/translate\((.*?)\)/)?.[1]?.split(',') || [];
         const [scale = 1] = gridRef.current.style.transform.match(/scale\((.*?)\)/)?.[1]?.split(',') || [];
         return [parseFloat(translateX),parseFloat(translateY),parseFloat(scale)]
     }
-function arrangeSet( parent, list, size, targetWidth, offset = {x: 0, y: 0}, sizer){
+function arrangeSet( parent, list, size, targetWidth, offset = {x: 0, y: 0}, sizer, sizerDesc){
     parent.nestX = parent.root ? 0 : internalSpacing
     if( !parent.renderChildren ){
         return
@@ -25,10 +31,17 @@ function arrangeSet( parent, list, size, targetWidth, offset = {x: 0, y: 0}, siz
         return
     }
             if( parent.textElement ){
-                sizer.style.width = `${(parent.size.width - 2) * 2}px`
                 sizer.innerText = parent.text
-                parent.textClampHeight =  sizer.offsetHeight * 0.5 
-                parent.nestOffset = (parent.textClampHeight ) //+ (spacing / 4)
+                sizer.style.width = `${(parent.size.width - 2) * (1 / parent.minScale)}px`
+                parent.textClampHeight =  sizer.offsetHeight * parent.minScale
+
+                if( parent.descText ){
+                    parent.titleHeight = parent.textClampHeight
+                    sizerDesc.innerText = parent.description
+                    sizerDesc.style.width = `${(parent.size.width - 2) * (1 / parent.minScale)}px`
+                    parent.textClampHeight +=  sizerDesc.offsetHeight * parent.minScale
+                }
+                parent.nestOffset = (parent.textClampHeight ) 
             }else{
                 parent.nestOffset = 0
                 parent.textClampHeight = 0
@@ -45,7 +58,8 @@ function arrangeSet( parent, list, size, targetWidth, offset = {x: 0, y: 0}, siz
             const width = (item.span * columnWidth) + ((item.span - 1) * spacing)
             sizer.style.width = `${width  -2}px`
             sizer.innerText = item.text
-            item.size = {width: width, height: Math.max(120, sizer.offsetHeight )}
+            const tweakHeight = item.children ? Math.sqrt(item.children.length) / ratio * heightTweak : 0  
+            item.size = {width: width, height: Math.max( tweakHeight + (item.descText ? minHeightDescription : minHeightPlain) , sizer.offsetHeight )}
         }
         const avgHeight = list.reduce((a, d)=>a + (d.size?.height || 0), 0) / list.length
         const avgWidth = list.reduce((a, d)=>a + (d.size?.width || 0), 0) / list.length
@@ -54,14 +68,6 @@ function arrangeSet( parent, list, size, targetWidth, offset = {x: 0, y: 0}, siz
         const tCols = Math.max(maxSpan, Math.min(Math.ceil( Math.sqrt(list.length) * (1 * ratio / aRatio)), list.length ))
         const cols = Math.max(1, (tCols * 2))
 
-
-
-        if( parent.id === 3){
-            console.log(ratio, aRatio, tCols, cols)
-        }
-
-
-        //const fullWidth  = ((cols * (columnWidth + spacing)) - spacing) + (offset.x * 2)
         const fullWidth  = ((cols * (columnWidth + spacing)) - spacing) + (spacing * 2)
 
         const limits = new Array(cols).fill(internalSpacing  )
@@ -121,7 +127,7 @@ function arrangeSet( parent, list, size, targetWidth, offset = {x: 0, y: 0}, siz
     let maxScore = 0;
     let maxScale = 0
     let maxF = undefined;
-    [1, 1.2, 1.4, 1.6].forEach((d)=>{
+    [1, 1.3, 1.6].forEach((d)=>{
         const r = doLayout( targetWidth * d)
         //if( (r >= maxScore) || (r === maxScore && parent.scale > maxScale) ){
         if( (parent.scale > maxScale) ){
@@ -151,6 +157,9 @@ function arrangeSet( parent, list, size, targetWidth, offset = {x: 0, y: 0}, siz
 
             parent.nestX += nudge
         }
+        if( parent.descText ){
+            parent.descText.style.top = `${parent.titleHeight}px`
+        }
 
         parent.cascadeScale = (parent.parent?.cascadeScale || 1) * parent.scale
         for( const item of list){
@@ -169,7 +178,7 @@ function arrangeSet( parent, list, size, targetWidth, offset = {x: 0, y: 0}, siz
 
 
     for( const item of list){
-        arrangeSet( item, item.children, item.size, targetWidth, {x: spacing, y: 0}, sizer)
+        arrangeSet( item, item.children, item.size, targetWidth, {x: spacing, y: 0}, sizer, sizerDesc)
     }
     
 
@@ -194,9 +203,11 @@ export default function HierarchyView({primitive, ...props}){
     const ref = useRef()
     const targetRef = useRef()
     const sizer = useRef()
+    const sizerDesc = useRef()
     const [scale, setScale] = useState(1)
     const myState = useRef({})
     const columnWidth = props.columnWidth || 75
+
 
     useResizeObserver(targetRef, (data)=>{
         viewport.current = {
@@ -213,14 +224,13 @@ export default function HierarchyView({primitive, ...props}){
         console.log(`UPDATED`, primitiveId)
     }
 
-
-    const data = useMemo(()=>{
-        if( primitive.clusters ){
-            const root = {root: true, level:0, children: [], id:0}
-            const nodes = {"0": root}
-
-            const markLevels = (node, parent, level)=>{
-                const text = node.short || node.summary 
+    const rootPrim = primitive.primitives.allSegment[0]
+    let data = useMemo(()=>{
+        const nodes = {}        
+        let count = 0
+        if( rootPrim ){
+            const expand = (prim, parent, level = 0) => {
+                const text = prim.title
                 const length = text.length
                 let span = 2
                 if( length > 200){
@@ -235,71 +245,57 @@ export default function HierarchyView({primitive, ...props}){
                         }
                     }
                 }
-                const d = {
-                    parent: parent, 
+                const node = {
+                    parent: parent,
+                    root: level == 0,
                     level: level,
-                    id: node.id,
+                    id: prim.id,
                     text: text,
                     span: span,
-                    childrenId: node.children,
-                    perturb: node.id % 20,
-                    show: true,
-                    key: `node_${node.id}`
+                    description: showDescription ? prim.referenceParameters?.description : undefined,
+                    minScale: showDescription ? 0.3 : 0.5,
+                    perturb: count % 20,
+                    children: [],
+                    key: prim.id,
+                    isPrimitive: true,
+                    p: prim,
+                    show: true
+                } 
+                for(const segment of prim.primitives.allSegment ){
+                    node.children.push( expand(segment, node, level + 1) )
                 }
-                parent.children.push( d )
-                nodes[d.id] = d
-                if(node.children){
-                    d.children = []
-                    node.children.forEach((c)=>{
-                        markLevels(primitive.clusters[c], d, level + 1)
-                    })
-                }
-                //if( node.id === 9843 && node.primitives ){
-                if( node.primitives ){
-                    d.children = d.children || []
-                    node.primitives.forEach((id, idx)=>{
-                        const prim = MainStore().primitive(id)
-                        if( prim ){
-                            const p = {
-                                id: id,
-                                key: id,
-                                isPrimitive: true,
-                                parent: d,
-                                text: prim.title,
-                                perturb: idx % 20,
-                                span: 2,
-                                show: true
-                            }
-                            d.children.push(p)
-                            nodes[id] = p
+                prim.primitives.ref.allItems.forEach((prim, idx)=>{
+                    if( prim ){
+                        const p = {
+                            id: prim.id,
+                            key: prim.id,
+                            isPrimitive: true,
+                            isLeaf: true,
+                            parent: node,
+                            text: prim.title,
+                            minScale: 0.5,
+                            perturb: idx % 20,
+                            span: 2,
+                            p: prim,
+                            show: true
                         }
+                        node.children.push(p)
+                        nodes[p.id] = p
+                    }
 
-                    })
-                }
+                })
+                nodes[node.id] = node
+                count++
+                return node
             }
-            const level1 = Object.values(primitive.clusters).filter((d)=>d.parent === undefined && d.id !== 0)
-            level1.forEach((n)=>{
-                markLevels(n, root, 1)
-            })
+            const root = expand( rootPrim )
             console.log(nodes)
-
-            const markParents = (node, value)=>{
-                if( node.parent ){
-                    node.parent.tag = value
-                    markParents(node.parent, value)
-                }
-            }
-            //markParents( nodes[9583], 1)
-            
-            const primIds = Object.values(nodes).filter((d)=>d.isPrimitive).map((d)=>d.id)
-            console.log(`TRACKING ${primIds.length} ids` )
-            const callbackId  = MainStore().registerCallback(myState.current.callbackId, "set_field set_parameter", updateView, primIds )
-            myState.current.callbackId = callbackId
-
             return {root: root, nodes: nodes}
         }
-        return {}
+        return undefined
+
     }, [primitive.id])
+
     
     useEffect(()=>{
         return ()=>{
@@ -316,7 +312,16 @@ export default function HierarchyView({primitive, ...props}){
         sizer.current.style.position = 'absolute'
         sizer.current.style.visibility = 'hidden'
         sizer.current.style.padding = textPadding
+        sizer.current.style.fontSize = "0.875rem" 
         targetRef.current.appendChild( sizer.current )
+
+        sizerDesc.current = sizerDesc.current || document.createElement('p')
+        sizerDesc.current.style.display = 'block'
+        sizerDesc.current.style.position = 'absolute'
+        sizerDesc.current.style.visibility = 'hidden'
+        sizerDesc.current.style.padding = textPadding
+        sizerDesc.current.style.fontSize = "0.75rem" 
+        targetRef.current.appendChild( sizerDesc.current )
 
         if( test ){
             const grid = document.createElement('div')
@@ -331,12 +336,12 @@ export default function HierarchyView({primitive, ...props}){
         }
 
 
-        const root = data.nodes["0"]
+        const root = data.root
 
         
         renderNodes(root, ref.current.querySelector('g'))
         
-        const result = arrangeSet( root, root.children, {width: 1200, height: 900}, columnWidth, undefined, sizer.current)
+        const result = arrangeSet( root, root.children, {width: targetRef.current.offsetWidth, height: targetRef.current.offsetHeight}, columnWidth, undefined, sizer.current, sizerDesc.current)
         updatePositions( root.children )
         root.size = {width: result.width, height: result.height}
 
@@ -369,46 +374,13 @@ export default function HierarchyView({primitive, ...props}){
                             ? [l + (viewport.current.width / thisScale * 0.25) , t + (viewport.current.height / thisScale * 0.25), l + (viewport.current.width / thisScale * 0.75), t + (viewport.current.height / thisScale * 0.75)]
                             : [l, t, l + (viewport.current.width / thisScale), t + (viewport.current.height / thisScale)]
 
-        const midX = (thisView[0] + thisView[2])/2
-        const midY = (thisView[1] + thisView[3])/2
-        const dia = Math.sqrt(((viewport.current.width / thisScale / 2) ** 2) + ((viewport.current.height / thisScale / 2) ** 2))
-
-
-
         for(const item of Object.values(data.nodes)){
             if( !item.rendered ){continue}
-            const lerpRaw = (item.level <= 1) ? 1 : ((thisScale * (item.parent?.cascadeScale || 1)) - 0.4) / 0.2
-            let lerp = Math.min(Math.max(0,lerpRaw) , 1)
-
-            //const parentTextLerpRaw = ((thisScale * (item.parent?.parent?.cascadeScale || 1)) - 1.35) / 2.5
-
-//            const distance = Math.sqrt(((midX - ((item.fullPosition.x2 + item.fullPosition.x)/2)) ** 2) + ((midY - ((item.fullPosition.y2 + item.fullPosition.y)/2)) ** 2))
-  //          const perturb = 1 - (distance / dia)
-    //        const pb = (perturb ** 3) /10
-            const pb = item.perturb / 100
-//                console.log(item.id,  pb)
-
-            const parentTextLerpRaw = (((thisScale * (item.parent?.parent?.cascadeScale || 1)) - 1.75) / 1.75) * (1+pb)
-            const parentNestLerp = Math.min(Math.max(0,parentTextLerpRaw - 0.1) / 0.4, 1)
-
-            const textLerpRaw = (((thisScale * parentNestLerp  * (item.parent?.cascadeScale || 1)) - 1.75) / 1.75) * (1 + pb)
-            const textLerp = 1 - Math.min(Math.max(0,textLerpRaw) , 0.5) 
-            const nestLerp = Math.min(Math.max(0,textLerpRaw - 0.1) / 0.4, 1)
-
-
-            const lerping = item.lerp !== lerp
-            const textLerping = item.children && (item.textLerp !== textLerp)
-
             const outOfView = (thisView[0] >= item.fullPosition.x2 || item.fullPosition.x >= thisView[2] || thisView[1] >= item.fullPosition.y2 || item.fullPosition.y >= thisView[3])
             if( test ){
                 item.element.style.border = outOfView ? "1px solid red" : "1px solid green"
             }
-
-            const show = !outOfView //&& ((item.level <= 1) || nestLerp > 0)
-            const showNest = !outOfView && ((item.level < 1) || nestLerp > 0)
-
-            const nestLerping = (item.nestLerp === undefined && nestLerp === true) || (item.nestLerp !== undefined && item.nestLerp !== nestLerp) || (showNest !== item.showNest)
-            
+            const show = !outOfView 
             if( item.show && !show ){
                 item.show = show
                 item.parentElement.style.display = 'none'
@@ -416,6 +388,33 @@ export default function HierarchyView({primitive, ...props}){
                 item.show = show
                 item.parentElement.style.display = 'unset'
             }
+            if( outOfView ){
+
+                continue
+            }
+
+            const lerpRaw = (item.level <= 1) ? 1 : ((thisScale * (item.parent?.cascadeScale || 1)) - 0.4) / 0.2
+            let lerp = Math.min(Math.max(0,lerpRaw) , 1)
+
+            const pb = (item.perturb || 0 )/ 100
+
+            const parentTextLerpRaw = (((thisScale * (item.parent?.parent?.cascadeScale || 1)) - 1.75) / 1.75) * (1+pb)
+            const parentNestLerp = Math.min(Math.max(0,parentTextLerpRaw - 0.1) / 0.4, 1)
+            
+            const textLerpRaw = (((thisScale * parentNestLerp  * (item.parent?.cascadeScale || 1)) - 1.75) / 1.75) * (1 + pb)
+            const textLerp = 1 - Math.min(Math.max(0,textLerpRaw) , (1-item.minScale)) 
+            const nestThreshold = item.descText ? 0.5 : 0.1 
+            const nestLerp = Math.min(Math.max(0,textLerpRaw - nestThreshold) / 0.4, 1)
+
+
+            const lerping = item.lerp !== lerp
+            const textLerping = item.children && (item.textLerp !== textLerp)
+
+
+            const showNest = !outOfView && ((item.level < 1) || nestLerp > 0)
+
+            const nestLerping = (item.nestLerp === undefined && nestLerp === true) || (item.nestLerp !== undefined && item.nestLerp !== nestLerp) || (showNest !== item.showNest)
+            
             if( item.innernest ){
                 if( item.showNest !== showNest){
                     if( !showNest ){
@@ -426,14 +425,10 @@ export default function HierarchyView({primitive, ...props}){
                 }
                 item.showNest = showNest
             }
-            if( outOfView ){
-
-                continue
-            }
 
             if( item.children && showNest && !item.renderChildren){
                 renderNodes( item, item.innernest)
-                arrangeSet( item, item.children, item.size, columnWidth, {x: spacing, y: 0}, sizer.current)
+                arrangeSet( item, item.children, item.size, columnWidth, {x: spacing, y: 0}, sizer.current, sizerDesc.current)
                 item.nest.setAttribute("transform", `translate(${item.nestX},${item.nestOffset }) scale(${item.scale})`)
                 updatePositions( item.children )
             }
@@ -442,6 +437,14 @@ export default function HierarchyView({primitive, ...props}){
                 item.textElement.style.transform = `scale(${textLerp})`
                 item.textElement.style.width = `${(1 / textLerp) * 100}%`
                 item.textLerp = textLerp
+                if( item.descText ){
+                    const progress = 1 - ((textLerp - item.minScale) / (1-item.minScale))
+                    const descLerp = Math.max(0,Math.min(1,(progress - 0.7) / 0.3))
+                    item.descText.style.transform = `scale(${textLerp })`
+                    item.descText.style.width = `${(1 / (textLerp )) * 100}%`
+                    item.descText.style.opacity = descLerp
+
+                }
             }
             if( nestLerping ){
                 if( item.innernest ){
@@ -496,23 +499,45 @@ export default function HierarchyView({primitive, ...props}){
                         if( !node.parent.root && node.parent.nestLerp !== 1){
                             node = node.parent
                         }
-                        if( myState.current.selected?.element !== node.element ){
-                            if( myState.current.selected ){
-                                myState.current.selected.element.classList.remove('ring-inset', 'ring-2', 'select-text')
-                                myState.current.selected = undefined
-                            }
-                            myState.current.selected = {element: node.element}
-                            myState.current.selected.element.classList.add('ring-inset', 'ring-2' )
-                            
-                            setTimeout(() => {
-                                if(myState.current.selected.element === node.element){
-                                    myState.current.selected.element.classList.add('select-text' )
-                                    window.getSelection().removeAllRanges()
+                        const multi = state.event.shiftKey
+                        console.log(multi, myState.current.selected)
+                        if( multi || !myState.current.selected || (!multi && (myState.current.selected?.nodes?.length > 1 ||  myState.current.selected?.nodes[0].element !== node.element)) ){
+
+                            if( myState.current.selected?.nodes ){
+                                for(const node of myState.current.selected.nodes){
+                                  node.element.classList.remove('ring-inset', 'ring-1', 'ring-2', 'select-text')
                                 }
-                            }, 200);
+                                if( !multi ){
+                                    console.log("CLEAR")
+                                    myState.current.selected = undefined
+                                }
+                            }
+
+                            console.log(myState.current.selected)
+                            if( multi && myState.current.selected){
+                                if( myState.current.selected.nodes.find((d)=>d.element == node.element ) ){
+                                    myState.current.selected.nodes = myState.current.selected.nodes.filter((d)=>d.element !== node.element)
+                                }else{
+                                    myState.current.selected.nodes.push(node)
+                                }
+                            }else{
+                                myState.current.selected = {nodes: [node] }
+                            }
+                            for(const node of myState.current.selected.nodes){
+                                node.element.classList.add('ring-inset', node.isLeaf ? 'ring-2' : 'ring-1' )
+                            }
+                            
+                            if( !multi ){
+                                setTimeout(() => {
+                                    if(myState.current.selected.nodes.length === 1 && myState.current.selected.nodes[0].element === node.element){
+                                        myState.current.selected.nodes[0].element.classList.add('select-text' )
+                                        window.getSelection().removeAllRanges()
+                                    }
+                                }, 200);
+                            }
                             
                             if( node.isPrimitive ){
-                                MainStore().sidebarSelect(node.id)
+                                MainStore().sidebarSelect( myState.current.selected.nodes.map((d)=>d.id), {scope: rootPrim} )
                             }
                         }
                     }
@@ -523,8 +548,15 @@ export default function HierarchyView({primitive, ...props}){
             }else{
                 if( state.event.target.nodeName === "svg" || state.event.target === targetRef.current){
                     window.getSelection().removeAllRanges()
+                    if( myState.current.selected?.nodes ){
+                        for(const node of myState.current.selected.nodes){
+                            node.element.classList.remove('ring-inset', 'ring-1', 'ring-2', 'select-text')
+                        }
+                        myState.current.selected = undefined
+                        MainStore().sidebarSelect(null)
+                    }
                     if( state.event.detail === 2){
-                        zoomTo( 0, 0, data.nodes[0].size.width, data.nodes[0].size.height)
+                        zoomTo( 0, 0, data.root.size.width, data.root.size.height)
                     }
                 }
             }
@@ -596,18 +628,36 @@ export default function HierarchyView({primitive, ...props}){
             node.rendered = true
             let g = target.querySelector(`g[id='${node.id}']`)
             if( !g ){
-                const main = `<foreignObject width='100' height='100' id='${node.id}' ><div id=${node.id} style='width:${(node.span * columnWidth) + ((node.span - 1) * spacing)}px;' class='pcard h-fit bg-white border rounded-lg'><p style='transform-origin:top left;padding:${textPadding};background:transparent'>${node.text}</p></div></foreignObject>`
+                const main = `<foreignObject width='100' height='100' id='${node.id}' ><div id=${node.id} style='width:${(node.span * columnWidth) + ((node.span - 1) * spacing)}px;' class='pcard h-fit border'><p style='transform-origin:top left;padding:${textPadding};font-size:0.875rem'>${node.text}</p></div></foreignObject>`
                 g = document.createElementNS("http://www.w3.org/2000/svg", 'g');
                 g.setAttribute("id", node.id)
                 g.innerHTML = main
                 target.appendChild(g)
+
+                if(showDescription && node.description ){
+                    const desc = document.createElement('p')
+                    desc.innerText = node.description
+                    desc.style.transformOrigin = "left top" 
+                    desc.style.padding = textPaddingDesc
+                    desc.style.position = "absolute" 
+                    g.childNodes[0].childNodes[0].appendChild(desc)
+                    desc.style.color = "rgb(75 85 99)"
+                    desc.style.fontSize = "0.75rem"
+                    node.descText = desc
+                }
             }
 
             node.frame = g.childNodes[0]
             node.element = node.frame.childNodes[0]
             node.parentElement = g
             node.textElement = node.element.childNodes[0]
-            node.frame.classList.add('shadow-md', 'rounded-lg')
+            if( node.isLeaf ){
+                node.element.classList.add('bg-gray-50')
+            }else{
+                node.frame.classList.add('shadow-md', 'rounded-md', 'bg-white')
+                node.element.classList.add('rounded-md')
+
+            }
 
             node.size = {width: node.element.offsetWidth, height: node.element.offsetHeight}
             if( node.tag ){
@@ -635,7 +685,7 @@ export default function HierarchyView({primitive, ...props}){
     return (
     <div
     ref={targetRef}
-        className="w-full h-full bg-white overflow-hidden touch-none "
+        className="w-full h-full bg-white overflow-hidden touch-none relative "
         >
         <svg
         style={{background:'white', userSelect: "none"}}
