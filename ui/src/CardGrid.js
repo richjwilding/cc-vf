@@ -87,7 +87,6 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
     const columnCount = parseInt(active)
     const columns = list.reduce((o, d, idx)=>{o[idx% columnCount]=o[idx% columnCount] || [];o[idx% columnCount].push(d);return o},[])
 
-
     return (<>
     {hasButton && <div className="w-full p-2 flex h-12 space-x-2 sticky top-0 z-20 bg-white">
         {resultCategory && props.createButton && <Panel.MenuButton title='Create new' action={()=>props.createButton(resultCategory)}/>}
@@ -112,8 +111,9 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                         <PrimitiveCard 
                             key={p.id}
                             compact={true} primitive={p} 
-                            onClick={props.onCardClick ? (e,p)=>props.onCardClick(e,p,list,idx) : undefined}
-                            onEnter={props.onEnter ? (e)=>props.onEnter(e,p,list,idx) : undefined}
+                            onClick={props.onCardClick ? (e,p)=>props.onCardClick(e,p) : undefined}
+                            onInnerCardClick ={ props.onInnerCardClick !== undefined ? props.onInnerCardClick : props.onCardClick ? props.onCardClick : undefined}
+                            onEnter={props.onEnter ? (e)=>props.onEnter(p) : undefined}
                             //className={`h-full select-none flex justify-between ${props.selectedItem && props.selectedItem.id === p.id ? "bg-white opacity-50 blur-50" : ""}`}
                             fields={fields} 
                             border={true} 

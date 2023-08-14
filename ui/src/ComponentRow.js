@@ -38,11 +38,13 @@ function ChevronRightIcon(props) {
 
 export function ComponentRow(props) {
     const c = props.component
-    const levels = c && c.levels ? Object.values(c.levels).sort((a,b)=>a.order - b.order) : []
+    const currentPhaseId = props.primitive.referenceParameters?.phase
+    const levels = (c && c.levels ? Object.values(c.levels).sort((a,b)=>a.order - b.order) : [])
     const color = props?.primitive?.framework?.lenses && props.primitive.framework.lenses[c.lens] || {base: "slate",
       background: 'white',
       header: "linear-gradient(90deg, rgb(212 212 212) 40%, rgb(217 217 223) 100%)"
       }
+
 
     const [expand, setExpand] = React.useState(false)
     const gridRef = React.useRef()
@@ -215,7 +217,6 @@ export function ComponentRow(props) {
       columnMap = `18em ${expandIdx > 0 ? `repeat(${expandIdx }, minmax(min-content,1fr))` : ''} minmax(min-content,${mainColumn}) ${expandIdx < last_index ? `repeat(${last_index - expandIdx}, minmax(min-content,1fr))` : ''}`
       columnMap = `18em ${expandIdx > 0 ? `repeat(${expandIdx }, min-content)` : ''} auto ${expandIdx < last_index ? `repeat(${last_index - expandIdx}, min-content)` : ''}`
       columnMap = `18em repeat(${levels.length }, min-content)`
-     // columnMap = `18em ${expandIdx > 0 ? `repeat(${expandIdx }, min-content)` : ''} calc(100cqw - 40rem) ${expandIdx < last_index ? `repeat(${last_index - expandIdx}, min-content)` : ''}`
     }
 
     return (<>
@@ -308,7 +309,8 @@ export function ComponentRow(props) {
               levels.map((l, idx) => {
               let ticked = currentLevelId == undefined ? false :   l.score < current_level.score 
               let current = currentLevelId  === undefined ? idx === 0 : currentLevelId == l.id
-              let currentTarget = l.target && levels.filter((l)=>l.target && l.score >= (current_level?.score || 0))[0]?.id === l.id
+//              let currentTarget = l.target && levels.filter((l)=>l.target && l.score >= (current_level?.score || 0))[0]?.id === l.id
+              let currentTarget =  currentPhaseId !== undefined && l.target && l.phaseId === currentPhaseId
               let last_item = idx === levels.length - 1
               let push_last_item = last_item && (compact || (!expand && fullTextIdx !== idx) )
               return (

@@ -62,7 +62,7 @@ const PrimitiveConfig = {
     pageview:{
         "segment":{
             evidence: false,
-            defaultWide: {type: 'result', index: 0} 
+          //  defaultWide: {type: 'result', index: 0} 
         }
     },
     sidebar:{

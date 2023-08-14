@@ -167,7 +167,9 @@ export function PrimitiveTable(props) {
         let index = selected ? rows.findIndex((d)=>d.original.primitive.id === selected) : 0
 
         if( delta === 0){
-            props.onEnter(undefined,rows[index].original.id, table.getRowModel().rows.map((d)=>d.original.primitive),index)
+            if( props.onEnter ){
+                props.onEnter(rows[index].original.primitive)
+            }
             return
         }
 
@@ -287,7 +289,7 @@ export function PrimitiveTable(props) {
                     <>
                     <div className="contents group">
                     <div                         
-                        onClick={(e)=>{e.stopPropagation();props.onEnter(e,primitive, table.getRowModel().rows.map((d)=>d.original.primitive),idx)}}
+                        onClick={(e)=>{e.stopPropagation();props.onEnter(primitive)}}
                         className={`group-hover:bg-gray-100 flex justify-center place-items-center pl-1 cursor-pointer text-gray-200 group-hover:text-gray-400 hover:text-gray-600 border-b border-gray-100 outline-none ${selected === primId ? "bg-ccgreen-100" : ""}`}>
                         <ExpandArrow className='w-4 h-4 '/>
                     </div>

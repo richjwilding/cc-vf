@@ -1,5 +1,5 @@
 import Primitive from "./model/Primitive";
-import {createPrimitive, flattenPath, doPrimitiveAction, primitiveOrigin, primitiveChildren} from './SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, primitiveOrigin, primitiveChildren, dispatchControlUpdate} from './SharedFunctions'
 import { replicateURLtoStorage } from "./google_helper";
 import { analyzeListAgainstTopics, analyzeText, analyzeTextAgainstTopics, buildKeywordsFromList } from "./openai_helper";
 import Category from "./model/Category";
@@ -409,6 +409,34 @@ export async function pivotFromCrunchbaseDescription(primitive, options = {}){
     }
     return count
 }
+export async function enrichCompanyFunding( primitive, options = {}){
+    let data = primitive.crunchbaseData
+    let count = 0
+
+    if(!data ){
+        data = await fetchCompanyDataFromCrunchbase(primitive)
+        if( data.error ){
+            return {error: data.error}
+        }
+    }
+    let funding = data.raised_investments
+    
+    if( funding === undefined){
+        funding = await fetchCompanyFundingFromCrunchbase(primitive, data.id)
+        
+    }
+    if( funding && !funding.error ){
+        const uniqueRounds = funding.map((d)=>[d.funding_round_money_raised?.value_usd,d.funding_round_identifier?.uuid] ).filter((d,i,a)=>a.findIndex((d2)=>d2[1]==d[1]) === i)
+        const totalRaised = uniqueRounds.reduce((a,c)=>a+(c[0] || 0),0)
+        
+        const investors = funding.map((d)=>d.investor_identifier?.value).filter((c,i,a)=>a.indexOf(c)===i)
+        const rounds = funding.map((d)=>[d.funding_round_identifier?.value, d.announced_on]).filter((c,i,a)=>a.findIndex((d)=>d[0] == c[0])===i).map((d)=>[d[0].split(' - ')[0],d[1]])
+
+        dispatchControlUpdate( primitive.id, "referenceParameters.funding", totalRaised)
+        dispatchControlUpdate( primitive.id, "referenceParameters.investors", investors)
+        dispatchControlUpdate( primitive.id, "referenceParameters.fundingRounds", rounds)
+    }
+}
 export async function pivotFromCrunchbaseArticles(primitive, options = {}, force = false){
     let data = primitive.crunchbaseData
     let count = 0
@@ -705,6 +733,64 @@ export async function fetchCompanyArtcilesFromCrunchbase( primitive, cbId ){
                 primitive.markModified("crunchbaseData.articles")
 
 
+                await primitive.save()
+                return store
+            }
+        }
+        return {error: "no data"}
+    }catch(error){
+        return {error: error}
+    }
+
+    
+}
+export async function fetchCompanyFundingFromCrunchbase( primitive, cbId ){
+    try{
+        let attempts = 3
+
+        const doRequest = async () =>{
+
+            const uuid = cbId || primitive.crunchbaseData?.id
+            const query = new URLSearchParams({ 
+                "card_ids":["raised_investments"]
+            }).toString()
+            
+            const url = `https://api.crunchbase.com/api/v4/entities/organizations/${uuid}?${query}`
+            console.log(url)
+            
+            console.log(`Doing Crunchbase query`)
+            const response = await fetch(url,{
+                method: 'GET',
+                headers: {
+                    'X-cb-user-key': `${process.env.CRUNCHBASE_KEY}`
+                }
+            });
+            
+            if( response.status !== 200){
+                console.log(`Error from crunchbase - ${attempts--} attempts left`)
+                console.log(`-----------------`)
+                await new Promise(r => setTimeout(r, 10000));                    
+                console.log(response)
+                if( attempts > 0){
+                    return await doRequest()
+                }
+            }
+            const data = await response.json();
+            return data
+        }
+        const data = await doRequest()
+        if( data?.error){
+            return data
+        }
+        if( data ){
+            if( attempts !== 3){
+                console.log('Had error but recovered')
+            }
+            if( data.cards?.raised_investments){
+
+                const store = data.cards?.raised_investments 
+                primitive.set("crunchbaseData.raised_investments", store)
+                primitive.markModified("crunchbaseData.raised_investments")
                 await primitive.save()
                 return store
             }

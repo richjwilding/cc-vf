@@ -4,7 +4,7 @@ import Counter from './model/Counter';
 import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
 import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn} from './linkedin_helper'
-import { extractArticlesFromCrunchbase, pivotFromCrunchbase } from './crunchbase_helper';
+import { enrichCompanyFunding, extractArticlesFromCrunchbase, pivotFromCrunchbase } from './crunchbase_helper';
 import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
 import { getDocumentAsPlainText, removeDocument } from './google_helper';
@@ -336,6 +336,16 @@ export async function primitiveMetadata(primitive ){
 export function primitiveOrigin(primitive ){
     return primitiveWithRelationship(primitive, "origin")
 }
+export async function findPrimitiveOriginParent(primitive, type ){
+    const origin = await Primitive.findOne({_id:  primitiveWithRelationship(primitive, "origin") })
+    if( origin ){
+        if( origin.type == type ){
+            return origin
+        }
+        return findPrimitiveOriginParent( origin, type )
+    }
+    return undefined
+}
 export async function primitiveTask(primitive ){
     const origin = await Primitive.findOne({_id:  primitiveWithRelationship(primitive, "origin") })
     if( origin ){
@@ -396,8 +406,10 @@ export async function getDataForProcessing(primitive, action, source, options = 
         list = startList || await primitiveChildren(source)
         list = (await Promise.all(list.map(async (d)=>await primitiveChildren(d)))).flat()
     }else if( target.slice(0,8) === "results."){
-        console.log(`FETCHING DATA FROM RESULTS SET ${target}`)
         list = await primitivePrimitives(source, target )
+        console.log(`GOT ${list.length}`)
+    }else if( target === "ref"){
+        list = await primitivePrimitives(source, 'ref')
         console.log(`GOT ${list.length}`)
 
     }
@@ -551,7 +563,7 @@ async function validateSegment( primitive, action, sourceSegment ){
 export async function dispatchControlUpdate(id, controlField, status, flags = {}){
     try{
         let primitive 
-        console.log(`${id} = ${controlField} : ${status}`)
+        //console.log(`${id} = ${controlField} : ${status}`)
 
         if( status === undefined ){
             primitive = await Primitive.findOneAndUpdate(
@@ -821,6 +833,17 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     if(command === "define_axis" ){
                         QueueAI().defineAxis( primitive, action )
                     }
+                    if(command === "roll_up" ){
+                        const target = primitive
+                        const field = options.field || action.field
+                        const types = options.types || action.types
+                        const subTypes = options.subTypes || action.subTypes
+                        const summaryType = options.summaryType || action.summaryType
+                        const prompt = options.prompt || action.prompt
+
+                        QueueAI().rollUp( primitive, target, action )
+                        done = true
+                    }
             }
             if( primitive.type === "activity" ){
                 if( command === "find_articles"){
@@ -877,6 +900,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 if( command === "enrich"){
                     result = EnrichPrimitive().enrichCompany( primitive, "linkedin", true )
                     done = true
+                }
+                if( command === "enrich_investment"){
+                    const output = await enrichCompanyFunding(primitive)
                 }
                 if( command === "pivot"){
                     if(actionKey === "pivot_li" ){                        
@@ -1129,7 +1155,7 @@ function cosineSimilarity(A, B) {
 
 const _euclideanCache = {}
 
-function euclideanDistance(point1, point2) {
+export function euclideanDistance(point1, point2) {
     if (point1.length !== point2.length) {
       throw new Error("Both points must have the same dimensionality.");
     }

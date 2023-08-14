@@ -16,7 +16,10 @@ const mainstore = MainStore()
 export default function PrimitiveExplorer({primitive, ...props}){
 
     const [selectedCategoryIds, setSelectedCategoryIds] = React.useState( props.allowedCategoryIds )
+    const [layerSelection, setLayerSelection] = React.useState(0)//axisOptions.length > 1 ? 1 : 0)
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
+    const [colSelection, setColSelection] = React.useState(0)
+    const [rowSelection, setRowSelection] = React.useState(0)//axisOptions.length > 1 ? 1 : 0)
 
     function updateFilters(){
         let out = []
@@ -37,10 +40,43 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
     
-    let items = React.useMemo(()=>{
+    let baseItems = React.useMemo(()=>{
         const types = [props.types].flat()
-        return(props.list || primitive.primitives.uniqueAllItems.filter((d)=>types.includes(d.type) )).filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true))
+        return (props.list || primitive.primitives.uniqueAllItems.filter((d)=>types.includes(d.type) )).filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true))
     },[primitive.id, update])
+
+    let layers
+    if( primitive.type === "segment" ){
+        layers = []
+        const nextLayer = (list)=>{
+            layers.push({id: layers.length, title: `Layer ${layers.length + 1}`})
+            const thisLevel = list.map((d)=>d.primitives.allSegment).flat()
+            if( thisLevel.length > 0 ){
+                nextLayer( thisLevel )
+            }
+        }
+        nextLayer( [primitive] )
+    }
+
+    let items = React.useMemo(()=>{
+        let out = baseItems
+        if( layerSelection > 0){
+            const unpackLayer = (thisLayer)=>{
+                return thisLayer.map((d)=>{
+                    const children = d.primitives.allSegment
+                    if( children.length > 0){
+                        return children
+                    }
+                    return d
+                }).flat()
+            }
+            for( let a = 0; a < layerSelection; a++){
+                out = unpackLayer(out)
+            }
+        }
+        console.log(`HAD ${baseItems.length} now ${out.length}`)
+        return out
+    },[primitive.id, update, layerSelection])
     
     useDataEvent("relationship_update", [primitive.id, items.map((d)=>d.id)].flat(), forceUpdate)
 
@@ -149,12 +185,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 
             }
         }
-       console.log(out) 
-        return out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>d2.id === d.id) === idx))
-    }, [primitive.id, update])
+        const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>d2.id === d.id) === idx))
+        setColSelection(0)
+        setRowSelection(0)
+        return final
+    }, [primitive.id, update, layerSelection])
 
-    const [colSelection, setColSelection] = React.useState(axisOptions.length > 2 ? 2 : 0)
-    const [rowSelection, setRowSelection] = React.useState(0)//axisOptions.length > 1 ? 1 : 0)
+
 
     const pickProcess = ( mode )=>{
         const option = axisOptions[mode]
@@ -220,7 +257,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 primitive: p
             }
         })
-        },[primitive.id, colSelection, rowSelection, update])
+        },[colSelection, rowSelection, update, items])
 
     let fields = ["title", props.fields].flat()
     let originFields = [{contact: "contactName"}]
@@ -239,25 +276,30 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const [scale, setScale] = useState(1)
     useLayoutEffect(()=>{
         if( gridRef.current){
+            setTimeout(()=>{
 
-            gridRef.current.style.transform = `scale(1)`
-            const toolbarHeight = 56
-            const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
-            const tbb = targetRef.current.getBoundingClientRect()
-
-            const border = 20
-            const tw = tbb.width
-            const th = tbb.height 
-
-            const scale = Math.min(Math.min( (tbb.width - border) / gbb.width, (tbb.height - border - toolbarHeight) / gbb.height),1) 
-            const x =  -((gbb.width/2)-(tw / 2))
-            const y =  -((gbb.height/2)-(th / 2)) - (toolbarHeight * scale)
-
-            gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
-            setScale(scale)
+                
+                gridRef.current.style.transform = `scale(1)`
+                const toolbarHeight = 56
+                const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
+                const tbb = targetRef.current.getBoundingClientRect()
+                
+                const border = 20
+                const tw = tbb.width
+                const th = tbb.height 
+                
+                const scale = Math.min(Math.min( (tbb.width - border) / gbb.width, (tbb.height - border - toolbarHeight) / gbb.height),1) 
+                const x =  -(gbb.width / 2) + (tbb.width / 2 )
+                const y =  -(gbb.height /2) + (tbb.height / 2 )
+                console.log(gbb.height)
+                console.log(tbb.height)
+                
+                gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
+                setScale(scale)
+            }, primitive.type === "segment" ? 50 : 0)
         }
 
-    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds])
+    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds, update, layerSelection])
 
     function rebuildPrimitivePosition(){
         myState.current.primitivePositions = rebuildPosition('.pcard')
@@ -541,13 +583,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
 
+
     const hasColumnHeaders = (columnExtents.length > 1)
     const hasRowHeaders = (rowExtents.length > 1)
 
 
     const renderProps = {
         "segment":{
-            showDetails:true
+            showDetails:false
         },
         "entity": {
             hideCover: true,
@@ -563,7 +606,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 <Panel.MenuButton icon={<ClipboardDocumentIcon className='w-4 h-4 -mx-1'/>} action={copyToClipboard}/>
                 {props.buttons}
                 <p>{list?.length} items</p>
-                {props.allowedCategoryIds && <MyCombo prefix="Showing: " items={props.allowedCategoryIds.map((id)=>mainstore.category(id))} selectedItem={selectedCategoryIds} setSelectedItem={setSelectedCategoryIds}/>}
+                {props.allowedCategoryIds && props.allowedCategoryIds.length > 1 && <MyCombo prefix="Showing: " items={props.allowedCategoryIds.map((id)=>mainstore.category(id))} selectedItem={selectedCategoryIds} setSelectedItem={setSelectedCategoryIds} className='w-42'/>}
+                {layers && <MyCombo items={layers} selectedItem={layers[layerSelection] ? layerSelection :  0} setSelectedItem={setLayerSelection}/>}
                 {options && <MyCombo items={options} prefix="Columns: " selectedItem={options[colSelection] ? colSelection :  0} setSelectedItem={setColSelection}/>}
                 {options && <MyCombo items={options} prefix="Rows: " selectedItem={options[rowSelection] ? rowSelection : 0} setSelectedItem={setRowSelection}/>}
             </div>
@@ -593,11 +637,19 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                 let colOption = axisOptions[colSelection]
                                 let subList = list.filter((item)=>item.column === column && item.row === row).sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
                                 return <div 
-                                        style={{columns: Math.floor(Math.sqrt(columnColumns[cIdx] ))}} 
+                                        style={
+                                            primitive.type === "segment"
+                                                ? { 
+                                                        display: "grid",
+                                                        gridTemplateColumns: `repeat(${Math.floor(Math.sqrt(columnColumns[cIdx]))}, 1fr )`
+                                                    }
+                                                : {columns: Math.floor(Math.sqrt(columnColumns[cIdx].len ))}
+                                        } 
                                         id={`${cIdx}-${rIdx}`}                                        
                                         className={`${colOption?.allowMove || rowOption?.allowMove ? "dropzone" : ""} z-[2] w-full  p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children touch-none `}>
                                             {subList.map((wrapped, idx)=>{
                                                 let item = wrapped.primitive
+                                                //let isWide = items.type === "segment" && item.
                                                 let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth:'16rem'}
                                                 let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
                                                 const staggerScale = scale  + (scale / 200 * (idx % 20))

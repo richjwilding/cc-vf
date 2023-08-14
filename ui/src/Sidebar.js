@@ -11,6 +11,7 @@ import MainStore from './MainStore'
 import Panel from './Panel'
 import PrimitiveConfig from './PrimitiveConfig'
 import PrimitivePicker from './PrimitivePicker'
+import { VFImage } from './VFImage'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -98,6 +99,7 @@ export function Sidebar({primitive, ...props}) {
     let showUnlinkFromScope = false 
 
     if( props.scope ){
+        console.log(`SCOPED = ${props.scope.plainId}`)
         showUnlinkFromScope = true
         const list = isMulti ? primitive : [primitive]
         for( const p of list){
@@ -128,12 +130,13 @@ export function Sidebar({primitive, ...props}) {
             enter="transition-[min-width,width] ease-in-out duration-[200ms]"
             leave="transition-[min-width,width] ease-in-out duration-[200ms] "
             enterFrom="min-w-0 w-0"
-            enterTo="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem]"
-            leaveFrom="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem]"
+            enterTo="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 5xl:min-w-[36rem] 5xl:w-[36rem]"
+            leaveFrom="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 5xl:min-w-[36rem] 5xl:w-[36rem]"
             leaveTo="min-w-0 w-0"
-            className={`${props.overlay ? "absolute right-0 z-50 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl`}>
+//            className={`${props.overlay ? "absolute right-0 z-50 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl`}>
+            className={`absolute right-0 z-50 h-screen overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl 4xl:relative 4xl:shadow-none `}>
         <div className='min-w-max'>
-        <div className='max-w-[24rem] sm:max-w-[28rem]'>
+        <div className='max-w-[24rem] sm:max-w-[28rem] 5xl:min-w-[36rem]'>
             <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky z-50 top-0 bg-white">
                 <div className="flex items-start justify-between space-x-3">
                     {metadata && <div className='flex place-items-center'>
@@ -157,20 +160,24 @@ export function Sidebar({primitive, ...props}) {
             </div>
             {isMulti && !commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">Cant inspect selection</div> }            
             {isMulti && commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">{primitive.length} items selected</div> }
+            {!isMulti && (primitive.referenceParameters?.hasImg || primitive.metadata?.actions) && <div className='w-full flex'>
+                {primitive.referenceParameters?.hasImg  &&  <VFImage className="w-8 h-8 mx-2 object-contain my-auto" src={`/api/image/${primitive.id}`} />}
+                {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} className='ml-auto m-2'/> }            
+            </div>}
             {!isMulti && <div className="pb-2 pl-4 pr-4 pt-4">
-                <PrimitiveCard primitive={primitive} showQuote showDetails={true} showLink={false} major={true} showEdit={true} editing={true} className='mb-6'/>
+                <PrimitiveCard primitive={primitive} showQuote showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
                     <Panel title="Significance" collapsable={true} open={true} major>
                         <PrimitiveCard.EvidenceHypothesisRelationship primitive={primitive} title={false} />
                     </Panel>
                 }
                 {origin && showSource &&
-                    <div className='mt-6 mb-3'>
+                    <div className='mt-6 mb-3 border-t'>
                         <h3 className="mb-2 text-md text-gray-400 pt-2">Source</h3>
                         <PrimitiveCard primitive={origin} showState={true} showLink={true} showDetails="panel"/>
                     </div>
                 }
-                {task && <div className='mt-6 mb-3'>
+                {task && <div className='mt-6 mb-3 border-t'>
                     <h3 className="mb-2 text-md text-gray-400  pt-2">Related {task.type}</h3>
                     <PrimitiveCard primitive={task}  showState={true} showDetails="panel" showUsers="panel" showLink={true}/>
                 </div>}

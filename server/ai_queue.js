@@ -1,7 +1,7 @@
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import { SIO } from './socket';
-import { addRelationship, createPrimitive, dispatchControlUpdate, getDataForProcessing, primitiveChildren, primitiveDescendents, primitivePrimitives, removePrimitiveById, removeRelationship } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, findPrimitiveOriginParent, getDataForProcessing, primitiveChildren, primitiveDescendents, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processPromptOnText, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
@@ -60,14 +60,14 @@ async function defineAxis( primitive, action ){
 
         console.log(`Fetching suggested axis`)
 
-        //        const result = await extractAxisFromDescriptionList( data, {type: action.type} )
-        const result = {success: true, output: axis}
+        const result = await extractAxisFromDescriptionList( data, {type: action.type} )
+        //const result = {success: true, output: axis}
 
         if( result.success ){
             await dispatchControlUpdate(primitive.id, `axis`, result.output)
             axis = result.output
 
-            const passCheck = axis.map((d)=>d._pass).filter((d,i,a)=>a.indexOf(d)===i)
+            const passCheck = axis.map((d)=>d._pass || 0).filter((d,i,a)=>a.indexOf(d)===i)
             if( passCheck.length > 1){
                 let newAxis
                 console.log(`NEED TO CONSOLIDATE AXIS`)
@@ -86,7 +86,10 @@ async function defineAxis( primitive, action ){
                                 title: d.title,
                                 values: d.values.map((v)=>{
                                     const ids = originalAxis.map((d)=>{
-                                        const originalValues = v.o || [v.value]
+                                        let originalValues = [v.value]
+                                        if( v.o && v.o.length > 0 ){
+                                            originalValues = v.o
+                                        }
                                         const match = originalValues.includes(d.value)
                                         if( match){
                                             d.matched = true
@@ -181,7 +184,7 @@ async function defineAxis( primitive, action ){
                         if( valuePrim ){
                             for( const s of v.ids){
                                 const segment = list[s]
-                                addRelationship( valuePrim.id, segment.id, 'ref')
+                                await addRelationship( valuePrim.id, segment.id, 'ref')
                             }
                         }
                     }
@@ -194,43 +197,46 @@ async function defineAxis( primitive, action ){
 
 async function rollup( primitive, target, action ){
     let list, data
-    
-    
 
-    if( action.field === "param.capabilities" ){
-        [list, data] = await getDataForProcessing(primitive, {...action, field: "title"})
+    if( ["param.aggregateFeatures","param.capabilities","param.offerings","param.customers"].includes(action.field) ){
+        [list, data] = await getDataForProcessing(primitive, {...action, field: "param.description"})
         console.log(`-- back ${list.length} / ${data.length}`)
         console.log(list?.[0])
-        const tempList = list.filter((d)=>d.referenceParameters?.capabilities === undefined)
-        if( tempList.length > 0){
-            const featureList = await extractFeautures( tempList.map((d)=>d.referenceParameters.description.replaceAll(/\n|\r/g,". ")))
-            if( featureList.success && featureList.output.length === tempList.length ){
-                for(const result of featureList.output){
-                    const p = tempList[ result.id ]
-                    const agg = []
-                    for( const field of ["capabilities", "offerings","customers"]){
-                        let res = result[field]
-                        if( res && res !== "NONE" ){
-                            if( Array.isArray(res) ){
-                                res = res.join(", ")
+        let idx = 0
+        while(idx < list.length){
+            console.log(`Extracting capabilities in batches of 50 - ${idx}`)
+            
+            const tempList = list.slice(idx, idx+50).filter((d)=>d.referenceParameters?.capabilities === undefined)
+            if( tempList.length > 0){
+                const featureList = await extractFeautures( tempList.map((d)=>d.referenceParameters.description.replaceAll(/\n|\r/g,". ")))
+                if( featureList.success && featureList.output.length === tempList.length ){
+                    for(const result of featureList.output){
+                        const p = tempList[ result.id ]
+                        const agg = []
+                        for( const field of ["capabilities", "offerings","customers"]){
+                            let res = result[field]
+                            if( res && res !== "NONE" ){
+                                if( Array.isArray(res) ){
+                                    res = res.join(", ")
+                                }
+                                await dispatchControlUpdate(p.id, `referenceParameters.${field}`, res )
+                                //console.log(`updated ${field} on ${p.id}`)
+                                agg.push(res)
                             }
-                            await dispatchControlUpdate(p.id, `referenceParameters.${field}`, res )
-                            //console.log(`updated ${field} on ${p.id}`)
-                            agg.push(res)
                         }
-                    }
-                    if( agg.length > 0){
-                        await dispatchControlUpdate(p.id, `referenceParameters.aggregateFeatures`, agg.join(". ") )
+                        if( agg.length > 0){
+                            await dispatchControlUpdate(p.id, `referenceParameters.aggregateFeatures`, agg.join(". ") )
+                        }
                     }
                 }
             }
+            idx += 50
         }
         [list, data] = await getDataForProcessing(primitive, action )
 
     }else{
         [list, data] = await getDataForProcessing(primitive, action)
     }
-    
     
     if(data){
         if( data.length !== list.length){
@@ -273,8 +279,8 @@ async function rollup( primitive, target, action ){
                 let epsilon
                 let clusterCount
                 let clusterSet
-                let iter = 75
-                let theta = 1.25
+                let iter = 200
+                let theta = 1.12
                 let maxClusterSize = toProcess.length * 0.2
 
                 const targetClusters = toProcess.length > 1000 ? toProcess.length / 5 : toProcess.length > 200 ? toProcess.length / 3 : toProcess.length / 8
@@ -325,7 +331,13 @@ async function rollup( primitive, target, action ){
 
                 const clusters = await treeToCluster( tree, target )
 
-                const summarized = await summarizeClusters( clusters, target )
+                let configTask = target.type === "segment" ? await findPrimitiveOriginParent( target, "view" ) : target
+                if( configTask !== target ){
+                    console.log(`USING CONFIG FROM ${configTask.plainId}`)
+
+                }
+
+                const summarized = await summarizeClusters( clusters, configTask )
 
                 //await dispatchControlUpdate(target.id, "clusters", summarized )
                 revert = summarized
@@ -369,7 +381,15 @@ async function rollup( primitive, target, action ){
 
                 }
             }
-            await convertList( [0], target)
+            if( target.type === "segment"){
+                await convertList( revert[0].children, target)
+                // remove old links
+                for(const oldPrim of list){
+                    await removeRelationship( target.id, oldPrim.id, 'ref')
+                }
+            }else{
+                await convertList( [0], target)
+            }
         }
     }
 }
@@ -395,7 +415,6 @@ export default function QueueAI(){
         }
     }
     instance.rollUp = (primitive, target, action, req)=>{
-        if( primitive.type === "experiment" || primitive.type === "activity"){
             const field = `processing.ai.rollup`
             if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
@@ -404,7 +423,6 @@ export default function QueueAI(){
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Building clusters"})
             dispatchControlUpdate(target.id, field , {status: "pending"})
             instance.add(`mark_${primitive.id}` , {id: primitive.id, action: action, targetId: target.id, mode: "rollup", field: field})
-        }
     }
 
     instance.markCategories = (primitive, target, action, req)=>{

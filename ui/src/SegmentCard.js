@@ -21,10 +21,11 @@ export default function SegmentCard({primitive, ...props}){
     const nestedItems = primitive.nestedItems
     let nestedTypes = nestedItems.map((d)=>d.type).filter((v,i,a)=>a.indexOf(v)===i)
 
-    const showGrid = nestedTypes.length === 1 && nestedTypes[0] === "entity"
+    const showGrid = !props.hideGrid && nestedTypes.length === 1 && nestedTypes[0] === "entity"
 
-    const itemLimit = props.itemLimit || 10
+    const itemLimit = props.itemLimit || (props.showDetails ? 10 :  nestedItems.length)
     const moreToShow = Math.max(0, nestedItems.length - itemLimit)
+    const wide = itemLimit > 10//0
 
     return (
         <>
@@ -37,15 +38,28 @@ export default function SegmentCard({primitive, ...props}){
                     ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
                     "shadow ",
                     
-                    'min-w-[24rem]',
+                    wide ? 'min-w-[48rem] col-span-2' : 'min-w-[24rem]',
                     props.className
                 ].join(" ")}
             >
         <p key='title' className='text-sm text-gray-800 font-semi mb-2'>{primitive.title}</p>
-        <p key='description' className='text-xs text-gray-600 mb-2'>{primitive.referenceParameters.description}</p>
-        {showGrid && <CardGrid 
+        {props.showDetails && <p key='description' className='text-xs text-gray-600 mb-2'>{primitive.referenceParameters.description}</p>}
+        {!props.showDetails && showGrid && <div style={{gridTemplateColumns: `repeat(${wide ? 10 : 5}, minmax(0, 1fr))`}} className="grid place-items-center gap-1">
+            {(showAll ? nestedItems : nestedItems.slice(0,itemLimit)).map((d)=>(
+                <PrimitiveCard 
+                    primitive={d}
+                    micro={props.showDetails}
+                    hideMenu={!props.showDetails}
+                    fixedSize={props.showDetails ? undefined : "3rem"}
+                    imageOnly={!props.showDetails}
+                    compact={!props.showDetails}
+                    onCardClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); console.log(props.onInnerCardClick);props.onInnerCardClick(e, p, primitive)} : undefined}
+                    />
+            ))}
+        </div>}
+        {props.showDetails && showGrid && <CardGrid 
             list={showAll ? nestedItems : nestedItems.slice(0,itemLimit)}
-            onCardClick={props.onClick ? (e,p)=>{e.stopPropagation(); console.log(p.plainId);props.onClick(e, p)} : undefined}
+            onCardClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); console.log(props.onInnerCardClick);props.onInnerCardClick(e, p, primitive)} : undefined}
             cardProps={
                 {micro:true}
             }

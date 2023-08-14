@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { query } from 'express';
 import mongoose from 'mongoose';
 import User from '../model/User';
 import Company from '../model/Company';
@@ -11,11 +11,12 @@ import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
 import analyzeDocument from '../openai_helper';
-import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate} from '../SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
 import { SIO } from '../socket';
 import QueueAI from '../ai_queue';
 import QueueDocument from '../document_queue';
+import Embedding from '../model/Embedding';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -250,6 +251,33 @@ router.get('/categories', async function(req, res, next) {
         res.json({error: err})
       }
 
+})
+    router.post('/primitive/:id/getDistances', async function(req, res, next) {
+    const primitiveId = req.params.id
+    const field = 'param.capabilities'
+    try {
+        const list = req.body.ids
+
+        const pE = await Embedding.findOne({foreignId: primitiveId, type: field })
+        const distances = []
+        if( pE){
+            const compares = await Embedding.find({foreignId: {$in: list}, type: field})
+            const distances = compares.map((d)=>{
+                return {
+                    id: d.foreignId,
+                    distance: euclideanDistance( pE.embeddings, d.embeddings)
+                }
+            })
+
+            res.json({success: true, distances: distances})
+        }else{
+            res.json({success: false, error: `Couldnt find target ${primitiveId} / ${field}`})
+        }
+    }catch(err){
+        console.log(err)
+        res.json({error: err})
+
+    }
 })
 router.get('/primitives', async function(req, res, next) {
     let workspaceId = req.query.workspace

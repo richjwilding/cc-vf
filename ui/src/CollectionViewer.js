@@ -10,8 +10,9 @@ import PrimitiveExplorer from "./PrimitiveExplorer";
 import HierarchyView from "./HierarchyView";
 import { HeroIcon } from "./HeroIcon";
 import TooggleButton from "./ToggleButton";
+import ProximityView from "./ProximityView";
 
-const allViews = ["cluster", "explore", "cards","table", "list" ]
+const allViews = ["cluster", "explore", "cards","table", "list", "proximity" ]
 const icons = {
     "explore": <RectangleGroupIcon className="w-5 h-5"/>,
     "cluster": <HeroIcon icon='Nest' className="w-5 h-5"/>,
@@ -62,10 +63,9 @@ export default function CollectionViewer({primitive, category, ...props}){
 
     let clusters = primitive.primitives.allView.filter((d)=>d.referenceParameters?.target  === (category.id !== undefined ? `results.${category.id}` : "evidence") )
 
-    console.log(clusters)
     if( clusters.length === 0 )
     {
-        allowed = allowed.filter((d)=>d !== "cluster")   
+        allowed = allowed.filter((d)=>d !== "cluster" && d !== "proximity")   
     }
     
     
@@ -167,7 +167,7 @@ export default function CollectionViewer({primitive, category, ...props}){
     const pages = Math.ceil( list.length / pageItems)
     const showPagination = ["table", "list", "cards"].includes(view)
 
-    const showBar = (showPagination && pages > 1) || (allowed.length > 1 || props.closeButton) && view !== "explore"
+    const showBar = (showPagination && pages > 1) || (allowed.length > 1 || props.closeButton) && !["explore", "cluster"].includes(view)
     const buttons = <>
                 {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
                 {allowed.length > 1 && category.views?.options && Object.keys(category.views.options).map((d)=>{
@@ -178,6 +178,19 @@ export default function CollectionViewer({primitive, category, ...props}){
                 {showPagination && <p className="bg-white border border-gray-300 flex place-items-center px-2 rounded-md shadow-sm text-gray-600 text-sm">{page + 1} / {pages}</p>}
                 {showPagination && <Panel.MenuButton narrow icon={<ChevronRightIcon className='w-4 h-4'/>} className='mr-1' action={()=>setPage(page < (pages - 1) ? page + 1 : pages - 1)}/>}
             </>
+
+            const previewFromList = (p)=>{
+                if( p && props.onPreviewFromList){
+                    const idx = list.findIndex((d)=>p.id === d.id)
+                    if( idx > -1){
+                        props.onPreviewFromList(undefined, undefined, list, idx)
+                    }
+                }
+            }
+
+    if( !allowed.includes(view)){
+        return <></>
+    }
 
     const content = <>
             {showBar && <div className={`flex w-full p-2  space-x-2  ${props.defaultWide ? "bg-gray-50 sticky top-0 z-20 rounded-t-lg border-b border-gray-200" : ""}`}>
@@ -198,11 +211,12 @@ export default function CollectionViewer({primitive, category, ...props}){
                 view === "table" && 
                     <PrimitiveTable 
                         onDoubleClick={props.onNavigate} 
-                        onEnter={props.onPreviewFromList} 
+                        onEnter={previewFromList} 
                         columns={cardConfig.fields} 
                         page={page}
                         pageItems={pageItems}
                         onClick ={props.onShowInfo}
+                        onInnerCardClick ={props.onInnerShowInfo}
                         primitives={list} className='w-full min-h-[24em] bg-white'/> 
                 }
                 {view === "explore" &&
@@ -211,6 +225,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                         list={list}
                         fields={[cardConfig.fields, "top", "important"].flat()}
                         onClick ={props.onShowInfo}
+                        onInnerCardClick ={props.onInnerShowInfo}
                         allowedCategoryIds={list.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} 
                         buttons={buttons} 
                     />
@@ -221,7 +236,8 @@ export default function CollectionViewer({primitive, category, ...props}){
                     category={category?.id ? category : undefined}
                     selectedItem={props.selected}
                     onCardClick ={props.onShowInfo}
-                    onEnter={props.onPreviewFromList}
+                    onInnerCardClick ={props.onInnerShowInfo}
+                    onEnter={previewFromList}
                     onDoubleClick={props.onNavigate}
                     page={page}
                     pageItems={pageItems}
@@ -236,7 +252,8 @@ export default function CollectionViewer({primitive, category, ...props}){
                     category={category?.id ? category : undefined}
                     selectedItem={props.selected}
                     onCardClick ={props.onShowInfo}
-                    onEnter={props.onPreviewFromList}
+                    onInnerCardClick ={props.onInnerShowInfo}
+                    onEnter={previewFromList}
                     onDoubleClick={props.onNavigate}
                     page={page}
                     pageItems={pageItems}
@@ -250,7 +267,12 @@ export default function CollectionViewer({primitive, category, ...props}){
                     />}
 
                 {view === "cluster" && 
-                    <HierarchyView primitive={clusters[0]}
+                    <HierarchyView 
+                        buttons={buttons} 
+                        primitive={clusters[1]}
+                />}
+                {view === "proximity" && 
+                    <ProximityView primitive={clusters[0]}
                 />}
             </>
         }

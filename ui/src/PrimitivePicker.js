@@ -92,6 +92,8 @@ const SearchPanel = (props)=>{
           return [props.root, directs].flat()
         }
         return directs
+      }else if(props.list){
+        return props.list
       }else{
         return MainStore().primitives()
       }

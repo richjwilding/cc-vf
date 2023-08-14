@@ -154,20 +154,6 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
                                           Details
                                           </button>)}
                                       </Tab>
-                                      <Tab as={Fragment}>
-                                          {({ selected }) => ( 
-                                          <button
-                                          className={classNames(
-                                          selected
-                                          ? 'border-indigo-500 text-indigo-600'
-                                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
-                                          'w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm ring-offset-0 focus:outline-none focus:ring-2 mt-0.5'
-                                          )}
-                                          aria-current={selected ? 'page' : undefined}
-                                          >
-                                          Summary
-                                          </button>)}
-                                      </Tab>
                                     </Tab.List>
                                     <Tab.Panels>
                                       <div className={widths[selectedIndex]}>
@@ -181,44 +167,6 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
                                               </ul>
                                             }
                                             <PrimitiveCard.Details primitive={primitive} hideTitle={true} editing={props.editing} className={widths[1]} />
-                                        </Tab.Panel>
-                                        <Tab.Panel>
-                                          {({ selected }) => ( 
-                                          selected && <div className={`rounded-lg border-[1px] border-slate-100 m-2 ${widths[2]} flex flex-col`}>
-                                            <div className='shrink-0 grow-0 p-8 text-slate-700 w-full flex rounded-t-lg bg-gradient-to-br from-gray-700 via-gray-900 to-black grow-0'>
-                                              <div className='shrink-0 mr-4'>{}
-                                                <ContactCard.Avatar contact={contact} size='large'/>
-                                              </div>
-                                              <div className='px-4 space-y-2 py-4 pb-28'>
-                                                <p className='text-6xl font-bold text-slate-50'>{contact?.name}</p>
-                                                <p className='text-2xl font-bold text-slate-200'>{primitive.referenceParameters.role}</p>
-                                                <p className='text-2xl font-bold text-slate-200'>{primitive.referenceParameters.company}</p>
-                                                {primitive.summary && 
-                                                    <p className="pt-3 text-lg font-light text-slate-200 ">{primitive.summary}</p>
-                                                }
-                                                </div>
-                                            </div>
-                                              <div className="flex bg-gradient-to-tl from-slate-100 via-stone-100 to-white grow">
-                                                {[summary.left, summary.main[0]].map((section)=>{
-                                                  const origin = primitive.origin
-                                                  const list = primitive.primitives.allUniqueEvidence.filter((d)=>section.categoryIds.includes(d.referenceId) )
-                                                  const plist = list.filter((d)=>d.parentRelationship(origin) )
-                                                  const dList = (plist.length == 0 ) ? list.sort((a,b)=>(a.referenceParameters[section.sort?.field] - b.referenceParameters[section.sort?.field]) * (section.sort?.reverse ? -1 : 1)).slice(0, section.count || -1) : plist
-                                                      return (
-                                                        <div className='rounded-lg bg-white shadow-lg mx-6 -mt-20 mb-8 p-4'>
-                                                          <p className='text-3xl px-1 pb-2 flex place-items-center font-semibold'>{section.categoryIds.map((cId)=><HeroIcon icon={mainstore.category(cId).icon} strokeWidth='1.5' className='w-10 h-10 mr-2'/>)}{section.title}</p>
-                                                          <div className={`px-4 space-y-3 ${dList.length > 5 ? "columns-2 no-break-children gap-8" : ""}`}>
-                                                          {                                                            
-                                                            dList.map((d)=>(
-                                                            <PrimitiveCard primitive={d} compact='true' disableHover={true} fields={["title"]} textSize='lg'/>
-                                                            ))}
-                                                          </div>
-                                                        </div>
-                                                      )
-                                                  } 
-                                                )}
-                                            </div>
-                                          </div>)}
                                         </Tab.Panel>
                                         </div>
                                     </Tab.Panels>

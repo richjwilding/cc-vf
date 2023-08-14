@@ -100,6 +100,25 @@ let mainstore = MainStore()
           className='ml-auto'
           />
 
+      }else if( item.type === "phase"){
+        if( props.primitive.type !== "assessment"){
+          return <></>
+        }
+        const framework = props.primitive.framework        
+        const options = Object.keys(framework.phases).map((d)=>{return {id: parseInt(d), ...framework.phases[d]}})
+        console.log(props.primitive.referenceParameters?.phase)
+
+        const setFramework = (id)=>{
+          props.primitive.setParameter("phase", id )
+        }
+
+        return <MyCombo 
+          selectedItem={parseInt(props.primitive.referenceParameters?.phase)} 
+          setSelectedItem={setFramework}
+          items={options}
+          className='ml-auto'
+          />
+
       }else if( item.type === "category_field"){
         const task = props.primitive.task
         if( !task?.metadata){
@@ -278,9 +297,20 @@ let mainstore = MainStore()
               {item.key === "valuation" && <HeroIcon icon="ArrowTrendingUpIcon" className='w-5 h-5 mr-1'/>}
                 <p className='text-lg text-gray-800 font-semibold'>${val}{unit}</p>
               </>
+      }else if( item.type === "url" && !props.editing){
+        return (
+          <div className='ml-auto flex'>
+            <a href={item.value} className='flex place-items-center space-x-2' target="_blank">
+                <LinkIcon className='w-5'/>
+                <p className='trancate w-full'>{item.value}</p>
+              </a>
+            </div>
+            )
+
       }
 
       const align = item.type === "long_string" ? "" : "text-end"
+      const clamp = item.type === "long_string" && !props.disableClamp ? "line-clamp-[10]" : ""
       
       return <EditableTextField
         {...props} 
@@ -289,6 +319,7 @@ let mainstore = MainStore()
         default={item.default} 
         icon={icon} 
         fieldClassName={`${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
+        clamp={clamp}
         callback={props.callback ? props.callback : (value)=>{
             return props.primitive.setParameter(item.key, value)
         }}
@@ -679,7 +710,7 @@ const Parameters = function({primitive, ...props}){
           props.className || ""
         ].join(" ")}
         >
-        {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
+        {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
         {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
           ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
           : <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
@@ -1110,7 +1141,7 @@ const Entity=({primitive, ...props})=>{
 
   if( props.imageOnly || (props.fixedSize && props.scale < 0.4) ){
     
-      content = logoImg ? <VFImage className="p-4 min-w-[2rem] min-h-[2rem] w-full h-full object-contain m-auto" src={`/api/image/${primitive.id}`} /> : <BuildingOffice2Icon className='text-gray-500 p-4'/>
+      content = logoImg ? <VFImage className={`${props.compact ? "p-0.5" : "p-4"} min-w-[2rem] min-h-[2rem] w-full h-full object-contain m-auto`} src={`/api/image/${primitive.id}`} /> : <BuildingOffice2Icon className='text-gray-500 p-4'/>
        
       buttonSize = props.compact ? 5 : 16
   }else{
@@ -1198,7 +1229,7 @@ const Entity=({primitive, ...props})=>{
             custom={[
               {
                 title: 'Expand',
-                action: ()=>props.onEnter ? props.onEnter() : undefined,
+                action: ()=>props.onEnter ? props.onEnter(primitive) : undefined,
                 icon: ExpandArrow,
               },
             ]}
@@ -1425,15 +1456,22 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {props.showMenu &&
           <CardMenu primitive={primitive} relatedTo={props.relatedTo} {...props.menuProps} size='6' bg='transparent' className='invisible group-hover:visible'/>
         }
-        {(!props.compact && (props.showLink || props.showEdit)) &&
+        {(!props.compact && props.showEdit) &&
           <button
               type="button"
               onClick={ props.showEdit ? ()=>setEditing(!editing) : undefined}
               className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-              {props.showLink && !props.showEdit && <Link to={`/item/${primitive.plainId}`}><ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" /></Link>}
               {props.showEdit && !editing && <PencilIcon className="h-5 w-5" aria-hidden="true" />}
               {props.showEdit && editing && <CheckIcon className="h-5 w-5" aria-hidden="true" />}
+          </button>
+        }
+        {(props.showLink) &&
+          <button
+              type="button"
+              className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+              {props.showLink &&  <Link to={`/item/${primitive.id}`}><ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" /></Link>}
           </button>
         }
       </>
@@ -1472,7 +1510,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     if( e.key === "Enter"){
       e.preventDefault();
       e.stopPropagation()
-      props.onEnter()
+      props.onEnter(primitive)
     }
   }
 
@@ -1554,7 +1592,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           }
         {showDetails === true && <PrimitiveCard.Details primitive={primitive} editing={props.editing}/>}
         {showUsers === true && <PrimitiveCard.Users primitive={primitive}/>}
-        {(showDetails === "panel" || showUsers === "panel") && <Panel title="More" collapsable={true} open={false}>
+        {(showDetails === "panel" || showUsers === "panel") && <Panel title="More" collapsable={true} open={props.panelOpen}>
             {showDetails === "panel" && <PrimitiveCard.Details primitive={primitive}/>}
             {showUsers === "panel" && <PrimitiveCard.Users primitive={primitive}/>}
           </Panel>}
@@ -1636,3 +1674,4 @@ PrimitiveCard.Evidence = Evidence
 PrimitiveCard.Entity = Entity
 PrimitiveCard.EvidenceList = EvidenceList
 PrimitiveCard.RenderItem = RenderItem
+PrimitiveCard.CardMenu = CardMenu

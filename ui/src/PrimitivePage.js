@@ -94,7 +94,6 @@ export function PrimitivePage({primitive, ...props}) {
           return true
         } 
         if( val.type === "result"){
-          console.log(val)
           return primitive.metadata?.resultCategories?.[val.index]?.views?.options?.fullPageExplorer
         }
       }
@@ -214,7 +213,7 @@ export function PrimitivePage({primitive, ...props}) {
                           <PrimitiveCard variant={false} compact={true} primitive={task}  disableHover={true} showLink={true}/>
                         </Panel>
                     }
-                    { primitive.type === "assessment" && primitive.venture && 
+                    { false && primitive.type === "assessment" && primitive.venture && 
                         <Panel key='relatedVenture' title={`Related ${primitive.venture.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
                           <PrimitiveCard compact={true} primitive={primitive.venture}  disableHover={true} showLink={true}/>
                         </Panel>
@@ -303,6 +302,11 @@ export function PrimitivePage({primitive, ...props}) {
               {primitive.type === "assessment" && primitive.framework &&
                     <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>
                       { Object.values(primitive.framework.components).map((c) => {
+                        if( primitive.referenceParameters?.phase){
+                          if( Object.values(c.levels).filter((d)=>d.phaseId === primitive.referenceParameters?.phase).length === 0){
+                            return <></>
+                          }
+                        }
                         return (<ComponentRow onClick={()=>{setShowWorkingPane('assessment');setComponentView(c)}} primitive={primitive} compact={true} evidenceDetail={false} key={c.id} component={c}/>)
                         })
                       }                    
@@ -315,11 +319,12 @@ export function PrimitivePage({primitive, ...props}) {
                     category={category} 
                     excludeViews='explore'
                     setSelected={setSelected} 
-                    onShowInfo={(e,p)=>{props.selectPrimitive(null)}}
+                    onShowInfo={(e,p, s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
+                    onInnerShowInfo={(e,p, s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
                     setShowAIPopup={setShowAIPopup}
                     onExpand={()=>setShowWorkingPane( {type: 'result', index: idx} )}
-                    onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
-                    onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}
+                    onPreview={setSelected ? (p, s)=>{setSelected(p,{scope: s || primitive})} : undefined}
+                    onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx},{scope: primitive})} : undefined}
                     onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
                     selected={selected}
                     /> : undefined
@@ -545,10 +550,10 @@ export function PrimitivePage({primitive, ...props}) {
                           className='w-full h-full overflow-y-scroll'
                           defaultWide
                           primitive={primitive} 
-                          onShowInfo={(e,p)=>props.selectPrimitive(p)}
+                          onShowInfo={(e,p,s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
                           setSelected={setSelected} 
-                          onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
-                          onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}
+                          onPreview={setSelected ? (p)=>{setSelected(p,{scope: primitive})} : undefined}
+                          onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx},{scope: primitive})} : undefined}
                           onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
                           selected={selected}
                           nested
@@ -568,10 +573,10 @@ export function PrimitivePage({primitive, ...props}) {
                           className='w-full h-full overflow-y-scroll'
                           defaultWide
                           primitive={primitive} 
-                          onShowInfo={(e,p)=>{props.selectPrimitive(p)}}
+                          onShowInfo={(e,p,s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
                           setSelected={setSelected} 
-                          onPreview={setSelected ? (p)=>{setSelected(p)} : undefined}
-                          onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx})} : undefined}
+                          onPreview={setSelected ? (p)=>{setSelected(p,{scope: primitive})} : undefined}
+                          onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx},{scope: primitive})} : undefined}
                           onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
                           selected={selected}
                           category={primitive?.metadata?.resultCategories?.[showWorkingPane.index]}/>

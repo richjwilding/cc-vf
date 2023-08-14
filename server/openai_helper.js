@@ -70,7 +70,9 @@ export async function extractFeautures( list, options = {}){
                 {"role": "user", "content": output}
 
             ],
-            {field: "results", temperature: 0.3, ...options})
+            {field: "results", temperature: 0.3, ensureSameSize: true, ...options})
+    
+            
     return {success: true, output: interim}
 }
 
@@ -440,6 +442,13 @@ async function processInChunk( list, pre, post, options = {} ){
                     const values = result.response[field]
                     if( options.markPass ){
                         result.response[field].forEach((d)=>d._pass = pass)
+                    }
+                    if( options.ensureSameSize){
+                        if(values.length !== endIdx - startIdx + 1){
+                            console.log(result)
+                            console.log( messages)
+                            //throw "Mismatch in responze size"
+                        }
                     }
                     interim = interim.concat( values )
                 }else{

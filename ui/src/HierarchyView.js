@@ -1,9 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react"
 import { useGesture } from "@use-gesture/react"
 import MainStore from "./MainStore"
 import { animate } from "framer-motion"
 import useResizeObserver from '@react-hook/resize-observer';
 import { text } from "@fortawesome/fontawesome-svg-core";
+import Panel from "./Panel";
+import TooggleButton from "./ToggleButton";
+import MyCombo from "./MyCombo";
 
 const spacing = 10
 const internalSpacing = 10
@@ -205,6 +208,8 @@ export default function HierarchyView({primitive, ...props}){
     const sizer = useRef()
     const sizerDesc = useRef()
     const [scale, setScale] = useState(1)
+    const [viewItem, setViewItem] = useState(0)
+    const [count, forceUpdate] = useReducer( (x)=>x+1, 0)
     const myState = useRef({})
     const columnWidth = props.columnWidth || 75
 
@@ -225,9 +230,31 @@ export default function HierarchyView({primitive, ...props}){
     }
 
     const rootPrim = primitive.primitives.allSegment[0]
+
+    let viewOptions = useMemo(()=>{
+        if( rootPrim ){
+            const out = []
+            const leaves = rootPrim.nestedItems
+            leaves.forEach((leaf)=>{
+                if(out.find((d)=>d.type === leaf.type) === undefined){
+                    out.push({id: 0, type:leaf.type, title: leaf.type, level: 0})
+                }
+                const origin = leaf.origin
+                if( origin.type !== "activity" ){
+                    if(out.find((d)=>d.type === origin.type) === undefined){
+                        out.push({id: 1, type:origin.type, title: origin.metadata?.title || origin.type, level: 1})
+                    }
+                }
+            })
+            return out
+        }
+        return undefined
+    })
+
     let data = useMemo(()=>{
         const nodes = {}        
         let count = 0
+        const appearanceTrack = {}
         if( rootPrim ){
             const expand = (prim, parent, level = 0) => {
                 const text = prim.title
@@ -264,10 +291,20 @@ export default function HierarchyView({primitive, ...props}){
                 for(const segment of prim.primitives.allSegment ){
                     node.children.push( expand(segment, node, level + 1) )
                 }
-                prim.primitives.ref.allItems.forEach((prim, idx)=>{
+                let displayPrims  = prim.primitives.ref.allItems
+                if( viewOptions[viewItem].level > 0){
+                    displayPrims = displayPrims.map((d)=>d.origin)
+                    console.log(`ORGIN = ${displayPrims.length}`)
+                    displayPrims = displayPrims.filter((c,i,a)=>a.findIndex((d)=>d.id === c.id) === i)
+                    console.log(`UNQIE = ${displayPrims.length}`)
+                }
+                displayPrims.forEach((prim, idx)=>{
                     if( prim ){
+                        appearanceTrack[ prim.id ] = (appearanceTrack[ prim.id ] || 0) + 1
+                        const thisId = prim.id + "_" + appearanceTrack[prim.id]
+                        
                         const p = {
-                            id: prim.id,
+                            id: thisId,
                             key: prim.id,
                             isPrimitive: true,
                             isLeaf: true,
@@ -290,11 +327,12 @@ export default function HierarchyView({primitive, ...props}){
             }
             const root = expand( rootPrim )
             console.log(nodes)
+            forceUpdate()
             return {root: root, nodes: nodes}
         }
         return undefined
 
-    }, [primitive.id])
+    }, [primitive.id, viewItem])
 
     
     useEffect(()=>{
@@ -307,21 +345,24 @@ export default function HierarchyView({primitive, ...props}){
     }, [])
 
     useLayoutEffect(()=>{
-        sizer.current = sizer.current || document.createElement('p')
-        sizer.current.style.display = 'block'
-        sizer.current.style.position = 'absolute'
-        sizer.current.style.visibility = 'hidden'
-        sizer.current.style.padding = textPadding
-        sizer.current.style.fontSize = "0.875rem" 
-        targetRef.current.appendChild( sizer.current )
-
-        sizerDesc.current = sizerDesc.current || document.createElement('p')
-        sizerDesc.current.style.display = 'block'
-        sizerDesc.current.style.position = 'absolute'
-        sizerDesc.current.style.visibility = 'hidden'
-        sizerDesc.current.style.padding = textPadding
-        sizerDesc.current.style.fontSize = "0.75rem" 
-        targetRef.current.appendChild( sizerDesc.current )
+        if( !sizer.current ){
+            console.log()
+            sizer.current = sizer.current || document.createElement('p')
+            sizer.current.style.display = 'block'
+            sizer.current.style.position = 'absolute'
+            sizer.current.style.visibility = 'hidden'
+            sizer.current.style.padding = textPadding
+            sizer.current.style.fontSize = "0.875rem" 
+            targetRef.current.appendChild( sizer.current )
+            
+            sizerDesc.current = sizerDesc.current || document.createElement('p')
+            sizerDesc.current.style.display = 'block'
+            sizerDesc.current.style.position = 'absolute'
+            sizerDesc.current.style.visibility = 'hidden'
+            sizerDesc.current.style.padding = textPadding
+            sizerDesc.current.style.fontSize = "0.75rem" 
+            targetRef.current.appendChild( sizerDesc.current )
+        }
 
         if( test ){
             const grid = document.createElement('div')
@@ -338,8 +379,22 @@ export default function HierarchyView({primitive, ...props}){
 
         const root = data.root
 
+        const target = ref.current.querySelector('g')
+        const old = target.childNodes
+
+        myState.current.selected = undefined
+
         
-        renderNodes(root, ref.current.querySelector('g'))
+        if( old.length > 0){
+            console.log( `REMOVING OLD`)
+            
+            for( const el of [...old]){
+                console.log(el)
+                target.removeChild(el)
+            }
+        }
+        
+        renderNodes(root, target)
         
         const result = arrangeSet( root, root.children, {width: targetRef.current.offsetWidth, height: targetRef.current.offsetHeight}, columnWidth, undefined, sizer.current, sizerDesc.current)
         updatePositions( root.children )
@@ -362,9 +417,10 @@ export default function HierarchyView({primitive, ...props}){
         
         ref.current.style.transform = `translate(${dx}px,${dy}px) scale(1)`
         updateForZoom(dx, dy, 1)
+        setScale(1)
 
 
-    }, [])
+    }, [count])
 
 
     const updateForZoom = (x, y, thisScale)=>{
@@ -495,6 +551,9 @@ export default function HierarchyView({primitive, ...props}){
                 const id = clicked.getAttribute('id')
                 if( id ){
                     let node = data.nodes[id]
+                    if( node.element === undefined){
+                        debugger
+                    }
                     if( node ){
                         if( !node.parent.root && node.parent.nestLerp !== 1){
                             node = node.parent
@@ -505,7 +564,7 @@ export default function HierarchyView({primitive, ...props}){
 
                             if( myState.current.selected?.nodes ){
                                 for(const node of myState.current.selected.nodes){
-                                  node.element.classList.remove('ring-inset', 'ring-1', 'ring-2', 'select-text')
+                                  node.element.classList.remove('ring-inset', 'ring-1', 'ring-2', 'select-text','!bg-blue-50')
                                 }
                                 if( !multi ){
                                     console.log("CLEAR")
@@ -525,6 +584,9 @@ export default function HierarchyView({primitive, ...props}){
                             }
                             for(const node of myState.current.selected.nodes){
                                 node.element.classList.add('ring-inset', node.isLeaf ? 'ring-2' : 'ring-1' )
+                                if( multi ){
+                                    node.element.classList.add('!bg-blue-50')
+                                }
                             }
                             
                             if( !multi ){
@@ -537,7 +599,7 @@ export default function HierarchyView({primitive, ...props}){
                             }
                             
                             if( node.isPrimitive ){
-                                MainStore().sidebarSelect( myState.current.selected.nodes.map((d)=>d.id), {scope: rootPrim} )
+                                MainStore().sidebarSelect( myState.current.selected.nodes.map((d)=>d.p.id), {scope: rootPrim} )
                             }
                         }
                     }
@@ -550,7 +612,7 @@ export default function HierarchyView({primitive, ...props}){
                     window.getSelection().removeAllRanges()
                     if( myState.current.selected?.nodes ){
                         for(const node of myState.current.selected.nodes){
-                            node.element.classList.remove('ring-inset', 'ring-1', 'ring-2', 'select-text')
+                            node.element.classList.remove('ring-inset', 'ring-1', 'ring-2', 'select-text','!bg-blue-50' )
                         }
                         myState.current.selected = undefined
                         MainStore().sidebarSelect(null)
@@ -683,21 +745,30 @@ export default function HierarchyView({primitive, ...props}){
     }
 
     return (
-    <div
-    ref={targetRef}
-        className="w-full h-full bg-white overflow-hidden touch-none relative "
-        >
-        <svg
-        style={{background:'white', userSelect: "none"}}
-        
-        ref={ref}
-        >
-            <g
-                style={{transformOrigin: 'center'}}
+    <>
+        <div key='control' className='z-20 w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex rounded-t-lg bg-gray-50 border-b border-gray-200'>
+                {props.buttons}
+                {viewOptions.length > 1 && <MyCombo items={viewOptions} selectedItem={viewOptions[viewItem] ? viewItem :  0} setSelectedItem={setViewItem}/>}
+                {data?.nodes && <p>{Object.keys(data.nodes)?.length} items</p>}
+        </div>
+        <div
+            ref={targetRef}
+            className="w-full h-full bg-white overflow-hidden touch-none relative "
             >
-            </g>
+            <svg
+            data-rc={count}
+            style={{background:'white', userSelect: "none"}}
+            
+            ref={ref}
+            >
+                <g
+                    style={{transformOrigin: 'center'}}
+                >
+                </g>
 
 
-        </svg>
-    </div>)
+            </svg>
+        </div>
+    </>
+    )
 }
