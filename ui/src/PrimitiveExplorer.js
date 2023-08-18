@@ -9,6 +9,8 @@ import {useGesture, usePinch} from '@use-gesture/react'
 import { useLayoutEffect } from 'react';
 import useDataEvent from './CustomHook';
 import MyCombo from './MyCombo';
+import TooggleButton from './ToggleButton';
+import { roundCurrency } from './RenderHelpers';
 
 
 const mainstore = MainStore()
@@ -20,6 +22,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [colSelection, setColSelection] = React.useState(0)
     const [rowSelection, setRowSelection] = React.useState(0)//axisOptions.length > 1 ? 1 : 0)
+    const [activeView, setActiveView] = React.useState(0)
+    const layerNestPreventionList = React.useRef()
+    
 
     function updateFilters(){
         let out = []
@@ -51,31 +56,47 @@ export default function PrimitiveExplorer({primitive, ...props}){
         const nextLayer = (list)=>{
             layers.push({id: layers.length, title: `Layer ${layers.length + 1}`})
             const thisLevel = list.map((d)=>d.primitives.allSegment).flat()
+            
             if( thisLevel.length > 0 ){
                 nextLayer( thisLevel )
             }
         }
         nextLayer( [primitive] )
+       // layers.push({id: layers.length, title: "Organizations", items: true})
     }
 
     let items = React.useMemo(()=>{
         let out = baseItems
+        let keep = []
+        layerNestPreventionList.current = {}
         if( layerSelection > 0){
             const unpackLayer = (thisLayer)=>{
                 return thisLayer.map((d)=>{
                     const children = d.primitives.allSegment
                     if( children.length > 0){
+                        if( d.primitives.ref.allItems.length > 0){
+                            if( !keep.find((d2)=>d2.id === d.id) ){
+                                keep.push(d)
+                            }
+                            layerNestPreventionList.current[d.id] = true
+                        }
                         return children
                     }
                     return d
                 }).flat()
             }
-            for( let a = 0; a < layerSelection; a++){
-                out = unpackLayer(out)
+            if( layers[layerSelection].items){
+                out = baseItems.map((d)=>d.nestedItems).flat()
+            }else{
+
+                for( let a = 0; a < layerSelection; a++){
+                    out = unpackLayer(out)
+                }
             }
         }
         console.log(`HAD ${baseItems.length} now ${out.length}`)
-        return out
+        console.log(keep.map((d)=>d.id))
+        return [out,keep].flat()
     },[primitive.id, update, layerSelection])
     
     useDataEvent("relationship_update", [primitive.id, items.map((d)=>d.id)].flat(), forceUpdate)
@@ -126,16 +147,20 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 if( parameters ){
                     Object.keys(parameters).forEach((parameter)=>{
                         const type = parameters[parameter].type
+                        console.log(parameter, type)
                         if( parameters[parameter].excludeFromAggregation ){
                             return
-                        }
-                        if( type === "url" ){
+                        }else if( type === "url" ){
                             return
-                        }
-                        if(  type === "contact"){
-                            out.push( {type: 'parameter', parameter: "contactName", title: `${title} - ${parameters[parameter].title}`, access: access})
+                        }else if( type === "options" ){
+                       //     out.push( {type: 'parameter', parameter: parameter, title: `${title} - All ${parameters[parameter].title}`, access: access})
+                       out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, clamp: true})
+                    }else  if( type === "currency" ||  type === "number"){
+                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, twoPass: true, passType: parameter === "funding" ? "funding" : type})
+                        }else if(  type === "contact"){
+                            out.push( {type: 'parameter', parameter: "contactName", parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access})
                         }else{
-                            out.push( {type: 'parameter', parameter: parameter, title: `${title} - ${parameters[parameter].title}`, access: access})
+                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access})
                         }
                     })
                 }
@@ -155,7 +180,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             })
 
             return out.filter((filter)=>{
-                return p.map((d)=>["number","string"].includes(typeof(d.referenceParameters[filter.parameter]))).filter((d)=>d).length > 0
+                return p.map((d)=>["number","string"].includes(typeof(d.referenceParameters[filter.parameter])) || Array.isArray(d.referenceParameters[filter.parameter])).filter((d)=>d !== undefined).length > 0
             })
         }
 
@@ -186,8 +211,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }
         }
         const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>d2.id === d.id) === idx))
-        setColSelection(0)
-        setRowSelection(0)
+        if( colSelection >= final.length){
+            setColSelection(0)
+        }
+        if( rowSelection >= final.length){
+            setRowSelection(0)
+        }
         return final
     }, [primitive.id, update, layerSelection])
 
@@ -208,6 +237,21 @@ export default function PrimitiveExplorer({primitive, ...props}){
             if( option.type === "interviewee"){
                 return (d)=>d.origin.referenceParameters?.contactName
             }else if( option.type === "parameter"){
+                if( option.parameterType === "options"){
+                    return (p)=>{
+                        const orderedOptions = p.metadata?.parameters[option.parameter]?.options
+                        if( orderedOptions){
+                           const values =  [p.referenceParameters[option.parameter]].flat()
+                           if( values && values.length > 0){
+                                const maxIdx = Math.max(...values.map((d2)=>orderedOptions.indexOf(d2)))
+                                return orderedOptions[maxIdx]
+                           }else{
+                            return p.metadata.parameters[option.parameter].default ?? "None"
+                           }
+                        }
+                        return ""
+                    }
+                }
                 return (d)=> {
                     let item = d
                     for(let idx = 0; idx < option.access; idx++){
@@ -249,7 +293,36 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const group = (d)=>d.referenceParameters?.category
 
     let list = React.useMemo(()=>{
-        return items.map((p)=>{
+        const bucket = {
+            "funding": (field)=>{
+                const brackets = [0,100000,500000,1000000,5000000,15000000,50000000,100000000,200000000,500000000,1000000000]
+                interim.forEach((d)=>{
+                    d[field] =  brackets.filter((d2)=>d2 < d[field]).length
+                })
+                const format = brackets.map((d)=>roundCurrency(d))
+                return format.map((d,i,a)=>{return {idx: i, label: i === 0 ? "Unknown" : `${a[i-1]} - ${d}` }})
+            },
+            "currency": (field)=>{
+                const brackets = [0,100000,500000,1000000,5000000,15000000,50000000,100000000,200000000,500000000,1000000000]
+                interim.forEach((d)=>{
+                    d[field]=brackets.filter((d2)=>d2 < d[field]).length
+                })
+                const format = brackets.map((d)=>roundCurrency(d))
+                return format.map((d,i,a)=>{return {idx: i, label: `${i > 0 ? a[i-1] : 0} - ${d}` }})
+            },
+            "number": (field)=>{
+                const minValue = interim.reduce((a,c)=>c[field] < a ? c[field] : a, 0)
+                const maxValue = interim.reduce((a,c)=>c[field] > a ? c[field] : a, 0)
+                const bucket = (maxValue - minValue) / 5
+                console.log(minValue, maxValue, bucket)
+                interim.forEach((d)=>{
+                    d[field] = Math.round((d[field]- minValue) / bucket)
+                })
+            }
+        }
+
+
+        const interim = items.map((p)=>{
             return {
                 column: column(p),
                 row: row(p),
@@ -257,6 +330,15 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 primitive: p
             }
         })
+
+        if( axisOptions[colSelection].twoPass ){
+            axisOptions[colSelection].labels = bucket[axisOptions[colSelection].passType]("column") 
+        }
+        if( axisOptions[rowSelection].twoPass ){
+            axisOptions[rowSelection].labels = bucket[axisOptions[rowSelection].passType]("row") 
+        }
+
+        return interim
         },[colSelection, rowSelection, update, items])
 
     let fields = ["title", props.fields].flat()
@@ -281,7 +363,17 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 
                 gridRef.current.style.transform = `scale(1)`
                 const toolbarHeight = 56
+                
+                const fontScale = Math.max(1 / 1600  *  gridRef.current.offsetWidth, 1 / 2000  *  gridRef.current.offsetHeight)
+                const fontSize = 12 * fontScale
+                
+                for(const node of gridRef.current.querySelectorAll('.vfbgtitle')){
+                    node.style.fontSize = `${fontSize}px`
+                    node.style.padding = `${2 * fontScale}px`
+                    node.style.minWidth = `${100 * fontScale }px`
+                }
                 const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
+
                 const tbb = targetRef.current.getBoundingClientRect()
                 
                 const border = 20
@@ -296,7 +388,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 
                 gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
                 setScale(scale)
-            }, primitive.type === "segment" ? 50 : 0)
+            }, primitive.type === "segment" ? 150 : 0)
         }
 
     }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds, update, layerSelection])
@@ -554,22 +646,25 @@ export default function PrimitiveExplorer({primitive, ...props}){
     )
 
     
+    const axisExtents = (fieldName, field)=>{
+        if( !axisOptions || !axisOptions[field]){return []}
+        if( axisOptions[field].type === "category" ){
+            return axisOptions[field].values
+        }
+        if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number" ){
+            return axisOptions[field].labels
+        }
+        const values = list.map((d)=>d[fieldName]).filter((v,idx,a)=>a.indexOf(v)===idx)
+        return values.sort()
+    }
 
 
   const columnExtents = React.useMemo(()=>{
-        if( !axisOptions || !axisOptions[colSelection]){return []}
-        if( axisOptions[colSelection].type === "category" ){
-            return axisOptions[colSelection].values
-        }
-        return list.map((d)=>d.column).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
+        return axisExtents("column", colSelection)
     },[primitive.id, colSelection, rowSelection, update])
   
     const rowExtents = React.useMemo(()=>{
-        if( !axisOptions || !axisOptions[rowSelection]){return []}
-        if( axisOptions[rowSelection].type === "category" ){
-            return axisOptions[rowSelection].values
-        }
-        return list.map((d)=>d.row).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
+        return axisExtents("row", rowSelection)
     },[primitive.id, colSelection, rowSelection, update])
 
 
@@ -578,7 +673,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
   const columnColumns = columnExtents.map((col)=>{
-      return Math.max(...Object.values(list.filter((d)=>d.column == col).reduce((o, d)=>{o[d.row] = (o[d.row] || 0) + 1;return o},{})))
+      return Math.max(...Object.values(list.filter((d)=>d.column == (col?.idx ?? col)).reduce((o, d)=>{o[d.row?.idx ?? d.row] = (o[d.row?.idx ?? d.row] || 0) + 1;return o},{})))
     })
 
     const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
@@ -588,9 +683,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const hasRowHeaders = (rowExtents.length > 1)
 
 
-    const renderProps = {
+    const defaultRenderProps = {
         "segment":{
-            showDetails:false
+            hideDetails: true
         },
         "entity": {
             hideCover: true,
@@ -598,6 +693,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
             fixedSize: "16rem"
         }
     }
+    
+    const viewAsSegments =primitive.type === "segment" && layers && !layers[layerSelection].items
+    const viewConfigs = props.category?.views.options?.["explore"]?.configs
+    const viewConfig = viewConfigs?.[activeView]
+    const renderProps = viewConfig?.props ?? defaultRenderProps[ (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default" ]
+
 
   return (
     <>
@@ -610,6 +711,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 {layers && <MyCombo items={layers} selectedItem={layers[layerSelection] ? layerSelection :  0} setSelectedItem={setLayerSelection}/>}
                 {options && <MyCombo items={options} prefix="Columns: " selectedItem={options[colSelection] ? colSelection :  0} setSelectedItem={setColSelection}/>}
                 {options && <MyCombo items={options} prefix="Rows: " selectedItem={options[rowSelection] ? rowSelection : 0} setSelectedItem={setRowSelection}/>}
+                {viewConfigs && <MyCombo items={viewConfigs} prefix="View: " selectedItem={activeView} setSelectedItem={setActiveView}/>}
             </div>
                 <div ref={targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain'>
                 <div 
@@ -617,8 +719,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     ref={gridRef}
                     style = {{
 //                        transformOrigin: "top left",
-                        gridTemplateColumns: `${hasRowHeaders ? "15em" : ""} repeat(${columnExtents.length}, min-content)`,
-                        gridTemplateRows: `${hasColumnHeaders ? "5em" : ""} repeat(${rowExtents.length}, min-content)`
+                        gridTemplateColumns: `${hasRowHeaders ? "min-content" : ""} repeat(${columnExtents.length}, min-content)`,
+                        gridTemplateRows: `${hasColumnHeaders ? "min-content" : ""} repeat(${rowExtents.length}, min-content)`
                     }}
                     className='vfExplorer touch-none grid relative gap-8 w-fit h-fit'>
                     {!hasColumnHeaders && !hasRowHeaders && <div key={`croot`} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[0] || "slate"}-200/20 border-2 border-${colors[0] || "slate"}-200/40`}></div>}
@@ -626,27 +728,44 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     {hasRowHeaders && rowExtents.map((col, cIdx)=>(<div key={`r${cIdx}`} style={{gridRowStart:cIdx + (hasColumnHeaders ? 2 : 1), gridRowEnd:cIdx + (hasColumnHeaders ? 3 : 2)}} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-slate-200/40 border-2 border-slate-200/50`}></div>))}
                     {hasColumnHeaders && <>
                         {hasRowHeaders && <p></p>}
-                        {columnExtents.map((col,idx)=>(<p key={`rt${idx}`} className='touch-none vfbgtitle z-[2] font-bold text-lg text-center p-2 text-2xl self-center'>{col}</p>))}
-                        </>}
-
+                        {columnExtents.map((col,idx)=>(
+                            <p key={`rt${idx}`}
+                                className='touch-none vfbgtitle z-[2] text-center self-center w-max m-auto'>{col?.label || col}
+                            </p>
+                        ))}
+                    </>}
                     { rowExtents.map((row, rIdx)=>{
                         let rowOption = axisOptions[rowSelection]
                         return <React.Fragment>
-                            {hasRowHeaders && <p key={`ct${rIdx}`} className='touch-none vfbgtitle z-[2] font-bold text-sm text-center p-2 text-2xl self-center'>{row && typeof(row) === "string" ? row?.split('/').join(" ") : row}</p>}
+                            {hasRowHeaders && <p 
+                                key={`ct${rIdx}`} 
+                                className='touch-none vfbgtitle z-[2] text-center p-2 self-center '>
+                                    {row?.label || row}
+                            </p>}
                             {columnExtents.map((column, cIdx)=>{
                                 let colOption = axisOptions[colSelection]
-                                let subList = list.filter((item)=>item.column === column && item.row === row).sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
+                                let subList = list.filter((item)=>item.column === (column?.idx ?? column) && item.row === (row?.idx ?? row))
+                                let spanning = ""
+                                if( viewAsSegments ){
+                                    subList.forEach((d)=>d.nestedCount = layerNestPreventionList.current[d.primitive.id] ? d.primitive.primitives.ref.allItems.length : d.primitive.nestedItems.length )
+                                    subList = subList.sort((a,b)=>b.nestedCount - a.nestedCount )
+                                }else{
+                                    subList = subList.sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
+                                }
                                 return <div 
                                         style={
-                                            primitive.type === "segment"
+                                            viewAsSegments
                                                 ? { 
                                                         display: "grid",
-                                                        gridTemplateColumns: `repeat(${Math.floor(Math.sqrt(columnColumns[cIdx]))}, 1fr )`
+                                                        gridAutoFlow: "dense",
+                                                        gridTemplateColumns: `repeat(${Math.floor(1.5 * Math.sqrt(columnColumns[cIdx]))}, 1fr )`
                                                     }
-                                                : {columns: Math.floor(Math.sqrt(columnColumns[cIdx].len ))}
+                                                : {columns: Math.max(2, Math.floor(Math.sqrt(columnColumns[cIdx])))}
                                         } 
                                         id={`${cIdx}-${rIdx}`}                                        
-                                        className={`${colOption?.allowMove || rowOption?.allowMove ? "dropzone" : ""} z-[2] w-full  p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children touch-none `}>
+                                        className={
+                                            `${colOption?.allowMove || rowOption?.allowMove ? "dropzone" : ""} z-[2] w-full  p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children touch-none `
+                                            }>
                                             {subList.map((wrapped, idx)=>{
                                                 let item = wrapped.primitive
                                                 //let isWide = items.type === "segment" && item.
@@ -656,16 +775,37 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 if( props.render ){
                                                     return props.render( item, staggerScale)
                                                 }
+                                                let spanning = ""
+                                                if( viewConfig?.parameters?.span ){
+                                                    if( wrapped.nestedCount > 10 ){
+                                                        spanning ='col-span-2'
+                                                        if( wrapped.nestedCount > 100 ){
+                                                            spanning ='col-span-2 row-span-4'
+                                                        }else if(wrapped.nestedCount > 70 ){
+                                                            spanning ='col-span-2 row-span-3'
+                                                        }else if(wrapped.nestedCount > 20 ){
+                                                            spanning ='col-span-2 row-span-2'
+                                                        }
+                                                    }
+                                                } 
                                             return <PrimitiveCard 
                                                 fullId 
                                                 key={item.id} 
                                                 border={false} 
+                                                directOnly={layerNestPreventionList.current[item.id]}
                                                 primitive={item} 
                                                 scale={staggerScale} 
                                                 fields={fields} 
                                                 {...size} 
-                                                className='mr-2 mb-2 touch-none ' 
-                                                {...(props.renderProps || renderProps[item.type] || {})} 
+                                                className={`mr-2 mb-2 touch-none ${spanning}`}
+                                                {...(props.renderProps || renderProps || {})} 
+                                                onInnerCardClick={ (e, p)=>{
+                                                    if( myState.current?.cancelClick ){
+                                                        myState.current.cancelClick = false
+                                                        return
+                                                    }
+                                                    MainStore().sidebarSelect( p, {scope: primitive} )
+                                                }}
                                                 onClick={ (e, p)=>{
                                                     if( myState.current?.cancelClick ){
                                                         myState.current.cancelClick = false

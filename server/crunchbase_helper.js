@@ -434,7 +434,8 @@ export async function enrichCompanyFunding( primitive, options = {}){
 
         dispatchControlUpdate( primitive.id, "referenceParameters.funding", totalRaised)
         dispatchControlUpdate( primitive.id, "referenceParameters.investors", investors)
-        dispatchControlUpdate( primitive.id, "referenceParameters.fundingRounds", rounds)
+        dispatchControlUpdate( primitive.id, "referenceParameters.fundingRounds", rounds.map((d)=>d[0]))
+        dispatchControlUpdate( primitive.id, "referenceParameters.fundingRoundInfo", rounds)
     }
 }
 export async function pivotFromCrunchbaseArticles(primitive, options = {}, force = false){

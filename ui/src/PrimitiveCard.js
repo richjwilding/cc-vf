@@ -228,21 +228,18 @@ let mainstore = MainStore()
               {item.type === "scale" && <p className='top-0 left-0 absolute text-center font-sm pt-0.5 w-full' style={{color: color}}>{item.value}</p>}
           </div>
       }else if( item.type === "options"){
-        return (<select 
-                  value={item.value}
-                  className='border border-gray-200 p-1 rounded-md grow text-end'
-                  onChange={props.callback
-                      ? (e)=>props.callback(e.currentTarget.value) 
-                      : (e)=>{
-                            return props.primitive.setParameter(item.key, e.currentTarget.value)
+        return (<MyCombo 
+                  items={item.options.map((d)=>{return {id: d, title: d}})}
+                  selectedItem={item.value}
+                  multiple={props.primitive?.metadata?.parameters?.[item.key]?.multi}
+                  className='ml-auto'
+                  setSelectedItem={props.callback
+                      ? (d)=>props.callback(d) 
+                      : (d)=>{
+                        return props.primitive.setParameter(item.key, d)
                       }}
 
-                >
-            <option value={undefined} ></option>
-            {item.options.map((option)=>(
-              <option value={option}>{option}</option>
-            ))}
-          </select>)
+                />)
       }else if( item.type === "contactName"){
         const contact = props.primitive.referenceParameters.contact
         if( props.compact ){
@@ -292,11 +289,11 @@ let mainstore = MainStore()
           val = val / 1000
           unit = "M"
         }
-        return <>
-              {item.key === "funding" && <HeroIcon icon="BanknotesIcon" className='w-5 h-5 mr-1'/>}
-              {item.key === "valuation" && <HeroIcon icon="ArrowTrendingUpIcon" className='w-5 h-5 mr-1'/>}
-                <p className='text-lg text-gray-800 font-semibold'>${val}{unit}</p>
-              </>
+        return <div className='ml-auto flex mt-0.5 place-items-center'>
+              {item.key === "funding" && <HeroIcon icon="BanknotesIcon" className='w-4 h-4 mr-1'/>}
+              {item.key === "valuation" && <HeroIcon icon="ArrowTrendingUpIcon" className='w-4 h-4 mr-1'/>}
+                <p>${(val || 0).toFixed(2)}{unit}</p>
+              </div>
       }else if( item.type === "url" && !props.editing){
         return (
           <div className='ml-auto flex'>

@@ -223,6 +223,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                     <PrimitiveExplorer 
                         primitive={primitive}
                         list={list}
+                        category={category?.id !== undefined ? category : undefined}
                         fields={[cardConfig.fields, "top", "important"].flat()}
                         onClick ={props.onShowInfo}
                         onInnerCardClick ={props.onInnerShowInfo}
@@ -233,7 +234,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                 {view === "list" && <CardGrid 
                     key="card_list"
                     primitive={primitive}
-                    category={category?.id ? category : undefined}
+                    category={category?.id !== undefined ? category : undefined}
                     selectedItem={props.selected}
                     onCardClick ={props.onShowInfo}
                     onInnerCardClick ={props.onInnerShowInfo}
@@ -249,7 +250,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                 {view === "cards" && <CardGrid  
                     key="card_grid"
                     primitive={primitive}
-                    category={category?.id ? category : undefined}
+                    category={category?.id !== undefined ? category : undefined}
                     selectedItem={props.selected}
                     onCardClick ={props.onShowInfo}
                     onInnerCardClick ={props.onInnerShowInfo}
@@ -269,7 +270,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                 {view === "cluster" && 
                     <HierarchyView 
                         buttons={buttons} 
-                        primitive={clusters[1]}
+                        primitive={clusters[0]}
                 />}
                 {view === "proximity" && 
                     <ProximityView primitive={clusters[0]}

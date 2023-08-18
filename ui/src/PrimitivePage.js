@@ -574,6 +574,7 @@ export function PrimitivePage({primitive, ...props}) {
                           defaultWide
                           primitive={primitive} 
                           onShowInfo={(e,p,s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
+                          onInnerShowInfo={(e,p, s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
                           setSelected={setSelected} 
                           onPreview={setSelected ? (p)=>{setSelected(p,{scope: primitive})} : undefined}
                           onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx},{scope: primitive})} : undefined}

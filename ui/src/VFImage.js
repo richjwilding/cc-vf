@@ -19,6 +19,7 @@ export function VFImage({src, ...props}){
     }
     return <>
             <img 
+                draggable="false" 
                 src={count ? `${src}?${count}` : src}
                 {...props}
                 className={props.className + (loaded ? '' : ' invisible max-w-[0] !mr-0')}

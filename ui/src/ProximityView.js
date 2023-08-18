@@ -421,10 +421,10 @@ export default function ProximityView({primitive, target,...props}){
                     target.appendChild( path )
                 
             })
-            const minX = Object.values(segments).reduce((a,c)=>Math.min(a, c.position.fx),0)
-            const maxX = Object.values(segments).reduce((a,c)=>Math.max(a, c.position.fx2),0)
-            const minY = Object.values(segments).reduce((a,c)=>Math.min(a, c.position.fy),0)
-            const maxY = Object.values(segments).reduce((a,c)=>Math.max(a, c.position.fy2),0)
+            const minX = Object.values(segments).reduce((a,c)=>Math.min(a, c.position.fx), -offsetX)
+            const maxX = Object.values(segments).reduce((a,c)=>Math.max(a, c.position.fx2), offsetX)
+            const minY = Object.values(segments).reduce((a,c)=>Math.min(a, c.position.fy), -offsetX)
+            const maxY = Object.values(segments).reduce((a,c)=>Math.max(a, c.position.fy2), offsetX)
             ref.current.setAttribute('viewBox', `${minX - 10} ${minY - 10}  ${maxX - minX + 20} ${maxY - minY + 20}`)
         }
 
@@ -444,7 +444,7 @@ export default function ProximityView({primitive, target,...props}){
         >
         <svg
         style={{background:'#eee', userSelect: "none"}}
-        
+        viewBox={viewbox.join()} 
         ref={ref}
         >
         <defs>
@@ -475,7 +475,7 @@ export default function ProximityView({primitive, target,...props}){
                 {data?.orbits && data.orbits.map((orbit)=>orbit.sets.map((d)=>d.items.length > 0 ? d.segment : undefined)).flat().filter((d)=>d).map((d)=>(
                     <>
                         {d && <foreignObject id={d.id} width='100' height='200'>
-                            <SegmentCard primitive={d} hideGrid/>
+                            <SegmentCard primitive={d} hideGrid showDetails/>
                         </foreignObject>}
                     </>
                 ))}
