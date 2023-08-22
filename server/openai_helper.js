@@ -221,7 +221,7 @@ export async function OLDsimplifyHierarchy(top, list, options = {} ){
     return {success: true, summaries: interim}
 }
 export async function buildKeywordsFromList(list, options = {} ){
-    let purpose = options.purpose || `Built a list of ${options.count || 10} search terms that can be used with an online database to find similar ${options.types || "items"}. The search only works with direct lookups (single or multi words).`
+    let purpose = options.purpose || `Built a list of ${options.count || 10} domain and market related search terms that can be used with an online database to find similar ${options.types || "items"}. The search only works with direct lookups (single or multi words).`
     let interim = await processInChunk( list, 
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},

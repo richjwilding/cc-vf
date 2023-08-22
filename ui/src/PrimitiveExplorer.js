@@ -669,7 +669,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
 
-  const colors = ["rose","ccgreen","ccpurple","amber","cyan","fuchsia", "ccblue"] 
+  const colors = ["ccgreen","rose","ccpurple","amber","cyan","fuchsia", "ccblue", "orange","lime","cyan","indigo"] 
 
 
   const columnColumns = columnExtents.map((col)=>{

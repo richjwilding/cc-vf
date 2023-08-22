@@ -49,7 +49,7 @@ const ExpandArrow = function(props) {
                                         </>,
                         header: () => d.name || d.title,
                         sortingFn: (a,b,idx)=>{
-                                    return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
+                                    return (a.original.primitive.title || "None Specified").localeCompare((b.original.primitive.title || "None Specified")) || 0
                                 },
                         minSize: 100,
                     })

@@ -419,7 +419,7 @@ export async function enrichCompanyFunding( primitive, options = {}){
             return {error: data.error}
         }
     }
-    let funding = data.raised_investments
+    let funding// = data.raised_investments
     
     if( funding === undefined){
         funding = await fetchCompanyFundingFromCrunchbase(primitive, data.id)
@@ -430,12 +430,42 @@ export async function enrichCompanyFunding( primitive, options = {}){
         const totalRaised = uniqueRounds.reduce((a,c)=>a+(c[0] || 0),0)
         
         const investors = funding.map((d)=>d.investor_identifier?.value).filter((c,i,a)=>a.indexOf(c)===i)
-        const rounds = funding.map((d)=>[d.funding_round_identifier?.value, d.announced_on]).filter((c,i,a)=>a.findIndex((d)=>d[0] == c[0])===i).map((d)=>[d[0].split(' - ')[0],d[1]])
+        let rounds = funding.map((d)=>[d.funding_round_identifier?.value, d.announced_on, d.funding_round_money_raised?.value]).filter((c,i,a)=>a.findIndex((d)=>d[0] == c[0] && d[1] === c[1])===i).map((d)=>{return {title: d[0].split(' - ')[0], amount: d[2],annouced: new Date(d[1])}}).sort((a,b)=>a.annouced - b.annouced)
+        
+        let earliest = funding.founded ? new Date(funding.founded?.value) : undefined
+
+        rounds.forEach((d, idx, a)=>{
+            if( !earliest || (d.annouced < earliest)){
+                earliest = d.annouced
+            }
+            if( d.annouced ){
+                if( idx === 0){
+                    d.timeSinceLast = d.annouced - earliest
+                }else{
+                    d.timeSinceLast = d.annouced - a[idx - 1].annouced
+                }
+            }
+        })
+        rounds.forEach((d, idx, a)=>{
+            if( d.annouced ){
+                d.timeSinceFounded = d.annouced - earliest
+            }
+        })
+        const selectedRounds = [
+            "Angel Round",
+            "Pre Seed Round",
+            "Seed Round",
+            "Series A",
+            "Series B",
+            "Series C",
+            "Series D",
+            "Series E"]
 
         dispatchControlUpdate( primitive.id, "referenceParameters.funding", totalRaised)
         dispatchControlUpdate( primitive.id, "referenceParameters.investors", investors)
-        dispatchControlUpdate( primitive.id, "referenceParameters.fundingRounds", rounds.map((d)=>d[0]))
-        dispatchControlUpdate( primitive.id, "referenceParameters.fundingRoundInfo", rounds)
+        dispatchControlUpdate( primitive.id, "referenceParameters.fundingRounds", rounds.map((d)=>d.title))
+        dispatchControlUpdate( primitive.id, "referenceParameters.allFundingRoundInfo", rounds)
+        dispatchControlUpdate( primitive.id, "referenceParameters.fundingRoundInfo", rounds.filter((d)=>selectedRounds.includes(d.title)))
     }
 }
 export async function pivotFromCrunchbaseArticles(primitive, options = {}, force = false){
@@ -753,6 +783,7 @@ export async function fetchCompanyFundingFromCrunchbase( primitive, cbId ){
 
             const uuid = cbId || primitive.crunchbaseData?.id
             const query = new URLSearchParams({ 
+                "field_ids": "founded_on",
                 "card_ids":["raised_investments"]
             }).toString()
             
@@ -790,6 +821,7 @@ export async function fetchCompanyFundingFromCrunchbase( primitive, cbId ){
             if( data.cards?.raised_investments){
 
                 const store = data.cards?.raised_investments 
+                store.founded = data.properties.founded_on
                 primitive.set("crunchbaseData.raised_investments", store)
                 primitive.markModified("crunchbaseData.raised_investments")
                 await primitive.save()

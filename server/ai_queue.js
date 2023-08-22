@@ -375,7 +375,7 @@ async function rollup( primitive, target, action ){
                             }
                         }
                         if( node.children ){
-                            await convertList( node.children, newPrim, root || newPrim )
+                            await convertList( node.children, newPrim, root?.id || newPrim?.id )
                         }
                     }
 

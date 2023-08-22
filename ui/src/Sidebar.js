@@ -99,7 +99,6 @@ export function Sidebar({primitive, ...props}) {
     let showUnlinkFromScope = false 
 
     if( props.scope ){
-        console.log(`SCOPED = ${props.scope.plainId}`)
         showUnlinkFromScope = true
         const list = isMulti ? primitive : [primitive]
         for( const p of list){

@@ -833,6 +833,8 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     if(command === "define_axis" ){
                         QueueAI().defineAxis( primitive, action )
                     }
+            }
+            if( primitive.type === "segment" ){
                     if(command === "roll_up" ){
                         const target = primitive
                         const field = options.field || action.field

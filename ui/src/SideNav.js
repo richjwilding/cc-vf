@@ -121,9 +121,6 @@ const mainMenu = navigation.map((item) => (
                     </Menu.Item>
                   </div>
                 </>
-  
-  console.log(props.children instanceof Function)
-
   return (
     <>
       <div className="min-h-full w-full">

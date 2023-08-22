@@ -1,76 +1,376 @@
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PrimitiveCard} from "./PrimitiveCard";
-import { PencilIcon, ArrowPathIcon, TrashIcon, BoltIcon } from "@heroicons/react/24/outline";
+import { BoltIcon } from "@heroicons/react/24/outline";
 import Panel from "./Panel";
-import GenericEditor from './GenericEditor';
-import MainStore from "./MainStore";
-import ConfirmationPopup from "./ConfirmationPopup";
-import EditableTextField from "./EditableTextField";
-import AIProcessButton from "./AIProcessButton";
 import useDataEvent from "./CustomHook";
-import { default as CategoryCard, CategoryCardPill } from "./CategoryCard";
 import CardGrid from "./CardGrid";
 import { roundCurrency } from "./RenderHelpers";
 import { ReactECharts } from "./React-ECharts";
-import { VFImage } from "./VFImage";
+import { graphic } from "echarts";
 
 
-function SegmentGraph({items, ...props}){
+function SegmentGraph({primitive, items, ...props}){
+    const roundStats = useMemo(()=>{
+        const roundOrder =[
+                "Angel Round",
+                "Pre Seed Round",
+                "Seed Round",
+                "Series A",
+                "Series B",
+                "Series C",
+                "Series D",
+                "Series E"]
 
+        const fullRoundList = items.map((d)=>d?.referenceParameters?.fundingRounds).flat().filter((d,i,a)=>a.indexOf(d)===i).sort((a,b)=>roundOrder.indexOf(a)-roundOrder.indexOf(b))
+        const out = fullRoundList.map((round)=>{
+            const subList = items.filter((d)=>d.referenceParameters?.fundingRoundInfo?.find((d)=>d.title === round))
+            const investments = subList.map((d)=>d.referenceParameters.fundingRoundInfo?.filter((d)=>d.title === round).map((d)=>d.amount)).flat().filter((d)=>d)
+            const days = subList.map((d)=>d.referenceParameters.fundingRoundInfo?.filter((d)=>d.title === round).map((d)=>d.timeSinceFounded)).flat().filter((d)=>d)
 
-    const imgHash = items.reduce((o,d)=>{
-        o[d.id] = {
-            height:20,
-            width:20,
-            backgroundColor: {image: `http://localhost:3000/api/image/${d.id}`}
-        }
-        return o
-    },{})  
+            return {
+                title: round,
+                valid: subList.length > 0,
+                count: subList.length,
+                max_funding: Math.max(...investments),
+                min_funding: Math.min(...investments),
+                avg_funding: investments.reduce((a,c)=>a+c, 0) / investments.length,
+                funding_count: investments.length,
+                days_count: days.length,
+                min_days:  Math.min(...days),
+                max_days:  Math.max(...days),
+                avg_days:  days.reduce((a,c)=>a+c, 0) / days.length,
+            }
+        })
+        console.log(out)
+        return out
+    }, [primitive, props["x-axis"],props["y-axis"], props["z-axis"], props.log])
 
-    console.log(imgHash)
+    const projectData = (d, root, forSort)=>{
+        let out
+        if( root === undefined){return undefined}
+        if( root.parameter ){
+            let parts = root.parameter.split('.')
+            let node = d?.referenceParameters
+            let sublist
+            for( const part of parts ){
+                if( node && part[0] === "[" && Array.isArray(node)){
+                    if(part.length === 2){
+                    }else{
 
-    const projectData = (d, axis)=>{
-        if( props[axis].parameter ){
-            return d?.referenceParameters?.[props[axis].parameter]
+                        const idx = parseInt(part.slice(1,-1))
+                        
+                        if( idx < 0 ){
+                            node = node[node.length + idx]
+                        }
+                        else{
+                            node = node[idx]
+                        }
+                    }
+                }else{
+                    if( node ){
+                        if(Array.isArray(node)){
+                            node = node.map((d)=>{
+                                let value = d[part]
+                                let sort = d[root.sort || part]
+                                if( root.formatter === "datetime"){
+                                    value = value && new Date(value)
+                                }
+                                if( root.sort_formatter === "datetime" || (!root.sort && root.formatter === "datetime")){
+                                    sort = sort && new Date(sort)
+
+                                }
+                                return [value, sort]
+                            }).sort((a,b)=>b[1]-a[1])
+                            node = node.map((d)=>d[0])
+
+                        }else{
+                            node = node[part]
+                        }
+                    }
+                }
+            }
+            out = node
+            if( root.match ){
+                out = d.referenceParameters?.[root.match.collection]?.filter((d)=>d[root.match.key || "id"] === out).map((d)=>[d[root.match.parameter],d[root.match.xzSort ?? root.match.parameter]])
+                out = out.sort((a,b)=>b[1]-a[1]).map((d)=>d[0])
+            }
+            if( root.delta ){
+                if( root.delta ){
+                    const group = projectData(d, root.delta )
+                    let groupItem = roundStats.findIndex((d)=>d[root.delta.key ?? "title"] === group)
+                    if( root.delta.offset ){
+                        groupItem += root.delta.offset
+                    }
+                    const value  = roundStats[groupItem]?.[root.delta.groupField]
+                    if( value === undefined){
+                        out = null
+                    }else{
+                        if( !isNaN(value)){
+                            if( Array.isArray(out)){
+                                out = out.map((d)=>d - value) 
+                            }else{
+                                out -= value
+                            }
+                        }
+                    }
+                }                
+            }
         }
         else{
-            return d?.[props[axis].field]
+            if( root.field === 'title' && d.type === "entity"){
+                out = d.id + "|" + d?.[root.field]
+
+            }else{
+                out = d?.[root.field]
+            }
+        }
+        if( props.log && out === 0){
+            return null
+        }
+        if( root.formatter === "datetime"){
+            if( Array.isArray(out) ){
+                out = out.map((d)=>d && new Date(d).getTime())
+            }else{
+                out = out && new Date(out).getTime()
+            }
+        }
+        return out
+    }
+    let list = items
+    if( props.filters ){
+        for(const filter of props.filters){
+            list = list.filter((d)=>{
+                const value = projectData(d, filter)
+                return filter.values.includes(value)
+            })
         }
     }
+    const axisFormatter = {
+        "currency" : function(value){
+            return roundCurrency(value)
+        },
+        "datetime" : function(value){
+            return new Date(value)
+        },
+        "days" : function(value){
+            return Math.round( value / 86400000 ) + "d"
+        }
+    }
+
+
+
+    const option = useMemo(()=>{
+        console.log("rebuild")
+        if( true ){
+            const data = list.map((d)=>{
+                return {
+                    d: d,
+                    x: projectData( d, props["x-axis"])?.sort((a,b)=>a-b),
+                    y: projectData( d, props["y-axis"])
+                }
+            })
+
+            const fullTimeStamps = data.map((d)=>d.x).flat().map((d)=>parseInt(d)).filter((c,i,a)=>a.indexOf(c)===i).sort((a,b)=>a-b)
+        //    fullTimeStamps.push( new Date().getSeconds() )
+            const ys = data.map((d)=>{
+                const out = fullTimeStamps.map((target)=>{
+                    const closestIdx = d.x?.findIndex((d2) => d2 === target) 
+                    if( closestIdx === undefined || closestIdx === -1 ){
+                        return 0
+                    }else{
+                        return d.y[closestIdx] ?? 0
+                    }
+
+                })
+                return out.map((d,i,a)=>a.reduce((c,a,i2)=>i2 > i ? c : c + a,0))
+            })
+            const agg = fullTimeStamps.map((d,i)=>{
+                const value = ys.map((d)=>d[i]).reduce((a,c)=>a+c,0)
+                return {x: d, y: value}
+            })
+
+
+            return {
+                dataset:{
+                    source: agg
+                } ,           
+                grid: {
+                    top: 20,
+                    bottom: 20,
+                    left: "50",
+                    right: "50",
+                },
+                yAxis: {
+                    type: "value",
+                    axisLabel: {
+                        formatter: axisFormatter[props["y-axis"].formatter]
+                    }
+                },
+                xAxis: {
+                    type: "time",
+                    max: new Date()
+                },
+                series:[{
+                    type: "line",
+                    showSymbol: false,
+                    encode:{x:'x',y:'y'},
+                    areaStyle: {
+                        color: new graphic.LinearGradient(0, 0, 0, 1, [
+                          {
+                            offset: 0,
+                            color: 'rgb(255, 158, 68)'
+                          },
+                          {
+                            offset: 1,
+                            color: 'rgb(255, 70, 131)'
+                          }])
+                      }
+                }],
+            }
+        }else{
+        const imgHash = items.reduce((o,d)=>{
+            o[d.id] = {
+                height:20,
+                width:20,
+                backgroundColor: {image: `http://localhost:3000/api/image/${d.id}`}
+            }
+            return o
+        },{})  
+
+        const data = list.map((d)=>{
+    //        const group = projectData( d, props["y-axis"].sort)
+            let stats, group
+            if( props["x-axis"].delta ){
+                const root = props["x-axis"]
+                group = projectData(d, root.delta )
+                let groupItem = roundStats.findIndex((d)=>d[root.delta.key ?? "title"] === group)
+                if( root.delta.offset ){
+                    groupItem += root.delta.offset
+                }
+                stats  = roundStats[groupItem]
+            }else{
+                group = projectData( d, props["y-axis"].sort)
+            }
+            if( stats && !stats.valid){stats = undefined}
+            const x = [projectData( d, props["x-axis"])].flat().reduce((o, c, i)=>{o['x'+ i] = c; return o}, {})
+            const y = [projectData( d, props["y-axis"])].flat().reduce((o, c, i)=>{o['y'+ i] = c; return o}, {})
+            const z = [projectData( d, props["z-axis"])].flat().reduce((o, c, i)=>{o['z'+ i] = c; return o}, {})
+            return {
+                ...x,
+                ...y,
+                ...z,
+                xCount: x.length,
+                xSort: projectData( d, props["x-axis"].sort),
+                ySort: group,
+                minDays: stats?.min_days - stats?.avg_days,
+                maxDays: stats?.max_days - stats?.avg_days
+            }
+        }).sort((a,b)=>typeof(a.ySort) === "string" || typeof(b.ySort) === "string" ?  (a.ySort ?? "").localeCompare(b.ySort ?? "") : a.ySort - b.ySort)
+            const xs = data.map((d)=>Object.keys(d)).flat().filter((d)=>d.match(/x\d+/)).filter(((c,i,a)=>a.indexOf(c )=== i))
+            data.forEach((d)=>{
+                xs.forEach((x)=>{
+                    d[x] = d[x] ?? null
+                })
+            })
+            const xSeries = xs.map((d, idx)=>{
+                return {
+                    type: props.type ?? "bar",
+                    encode: {
+                        y: 'y0',   
+                        x: d, 
+                    },
+                    lineStyle:{
+                        width: 0
+                    },
+                    showSymbol: true,
+                    color: "blue" ,
+                    symbolSize: (s)=>{
+                        const group = roundStats.find((d2)=>d2.title === s.ySort)
+                        if( group ){
+                            const range = group.max_funding - group.min_funding
+                            const dp = s[`z` + idx]
+                            if( dp === undefined | dp === null){
+                                return 2
+                            }
+                            const size = (dp - group.min_funding) / range * 10
+                            return 4 + size
+                        }
+                        return 4
+                    },
+                    label: idx == 0 ? {
+                        show: true,
+                        fontSize: 10,
+                        formatter: (d2)=>d2.data[d] === undefined  ? "" : axisFormatter[props["x-axis"].formatter](d2.data[d]),
+                        position: "right"
+                    } : false
+                }
+            })
+            return {
+                dataset: {
+                    source: data,
+                },
+                grid: {
+                    top: 0,
+                    bottom: 20,
+                left: "200",
+                right: "20",
+                },
+                xAxis: {
+                    type: props.log ? "log" : "value",
+                    axisLabel: {
+                        formatter: axisFormatter[props["x-axis"].formatter]
+                    }
+                },
+                yAxis: {
+                    type: "category",
+                    axisLabel: {
+                        interval:0,
+                        margin:10,
+                        fontSize:12,
+                        lineHeight:25,
+                        show: true,
+                        formatter: function (value) {
+                            return `{${value.split("|")[0]}|} ` + value.split("|")[1]
+                        },
+                        rich: imgHash
+                        },
+                },
+                series: [
+                    ...xSeries,
+                {
+                    type: "bar",
+                    stack:"days",
+                    encode: {
+                        y: 'y0',   
+                        x: 'minDays', 
+                    },
+                    itemStyle: {
+                        color: 'transparent',
+                        color: 'gray',
+                        color: (d)=>d.data.x0 > d.data.minDays ? "green" : "grey",
+                        opacity: 0.1
+                    },
+                    showSymbol: false,
+                },
+                {
+                    type: "bar",
+                    stack:"days",
+                    encode: {
+                        y: 'y0',   
+                        x: 'maxDays', 
+                    },
+                    showSymbol: false,
+                    itemStyle: {
+                        color: 'gray',
+                        color: (d)=>d.data.x0 > 0 ? "red" : "grey",
+                        opacity: 0.1
+                    }
+                },
+                ],
+            }
+        }
+    }, [primitive, props["x-axis"],props["y-axis"], props["z-axis"], props.log])
     
-    const option = {
-        grid: {
-            top: 0,
-            bottom: 20,
-          left: "200",
-          right: "0%",
-        },
-        xAxis: {
-          type: "value",
-        },
-        yAxis: {
-            type: "category",
-            data: items.sort((a,b)=>a.referenceParameters.funding - b.referenceParameters.funding).map((d)=>d.id + "|" +projectData(d, "y-axis")),
-            axisLabel: {
-                interval:0,
-                margin:10,
-                fontSize:12,
-                lineHeight:25,
-                show: true,
-                formatter: function (value) {
-                    return `{${value.split("|")[0]}|} ` + value.split("|")[1]
-                },
-                rich: imgHash
-                },
-        },
-        series: [
-          {
-            type: "bar",
-            data: items.map((d)=>projectData(d, "x-axis")),
-          },
-        ],
-      }
     return (
         <div style={props.style} className={props.className}>
             <ReactECharts option={option} />
@@ -102,13 +402,13 @@ export default function SegmentCard({primitive, ...props}){
                         fixedSize={!props.hideDetails ? undefined : "3rem"}
                         imageOnly={props.hideDetails}
                         compact={props.hideDetails}
-                        onClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); console.log(props.onInnerCardClick);props.onInnerCardClick(e, p, primitive)} : undefined}
+                        onClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); props.onInnerCardClick(e, p, primitive)} : undefined}
                         />
                 ))}
             </div>}
             {props.showGrid && !props.hideDetails && <CardGrid 
                 list={showAll ? nestedItems : nestedItems.slice(0,itemLimit)}
-                onClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); console.log(props.onInnerCardClick);props.onInnerCardClick(e, p, primitive)} : undefined}
+                onCardClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); props.onInnerCardClick(e, p, primitive)} : undefined}
                 cardProps={
                     {micro:true}
                 }
@@ -172,7 +472,8 @@ export default function SegmentCard({primitive, ...props}){
 
             </div> }
             {props.graph && <SegmentGraph 
-                style={{height: (100 + (nestedItems.length * 20)) + "px"}}
+                primitive={primitive}
+                style={{height: (100 + (nestedItems.length * 2)) + "px"}}
                 items={nestedItems} {...props.details} 
                 />}
             
