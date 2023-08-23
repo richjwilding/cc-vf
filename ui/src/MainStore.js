@@ -1447,6 +1447,29 @@ function MainStore (prims){
                             return o
                         }, [])
                     }
+                    if( d.type === "hypothesis"){
+                        if( prop === "addresses" ){
+                            return receiver.findParentPrimitives({type: "assessment"}).map((a)=>{
+                                const component_ids = a.primitives.paths(receiver.id, '.hfc.').map((d)=>d.match(/\.hfc\.(\d+)/)?.[1])
+                                const components = component_ids.map((d)=>{return {framework: a.framework, component: a.framework?.components[d]}})
+                                return components
+                            }).flat().filter((d,i,a)=>a.findIndex((d2)=>d2.component.id === d.component.id)===i)
+                        }
+                        if( prop === "addresses_lenses" ){
+                            return receiver.addresses.map((c)=>{
+                                if( c.framework ){
+                                    return c.framework.lenses[ c.component.lens]
+                                }
+                                return undefined
+                            }).filter((d,i,a)=>d && a.indexOf(d)===i)
+                        }
+                        if( prop === "addresses_components" ){
+                            return receiver.addresses.map((c)=>{
+                                const lens = c.framework.lenses[ c.component.lens]
+                                return {...c.component, lens}
+                            }).filter((d,i,a)=>a.findIndex((d2)=>d2.id === d.id)===i)
+                        }
+                    }
                     if( d.type === "assessment"){
                         if( prop === "framework"){
                             return obj.framework( d.frameworkId)

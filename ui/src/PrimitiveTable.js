@@ -27,42 +27,62 @@ const ExpandArrow = function(props) {
         const columnHelper = createColumnHelper()
 
         return columns.map((d)=>{
+            if(d.magic){
+                if( d.magic === "addresses_components"){
+                    return columnHelper.accessor(d.magic,
+                        {
+                            cell: info => {
+                                const list = info.row.original.primitive.addresses_components?.map((d)=><p className={`px-1 py-0.5 m-0.5 rounded-full text-xs text-${d.lens.base}-800 bg-${d.lens.base}-200`}>VF{d.order + 1}</p>)
+                                return <div className="flex overflow-hidden">{list}</div>
+                            },
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b,idx)=>{
+                                        return (a.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "").localeCompare(b.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "") || 0
+                                    },
+                            startSize: 100,
+                            minSize: 100,
+                        })
+                        
+                    }
+            }else{
+                
 
-            if( d.field === "contact"){
+                if( d.field === "contact"){
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <PrimitiveCard.RenderItem compact={true} item={{type:'contact', value: info.getValue() }}/>,
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b,idx)=>{
+                                        return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
+                                    },
+                            minSize: 100,
+                        })
+
+                }
+                if( d.field === "logo_title"){
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <>
+                                                <VFImage className="object-cover w-8 h-8 mr-2" src={`/api/image/${info.row.original.primitive.id}`}/>
+                                                <p className="text-md text-color-800 truncate">{info.row.original.primitive.title}</p>
+                                            </>,
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b,idx)=>{
+                                        return (a.original.primitive.title || "None Specified").localeCompare((b.original.primitive.title || "None Specified")) || 0
+                                    },
+                            minSize: 100,
+                        })
+
+                }
                 return columnHelper.accessor(d.field,
                     {
-                        cell: info => <PrimitiveCard.RenderItem compact={true} item={{type:'contact', value: info.getValue() }}/>,
+                        cell: info => <p className="truncate">{info.getValue()}</p>,
                         header: () => d.name || d.title,
-                        sortingFn: (a,b,idx)=>{
-                                    return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
-                                },
+                        sortingFn: "text",
+                        startSize: d.field === "id" ? 100 : undefined,
                         minSize: 100,
                     })
-
             }
-            if( d.field === "logo_title"){
-                return columnHelper.accessor(d.field,
-                    {
-                        cell: info => <>
-                                            <VFImage className="object-cover w-8 h-8 mr-2" src={`/api/image/${info.row.original.primitive.id}`}/>
-                                            <p className="text-md text-color-800 truncate">{info.row.original.primitive.title}</p>
-                                        </>,
-                        header: () => d.name || d.title,
-                        sortingFn: (a,b,idx)=>{
-                                    return (a.original.primitive.title || "None Specified").localeCompare((b.original.primitive.title || "None Specified")) || 0
-                                },
-                        minSize: 100,
-                    })
-
-            }
-            return columnHelper.accessor(d.field,
-                {
-                    cell: info => <p className="truncate">{info.getValue()}</p>,
-                    header: () => d.name || d.title,
-                    sortingFn: "text",
-                    startSize: d.field === "id" ? 100 : undefined,
-                    minSize: 100,
-                })
         })
     }
 

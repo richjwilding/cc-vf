@@ -98,15 +98,22 @@ export default function CollectionViewer({primitive, category, ...props}){
             list = list.filter((d)=>ids.includes( d.referenceId ) )
         }
     }else{        
-            if( showDescend && descend && category.resultCategoryId){
+            if( descend ){
+                if( category.resultCategoryId ){
+                    list = primitive.primitives.results.descendants.filter((d)=>d.referenceId === category.resultCategoryId)
+                }else if( category.type ){
+                    list = primitive.primitives.descendants.filter((d)=>d.type === category.type)
+                }
+                if( list ){
+                    list = list.filter((d,i,a)=>a.findIndex((d2)=>d2.id === d.id) === i)
+                }
 
-                list = primitive.primitives.results.descendants.filter((d)=>d.referenceId === category.resultCategoryId)
             }else{
                 list = primitive.primitives.results ? primitive.primitives.results[category.id].map((d)=>d) : []
             }
     }     
 
-    const resultCategory = mainstore.category(category.resultCategoryId)
+    const resultCategory = category.resultCategoryId ? mainstore.category(category.resultCategoryId) : undefined
 
     const createNewResultFromDocument = async( )=>{
         GoogleHelper().showPicker({}, async (items)=>{
@@ -124,9 +131,9 @@ export default function CollectionViewer({primitive, category, ...props}){
     const createResult = async( options = {}, open = false )=>{
         const newObj = await mainstore.createPrimitive({
             parent: primitive,
-            type: resultCategory?.primitiveType || "result",
+            type: resultCategory?.primitiveType ?? category.type ?? "result",
             title: options.title || `New ${category.title}`,
-            categoryId: resultCategory.id,
+            categoryId: resultCategory?.id,
             referenceParameters: options.referenceParameters
         })
         if(open && props.onPreview){
@@ -135,7 +142,7 @@ export default function CollectionViewer({primitive, category, ...props}){
 
     }
 
-    let title
+    let title = category.plurals
     let createButtons
 
     if( resultCategory && !props.hidePanel ){
