@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useReducer, useRef, useState } from "react";
 import { PrimitiveCard} from "./PrimitiveCard";
 import { BoltIcon } from "@heroicons/react/24/outline";
 import Panel from "./Panel";
@@ -7,45 +7,11 @@ import CardGrid from "./CardGrid";
 import { roundCurrency } from "./RenderHelpers";
 import { ReactECharts } from "./React-ECharts";
 import { graphic } from "echarts";
+import MainStore from "./MainStore";
+import { renderToString } from 'react-dom/server';
 
 
-function SegmentGraph({primitive, items, ...props}){
-    const roundStats = useMemo(()=>{
-        const roundOrder =[
-                "Angel Round",
-                "Pre Seed Round",
-                "Seed Round",
-                "Series A",
-                "Series B",
-                "Series C",
-                "Series D",
-                "Series E"]
-
-        const fullRoundList = items.map((d)=>d?.referenceParameters?.fundingRounds).flat().filter((d,i,a)=>a.indexOf(d)===i).sort((a,b)=>roundOrder.indexOf(a)-roundOrder.indexOf(b))
-        const out = fullRoundList.map((round)=>{
-            const subList = items.filter((d)=>d.referenceParameters?.fundingRoundInfo?.find((d)=>d.title === round))
-            const investments = subList.map((d)=>d.referenceParameters.fundingRoundInfo?.filter((d)=>d.title === round).map((d)=>d.amount)).flat().filter((d)=>d)
-            const days = subList.map((d)=>d.referenceParameters.fundingRoundInfo?.filter((d)=>d.title === round).map((d)=>d.timeSinceFounded)).flat().filter((d)=>d)
-
-            return {
-                title: round,
-                valid: subList.length > 0,
-                count: subList.length,
-                max_funding: Math.max(...investments),
-                min_funding: Math.min(...investments),
-                avg_funding: investments.reduce((a,c)=>a+c, 0) / investments.length,
-                funding_count: investments.length,
-                days_count: days.length,
-                min_days:  Math.min(...days),
-                max_days:  Math.max(...days),
-                avg_days:  days.reduce((a,c)=>a+c, 0) / days.length,
-            }
-        })
-        console.log(out)
-        return out
-    }, [primitive, props["x-axis"],props["y-axis"], props["z-axis"], props.log])
-
-    const projectData = (d, root, forSort)=>{
+    export function projectData(d, root, log, roundStats = []){
         let out
         if( root === undefined){return undefined}
         if( root.parameter ){
@@ -115,8 +81,9 @@ function SegmentGraph({primitive, items, ...props}){
                     }
                 }                
             }
-        }
-        else{
+        }else if(root.action === "count"){
+            return 1
+        }else{
             if( root.field === 'title' && d.type === "entity"){
                 out = d.id + "|" + d?.[root.field]
 
@@ -124,8 +91,12 @@ function SegmentGraph({primitive, items, ...props}){
                 out = d?.[root.field]
             }
         }
-        if( props.log && out === 0){
-            return null
+        if( log ){
+            if( Array.isArray(out) ){
+                out = out.map((d)=> d === 0 ? null : d)
+            }else{
+                out = out === 0 ? null : out
+            }
         }
         if( root.formatter === "datetime"){
             if( Array.isArray(out) ){
@@ -134,13 +105,75 @@ function SegmentGraph({primitive, items, ...props}){
                 out = out && new Date(out).getTime()
             }
         }
+        if( root.invert ){
+            if( Array.isArray(out) ){
+                out = out.map((d)=>-d)
+            }else{
+                out = -out
+            }
+
+        }
         return out
     }
+export function itemsForGraph( pivot, items ){
+    if( pivot ){
+        console.log(`Had ${items.length} before pivot`)
+        if(pivot === "origin"){
+            items = items.map((d)=>d.origin).filter((d, i, a)=>a.findIndex((d2)=>d2.id === d.id) === i)
+            
+        }
+        console.log(`Now ${items.length}`)
+    }
+    return items
+}
+function SegmentGraph({primitive, ...props}){
+    const items = useMemo(()=>{
+        return itemsForGraph(props.pivot, props.items)
+    }, [primitive, props["x-axis"],props["y-axis"], props["z-axis"], props.log])
+
+    const imgSize = props.mode === "xy" ? 30 : 20
+    const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
+    const myScale = useRef({})
+    const roundStats = useMemo(()=>{
+        const roundOrder =[
+                "Angel Round",
+                "Pre Seed Round",
+                "Seed Round",
+                "Series A",
+                "Series B",
+                "Series C",
+                "Series D",
+                "Series E"]
+
+        const fullRoundList = items.map((d)=>d?.referenceParameters?.fundingRounds).flat().filter((d,i,a)=>a.indexOf(d)===i).sort((a,b)=>roundOrder.indexOf(a)-roundOrder.indexOf(b))
+        const out = fullRoundList.map((round)=>{
+            const subList = items.filter((d)=>d.referenceParameters?.fundingRoundInfo?.find((d)=>d.title === round))
+            const investments = subList.map((d)=>d.referenceParameters.fundingRoundInfo?.filter((d)=>d.title === round).map((d)=>d.amount)).flat().filter((d)=>d)
+            const days = subList.map((d)=>d.referenceParameters.fundingRoundInfo?.filter((d)=>d.title === round).map((d)=>d.timeSinceFounded)).flat().filter((d)=>d)
+
+            return {
+                title: round,
+                valid: subList.length > 0,
+                count: subList.length,
+                max_funding: Math.max(...investments),
+                min_funding: Math.min(...investments),
+                avg_funding: investments.reduce((a,c)=>a+c, 0) / investments.length,
+                funding_count: investments.length,
+                days_count: days.length,
+                min_days:  Math.min(...days),
+                max_days:  Math.max(...days),
+                avg_days:  days.reduce((a,c)=>a+c, 0) / days.length,
+            }
+        })
+        return out
+    }, [primitive, props["x-axis"],props["y-axis"], props["z-axis"], props.log])
+
+    myScale.current.scale = props.parentScale
     let list = items
     if( props.filters ){
         for(const filter of props.filters){
             list = list.filter((d)=>{
-                const value = projectData(d, filter)
+                const value = projectData(d, filter, props.log, roundStats)
                 return filter.values.includes(value)
             })
         }
@@ -157,36 +190,58 @@ function SegmentGraph({primitive, items, ...props}){
         }
     }
 
+    const getScale = ()=>{
+        console.log(`fetched here ${props.parentScale}`)
+        return props.parentScale
+    }
 
 
     const option = useMemo(()=>{
-        console.log("rebuild")
-        if( true ){
+        forceUpdate()
+
+        const imgHash = items.reduce((o,d)=>{
+            o[d.id] = {
+                height: imgSize,
+                width: imgSize,
+                backgroundColor: {image: `/api/image/${d.id}`}
+            }
+            return o
+        },{})  
+        
+        if( props.mode === "timeline" ){
             const data = list.map((d)=>{
+                let x = projectData( d, props["x-axis"], props.log, roundStats)
+                if( Array.isArray(x)){
+                    x = x.sort((a,b)=>a-b)
+                }
                 return {
                     d: d,
-                    x: projectData( d, props["x-axis"])?.sort((a,b)=>a-b),
-                    y: projectData( d, props["y-axis"])
+                    x: x,
+                    y: projectData( d, props["y-axis"], props.log, roundStats)
                 }
             })
 
             const fullTimeStamps = data.map((d)=>d.x).flat().map((d)=>parseInt(d)).filter((c,i,a)=>a.indexOf(c)===i).sort((a,b)=>a-b)
-        //    fullTimeStamps.push( new Date().getSeconds() )
             const ys = data.map((d)=>{
                 const out = fullTimeStamps.map((target)=>{
-                    const closestIdx = d.x?.findIndex((d2) => d2 === target) 
-                    if( closestIdx === undefined || closestIdx === -1 ){
-                        return 0
-                    }else{
-                        return d.y[closestIdx] ?? 0
-                    }
+                    if( Array.isArray(d.x)){
 
+                        const closestIdx = d.x?.findIndex((d2) => d2 === target) 
+                        if( closestIdx === undefined || closestIdx === -1 ){
+                            return 0
+                        }else{
+                            return d.y[closestIdx] ?? 0
+                        }
+                    }else{
+                        return target === d.x ? d.y : 0
+                    }
                 })
                 return out.map((d,i,a)=>a.reduce((c,a,i2)=>i2 > i ? c : c + a,0))
             })
             const agg = fullTimeStamps.map((d,i)=>{
                 const value = ys.map((d)=>d[i]).reduce((a,c)=>a+c,0)
-                return {x: d, y: value}
+                const items = data.filter((d2)=>Array.isArray(d2.x) ? d2.x.includes(d) : d2.x === d).map((d2)=>d2.d.id)
+                return {x: d, y: value, items: items}
             })
 
 
@@ -194,55 +249,182 @@ function SegmentGraph({primitive, items, ...props}){
                 dataset:{
                     source: agg
                 } ,           
+                dataZoom: [
+                    {
+                        id: 'dataZoomX',
+                        type: 'slider',
+                        xAxisIndex: [0],
+                        filterMode: 'filter'
+                    }
+                ],
                 grid: {
                     top: 20,
-                    bottom: 20,
+                    bottom: 90,
                     left: "50",
-                    right: "50",
+                    right: "0",
                 },
                 yAxis: {
                     type: "value",
                     axisLabel: {
+                        fontSize:12,
+                       // show:false,
                         formatter: axisFormatter[props["y-axis"].formatter]
                     }
                 },
                 xAxis: {
                     type: "time",
-                    max: new Date()
+                    max: new Date(),
+                    min: props['x-axis'].minimum,
+                    axisLabel: {
+                        fontSize:12,
+                       // show:false
+                    }
+                    
+
                 },
+                tooltip: {
+                    trigger: 'item',
+                    triggerOn:'click',
+                    appendToBody:true,
+                  //  confine: true,
+                    position:"top",
+                    position:  function (point, params, dom, rect, size) {
+                        const scale =  myScale.current.scale
+                        let px = point[0], py = point[1]
+                        py -= size.contentSize[1] / scale + 10
+                        px -= size.contentSize[0] / scale / 2 
+                        return [px,py]
+                    },
+                    //extraCssText:"background:transparent;border:none;box-shadow:none",
+                    //extraCssText:'pointer-events:all',
+                    enterable:true,
+                    alwaysShowContent: true,
+                    formatter: function (params) {
+                        const cards = params.data.items?.map((id)=><PrimitiveCard onClick={()=>{console.log(id);MainStore().sidebarSelect(id)}} className='max-w-[20rem]' border primitive={MainStore().primitive(id)}/>)
+                        const count = cards.length
+                        const cols = count >= 16 ? 4 : count >= 9 ? 3 : count >= 2 ? 2 : 1  
+                      return renderToString(<div className="grid gap-2 whitespace-normal" style={{gridTemplateColumns: `repeat(${cols},1fr)`}}>{cards}</div>);
+                    }
+                  },
                 series:[{
                     type: "line",
-                    showSymbol: false,
+                    showSymbol: true,
                     encode:{x:'x',y:'y'},
+                    color:"#22d3ee",
                     areaStyle: {
                         color: new graphic.LinearGradient(0, 0, 0, 1, [
                           {
                             offset: 0,
-                            color: 'rgb(255, 158, 68)'
+                            color: '#06b6d4'
                           },
                           {
                             offset: 1,
-                            color: 'rgb(255, 70, 131)'
+                            color: '#bfdbfe'
                           }])
                       }
                 }],
             }
-        }else{
-        const imgHash = items.reduce((o,d)=>{
-            o[d.id] = {
-                height:20,
-                width:20,
-                backgroundColor: {image: `http://localhost:3000/api/image/${d.id}`}
-            }
-            return o
-        },{})  
+        }else if(props.mode === "xy"){
+            let data = list.map((d)=>{
+                return [
+                    projectData( d, props["x-axis"], props.log, roundStats),
+                     projectData( d, props["y-axis"], props.log, roundStats),
+                     d.id,
+                     d.title
+                ]
+            })
 
-        const data = list.map((d)=>{
+            if( false ){
+                const maxY = data.reduce((a,c)=>c[1] > a ? c[1] : a, 0)
+                data = data.map((d)=>[d[0], d[1] / maxY, d[2], d[3]])
+            }
+
+            data = data.filter((d)=>d[1] > 100000)
+            data = data.map((d)=>[d[0], d[1] ? Math.log10(d[1]) : null, d[2], d[3]])
+            
+
+            let minX = data.map((d)=>d[0]).flat().reduce((a,c)=>(!a || c < a) ? c : a, undefined )
+            let maxX = data.map((d)=>d[0]).flat().reduce((a,c)=>(!a || c > a) ? c : a, undefined )
+            let maxY = data.map((d)=>d[1]).flat().reduce((a,c)=>(!a || c > a) ? c : a, undefined )
+            let minY = data.map((d)=>d[1]).flat().reduce((a,c)=>(!a || c < a) ? c : a, undefined )
+            maxY += (maxY - minY) / 400 * imgSize
+            minY -= (maxY - minY) / 400 * imgSize
+            minX -= (maxX - minX) / 500 * imgSize
+            maxX += (maxX - minX) / 500 * imgSize
+
+            const axisXMin = minX//Math.min(minX, -maxX)
+            const axisXMax = maxX//Math.max(-minX, maxX)
+            
+            return {
+                grid: {
+                    top: 20,
+                    bottom: 20,
+                    left: "50",
+                    right: "50",
+                    show:true
+                },
+                yAxis: {
+                    type: "value",
+                    //type: props.log ? "log" : "value",
+                    interval: (maxY - minY) / 3,
+                    axisLine:{show:false},
+                    axisTick:{show:false},
+                    splitLine:{show:true},
+                    logBase:10,
+                    max:maxY,
+                    min:minY,
+                    axisLabel: {
+                        show: true,
+                        formatter: (d,i)=>{
+                            return i === 0 ? "$" : i === 3 ? "$$$" : ""
+                        }
+                    }
+                },
+                xAxis: {
+                    type: "value",
+                    interval: (axisXMax - axisXMin) / 3,
+                    axisLine:{show:false},
+                    axisTick:{show:false},
+                    splitLine:{show:true},
+                    min: axisXMin,
+                    max: axisXMax,
+                    axisLabel: {
+                        show:true,
+                        formatter: (d,i)=>{
+                            return i === 0 ? "Slower" : i === 3 ? "Faster" : ""
+                        }
+                    }
+                },
+                series:[{
+                    type: "scatter",
+                    showSymbol: true,
+                    data:data,
+                    encode:{
+                        x:0,
+                        y:1
+                    },
+                    label:{
+                        show:true,
+                        //position:'right',
+                        line:"none",
+                        color:'black',
+                        opacity:1,
+                        formatter: function (d) {
+                            return `{${d.data[2]}|}`//${d.data[3]}`
+                        },
+                        rich: imgHash
+                    }
+                }],
+            }
+
+        }else{
+
+        let data = list.map((d)=>{
     //        const group = projectData( d, props["y-axis"].sort)
             let stats, group
             if( props["x-axis"].delta ){
                 const root = props["x-axis"]
-                group = projectData(d, root.delta )
+                group = projectData(d, root.delta, props.log, roundStats)
                 let groupItem = roundStats.findIndex((d)=>d[root.delta.key ?? "title"] === group)
                 if( root.delta.offset ){
                     groupItem += root.delta.offset
@@ -252,21 +434,24 @@ function SegmentGraph({primitive, items, ...props}){
                 group = projectData( d, props["y-axis"].sort)
             }
             if( stats && !stats.valid){stats = undefined}
-            const x = [projectData( d, props["x-axis"])].flat().reduce((o, c, i)=>{o['x'+ i] = c; return o}, {})
-            const y = [projectData( d, props["y-axis"])].flat().reduce((o, c, i)=>{o['y'+ i] = c; return o}, {})
-            const z = [projectData( d, props["z-axis"])].flat().reduce((o, c, i)=>{o['z'+ i] = c; return o}, {})
+            const x = [projectData( d, props["x-axis"], props.log, roundStats)].flat().reduce((o, c, i)=>{o['x'+ i] = c; return o}, {})
+            const y = [projectData( d, props["y-axis"], props.log, roundStats)].flat().reduce((o, c, i)=>{o['y'+ i] = c; return o}, {})
+            const z = [projectData( d, props["z-axis"], props.log, roundStats)].flat().reduce((o, c, i)=>{o['z'+ i] = c; return o}, {})
             return {
                 ...x,
                 ...y,
                 ...z,
                 xCount: x.length,
-                xSort: projectData( d, props["x-axis"].sort),
+                xSort: projectData( d, props["x-axis"].sort, props.log, roundStats),
                 ySort: group,
                 minDays: stats?.min_days - stats?.avg_days,
                 maxDays: stats?.max_days - stats?.avg_days
             }
         }).sort((a,b)=>typeof(a.ySort) === "string" || typeof(b.ySort) === "string" ?  (a.ySort ?? "").localeCompare(b.ySort ?? "") : a.ySort - b.ySort)
-            const xs = data.map((d)=>Object.keys(d)).flat().filter((d)=>d.match(/x\d+/)).filter(((c,i,a)=>a.indexOf(c )=== i))
+            
+        data = data.filter((d)=>d.x0 > 100000)
+        
+        const xs = data.map((d)=>Object.keys(d)).flat().filter((d)=>d.match(/x\d+/)).filter(((c,i,a)=>a.indexOf(c )=== i))
             data.forEach((d)=>{
                 xs.forEach((x)=>{
                     d[x] = d[x] ?? null
@@ -283,7 +468,7 @@ function SegmentGraph({primitive, items, ...props}){
                         width: 0
                     },
                     showSymbol: true,
-                    color: "blue" ,
+                    color: "#3b82f6" ,
                     symbolSize: (s)=>{
                         const group = roundStats.find((d2)=>d2.title === s.ySort)
                         if( group ){
@@ -370,10 +555,19 @@ function SegmentGraph({primitive, items, ...props}){
             }
         }
     }, [primitive, props["x-axis"],props["y-axis"], props["z-axis"], props.log])
+
+    const height =  (props.mode === "timeline" || props.mode === "xy")  ? "400px" : (100 + (list.length * 20)) + "px"
+    if(primitive.plainId === 30905){
+        console.log( items.length)
+    }
+
+    const clickCallback = (e)=>{
+        console.log('click', e.event.offsetX, e.event.offsetY)
+    }
     
     return (
-        <div style={props.style} className={props.className}>
-            <ReactECharts option={option} />
+        <div style={{width: "100%", height: height}} className={props.className} >
+            <ReactECharts option={option} update={update} clickCallback={clickCallback} renderer={!props.mode ? "canvas" : "canvas"} />
         </div>
     )
 }
@@ -429,7 +623,6 @@ export default function SegmentCard({primitive, ...props}){
                 </div>
                 </Panel>
             }
-            <p key='footer' className='text-xs text-gray-400'>#{primitive.plainId}</p>
         </>
 
     return (
@@ -473,11 +666,12 @@ export default function SegmentCard({primitive, ...props}){
             </div> }
             {props.graph && <SegmentGraph 
                 primitive={primitive}
-                style={{height: (100 + (nestedItems.length * 2)) + "px"}}
+                parentScale={props.scale}
                 items={nestedItems} {...props.details} 
                 />}
             
             
+            <p key='footer' className='text-xs text-gray-400'>#{primitive.plainId}</p>
         </div>
     </>
     )

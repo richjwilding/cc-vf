@@ -8,10 +8,13 @@ import { useReactTable,
         getCoreRowModel, 
         getPaginationRowModel} from '@tanstack/react-table'
 import MainStore from "./MainStore";
+import { FlagIcon, MagnifyingGlassIcon, PlusCircleIcon } from "@heroicons/react/24/outline";
 import useDataEvent from "./CustomHook";
 import { ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/solid";
 import { min } from "date-fns";
 import { VFImage } from "./VFImage";
+import PrimitivePicker from "./PrimitivePicker";
+import NewPrimitive from "./NewPrimitive";
   
 
 const ExpandArrow = function(props) {
@@ -23,70 +26,11 @@ const ExpandArrow = function(props) {
   );
 }
 
-    const mapColumns = (columns) =>{
-        const columnHelper = createColumnHelper()
-
-        return columns.map((d)=>{
-            if(d.magic){
-                if( d.magic === "addresses_components"){
-                    return columnHelper.accessor(d.magic,
-                        {
-                            cell: info => {
-                                const list = info.row.original.primitive.addresses_components?.map((d)=><p className={`px-1 py-0.5 m-0.5 rounded-full text-xs text-${d.lens.base}-800 bg-${d.lens.base}-200`}>VF{d.order + 1}</p>)
-                                return <div className="flex overflow-hidden">{list}</div>
-                            },
-                            header: () => d.name || d.title,
-                            sortingFn: (a,b,idx)=>{
-                                        return (a.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "").localeCompare(b.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "") || 0
-                                    },
-                            startSize: 100,
-                            minSize: 100,
-                        })
-                        
-                    }
-            }else{
-                
-
-                if( d.field === "contact"){
-                    return columnHelper.accessor(d.field,
-                        {
-                            cell: info => <PrimitiveCard.RenderItem compact={true} item={{type:'contact', value: info.getValue() }}/>,
-                            header: () => d.name || d.title,
-                            sortingFn: (a,b,idx)=>{
-                                        return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
-                                    },
-                            minSize: 100,
-                        })
-
-                }
-                if( d.field === "logo_title"){
-                    return columnHelper.accessor(d.field,
-                        {
-                            cell: info => <>
-                                                <VFImage className="object-cover w-8 h-8 mr-2" src={`/api/image/${info.row.original.primitive.id}`}/>
-                                                <p className="text-md text-color-800 truncate">{info.row.original.primitive.title}</p>
-                                            </>,
-                            header: () => d.name || d.title,
-                            sortingFn: (a,b,idx)=>{
-                                        return (a.original.primitive.title || "None Specified").localeCompare((b.original.primitive.title || "None Specified")) || 0
-                                    },
-                            minSize: 100,
-                        })
-
-                }
-                return columnHelper.accessor(d.field,
-                    {
-                        cell: info => <p className="truncate">{info.getValue()}</p>,
-                        header: () => d.name || d.title,
-                        sortingFn: "text",
-                        startSize: d.field === "id" ? 100 : undefined,
-                        minSize: 100,
-                    })
-            }
-        })
-    }
 
 export function PrimitiveTable(props) {
+    const [showLink, setShowLink] = useState(false)
+    const [showNew, setShowNew] = useState(false)
+    const [extraPrimitives, setExtraPrimitives] = useState([false])
 
     const nullInfo = {isResizingColumn: false,
         startOffset: null,
@@ -96,9 +40,18 @@ export function PrimitiveTable(props) {
         columnSizingStart: [],}
 
     const ids = props.primitives.map((d)=>d.id)
+
+    const linkTo = async (picked)=>{
+        if( picked ){
+            if( showLink.target ){
+                showLink.target.addRelationship(picked, showLink.path)
+            }else{
+                setExtraPrimitives([...extraPrimitives, picked] )
+            }
+        }
+    }
     
     const mapRows = (rows, columns) =>{
-
         return rows.map((d)=>{
             const metadata = d.metadata
             return columns.reduce((r, c)=>{
@@ -117,6 +70,222 @@ export function PrimitiveTable(props) {
             },{primitive: d})
         })
     }
+    const mapColumns = (columns) =>{
+        const columnHelper = createColumnHelper()
+
+        const fixed = columns.map((d)=>{
+            const width = (props.wide ? d.wideWidth : d.width) ?? 100
+                          
+            if(d.magic){
+                if( d.magic === "addresses_components"){
+                    return columnHelper.accessor(d.magic,
+                        {
+                            cell: info => {
+                                const list = info.row.original.primitive.addresses_components?.map((d)=><p className={`px-1 py-0.5 m-0.5 rounded-full text-xs text-${d.lens.base}-800 bg-${d.lens.base}-200`}>VF{d.order + 1}</p>)
+                                return <div className="flex overflow-hidden flex-wrap place-items-start">
+                                    {list}
+                                </div>
+                            },
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b,idx)=>{
+                                        return (a.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "").localeCompare(b.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "") || 0
+                                    },
+                            startSize: width,
+                            minSize: width
+                        })
+                        
+                    }
+                if( d.magic === "results"){
+                    return columnHelper.accessor(d.magic + d.resultId,
+                        {
+                            cell: info => {
+                                const primitive = info.row.original.primitive
+                                const items = primitive.primitives.results[d.resultId]?.allItems
+                                const category = primitive.metadata?.resultCategories?.[ d.resultId ]
+                                const list = items.map((d)=><PrimitiveCard textSize='xs' onClick={props.onClick ? (e)=>{e.stopPropagation(); props.onClick(e, d, primitive)} : undefined} primitive={d} compact={true} className={'mx-1 mb-2'} titleAtBase showLink/>)
+                                return <div className="flex flex-wrap w-full  place-items-start group">
+                                    {list}
+                                    <div className="flex w-full invisible group-hover:visible">
+                                        <button 
+                                            onClick={(e)=>{e.stopPropagation();setShowNew({target: primitive, type:category?.type, referenceId: category?.resultCategoryId})}}
+                                            className='flex justify-center place-items-center py-1 px-1 shrink-0 grow-0 self-center rounded-full border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                                            <PlusCircleIcon className='w-4 h-4 align-center'/>
+                                        </button>
+                                        <button 
+                                            onClick={(e)=>{e.stopPropagation();setShowLink({target: primitive, path: `results.${d.resultId}`, type:category?.type, referenceId: category?.resultCategoryId})}}
+                                            className='flex justify-center place-items-center py-1 px-1 shrink-0 grow-0 self-center rounded-full border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                                            <MagnifyingGlassIcon className='w-4 h-4 align-center'/>
+                                        </button>
+                                    </div>
+                                </div>
+                            },
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b,idx)=>{
+                                        return (a.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "").localeCompare(b.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "") || 0
+                                    },
+                            startSize: width,
+                            minSize: width
+                        })
+                        
+                    }
+            }else{
+                
+
+                if( d.field === "contact"){
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <PrimitiveCard.RenderItem compact={true} item={{type:'contact', value: info.getValue() }}/>,
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b,idx)=>{
+                                        return (a.original.primitive.referenceParameters?.contactName || "None Specified").localeCompare((b.original.primitive.referenceParameters?.contactName || "None Specified")) || 0
+                                    },
+                            startSize: width,
+                            minSize: width
+                        })
+
+                }
+                else if( d.field === "logo_title"){
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <>
+                                                <VFImage className="object-cover w-8 h-8 mr-2" src={`/api/image/${info.row.original.primitive.id}`}/>
+                                                <p className="text-md text-color-800 truncate">{info.row.original.primitive.title}</p>
+                                            </>,
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b,idx)=>{
+                                        return (a.original.primitive.title || "None Specified").localeCompare((b.original.primitive.title || "None Specified")) || 0
+                                    },
+                            startSize: width,
+                            minSize: width
+                        })
+
+                }else if(d.type === 'boolean'){
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <p className={d.wrap ? "" :"truncate"}>{info.getValue() ? <FlagIcon className="w-4 h-4 text-indigo-600"/> : ""}</p>,
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b)=>{
+                                console.log(a.getValue(d.field));
+                                return (a.getValue(d.field) ? 1 : 0) - (b.getValue(d.field) ? 1 : 0) },
+                            startSize: d.width ?? (d.field === "id" ? 100 : undefined),
+                            startSize: width,
+                            minSize: width
+                        })
+                }else if(d.type === 'state'){
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <PrimitiveCard.RenderItem compact={true} primitive={info.row.original.primitive} item={{type:'state', value: info.getValue() }}/>,
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b)=>{
+                                console.log(a.getValue(d.field));
+                                return (a.getValue(d.field) ? 1 : 0) - (b.getValue(d.field) ? 1 : 0) },
+                            startSize: d.width ?? (d.field === "id" ? 100 : undefined),
+                            startSize: width,
+                            minSize: width
+                        })
+                }else if(d.field === 'metadataInfo'){
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <PrimitiveCard.SmallMeta inline primitive={info.row.original.primitive} />,
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b)=>{
+                                console.log(a.getValue(d.field));
+                                return (a.getValue(d.field) ? 1 : 0) - (b.getValue(d.field) ? 1 : 0) },
+                            startSize: d.width ?? (d.field === "id" ? 100 : undefined),
+                            startSize: width,
+                            minSize: width
+                        })
+
+                }else{
+
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <p className={d.wrap ? "" :"truncate"}>{info.getValue()}</p>,
+                            header: () => d.name || d.title,
+                            sortingFn: "text",
+                            startSize: d.width ?? (d.field === "id" ? 100 : undefined),
+                            startSize: width,
+                            minSize: width
+                        })
+                    }
+                }
+        })
+        if(props.config.columns){
+            const plain = props.primitives.map((d)=>d.primitives.results[props.config.columns.resultId]?.allItems).flat().filter((d,i,a)=>a.findIndex((d2)=>d2.id === d.id) === i)
+            const category = props.primitives[0]?.metadata.resultCategories[props.config.columns.resultId]
+            const items = [plain, extraPrimitives].flat().filter((d)=>d)
+            const lastItem = items.length - 1
+            const dynamic = items.map((d, idx)=>{
+                const width = (props.wide ? 200  : 100) 
+
+                console.log(category)
+
+                return columnHelper.accessor(d.id,
+                    {
+                        cell: info => {
+                            const primitive = info.row.original.primitive
+                            const path = `results.${props.config.columns.resultId}`
+                            
+                            return(<div className="flex h-6 items-center w-full justify-center">
+                                <input
+                                    aria-describedby="comments-description"
+                                    type="checkbox"
+                                    checked={d.parentPrimitiveIds.includes(primitive.id)}
+                                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                                    onClick={(e)=>e.stopPropagation()}
+                                    onChange={(e)=>{
+                                        console.log(e.nativeEvent)
+                                        e.nativeEvent.stopPropagation()
+                                        if( d.parentPrimitiveIds.includes(primitive.id) ){
+                                            primitive.removeRelationship(d, path)
+                                        }else{
+                                            primitive.addRelationship(d, path)
+                                        }
+                                    }
+
+                                    }
+                                />
+                            </div>)
+                        },
+                        header: () => {
+                            return (<div className="flex w-full">
+                                <PrimitiveCard disableHover textSize='xs' onClick={props.onClick ? (e)=>{e.stopPropagation(); props.onClick(e, d)} : undefined} primitive={d} compact={true} className={'mx-1 mb-2 w-full'} titleAtBase showLink/>
+                            </div>)
+                        },
+                        sortingFn: (a,b,idx)=>{
+                                    return (a.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "").localeCompare(b.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "") || 0
+                                },
+                        startSize: width,
+                        minSize: width
+                    })
+                    
+            })
+            dynamic.push(
+                columnHelper.accessor("add",
+                    {
+                        cell: info => {},
+                        header: () => {
+                            return (<div className="flex flex-col w-fit">
+                                        <button 
+                                            onClick={(e)=>{e.stopPropagation();setShowNew({type:category?.type, referenceId: category?.resultCategoryId})}}
+                                            className='flex justify-center place-items-center py-1 px-1 shrink-0 grow-0 self-center rounded-full border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                                            <PlusCircleIcon className='w-4 h-4 align-center'/>
+                                        </button>
+                                        <button 
+                                            onClick={(e)=>{e.stopPropagation();setShowLink({type:category?.type, referenceId: category?.resultCategoryId})}}
+                                            className='flex justify-center place-items-center py-1 px-1 shrink-0 grow-0 self-center rounded-full border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                                            <MagnifyingGlassIcon className='w-4 h-4 align-center'/>
+                                        </button>
+                            </div>)
+                        },
+                        startSize: 20,
+                        minSize: 20
+                    })
+            )
+            return [fixed, dynamic].flat()
+        }
+        return fixed
+    }
 
     const [totalWidth, setTotalWidth] = useState( null )
     const [selected, setSelected] = useState( null )
@@ -124,9 +293,9 @@ export function PrimitiveTable(props) {
     const [sorting, setSorting] = useState([])
     const [count, forceUpdate] = useReducer( (x)=>x+1, 0)
     const gridRef = useRef()
-    const columns = useMemo( ()=>mapColumns(props.columns) )
-    const data = useMemo( ()=>mapRows(props.primitives, props.columns), [ids.join("_"), count] )
-    useDataEvent('set_title set_parameter', ids, forceUpdate)
+    const columns = useMemo( ()=>mapColumns(props.config.fields), [props.primitive, extraPrimitives.map((d)=>d.id).join('-')] )
+    const data = useMemo( ()=>mapRows(props.primitives, props.config.fields), [ids.join("_"), count] )
+    useDataEvent('set_title set_parameter relationship_update', ids, forceUpdate)
 
 
      const table = useReactTable({
@@ -159,11 +328,10 @@ export function PrimitiveTable(props) {
             const eWidths = {}
             const style = window.getComputedStyle(gridRef.current.parentElement)
             const parentWidth = parseInt(style.width) - parseInt(style.paddingLeft) - parseInt(style.paddingRight) - 20
-            console.log(`set to ${parentWidth}`)
-            console.log(gridRef.current)
             setTotalWidth(parentWidth)
             Array.from(gridRef.current.children).slice(1, columns.length).forEach((el, idx)=>{
-                eWidths[columns[idx].accessorKey] = columns[idx].startSize || parentWidth / columns.length 
+                eWidths[columns[idx].accessorKey] = columns[idx].startSize ? (columns[idx].startSize < 1 ? columns[idx].startSize * parentWidth : columns[idx].startSize) : parentWidth / columns.length 
+                console.log(columns[idx].accessorKey, columns[idx].startSize,parentWidth,eWidths[columns[idx].accessorKey])
             })
 
             table.setColumnSizing( eWidths )
@@ -230,14 +398,15 @@ export function PrimitiveTable(props) {
     },[selected])
 
     const handleClick = (e, primitive) => {
-        setTimeout(()=>{
+        console.log('click')
+       /* setTimeout(()=>{
         switch (e.detail) {
-          case 1:
+          case 1:*/
             setSelected(primitive.id)
             if( props.onClick ){
                 props.onClick( e, primitive )
             }
-            break;
+           /* break;
           case 2:
             if(props.onDoubleClick){
                 const list = table.getRowModel().rows.map((d)=>d.original.primitive)
@@ -245,7 +414,7 @@ export function PrimitiveTable(props) {
             }
             break;
         }
-        },props.onDoubleClick ? 200 : 0)
+        },props.onDoubleClick ? 200 : 0)*/
       };
 
 
@@ -255,7 +424,10 @@ export function PrimitiveTable(props) {
         }
       }
 
+      const alignTop = props.config.align === "top"
+
     return (
+        <>
         <div key="table" className={`p-2 bg-white rounded-md overflow-y-scroll `}>
         <div 
             ref={gridRef}
@@ -280,7 +452,7 @@ export function PrimitiveTable(props) {
                         >
                     {header.isPlaceholder
                         ? null
-                        : <p>{flexRender(header.column.columnDef.header,header.getContext())}</p>
+                        : <div className="myheader select-none">{flexRender(header.column.columnDef.header,header.getContext())}</div>
                     }
                         {
                             {
@@ -332,8 +504,7 @@ export function PrimitiveTable(props) {
                                 id={`r_${primId}`}
                                 onClick={(e)=>handleClick(e, primitive)}
                                 onBlur={updateFocus}
-                                //onDoubleClick={props.onDoubleClick ? ()=>props.onDoubleClick(prim) : undefined}
-                                className={`p-2 py-3 border-b group-hover:bg-gray-100 border-gray-100 outline-none flex place-items-center ${selected === primId ? "bg-ccgreen-100" : ""}`}
+                                className={`p-2 py-3 border-b group-hover:bg-gray-100 border-gray-100 outline-none flex ${alignTop ? "" : "place-items-center"} ${selected === primId ? "bg-ccgreen-100" : ""}`}
                                 key={cell.id}
                                 >
                                     {flexRender(cell.column.columnDef.cell,cell.getContext())}
@@ -345,5 +516,8 @@ export function PrimitiveTable(props) {
             )})}
         </div>
         </div>
+        {showLink && <PrimitivePicker target={showLink.target} callback={linkTo} setOpen={setShowLink} type={showLink.type} referenceId={showLink.resultCategoryId} />}
+        {showNew && <NewPrimitive parent={showNew.target} category={showNew.referenceId} title={showNew.type} type={showNew.type} done={(d)=>{setShowNew(false);if(!showNew.target){setExtraPrimitives([...extraPrimitives, d])}}} cancel={()=>setShowNew(false)}/>}
+        </>
    )
 }

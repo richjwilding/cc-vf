@@ -258,7 +258,6 @@ export default function PrimitiveParser(obj){
 
                         const addNode = ( last, step, prevLast, prevStep)=>{
                             let underlying = last.underlying
-                            console.log(`adding ${step}`)
                             if( Array.isArray(underlying ) ){
                                 if( underlying.length === 0 && prevLast ){
                                     if( Array.isArray(prevLast) ){

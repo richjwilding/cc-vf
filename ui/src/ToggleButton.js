@@ -7,7 +7,7 @@ function classNames(...classes) {
 export default function TooggleButton({enabled, setEnabled, ...props}) {
 
   return (
-    <Switch.Group as="div" className="flex items-center">
+    <Switch.Group as="div" className={`flex items-center ${props.className}`}>
       <Switch
         checked={enabled}
         onChange={setEnabled}

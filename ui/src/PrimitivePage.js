@@ -32,6 +32,7 @@ import ReportView from './ReportView';
 import EditableTextField from './EditableTextField';
 import HierarchyView from './HierarchyView';
 import PrimitiveConfig from './PrimitiveConfig';
+import VFTable from './VFTable';
 
 
 let mainstore = MainStore()
@@ -90,10 +91,14 @@ export function PrimitivePage({primitive, ...props}) {
 
     const doFullScreenExplore = (val)=>{
       if( val ){
+        if( val === 'assessment_table'){
+          return true
+        } 
         if( val === 'evidence'){
           return true
         } 
         if( val.type === "result"){
+          return true
           return primitive.metadata?.resultCategories?.[val.index]?.views?.options?.fullPageExplorer
         }
       }
@@ -108,7 +113,6 @@ export function PrimitivePage({primitive, ...props}) {
       setShowWorkingPaneReal(value)
       if( props.setWidePage ){
         const fullScreenExplore = PrimitiveConfig.pageview[primitive.type]?.defaultWide ?? doFullScreenExplore(value) 
-        console.log(fullScreenExplore)
         props.setWidePage( fullScreenExplore ? "always" : value )
       }
     })
@@ -139,9 +143,6 @@ export function PrimitivePage({primitive, ...props}) {
       mainstore.setActiveWorkspaceFrom( primitive )
     }, [primitive.id, hasDocumentViewer])
 
-    /*const registerCallbacks = ()=>{
-      callbackId.current = mainstore.registerCallback(callbackId.current, "relationship_update", updateRelationships, primitive.id )
-    }*/
 
     if( activePrim !== primitive.id ){
       setActivePrim(primitive.id)
@@ -211,11 +212,6 @@ export function PrimitivePage({primitive, ...props}) {
                     { !primitive.isTask && task && task.id !== primitive.origin.id && 
                         <Panel key='relatedTask' title={`Related ${task.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
                           <PrimitiveCard variant={false} compact={true} primitive={task}  disableHover={true} showLink={true}/>
-                        </Panel>
-                    }
-                    { false && primitive.type === "assessment" && primitive.venture && 
-                        <Panel key='relatedVenture' title={`Related ${primitive.venture.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
-                          <PrimitiveCard compact={true} primitive={primitive.venture}  disableHover={true} showLink={true}/>
                         </Panel>
                     }
                   </div>
@@ -307,10 +303,13 @@ export function PrimitivePage({primitive, ...props}) {
                             return <></>
                           }
                         }
-                        return (<ComponentRow onClick={()=>{setShowWorkingPane('assessment');setComponentView(c)}} primitive={primitive} compact={true} evidenceDetail={false} key={c.id} component={c}/>)
+                        return (<ComponentRow showStats onClick={()=>{setShowWorkingPane('assessment');setComponentView(c)}} primitive={primitive} compact={true} evidenceDetail={false} key={c.id} component={c}/>)
                         })
                       }                    
                     </Panel>}
+              {primitive.type === "assessment" && primitive.framework &&
+                                    <Panel.MenuButton title='Table' action={()=>setShowWorkingPane("assessment_table")}/>
+              }
 
               {primitive.metadata?.resultCategories && primitive.metadata.resultCategories.map((category,idx)=>{
                 return !(showWorkingPane instanceof Object && showWorkingPane.type === "result" && showWorkingPane.index === idx) ?
@@ -531,18 +530,6 @@ export function PrimitivePage({primitive, ...props}) {
                     ].join(" ")}
                 >
                 <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col @container'>
-                    {false && showWorkingPane === "evidence" && !primitive.clusters &&
-                          <PrimitiveExplorer 
-                            closeButton={()=>setShowWorkingPane(false)} 
-                            allowedCategoryIds={nestedEvidence.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} 
-                            list={nestedEvidence} 
-                            onCardClick={(p)=>props.selectPrimitive(p)}  
-                            primitive={primitive} 
-                            fields={['important', 'top']}/>
-                    }
-                    {false && showWorkingPane === "evidence" && primitive.clusters &&
-                          <HierarchyView primitive={primitive}/>
-                    }
                     {showWorkingPane === "evidence" && 
                       <CollectionViewer 
                           closeButton={()=>setShowWorkingPane()}
@@ -563,6 +550,9 @@ export function PrimitivePage({primitive, ...props}) {
                     }
                     {showWorkingPane === "report" &&
                       <ReportView primitive={primitive}/>
+                    }
+                    {showWorkingPane === "assessment_table" &&
+                      <VFTable primitive={primitive}/>
                     }
                     {hasDocumentViewer && (typeof(showWorkingPane) === 'boolean')  && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
                     {showWorkingPane === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}

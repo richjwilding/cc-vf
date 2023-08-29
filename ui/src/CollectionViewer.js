@@ -11,12 +11,17 @@ import HierarchyView from "./HierarchyView";
 import { HeroIcon } from "./HeroIcon";
 import TooggleButton from "./ToggleButton";
 import ProximityView from "./ProximityView";
+import {PlusCircleIcon, MagnifyingGlassIcon} from "@heroicons/react/24/outline";
+import NewPrimitive from "./NewPrimitive";
+import PrimitiveConfig from "./PrimitiveConfig";
+import PrimitivePicker from "./PrimitivePicker";
 
-const allViews = ["cluster", "explore", "cards","table", "list", "proximity" ]
+const allViews = ["cluster", "explore", "cards","table","table_grid", "list", "proximity" ]
 const icons = {
     "explore": <RectangleGroupIcon className="w-5 h-5"/>,
     "cluster": <HeroIcon icon='Nest' className="w-5 h-5"/>,
     "table": <TableCellsIcon className="w-5 h-5"/>,
+    "table_grid": <TableCellsIcon className="w-5 h-5"/>,
     "list": <ListBulletIcon className="w-5 h-5"/>,
     "cards": <HeroIcon icon='LargeGrid' className="w-5 h-5"/>,
 }
@@ -25,6 +30,8 @@ export default function CollectionViewer({primitive, category, ...props}){
     const mainstore = MainStore()
     const [descend, setDescend] = useState(category ? category.descend : undefined)
     const [page, setPage] = useState(0)
+    const [showNew, setShowNew] = useState(false)
+    const [showLink, setShowLink] = useState(false)
     let showDescend = category?.views?.options?.descend
 
     if( category === undefined){
@@ -129,9 +136,16 @@ export default function CollectionViewer({primitive, category, ...props}){
     }
 
     const createResult = async( options = {}, open = false )=>{
+        const type = resultCategory?.primitiveType ?? category.type ?? "result"
+
+        if( PrimitiveConfig.typeConfig[type]?.needCategory && !resultCategory){
+            setShowNew( type )
+            console.log("SHOW NEW")
+            return
+        }
         const newObj = await mainstore.createPrimitive({
             parent: primitive,
-            type: resultCategory?.primitiveType ?? category.type ?? "result",
+            type: type,
             title: options.title || `New ${category.title}`,
             categoryId: resultCategory?.id,
             referenceParameters: options.referenceParameters
@@ -141,12 +155,15 @@ export default function CollectionViewer({primitive, category, ...props}){
         }
 
     }
+    const linkTo = async (picked)=>{
+        console.log(`got `, picked)
+    }
 
     let title = category.plurals
     let createButtons
 
-    if( resultCategory && !props.hidePanel ){
-        title = (resultCategory.openai || resultCategory.doDiscovery) 
+    if(  !props.hidePanel ){
+        title = resultCategory && (resultCategory.openai || resultCategory.doDiscovery) 
         ? <div className='flex place-items-center'>
                     {category.plurals || category.title}
                     <button
@@ -159,15 +176,21 @@ export default function CollectionViewer({primitive, category, ...props}){
                 : category.plurals || category.title
                 
                 createButtons = [{title:"Create new", action: ()=>createResult(undefined, true)}]
-                if( resultCategory.parameters.notes ){
-                    createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
+                if( category?.views?.options?.showLink ){
+                        createButtons.push( {title: "Link existing", action: ()=>setShowLink(true)} )
+
                 }
-                
-                (primitive.metadata.actions || []).forEach((d)=>{
-                    if( d.canCreate && d.resultCategory === resultCategory.id){
-                        createButtons.push( {title: d.title, action: async ()=>await mainstore.doPrimitiveAction(primitive, d.key, {path: `results.${category.id}`})})
+                if( resultCategory ){
+                    if( resultCategory.parameters.notes ){
+                        createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
                     }
-                })
+                    
+                    (primitive.metadata.actions || []).forEach((d)=>{
+                        if( d.canCreate && d.resultCategory === resultCategory.id){
+                            createButtons.push( {title: d.title, action: async ()=>await mainstore.doPrimitiveAction(primitive, d.key, {path: `results.${category.id}`})})
+                        }
+                    })
+                }
     }
 
     const pageItems = view ==="table" && !props.defaultWide ? 25 : 100
@@ -205,13 +228,32 @@ export default function CollectionViewer({primitive, category, ...props}){
             </div>}
             {(list === undefined || list.length === 0)  
             ? <div className='w-full p-2'>
-                    <button
+                    {!category?.views?.options?.showLink && <button
                         type="button"
                         onClick={()=>createResult(undefined, true)}
-                        className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        className="relative flex place-items-center justify-center w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-gray-400 hover:text-gray-600"
                     >
-                    <span className="mt-2 block text-sm font-semibold text-gray-900">Create a new {category.title}</span>
-                    </button>
+                        <PlusCircleIcon className='w-6 h-6 align-center mr-2'/>
+                        <span className="text-sm font-semibold ">Create a new {category.title}</span>
+                    </button>}
+                    {category?.views?.options?.showLink && <div
+                        className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-8 flex justify-center"
+                    >
+                        <div className='w-fit'>
+                            <button 
+                                onClick={()=>createResult(undefined, true)}
+                                className='flex justify-center place-items-center py-2 px-2 shrink-0 grow-0 self-center rounded-md border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                                <PlusCircleIcon className='w-6 h-6 align-center mr-2'/>
+                                <span className="text-sm">Create a new {category.title}</span>
+                            </button>
+                            <button 
+                                onClick={()=>setShowLink(true)}
+                                className='flex justify-center place-items-center py-2 px-2 shrink-0 grow-0 self-center rounded-md border border-transparent hover:border-gray-300 font-medium text-gray-400 hover:text-gray-600 hover:shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'>
+                                <MagnifyingGlassIcon className='w-6 h-6 align-center mr-2'/>
+                                <span className="text-sm">Link existing {category.title}</span>
+                            </button>
+                        </div>
+                    </div>}
                 </div>
             : <>
                 {
@@ -219,10 +261,23 @@ export default function CollectionViewer({primitive, category, ...props}){
                     <PrimitiveTable 
                         onDoubleClick={props.onNavigate} 
                         onEnter={previewFromList} 
-                        columns={cardConfig.fields} 
+                        config={cardConfig} 
                         page={page}
                         pageItems={pageItems}
                         onClick ={props.onShowInfo}
+                        wide={props.defaultWide}
+                        onInnerCardClick ={props.onInnerShowInfo}
+                        primitives={list} className='w-full min-h-[24em] bg-white'/> 
+                }
+                {view === "table_grid" && 
+                    <PrimitiveTable 
+                        onDoubleClick={props.onNavigate} 
+                        onEnter={previewFromList} 
+                        config={cardConfig} 
+                        page={page}
+                        pageItems={pageItems}
+                        onClick ={props.onShowInfo}
+                        wide={props.defaultWide}
                         onInnerCardClick ={props.onInnerShowInfo}
                         primitives={list} className='w-full min-h-[24em] bg-white'/> 
                 }
@@ -284,6 +339,8 @@ export default function CollectionViewer({primitive, category, ...props}){
                 />}
             </>
         }
+        {showNew && <NewPrimitive parent={primitive} title={showNew} type={showNew} done={()=>setShowNew(false)} cancel={()=>setShowNew(false)}/>}
+        {showLink && <PrimitivePicker callback={linkTo} setOpen={setShowLink} type={category?.type} referenceId={category?.resultCategoryId} />}
      </>
 
     

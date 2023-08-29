@@ -58,6 +58,7 @@ export function ComponentRow(props) {
     
     let current_level = c.levels[currentLevelId]
     let current_level_idx = levels.findIndex((d)=>d.id === currentLevelId)
+    const showStats = props.showStats
 
     const [fullTextIdx, setFullTextIdx] = React.useState(current_level_idx)
 
@@ -130,7 +131,9 @@ export function ComponentRow(props) {
     const mini = true
     const compact = props.compact 
     const editable = (!props.compact && props.primitive)
-    const hypothesis_list = (!props.compact && props.primitive) ? props.primitive.primitives.hfc[c.id].allUniqueHypothesis : []//
+    const hypothesis_list = ((!props.compact || showStats )&& props.primitive) ? props.primitive.primitives.hfc[c.id].allUniqueHypothesis : []//
+    const hypothesis_count = hypothesis_list.length
+    const activity_count = showStats ? hypothesis_list.map((d)=>d.primitives.allActivity).flat().filter((d,i,a)=>a.findIndex((d2)=>d2.id===d.id)===i).length : undefined
 
     useDataEvent("relationship_update", hypothesis_list.map((d)=>d.id) )
 
@@ -211,11 +214,9 @@ export function ComponentRow(props) {
     const expandIdx = props.showFullText ? fullTextIdx : current_level_idx
     let columnMap
     if( compact ){
-      columnMap = `8em repeat(${last_index}, 1fr) 0.5fr`
+      columnMap = `8em repeat(${last_index}, 1fr) 0.5fr ${showStats ? 'min-content' : ''}`
     }else{
       const mainColumn = props.showFullText ? `calc(100% - ${(18 + (levels.length - 1) * 2.5)}rem)` : "4fr"
-      columnMap = `18em ${expandIdx > 0 ? `repeat(${expandIdx }, minmax(min-content,1fr))` : ''} minmax(min-content,${mainColumn}) ${expandIdx < last_index ? `repeat(${last_index - expandIdx}, minmax(min-content,1fr))` : ''}`
-      columnMap = `18em ${expandIdx > 0 ? `repeat(${expandIdx }, min-content)` : ''} auto ${expandIdx < last_index ? `repeat(${last_index - expandIdx}, min-content)` : ''}`
       columnMap = `18em repeat(${levels.length }, min-content)`
     }
 
@@ -225,24 +226,26 @@ export function ComponentRow(props) {
         <li key={c.id} 
           onClick={props.onClick}
           className={[compact ? "cursor-pointer" :"",
-                      "rounded-md @container group duration-200 bg-white flex ",
+                      showStats ? "" : 'pr-4',
+                      "@container group duration-200 bg-white flex ",
                       compact ? `${mini ? 'pb-3' : 'pt-3 pb-3'}` : "pt-6 pb-5 h-full",
                       props.showFullText ? "" : `hover:bg-${color.base}-50`,
                       `active:bg-white border border-transparent border-b-gray-200 hover:border-${color.base}-500 active:border-${color.base}-600 hover:border-[1px]`
                     ].join(" ")}
         >
         <div  key='grid' ref={gridRef} 
-              className={`relative grid scrollbar-hide w-full pr-4 overflow-x-auto ${compact ? "overflow-y-hidden" : "overflow-y-auto"} transition-[min-height] duration-[300ms] min-h-[3.5em] `} 
+              className={`relative grid scrollbar-hide w-full overflow-x-auto ${compact ? "overflow-y-hidden" : "overflow-y-auto"} transition-[min-height] duration-[300ms] min-h-[3.5em] `} 
                 style={{
-                  gridTemplateRows: compact ? undefined : `repeat(${hypothesis_list.length + 1}, min-content) max-content` , 
+                  gridTemplateRows: compact ? undefined : `repeat(${hypothesis_count + 1}, min-content) max-content` , 
                   gridTemplateColumns: columnMap 
                 }}
           >
-          <div key='header' className={`ccheaderrow col-start-1 row-start-1 pl-4 bg-white left-0 top-0 sticky z-[25] relative w-full}`}>
+          <div key='header' className={`ccheaderrow col-start-1 row-start-1 pl-4 bg-white left-0 top-0 sticky z-[25] relative w-full} ${(props.compact && props.showInfo) ? "min-h-[6rem]" : "" }`}>
             <p className={`text-sm px-2 ${mini ? `mt-6 text-${color.base}-50 bg-${color.base}-600 py-0 font-bold` : `py-1 text-${color.base}-900`}`}>VF{c.order + 1}:{c.title}</p>
             {!mini && <div className='-mt-1 h-5 w-full' style={{background: color.header}}></div>}
-            {!compact && 
-                <p className={`ccleveltitle current mt-1 px-2 py-1 uppercase text-sm font-light leading-6 text-${color.base}-900` }>{c.description}</p>
+            {(!compact || props.showInfo) && 
+                <p 
+                  className={`ccleveltitle current mt-1 px-2 py-1 uppercase text-sm font-light leading-6 text-${color.base}-900 ${(props.compact && props.showInfo) ? "fixed" : "" }` }>{c.description}</p>
               }
             {!compact && 
               <span 
@@ -270,9 +273,9 @@ export function ComponentRow(props) {
               ></div>
               }
           </div>
-              {hypothesis_list.map((h)=>(
+              {!compact && hypothesis_list.map((h)=>(
                 <div key={h.id} className="bg-white col-start-1 sticky z-10 left-0 px-4 py-1">
-                  <PrimitiveCard primitive={h} bigMargin={true} ringColor={color.base} compact={true}  onClick={props.selectPrimitive ? ()=>props.selectPrimitive(h, {unlink:(p)=>unlinkHypothesis(p)}) : undefined}/>
+                  <PrimitiveCard primitive={h} fields={["title","important"]} bigMargin={true} ringColor={color.base} compact={true}  onClick={props.selectPrimitive ? ()=>props.selectPrimitive(h, {unlink:(p)=>unlinkHypothesis(p)}) : undefined}/>
                 </div>
               ))
             }
@@ -285,7 +288,7 @@ export function ComponentRow(props) {
             {<motion.div 
                   key='progress' 
                   id='progress' 
-                  layout
+                  layout='size'
                   className={`absolute bg-${color.base}-600 h-5 top-6 sticky z-20 row-start-1 col-start-2`} 
                   style={{
                     width: 'calc(100% - 2px)',
@@ -295,7 +298,7 @@ export function ComponentRow(props) {
             {<motion.div 
                   key='progress2' 
                   id='progress2' 
-                  layout
+                  layout='size'
                   className={`top-6 h-5 sticky z-20 row-start-1 col-start-2 w-full`} 
                   style={{
                     gridColumnStart: 2 + current_level_idx,
@@ -361,7 +364,7 @@ export function ComponentRow(props) {
                     if( !expand || idx == levels.length - 1 ){
                       let height = (min ? [...gridRef.current.querySelectorAll(`.ccheaderrow .ccleveltitle.current`)] : [...gridRef.current.querySelectorAll(`.ccheaderrow .ccleveltitle`)]).map((n)=>n.offsetHeight + 85 + (props.showFullText ? 20 : 0 ))
                       let max_h = height.reduce((a,b)=>b > a ? b : a, 0)
-                      gridRef.current.style.setProperty('grid-template-rows', `${max_h}px repeat(${hypothesis_list.length}, min-content) max-content`, 'important')
+                      gridRef.current.style.setProperty('grid-template-rows', `${max_h}px repeat(${hypothesis_count}, min-content) max-content`, 'important')
                       
                     }
                   }}
@@ -389,7 +392,11 @@ export function ComponentRow(props) {
                 }
               </div>
             )})}
-            { hypothesis_list && levels.map((l, idx) => {
+            {showStats && compact && <div className='px-2 bg-white flex flex-col p-1 justify-evenly	'>
+                <div className={`rounded-full ${hypothesis_count !== 0 ? `bg-${color.base}-50 text-gray-500` : `bg-${color.base}-100 text-gray-700`} shadow-sm w-max  text-[0.65rem] px-1 py-0.5`}>{hypothesis_count} {hypothesis_count === 1 ? "Hypothesis" : "Hypotheses"}</div>
+                <div className={`rounded-full ${activity_count !== 0 ? `bg-${color.base}-50 text-gray-500` : `bg-${color.base}-100 text-gray-700`}  shadow-sm w-max  text-[0.65rem] px-1 py-0.5`}>{activity_count} {activity_count === 1 ? "Activity" : "Activities"}</div>
+              </div>}
+            { !compact && hypothesis_list && levels.map((l, idx) => {
                 return hypothesis_list.map((h, row)=>{
                   const thisLevel = l.id === currentLevelId
 //                  let evidence = em ? em[l.id] : undefined

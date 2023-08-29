@@ -11,6 +11,7 @@ import useDataEvent from './CustomHook';
 import MyCombo from './MyCombo';
 import TooggleButton from './ToggleButton';
 import { roundCurrency } from './RenderHelpers';
+import { itemsForGraph, projectData } from './SegmentCard';
 
 
 const mainstore = MainStore()
@@ -68,34 +69,38 @@ export default function PrimitiveExplorer({primitive, ...props}){
     let items = React.useMemo(()=>{
         let out = baseItems
         let keep = []
-        layerNestPreventionList.current = {}
-        if( layerSelection > 0){
-            const unpackLayer = (thisLayer)=>{
-                return thisLayer.map((d)=>{
-                    const children = d.primitives.allSegment
-                    if( children.length > 0){
-                        if( d.primitives.ref.allItems.length > 0){
-                            if( !keep.find((d2)=>d2.id === d.id) ){
-                                keep.push(d)
-                            }
-                            layerNestPreventionList.current[d.id] = true
-                        }
-                        return children
-                    }
-                    return d
-                }).flat()
+        if(layers){
+            layerNestPreventionList.current = {}
+            if( layerSelection === 0){
+                out = [primitive]
             }
-            if( layers[layerSelection].items){
-                out = baseItems.map((d)=>d.nestedItems).flat()
-            }else{
-
-                for( let a = 0; a < layerSelection; a++){
-                    out = unpackLayer(out)
+            if( layerSelection > 1){
+                const unpackLayer = (thisLayer)=>{
+                    return thisLayer.map((d)=>{
+                        const children = d.primitives.allSegment
+                        if( children.length > 0){
+                            if( d.primitives.ref.allItems.length > 0){
+                                if( !keep.find((d2)=>d2.id === d.id) ){
+                                    keep.push(d)
+                                }
+                                layerNestPreventionList.current[d.id] = true
+                            }
+                            return children
+                        }
+                        return d
+                    }).flat()
+                }
+                if( layers[layerSelection].items){
+                    out = baseItems.map((d)=>d.nestedItems).flat()
+                }else{
+                    
+                    for( let a = 0; a < (layerSelection - 1); a++){
+                        out = unpackLayer(out)
+                    }
                 }
             }
+            console.log(`HAD ${baseItems.length} now ${out.length}`)
         }
-        console.log(`HAD ${baseItems.length} now ${out.length}`)
-        console.log(keep.map((d)=>d.id))
         return [out,keep].flat()
     },[primitive.id, update, layerSelection])
     
@@ -391,7 +396,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }, primitive.type === "segment" ? 150 : 0)
         }
 
-    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds, update, layerSelection])
+    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds, update, layerSelection, activeView])
 
     function rebuildPrimitivePosition(){
         myState.current.primitivePositions = rebuildPosition('.pcard')
@@ -698,6 +703,21 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const viewConfigs = props.category?.views.options?.["explore"]?.configs
     const viewConfig = viewConfigs?.[activeView]
     const renderProps = viewConfig?.props ?? defaultRenderProps[ (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default" ]
+    
+    useMemo(()=>{
+
+        if(renderProps?.details?.sync){
+            console.log(`GOT SYNC`)
+            renderProps.details["x-axis"].minimum = list.map((d)=>{
+                const thisItems = itemsForGraph(renderProps.details.pivot, d.primitive.nestedItems ?? [])
+                
+                const xs = thisItems.map((d)=>projectData(d, renderProps.details["x-axis"])).flat().filter((d=>d))
+                return xs.reduce((a,c)=>!a || c < a ? c : a, undefined)
+            }).reduce((a,c)=>!a || c < a ? c : a, undefined)
+        }
+    },[primitive.id, update, layerSelection])
+
+    const enableClick = !renderProps?.graph
 
 
   return (
@@ -755,11 +775,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                 return <div 
                                         style={
                                             viewAsSegments
-                                                ? { 
-                                                        display: "grid",
-                                                        gridAutoFlow: "dense",
-                                                        gridTemplateColumns: `repeat(${Math.floor(1.5 * Math.sqrt(columnColumns[cIdx]))}, 1fr )`
-                                                    }
+                                                ? 
+                                                   ( viewConfig?.parameters?.fixedSpan
+                                                    ? {
+                                                        minWidth: '900px'
+                                                        }
+                                                    : { 
+                                                        columns:1
+                                                    })
                                                 : {columns: Math.max(2, Math.floor(Math.sqrt(columnColumns[cIdx])))}
                                         } 
                                         id={`${cIdx}-${rIdx}`}                                        
@@ -776,7 +799,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                     return props.render( item, staggerScale)
                                                 }
                                                 let spanning = ""
-                                                if( viewConfig?.parameters?.span ){
+                                                if( viewConfig?.parameters?.fixedSpan ){
+                                                    spanning= 'w-full'
+                                                }else if( viewConfig?.parameters?.span ){
                                                     if( wrapped.nestedCount > 10 ){
                                                         spanning ='col-span-2'
                                                         if( wrapped.nestedCount > 100 ){
@@ -792,7 +817,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 fullId 
                                                 key={item.id} 
                                                 border={false} 
-                                                directOnly={layerNestPreventionList.current[item.id]}
+                                                directOnly={layerNestPreventionList?.current ? layerNestPreventionList.current[item.id] : false}
                                                 primitive={item} 
                                                 scale={staggerScale} 
                                                 fields={fields} 
@@ -806,13 +831,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                     }
                                                     MainStore().sidebarSelect( p, {scope: primitive} )
                                                 }}
-                                                onClick={ (e, p)=>{
+                                                onClick={ enableClick ? (e, p)=>{
                                                     if( myState.current?.cancelClick ){
                                                         myState.current.cancelClick = false
                                                         return
                                                     }
                                                     MainStore().sidebarSelect( p, {scope: primitive} )
-                                                }}/>
+                                                } : undefined}/>
                                             })}
                                         </div>
                         })}

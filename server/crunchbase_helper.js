@@ -627,6 +627,7 @@ export async function extractArticlesFromCrunchbase(primitive, options = {}, for
                     title: update.title,
                     referenceParameters:{
                         url: update.url,
+                        posted: update.posted_on,
                         source:"Crunchbase Profile",
                         fullText: undefined
                     }

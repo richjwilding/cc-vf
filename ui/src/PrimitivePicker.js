@@ -40,6 +40,12 @@ const SearchPanel = (props)=>{
       action: (p)=>p.type === props.type || (props.root && props.root.id === p.id)
     })
   }
+  if( props.referenceId ){
+    filterSet.push({
+      name: "Type",
+      action: (p)=>p.referenceId === props.referenceId || (props.root && props.root.id === p.id)
+    })
+  }
 
   if( props.hasResultCategoryFor ){
     filterSet.push({
@@ -48,6 +54,24 @@ const SearchPanel = (props)=>{
     })
   }
 
+  if( props.target){
+    const ids = props.target.primitives.allIds
+    const parentChain = props.target.findParentPrimitives().map((d)=>d.id).filter((d,i,a)=>a.indexOf(d)===i)
+    filterSet.push({
+      name: "Parent chain",
+      action: (p)=>{
+        if( parentChain.includes(p.id)){
+          console.log(`Cant create circular reference`)
+          return false
+        }
+        return true
+      }
+    })
+    filterSet.push({
+      name: "Already linked",
+      action: (p)=>!ids.includes(p.id)
+    })
+  }
   if( props.primitive){
     filterSet.push({
       name: "Already linked",
@@ -73,12 +97,10 @@ const SearchPanel = (props)=>{
   }
 
   const primitives = useMemo(()=>{
-    console.log(props)
     const seed = ()=>{
       if( props.root ){
         let directs
         let thisRoot = props.root.primitives
-        console.log('hello')
         if( props.path){
           thisRoot = thisRoot[props.path]
           console.log(thisRoot)

@@ -1049,6 +1049,11 @@ export async function createPrimitive( data, req ){
                     throw new Error(`Cant create '${type}' with parent of type '${parentPrimitive.type}'`)
                 }
             }
+            if( config.defaultReferenceId ){
+                if( data.data.referenceId === undefined){
+                    data.data.referenceId = config.defaultReferenceId
+                }
+            }
 
         }
         if( type === "assessment" && data.data.frameworkId === undefined){
@@ -1066,6 +1071,10 @@ export async function createPrimitive( data, req ){
             }else{
                 data.paths = []
             }
+        }
+        if( config?.createAtWorkspace){
+            data.paths = data.paths.filter((p)=>p !== 'origin')
+            console.log(data.paths)
         }
         
         const paths = data.paths.map((p)=>flattenPath( p ))

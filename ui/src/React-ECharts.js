@@ -7,6 +7,10 @@ export function ReactECharts({
   style,
   settings,
   loading,
+  update,
+  renderer,
+  clickCallback,
+  ref,
   theme})
   {
   const chartRef = useRef(null);
@@ -15,7 +19,11 @@ export function ReactECharts({
     // Initialize chart
     let chart;
     if (chartRef.current !== null) {
-      chart = init(chartRef.current, theme, {renderer: "svg"});
+      chart = init(chartRef.current, theme, {renderer: renderer ?? "svg"});
+      chart.on('click', function (params) {
+        clickCallback(params)
+    });
+    
     }
 
     // Add chart resize listener
@@ -27,10 +35,11 @@ export function ReactECharts({
 
     // Return cleanup function
     return () => {
+      console.log("DISPOSING.....")
       chart?.dispose();
       window.removeEventListener("resize", resizeChart);
     };
-  }, [theme]);
+  }, [theme,update, renderer]);
 
   useEffect(() => {
     // Update chart
@@ -49,5 +58,5 @@ export function ReactECharts({
     }
   }, [loading, theme]);
 
-  return <div ref={chartRef} style={{ width: "100%", height: "100%", ...style }} />;
+  return <div data-update={update} ref={chartRef} style={{ width: "100%", height: "100%", ...style }} />;
 }

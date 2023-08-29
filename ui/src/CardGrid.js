@@ -57,6 +57,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
         }
     }        
     
+    console.log(fields)
     
     if( fields === undefined ){
         let cardConfig = category?.views?.options?.["cards"] || undefined //{fields: ["title"]}
@@ -76,6 +77,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
         }
         })
     }
+    console.log(fields)
 
     if( props.pageItems ){
         const start = props.pageItems * (props.page || 0)

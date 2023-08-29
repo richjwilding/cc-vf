@@ -100,6 +100,32 @@ let mainstore = MainStore()
           className='ml-auto'
           />
 
+      }else if( item.type === "state"){
+        const stateInfo = PrimitiveConfig.stateInfo[props.primitive?.type] || PrimitiveConfig.stateInfo["default"]
+        const options = Object.keys(stateInfo).map((d)=>{return {id: d, ...stateInfo[d]}})
+
+        if( props.editing || props.editable ){
+          const setState = (id)=>{
+            if(props.primitive){
+              props.primitive.setParameter("state", id )
+            }
+          }
+
+          return <MyCombo 
+            selectedItem={props.primitive?.referenceParameters?.state ?? "open"} 
+            setSelectedItem={setState}
+            items={options}
+            className='ml-auto'
+            />
+        }else{
+          const state = stateInfo[props.primitive?.referenceParameters?.state ?? "open"]
+          return <div className={
+            `text-xs bg-${state.colorBase}-100 h-fit whitespace-nowrap truncate rounded-full px-1.5 py-0.5 text-${state.colorBase}-800`}>
+              {state.title}
+            </div>
+        }
+
+
       }else if( item.type === "phase"){
         if( props.primitive.type !== "assessment"){
           return <></>
@@ -981,30 +1007,30 @@ const Categories = function({primitive, ...props}){
   useDataEvent("set_field relationship_update", [props.relatedTo?.id, primitive.id], forceUpdate)
   let aiProcessSummary
   let analyzer
-  let promptCategories
 
-  if(props.relatedTo ){
-    if(props.relatedTo.analyzer){
-      analyzer = props.relatedTo.analyzer()
-      if(analyzer.aiProcessSummary){
-        aiProcessSummary = analyzer.aiProcessSummary() 
-      }
-    }
-  }
   const resultTypes = primitive.metadata?.resultCategories?.map((d)=>d.resultCategoryId) || []
-  promptCategories = resultTypes.map((id)=>{
-    return mainstore.category(id).promptCategories
-  }).flat().filter((v,i,a)=>v && a.indexOf(v)==i)
 
   const createCategory = async ()=>{
     const newPrim = await MainStore().createPrimitive({type: 'category', parent: primitive})
   }
     
   let button
-  
- /* if( props.relatedTo && props.relatedTo !== primitive ){
-    button = <AIProcessButton active="questions" primitive={props.relatedTo} process={(p)=>p.analyzer().analyzeQuestions()}/>
-  }*/
+
+  const getAiProcessSummary = ()=>{
+    if( !aiProcessSummary){
+      console.log(`BUILDIN ${primitive.plainId}`)
+      if(props.relatedTo ){
+        if(props.relatedTo.analyzer){
+          analyzer = props.relatedTo.analyzer()
+          if(analyzer.aiProcessSummary){
+            aiProcessSummary = analyzer.aiProcessSummary() 
+          }
+        }
+      }
+    }
+    return aiProcessSummary
+
+  }
 
   let list = primitive.primitives.allUniqueCategory
   if( !props.includeResult ){
@@ -1013,7 +1039,6 @@ const Categories = function({primitive, ...props}){
       list = list.filter((d)=>!excludeIds.includes(d.id))
     }
   }
-
   return (
     <Panel key='analysis' title={(<>Categories{button}</>)} collapsable={true} open={props.panelOpen !== undefined ? props.panelOpen : list && list.length > 0 } titleButton={{title:'Create new',small:true,action: createCategory}} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
       <dd className="mt-1 text-sm text-gray-900">
@@ -1029,9 +1054,7 @@ const Categories = function({primitive, ...props}){
             </button>
             </div>
           }
-          {list.map((primitive, idx) => (
-            <CategoryCard key={primitive.id} primitive={primitive} {...props} aiProcessSummary={aiProcessSummary} disableHover/>
-          ))}
+          {list.map((primitive, idx) => <CategoryCard key={primitive.id} primitive={primitive} {...props} aiProcessSummary={getAiProcessSummary()} disableHover/>)}
         </ul>
       </dd>
     </Panel>
@@ -1372,6 +1395,21 @@ function Aggregation({primitive, ...props}){
   </>)
 }
 
+
+export function SmallMeta(props){
+  const metadata = props.metadata || props.primitive?.metadata
+
+  return (
+    <h3 className={[
+        `flex text-slate-400 font-medium tracking-tight text-xs uppercase place-items-center`,
+        props.inline ? "" : (props.showMeta === "small-top" ? "mb-2 border-b" : "mt-2")
+        ].join(" ")}>
+              {metadata?.icon && <HeroIcon icon={metadata.icon} className='w-5 h-5 mr-1' strokeWidth={1}/>}
+              {metadata?.title ?? `Generic ${props.primitive?.type}`}
+            </h3>
+  )
+}
+
 export function PrimitiveCard({primitive, className, showDetails, showUsers, showRelationships, showResources, major, disableHover, fields,...props}) {
   let ring = !disableHover
   let mainTextSize = props.textSize || (props.compact ? 'sm' : 'md' )
@@ -1409,10 +1447,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         metaSummary = <p className={`text-${mainTextSize} pl-1 font-medium`}>{metadata.summary}</p>
       }
       else if( props.showMeta !== "large" ){
-        smallMeta = <h3 className={`flex text-slate-400 font-medium tracking-tight text-xs uppercase ${props.showMeta === "small-top" ? "mb-2 border-b" : "mt-2"} place-items-center`}>
-              {metadata.icon && <HeroIcon icon={metadata.icon} className='w-5 h-5 mr-1' strokeWidth={1}/>}
-              {metadata.title}
-            </h3>
+        smallMeta = <SmallMeta {...props} metadata={metadata}/>
       }
     } 
   }
@@ -1463,7 +1498,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
               {props.showEdit && editing && <CheckIcon className="h-5 w-5" aria-hidden="true" />}
           </button>
         }
-        {(props.showLink) &&
+        {(!props.compact && props.showLink) &&
           <button
               type="button"
               className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1572,8 +1607,9 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         </div>
       }
       {packedFields &&  (packedFields.length > 0) &&
-        <div className='flex -ml-1 space-x-1 py-2 justify-center'>
+        <div className='flex space-x-1 py-2'>
             <Parameters primitive={primitive} noEvents={props.noEvents} inline={true} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={packedFields} showTitles={false} className='!py-1'/>
+            {packedFields.includes('title') && <p className='text-sm my-1' >{primitive.title}</p>}
         </div>
       }
 
@@ -1672,3 +1708,4 @@ PrimitiveCard.Entity = Entity
 PrimitiveCard.EvidenceList = EvidenceList
 PrimitiveCard.RenderItem = RenderItem
 PrimitiveCard.CardMenu = CardMenu
+PrimitiveCard.SmallMeta = SmallMeta

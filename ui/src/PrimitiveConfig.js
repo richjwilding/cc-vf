@@ -46,6 +46,14 @@ const PrimitiveConfig = {
             needParent:true,
             needCategory:true,
         },
+        "activity": {
+            needCategory:true,
+            "createAtWorkspace": true,
+        },
+        "hypothesis": {
+            needCategory:false,
+            defaultReferenceId: 39
+        },
         "view": {
             allowedParents:["activity","experiment"],
             needParent:true,
@@ -72,6 +80,11 @@ const PrimitiveConfig = {
         }
     },
     stateInfo:{
+        "activity":{
+            "open": {title: "Not started", colorBase: "blue"},
+            "active": {title: "Underway", colorBase: "amber"},
+            "closed": {title: "Completed", colorBase: "green"},
+        },
         "experiment":{
             "open": {title: "Not started", colorBase: "blue"},
             "active": {title: "Underway", colorBase: "amber"},

@@ -102,7 +102,7 @@ export function Sidebar({primitive, ...props}) {
         showUnlinkFromScope = true
         const list = isMulti ? primitive : [primitive]
         for( const p of list){
-            if( p.origin.id === props.scope.id || !p.parentPaths( props.scope )){
+            if( p.origin?.id === props.scope.id || !p.parentPaths( props.scope )){
                 showUnlinkFromScope = false
             }
         }
@@ -120,7 +120,7 @@ export function Sidebar({primitive, ...props}) {
     return (
         <>
     {showLink && <PrimitivePicker root={isMulti ? primitive[0].task : primitive.task} path='results' callback={linkTo} setOpen={setShowLink} hasResultCategoryFor={resultIds} type={(typeof(showAddToResult) === "string") ? showAddToResult : undefined} />}
-    {showUnlinkPrompt && <ConfirmationPopup title="Confirm unlink" message={showUnlinkPrompt} confirm={unlinkFromScope} cancel={()=>setShowUnlinkPrompt(false)}/>}
+    {showUnlinkPrompt && <ConfirmationPopup title="Confirm unlink" message={showUnlinkPrompt} confirmColor='indigo' confirmText='Unlink' confirm={unlinkFromScope} cancel={()=>setShowUnlinkPrompt(false)}/>}
     {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" message={showDeletePrompt} confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
     <Transition.Root 
             show={props.open}

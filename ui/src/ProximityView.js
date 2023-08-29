@@ -173,12 +173,12 @@ export default function ProximityView({primitive, target,...props}){
             
             
             orbits.forEach((orbit, orbitIdx)=>{
-                const total = orbit.sets.map((d)=>d.items.length).reduce((a,c)=>a+c,0) 
+                const total = orbit.sets.map((d)=>Math.max(5,d.items.length)).reduce((a,c)=>a+c,0) 
                 let startTheta = 0
                 const singleSet = orbit.sets.length == 1
                 orbit.sets.forEach((set)=>{
                     set.startTheta = startTheta 
-                    set.endTheta = startTheta + (set.items.length / total * Math.PI * 2) - thetaMargin
+                    set.endTheta = startTheta + (Math.max(5,set.items.length) / total * Math.PI * 2) - thetaMargin
                     set.midTheta = (set.endTheta + set.startTheta) / 2
                     
                     set.items.forEach((item, idx)=>{

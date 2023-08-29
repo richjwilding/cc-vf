@@ -314,6 +314,8 @@ function MainStore (prims){
                return result 
             },
             async createPrimitive(object, parent, paths){
+
+
                 let workspaceId = object.workspaceId || parent?.workspaceId || obj.activeWorkspaceId
                 const data = {
                     parent: parent ? parent.id : undefined,
@@ -901,6 +903,12 @@ function MainStore (prims){
             if( parentPath){
                 paths.push( parentPath)
             }
+            
+            const config = PrimitiveConfig.typeConfig[type]
+            if( config?.createAtWorkspace){
+                paths = paths.filter((p)=>p !== 'origin')
+            }
+
             if( type === "prompt"){
                 if( category == undefined){
                     throw new Error(`Cant add prompt without a category`)
@@ -911,8 +919,15 @@ function MainStore (prims){
             }
 
         //    if( type === "result"){
-                if( category && parent && parent.metadata && parent.metadata.resultCategories){
-                    const match = parent.metadata.resultCategories.find((d)=>d.resultCategoryId === categoryId) 
+                if( parent && parent.metadata && parent.metadata.resultCategories){
+                    let match
+                    if( category){
+                        match = parent.metadata.resultCategories.find((d)=>d.resultCategoryId === categoryId)
+                    }
+                    if( !match ){
+                        match = parent.metadata.resultCategories.find((d)=>d.type === type) 
+                    }
+                    console.log(`PATHS`, match)
                     if( match ){
                         if( match.relationships ){
                             paths.push({results: {[match.id]: Object.keys(match.relationships)[0]}})
@@ -1112,6 +1127,9 @@ function MainStore (prims){
                 if( prop === "validateParameter"){
                     return function( parameterName, value ){
                         const metadata = receiver.metadata
+                        if(parameterName === "state"){
+                            return true
+                        }
                         const parameters = {...receiver.metadata?.parameters, ...(receiver.origin?.childParameters || {})}
                         if( Object.keys(parameters).length === 0 ){
                             return false

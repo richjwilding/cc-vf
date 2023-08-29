@@ -79,6 +79,7 @@ export default function EnrichPrimitive(){
             if( job.data.mode === "search_company" ){
                 console.log(`search_company ${primitive.id} ${primitive.referenceParameters?.topics}`)
                 await findOrganizationsFromCB( primitive, job.data.options )
+                dispatchControlUpdate(primitive.id, `processing.expanding.0`, null)
             }
             if( job.data.mode === "enrich" ){
                 console.log(`Processing enrichment for ${primitive.id}`)

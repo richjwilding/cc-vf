@@ -54,18 +54,6 @@ export default function ExperimentAnalyzer(primitive){
                 processed:{},
                 unprocessed: {}
             })
-
-           /* return {
-                processed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? p.id : undefined ).filter((d)=>d),
-                unprocessed: promptList.map((p)=>primitive.ai_prompt_track && primitive.ai_prompt_track[p.id] ? undefined : p.id ).filter((d)=>d),
-                byPrompt: reduce(byPrompt),
-                byQuestion: reduce(byPrompt.map((p)=>{
-                    return {
-                        prompt: p.prompt.origin,
-                        evidence: p.evidence,
-                    }
-                }))
-            }*/
         },
         aggregate:async function(options = {force: false}){
             this.init()
