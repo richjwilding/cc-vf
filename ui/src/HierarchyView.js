@@ -7,6 +7,8 @@ import { text } from "@fortawesome/fontawesome-svg-core";
 import Panel from "./Panel";
 import TooggleButton from "./ToggleButton";
 import MyCombo from "./MyCombo";
+import { renderToString } from "react-dom/server";
+import { PrimitiveCard } from "./PrimitiveCard";
 
 const spacing = 10
 const internalSpacing = 10
@@ -229,7 +231,7 @@ export default function HierarchyView({primitive, ...props}){
         console.log(`UPDATED`, primitiveId)
     }
 
-    const rootPrim = primitive.primitives.allSegment[0]
+    const rootPrim = primitive?.primitives.allSegment[0]
 
     let viewOptions = useMemo(()=>{
         if( rootPrim ){
@@ -279,7 +281,9 @@ export default function HierarchyView({primitive, ...props}){
                     id: prim.id,
                     text: text,
                     span: span,
+                    primitive: prim,
                     description: showDescription ? prim.referenceParameters?.description : undefined,
+                    flag: prim.referenceParameters?.top || prim.referenceParameters?.important,
                     minScale: showDescription ? 0.3 : 0.5,
                     perturb: count % 20,
                     children: [],
@@ -326,7 +330,6 @@ export default function HierarchyView({primitive, ...props}){
                 return node
             }
             const root = expand( rootPrim )
-            console.log(nodes)
             forceUpdate()
             return {root: root, nodes: nodes}
         }
@@ -386,10 +389,7 @@ export default function HierarchyView({primitive, ...props}){
 
         
         if( old.length > 0){
-            console.log( `REMOVING OLD`)
-            
             for( const el of [...old]){
-                console.log(el)
                 target.removeChild(el)
             }
         }
@@ -400,7 +400,9 @@ export default function HierarchyView({primitive, ...props}){
         updatePositions( root.children )
         root.size = {width: result.width, height: result.height}
 
+        const scale = Math.min(targetRef.current.offsetWidth / result.width , targetRef.current.offsetHeight / result.height,  1)
 
+        ref.current.style.transform = `scale(${scale})`
         ref.current.setAttribute("width", result.width )
         ref.current.setAttribute("height", result.height)
 
@@ -415,9 +417,9 @@ export default function HierarchyView({primitive, ...props}){
         const dy = (viewport.current.height / 2) - viewport.current.shh
         
         
-        ref.current.style.transform = `translate(${dx}px,${dy}px) scale(1)`
-        updateForZoom(dx, dy, 1)
-        setScale(1)
+        ref.current.style.transform = `translate(${dx}px,${dy}px) scale(${scale})`
+        updateForZoom(dx, dy, scale)
+        setScale(scale)
 
 
     }, [count])
@@ -691,6 +693,7 @@ export default function HierarchyView({primitive, ...props}){
             let g = target.querySelector(`g[id='${node.id}']`)
             if( !g ){
                 const main = `<foreignObject width='100' height='100' id='${node.id}' ><div id=${node.id} style='width:${(node.span * columnWidth) + ((node.span - 1) * spacing)}px;' class='pcard h-fit border'><p style='transform-origin:top left;padding:${textPadding};font-size:0.875rem'>${node.text}</p></div></foreignObject>`
+                //const main = `<foreignObject width='100' height='100' id='${node.id}' >${renderToString(<PrimitiveCard primitive={node.primitive} compact/>)   }</foreignObject>`
                 g = document.createElementNS("http://www.w3.org/2000/svg", 'g');
                 g.setAttribute("id", node.id)
                 g.innerHTML = main
@@ -707,6 +710,10 @@ export default function HierarchyView({primitive, ...props}){
                     desc.style.fontSize = "0.75rem"
                     node.descText = desc
                 }
+              /*  if(node.flag){
+                    g.childNodes[0].childNodes[0].appendChild(desc)
+
+                }*/
             }
 
             node.frame = g.childNodes[0]
@@ -753,8 +760,9 @@ export default function HierarchyView({primitive, ...props}){
         </div>
         <div
             ref={targetRef}
-            className="w-full h-full bg-white overflow-hidden touch-none relative "
+            className="w-full h-full bg-white overflow-hidden touch-none relative flex grow-0"
             >
+                <div className="absolute">
             <svg
             data-rc={count}
             style={{background:'white', userSelect: "none"}}
@@ -768,6 +776,7 @@ export default function HierarchyView({primitive, ...props}){
 
 
             </svg>
+            </div>
         </div>
     </>
     )

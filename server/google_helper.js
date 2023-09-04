@@ -7,6 +7,7 @@ import { Readable } from 'stream';
 import { finished } from 'stream/promises';
 import { htmlToText } from "html-to-text";
 import puppeteer from "puppeteer";
+import { promisify } from "util";
 var ObjectId = require('mongoose').Types.ObjectId;
 
 let _ghState = undefined
@@ -470,7 +471,9 @@ export async function replicateURLtoStorage(url, id, bucketName){
 
 export async function grabUrlAsPdf(url, id, req){
     try{
-        const browser = await puppeteer.launch({headless: "new"});
+
+        //const browser = puppeteer.connect({ browserWSEndpoint: `wss://chrome.browserless.io?token=${process.env.BROWSERLESS_KEY}` })
+        /*const browser = await puppeteer.launch({headless: "new"});
         const page = await browser.newPage();
 
         await page.goto(url, { waitUntil: 'networkidle0' });
@@ -510,21 +513,51 @@ export async function grabUrlAsPdf(url, id, req){
 
         const pdf = await page.pdf({
             height: await page.evaluate(docHeight)
-        });
+        });*/
 
-        const storage = new Storage({
-            projectId: process.env.GOOGLE_PROJECT_ID,
-        });
+        const bUrl = `https://chrome.browserless.io/pdf?token=${process.env.BROWSERLESS_KEY}`
 
-        const bucketName = 'cc_vf_documents' 
-        const bucket = storage.bucket(bucketName);
-        const file = bucket.file(id)
-        if( (await file.exists())[0] ){
-            await file.delete()
+
+        const response = await fetch(bUrl,{
+            method: 'POST',
+            headers: { 
+                'Cache-Control': 'no-cache' ,
+                'Content-Type': 'application/json' 
+            },
+            body:JSON.stringify({
+                "url": url,
+            })
+        })
+
+        if (response.ok) {
+            const pdfData = await response.arrayBuffer();
+            const pdfBuffer = Buffer.from(pdfData);
+            debugger
+
+            const storage = new Storage({
+                projectId: process.env.GOOGLE_PROJECT_ID,
+            });
+            
+            const bucketName = 'cc_vf_documents' 
+            const bucket = storage.bucket(bucketName);
+            const file = bucket.file(id)
+            if( (await file.exists())[0] ){
+                await file.delete()
+            }
+            
+
+            // Use Promisify to convert callback to Promise
+            const savePromise = promisify(file.save).bind(file);
+
+            await savePromise(pdfBuffer, {
+                contentType: 'application/pdf',
+                resumable: false, // Adjust as needed
+            });
+
+            console.log('PDF saved to Google Cloud Storage.');
+
+            //await file.save(pdfBuffer, {metadata: {contentType: 'application/pdf'}}) 
         }
-
-        await file.save(pdf, {metadata: {contentType: 'application/pdf'}})
-        await browser.close();
     }catch(error){
         console.log(`Error on processing URL to PDF ${url}`)
         console.log(error)

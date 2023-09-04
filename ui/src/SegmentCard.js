@@ -577,40 +577,63 @@ export default function SegmentCard({primitive, ...props}){
     const [showAll, setShowAll] = useState(false)
     const ring = !props.disableHover
 
-    const nestedItems = props.directOnly ? primitive.primitives.ref.allItems : primitive.nestedItems
+    let nestedItems = props.directOnly ? primitive.primitives.ref.allItems : primitive.nestedItems
     let nestedTypes = nestedItems.map((d)=>d.metadata?.plurals ?? (d.metadata?.title ? d.metadata?.title + "s" : undefined) ?? d.type).filter((v,i,a)=>a.indexOf(v)===i)
 
-    const itemLimit = props.itemLimit || (props.hideDetails  ? nestedItems.length : 10)
+    let itemLimit = nestedItems.length
+    if(props.itemLimit ){
+        if( typeof(props.itemLimit) === "string"){
+            if( props.itemLimit === "flagged"){
+                nestedItems = nestedItems.sort((a,b)=>{
+                    const flaggedA = (a.referenceParameters?.top || a.referenceParameters?.important) ? 1 : 0
+                    const flaggedB = (b.referenceParameters?.top || b.referenceParameters?.important) ? 1 : 0
+                    return flaggedB - flaggedA
+                })
+                itemLimit = nestedItems.filter((d)=>d.referenceParameters?.top || d.referenceParameters?.important).length
+            }
+        }else{
+            itemLimit = props.itemLimit ?? 10 
+        }
+    } 
     const moreToShow = Math.max(0, nestedItems.length - itemLimit)
-    const wide = itemLimit > 10//0
+    const wide = !props.compact && props.showGrid && itemLimit > 10//0
+    //const columns = props.cardView ? (Math.floor(Math.sqrt(itemLimit) / 1.5) ) : (wide ? 10 : 5)
+    const columns = props.cardView ? Math.max(props.itemLimit ? 2 : 1, (1 + Math.floor(Math.sqrt(itemLimit) / 1.5)))  : (wide ? 10 : 5)
+
 
     const mainContent = <>
-            <p key='title' className={`${props.hideDetails ? "text-xl font-light mb-4" : "text-sm font-semi mb-2"} text-gray-800  `}>{primitive.title}</p>
-            {!props.hideDetails && <p key='description' className='text-xs text-gray-600 mb-2'>{primitive.referenceParameters.description}</p>}
-            {props.showGrid  && props.hideDetails  && <div style={{gridTemplateColumns: `repeat(${wide ? 10 : 5}, minmax(0, 1fr))`}} className="grid place-items-center gap-1">
+            <p key='title' className={`${props.hideDetails ? "text-xl font-light mb-4" : props.cardView ? "text-xl font-semi m-2 mb-1" : "text-sm font-semi mb-2"} text-gray-800  `}>{primitive.title}</p>
+            {!props.hideDetails && <p key='description' className={props.cardView ? 'text-lg text-gray-600 m-2 mb-3' : 'text-xs text-gray-600 mb-2'}>{primitive.referenceParameters.description}</p>}
+            {props.showGrid  && !props.itemLimit  && <div style={{gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`}} className={`grid place-items-center gap-1`}>
                 {(showAll ? nestedItems : nestedItems.slice(0,itemLimit)).map((d)=>(
                     <PrimitiveCard 
                         primitive={d}
-                        micro={!props.hideDetails}
-                        hideMenu={props.hideDetails}
-                        fixedSize={!props.hideDetails ? undefined : "3rem"}
-                        imageOnly={props.hideDetails}
+                        micro={!props.imageOnly}
+                        hideMenu={props.imageOnly}
+                        fixedSize={!props.imageOnly ? undefined : "3rem"}
+                        imageOnly={props.imageOnly}
+                        titleAtBase
+                        fields={props.cardView ? ["title","important","top"] : undefined}
                         compact={props.hideDetails}
+                        className={!props.imageOnly ? "min-w-[12rem]" : ""}
                         onClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); props.onInnerCardClick(e, p, primitive)} : undefined}
                         />
                 ))}
             </div>}
-            {props.showGrid && !props.hideDetails && <CardGrid 
+            {props.showGrid && props.itemLimit && <CardGrid 
                 list={showAll ? nestedItems : nestedItems.slice(0,itemLimit)}
                 onCardClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); props.onInnerCardClick(e, p, primitive)} : undefined}
                 cardProps={
-                    {micro:true}
+                    {
+                        micro:true,
+                        fields: props.cardView ? ["title", "important","top"] : undefined
+                    }
                 }
                 columnConfig={{xs:2, md: 3}}
             />}
-            {props.showGrid && !showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`+ ${moreToShow} items`} onClick={()=>setShowAll(true)}/>}
-            {props.showGrid && showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`Show less`} onClick={()=>setShowAll(false)}/>}
-            {primitive.insights && primitive.insights.length > 0 &&
+            {!props.hideMore && props.showGrid && !showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`+ ${moreToShow} items`} onClick={()=>setShowAll(true)}/>}
+            {!props.hideMore && props.showGrid && showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`Show less`} onClick={()=>setShowAll(false)}/>}
+            {props.showInsight && primitive.insights && primitive.insights.length > 0 &&
                 <Panel title='Problems' titleClassName='text-xs w-fit flex text-gray-500 flex place-items-center font-medium' collapsable defaultOpen={false}>
                 <div 
                     className="bg-gray-50 border border-gray-200 font-light p-2 py-4 rounded-md space-y-2 text-gray-600 text-xs mb-2">
@@ -625,19 +648,30 @@ export default function SegmentCard({primitive, ...props}){
             }
         </>
 
+    let width = wide ? "48rem" : '24rem' 
+    if( props.cardView ){
+        width = (columns * 20) + "rem"
+    }
+    if( props.graph ){
+        width = '36rem'
+    }
+
     return (
         <>
         <div 
             key={primitive.id}
             onClick={props.onClick ? (e)=>props.onClick(e,primitive) : undefined }
+            style={{
+                minWidth: width,
+                gridColumn: props.cardView ? `span ${columns}` : undefined,
+            }}
             className={
                 ["relative py-3 pl-3 pr-4 group bg-white p-1 rounded-lg",
                     props.overlay ? "@container" : "",
                     props.flatBorder ? '' : 'rounded-lg',
                     ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
                     "shadow ",
-                    !props.graph && wide ? 'min-w-[48rem]' : 'min-w-[24rem]',
-                    props.graph  ? 'min-w-[36rem]' : '',
+                    width,
                     props.className
                 ].join(" ")}
             >

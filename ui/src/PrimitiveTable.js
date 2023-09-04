@@ -8,7 +8,7 @@ import { useReactTable,
         getCoreRowModel, 
         getPaginationRowModel} from '@tanstack/react-table'
 import MainStore from "./MainStore";
-import { FlagIcon, MagnifyingGlassIcon, PlusCircleIcon } from "@heroicons/react/24/outline";
+import { ClipboardDocumentIcon, FlagIcon, MagnifyingGlassIcon, PlusCircleIcon } from "@heroicons/react/24/outline";
 import useDataEvent from "./CustomHook";
 import { ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/solid";
 import { min } from "date-fns";
@@ -26,6 +26,45 @@ const ExpandArrow = function(props) {
   );
 }
 
+function copyToClipboard( table ){
+
+    const headers = '<thead><tr>' + table.getHeaderGroups().map((headerGroup)=>{
+        return headerGroup.headers.map((header,idx) => {
+            let val = header.column.columnDef.header()
+            val = val ?? ""
+            return `<th style='font-weight:900;background:#eee'>${val}</th>`
+        }).join("")
+    }).join("") + '</tr></thead>'
+    const rows = table.getRowModel().rows.map((row,idx) => {
+        const primitive = row.original.primitive
+        const primId = primitive.id
+        return '<tr>' + row.getVisibleCells().map(cell => {
+            let val = cell.column.columnDef.export ? cell.column.columnDef.export(cell) : cell.getValue() 
+            val = val ?? ""
+            return `<td>${val}</td>`
+        }).join("") + '</tr>'
+    }).join("")
+
+
+        const textarea = document.createElement('template');
+        const htmlData = `<table>${headers}<tbody>${rows}</tbody></text>`
+        textarea.innerHTML = htmlData.trim()
+        const el = textarea.content.childNodes[0]
+        document.body.appendChild(el);
+        const range = document.createRange();
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        try {
+            range.selectNodeContents(el);
+            sel.addRange(range);
+        } catch (e) {
+            range.selectNode(el);
+            sel.addRange(range);
+        }
+        document.execCommand('copy');
+        document.body.removeChild(el);
+
+}
 
 export function PrimitiveTable(props) {
     const [showLink, setShowLink] = useState(false)
@@ -80,6 +119,7 @@ export function PrimitiveTable(props) {
                 if( d.magic === "addresses_components"){
                     return columnHelper.accessor(d.magic,
                         {
+                            export: info => info.row.original.primitive.addresses_components.map((d)=>`VF${d.order + 1}: ${d.title}`).join('<br>'),
                             cell: info => {
                                 const list = info.row.original.primitive.addresses_components?.map((d)=><p className={`px-1 py-0.5 m-0.5 rounded-full text-xs text-${d.lens.base}-800 bg-${d.lens.base}-200`}>VF{d.order + 1}</p>)
                                 return <div className="flex overflow-hidden flex-wrap place-items-start">
@@ -98,6 +138,11 @@ export function PrimitiveTable(props) {
                 if( d.magic === "results"){
                     return columnHelper.accessor(d.magic + d.resultId,
                         {
+                            export: info =>{
+                                const primitive = info.row.original.primitive
+                                const items = primitive.primitives.results[d.resultId]?.allItems
+                                return items.map((d)=>`${d.metadata?.title ?? d.type} #${d.plainId} - ${d.title}`).join('<br>')
+                            }, 
                             cell: info => {
                                 const primitive = info.row.original.primitive
                                 const items = primitive.primitives.results[d.resultId]?.allItems
@@ -147,6 +192,7 @@ export function PrimitiveTable(props) {
                 else if( d.field === "logo_title"){
                     return columnHelper.accessor(d.field,
                         {
+                            export: info => info.row.original.primitive.title,
                             cell: info => <>
                                                 <VFImage className="object-cover w-8 h-8 mr-2" src={`/api/image/${info.row.original.primitive.id}`}/>
                                                 <p className="text-md text-color-800 truncate">{info.row.original.primitive.title}</p>
@@ -428,7 +474,12 @@ export function PrimitiveTable(props) {
 
     return (
         <>
-        <div key="table" className={`p-2 bg-white rounded-md overflow-y-scroll `}>
+        <div key="table" className={`p-2 bg-white rounded-md overflow-y-scroll relative ${props.className}`}>
+            <button 
+                onClick={()=>copyToClipboard(table)}
+                className="absolute top-4" style={{zIndex:10000}}>
+                <ClipboardDocumentIcon className="w-5 h-5 text-gray-200 hover:text-gray-800"/>
+            </button>
         <div 
             ref={gridRef}
             data-test={count}

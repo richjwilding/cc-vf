@@ -196,6 +196,7 @@ async function defineAxis( primitive, action ){
 }
 
 async function rollup( primitive, target, action ){
+    console.log(`Rollup ${primitive.id} staring`)
     let list, data
 
     if( ["param.aggregateFeatures","param.capabilities","param.offerings","param.customers"].includes(action.field) ){
@@ -347,6 +348,7 @@ async function rollup( primitive, target, action ){
             console.log(`Need to remove ${oldPrims.length} old segments`)
 
             for(const id of oldPrims){
+                console.log(`-- remove segment ${id}`)
                 await removePrimitiveById( id )
             }
 
@@ -381,6 +383,7 @@ async function rollup( primitive, target, action ){
 
                 }
             }
+            console.log('Converting structure to segments')
             if( target.type === "segment"){
                 await convertList( revert[0].children, target)
                 // remove old links
@@ -390,8 +393,10 @@ async function rollup( primitive, target, action ){
             }else{
                 await convertList( [0], target)
             }
+            console.log('Converstion complete')
         }
     }
+    console.log(`Rollup ${primitive.id} done`)
 }
 
 export default function QueueAI(){
@@ -469,8 +474,9 @@ export default function QueueAI(){
             if( job.data.mode === "rollup" ){
                 try{
                     const target = await Primitive.findOne({_id: job.data.targetId})
+                    console.log(`----- STARTING ROLLUP -------`)
                     await rollup( primitive, target, action )
-                    //console.log("---- SKIP")
+                    //console.log("---- DISABLED ROLLUP")
                 }catch(error){
                     console.log(`Error in aiQueue.rollup `)
                     console.log(error)

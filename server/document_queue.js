@@ -355,6 +355,7 @@ export default function QueueDocument(){
             dispatchControlUpdate(primitiveId, job.data.field , null, {track: primitiveId})
         }
         
-    });
+    },
+    {connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT }});
     return instance
 }

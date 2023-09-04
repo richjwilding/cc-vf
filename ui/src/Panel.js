@@ -115,7 +115,7 @@ export default function Panel({...props}){
             }}
             ref={ref}
           >
-            <Disclosure.Panel>
+            <Disclosure.Panel className={props.panelClassName}>
                 {props.children}
             </Disclosure.Panel>
           </Transition>

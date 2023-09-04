@@ -67,6 +67,7 @@ let mainstore = MainStore()
         const list = []
 
         const evidenceCategories = [task.metadata.evidenceCategories, task.primitives.descendants.filter((d)=>d.type === "evidence").map((d)=>d.referenceId)].flat().filter((c,idx,a)=>c && a.indexOf(c)===idx)
+        console.log(evidenceCategories)
 
         evidenceCategories.forEach((d)=>{
           list.push({key: d, isEvidence: true, title: `Evidence: ${mainstore.category(d).title}`})
@@ -74,6 +75,7 @@ let mainstore = MainStore()
         task.metadata.resultCategories?.forEach((d)=>{
           list.push({key: `results.${d.id}`, title: d.title})
         })
+        console.log(list)
 
         const setSource = (idx)=>{
           const source = list[idx]
@@ -88,12 +90,14 @@ let mainstore = MainStore()
             props.primitive.setParameter( fieldKey, 'title' )
           }
         }
-        let index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) || item.value === d.key) 
+        let index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) ||(item.value === "evidence" && props.primitive.referenceParameters?.referenceId === undefined) || item.value === d.key) 
         if( index == -1 ){
           index = list.findIndex((d)=>(defaultConfig.target === "evidence" && d.key === defaultConfig.referenceId) || defaultConfig.target === d.key) 
         }
+        console.log(item)
 
         return <MyCombo 
+          disabled={item.locked}
           selectedItem={index} 
           setSelectedItem={setSource}
           items={list.map((d, idx)=>{return {id:idx, ...d}})}
@@ -163,15 +167,11 @@ let mainstore = MainStore()
         else if( _target.slice(0,7) === "results"){
           sourceMeta = mainstore.category(task.metadata?.resultCategories[_target.slice(8)].resultCategoryId)
         }
-        console.log(sourceMeta)
-        if( !sourceMeta ){
-          return <></>
-        }
 
         const list = [{
           key: "title", title: "Title"
         }]
-        if( sourceMeta.parameters ){
+        if( sourceMeta?.parameters ){
           Object.keys(sourceMeta.parameters).forEach((d)=>{
             const param = sourceMeta.parameters[d]
             if( (param.type === "string" || param.type === "long_string") && !param.hidden){
@@ -192,6 +192,7 @@ let mainstore = MainStore()
 
         return <MyCombo 
           selectedItem={index} 
+          disabled={item.locked}
           setSelectedItem={setField}
           items={list.map((d, idx)=>{return {id:idx, ...d}})}
           className='ml-auto'
@@ -325,7 +326,7 @@ let mainstore = MainStore()
           <div className='ml-auto flex'>
             <a href={item.value} className='flex place-items-center space-x-2' target="_blank">
                 <LinkIcon className='w-5'/>
-                <p className='trancate w-full'>{item.value}</p>
+                <p className='break-all line-clamp-1 w-full'>{item.value}</p>
               </a>
             </div>
             )
@@ -1412,7 +1413,7 @@ export function SmallMeta(props){
 
 export function PrimitiveCard({primitive, className, showDetails, showUsers, showRelationships, showResources, major, disableHover, fields,...props}) {
   let ring = !disableHover
-  let mainTextSize = props.textSize || (props.compact ? 'sm' : 'md' )
+  let mainTextSize = props.textSize  || (props.compact ? 'sm' : 'md' )
   let margin = props.bigMargin ? (ring ? 'px-4 py-6' : 'px-2 py-3') : (ring ? 'px-2 py-3' : 'px-0.5 py-1')
 
   const [eventTracker, updateForEvent] = React.useReducer( (x)=>x+1, 0)

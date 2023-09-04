@@ -1,6 +1,6 @@
 import MainStore from './MainStore';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { ArrowsPointingInIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
+import { ArrowsPointingInIcon, ClipboardDocumentIcon, DocumentArrowDownIcon } from '@heroicons/react/24/outline';
 import { PrimitiveCard } from './PrimitiveCard';
 //import html2canvas from 'html2canvas';
 //import MiroExporter from './MiroExporter'; 
@@ -12,9 +12,218 @@ import MyCombo from './MyCombo';
 import TooggleButton from './ToggleButton';
 import { roundCurrency } from './RenderHelpers';
 import { itemsForGraph, projectData } from './SegmentCard';
+import jsPDF from 'jspdf';
+import { Canvg } from 'canvg';
+import { renderToString } from 'react-dom/server';
+import CoCreatedLogo from './CoCreatedLogo';
 
 
 const mainstore = MainStore()
+
+function deepCloneNodeWithCanvas(element) {
+    if (!element) {
+      return null;
+    }
+  
+    // Handle <canvas> elements
+    if (element.tagName === 'CANVAS') {
+      const originalContext = element.getContext('2d');
+  
+      // Create a new canvas element
+      const clonedCanvas = document.createElement('canvas');
+      clonedCanvas.width = element.width;
+      clonedCanvas.height = element.height;
+      clonedCanvas.style.width = element.style.width;
+      clonedCanvas.style.height = element.style.height;
+      const clonedContext = clonedCanvas.getContext('2d');
+  
+      // Copy the content from the original canvas to the cloned canvas
+      clonedContext.drawImage(element, 0, 0);
+      clonedContext.globalCompositeOperation = 'destination-over'
+      clonedContext.fillStyle = "white";
+      clonedContext.fillRect(0, 0, clonedCanvas.width, clonedCanvas.height);
+  
+      return clonedCanvas;
+    }
+  
+    // Clone the current element
+    const clonedElement = element.cloneNode(false); // Don't clone children yet
+  
+    // Clone and append child nodes
+    const childNodes = element.childNodes;
+    for (let i = 0; i < childNodes.length; i++) {
+      const clonedChild = deepCloneNodeWithCanvas(childNodes[i]);
+      if (clonedChild) {
+        clonedElement.appendChild(clonedChild);
+      }
+    }
+  
+    return clonedElement;
+  }
+
+export async function convertSVGToCanvas( svgElement, width, height){
+    const canvasElement = document.createElement('canvas');
+
+    // Set the canvas element's dimensions to match the SVG
+    canvasElement.width = width ?? svgElement.clientWidth * 2 ;
+    canvasElement.height = height ?? svgElement.clientHeight * 2;
+    const context = canvasElement.getContext('2d')
+    
+    // Insert the canvas element before the SVG element
+    
+    // Convert the SVG to canvas using canvg
+    let string =  typeof(svgElement) === "string" ? svgElement : new XMLSerializer().serializeToString(svgElement)
+    let color = typeof(svgElement) === "string" ? undefined : window.getComputedStyle( svgElement )?.color
+    if( string && color){
+        string = string.replaceAll('currentColor', color)          
+        console.log(string)
+    }
+    const c = await Canvg.from(context, string);
+    c.start()
+    canvasElement.style.width = (width ?? svgElement.clientWidth) + 'px';
+    canvasElement.style.height = (height ?? svgElement.clientHeight) + 'px';
+    
+    context.globalCompositeOperation = 'destination-over'
+    context.fillStyle = "white";
+    context.fillRect(0, 0, canvasElement.width, canvasElement.height);
+    return canvasElement
+
+}
+
+export async function exportViewToPdf( orignal_element, options = {} ){
+
+    //const element = orignal_element.cloneNode( true )
+    const element = deepCloneNodeWithCanvas( orignal_element )
+    document.body.appendChild(element)
+
+   for( const bg of element.querySelectorAll('.vfbgshape')){
+    bg.style.background='transparent'
+   }
+
+
+    const headerCanvas = await convertSVGToCanvas( renderToString(CoCreatedLogo()) )
+    document.body.appendChild(headerCanvas)
+
+    const {width = 210, 
+        height = 297, 
+        margin = [20, 10, 20, 10],
+        logo = [8, -8, 27, 6],
+        } = options
+    const eWidth = width - (margin[1] + margin[3])
+    const eHeight = height - (margin[0] + margin[2])
+
+    const oldTx = element.style.transform
+    element.style.transform = null
+
+
+    const scale = Math.min(1, eWidth / element.offsetWidth)
+
+    let pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4',
+        putOnlyUsedFonts: true,
+       
+        });
+
+        
+    
+        const list = []
+        const convertElements = element.querySelectorAll('svg');
+        for(const svgElement of convertElements){
+            const canvasElement = await convertSVGToCanvas( svgElement )
+            svgElement.parentNode.insertBefore(canvasElement, svgElement);
+          
+            list.push( [svgElement, canvasElement, svgElement.style.display] )
+            svgElement.style.display = 'none';
+        }
+        const pages = {}
+        const scaledHeight = eHeight / scale
+        const targets = [...element.childNodes].map((d)=>[...d.childNodes]).flat()
+        let pageOffset = 0
+        let lastStart = 0
+        let page = 0
+        let topShift = {}
+        for( const el of targets){
+            const oldLastStart = lastStart
+            lastStart = Math.max(lastStart, el.offsetTop + el.offsetHeight)
+            pageOffset += lastStart- oldLastStart
+            const nextPage = pageOffset > scaledHeight
+            if( nextPage ){
+                page++
+                pageOffset = lastStart- oldLastStart
+            }
+            pages[page] = pages[page] || [] 
+            pages[page].push( el )
+            topShift[page] = topShift[page]  || el.offsetTop 
+        }
+        element.style.background='transparent'
+
+            const bandColors = [
+                "#00d967",
+                "#34e184",
+                "#65e8a2",
+                "#99f0c2",
+                "#65e8a2",
+                "#34e184",
+                "#00d967",
+                "#34e184",
+                "#65e8a2",
+                "#99f0c2",
+                "#65e8a2",
+                "#34e184",
+            ]
+            const bandSize  = width / bandColors.length
+
+        for( const page of Object.keys(pages)){
+            for( const page2 of Object.keys(pages)){
+                for( const item of pages[page2]){
+                    item.style.display = page2 === page ? null : 'none';
+                }
+
+            }
+            const pageTop = (parseInt(page) * height)
+
+            bandColors.forEach((d, idx)=>{
+                pdf.setFillColor( d )
+                pdf.rect(idx * bandSize, 0, bandSize, 3, "F")
+            })
+
+
+
+            pdf.addImage(
+                headerCanvas, 
+                logo[0] < 0 ? width + logo[0] : logo[0] , 
+                logo[1] < 0 ? height + logo[1] - logo[3] : logo[1] , 
+                logo[2],
+                logo[3])
+
+            await pdf.html(element, {
+                    x: margin[3], //+ item.offsetLeft,
+                    y: margin[0] +  pageTop,
+                    margin: [0,0,0,0],
+                    html2canvas: {
+                        scale: scale ,
+                    },
+                    callback: (updatedPdf)=>{
+                        if( parseInt(page) < (Object.keys(pages).length - 1)){
+                            updatedPdf.addPage()
+                        }
+                        return updatedPdf
+                    }
+                    
+                })
+
+        }
+        await pdf.save("download.pdf")
+    //    element.parentNode.removeChild(element)
+      //  headerCanvas.parentNode.removeChild(headerCanvas)
+       
+}
+
+window.exportViewToPdf = exportViewToPdf
+
+window.canvg = Canvg
 
 export default function PrimitiveExplorer({primitive, ...props}){
 
@@ -25,7 +234,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const [rowSelection, setRowSelection] = React.useState(0)//axisOptions.length > 1 ? 1 : 0)
     const [activeView, setActiveView] = React.useState(0)
     const layerNestPreventionList = React.useRef()
-    
 
     function updateFilters(){
         let out = []
@@ -47,12 +255,24 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     
     let baseItems = React.useMemo(()=>{
-        const types = [props.types].flat()
-        return (props.list || primitive.primitives.uniqueAllItems.filter((d)=>types.includes(d.type) )).filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true))
+        let list
+        if( props.list ){
+            list = props.list
+        }else{
+            if( props.types ){
+                const types = [props.types].flat()
+                list = primitive.primitives.uniqueAllItems.filter((d)=>types.includes(d.type) )
+            }else{
+                list = primitive.primitives.uniqueAllItems
+            }
+        }
+        console.log(`pre - ${list.length}`)
+        return list.filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true))
     },[primitive.id, update])
 
     let layers
     if( primitive.type === "segment" ){
+        
         layers = []
         const nextLayer = (list)=>{
             layers.push({id: layers.length, title: `Layer ${layers.length + 1}`})
@@ -63,10 +283,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }
         }
         nextLayer( [primitive] )
-       // layers.push({id: layers.length, title: "Organizations", items: true})
+        layers.push({id: layers.length, title: "All items", items: true})
     }
 
     let items = React.useMemo(()=>{
+        console.log(`REDO FOR ${primitive.plainId}`)
         let out = baseItems
         let keep = []
         if(layers){
@@ -74,7 +295,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
             if( layerSelection === 0){
                 out = [primitive]
             }
-            if( layerSelection > 1){
+            
+           if( layerSelection > 1){
                 const unpackLayer = (thisLayer)=>{
                     return thisLayer.map((d)=>{
                         const children = d.primitives.allSegment
@@ -90,12 +312,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         return d
                     }).flat()
                 }
-                if( layers[layerSelection].items){
+                if( layers[layerSelection]?.items){
                     out = baseItems.map((d)=>d.nestedItems).flat()
                 }else{
                     
                     for( let a = 0; a < (layerSelection - 1); a++){
-                        out = unpackLayer(out)
+                        out = MainStore().uniquePrimitives( unpackLayer(out) )
                     }
                 }
             }
@@ -152,15 +374,16 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 if( parameters ){
                     Object.keys(parameters).forEach((parameter)=>{
                         const type = parameters[parameter].type
-                        console.log(parameter, type)
-                        if( parameters[parameter].excludeFromAggregation ){
+                        if( parameters[parameter].asAxis === false){
+                            //skip
+                        }
+                        else if( parameters[parameter].excludeFromAggregation ){
                             return
                         }else if( type === "url" ){
                             return
                         }else if( type === "options" ){
-                       //     out.push( {type: 'parameter', parameter: parameter, title: `${title} - All ${parameters[parameter].title}`, access: access})
-                       out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, clamp: true})
-                    }else  if( type === "currency" ||  type === "number"){
+                        out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, clamp: true})
+                        }else  if( type === "currency" ||  type === "number"){
                             out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, twoPass: true, passType: parameter === "funding" ? "funding" : type})
                         }else if(  type === "contact"){
                             out.push( {type: 'parameter', parameter: "contactName", parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access})
@@ -388,8 +611,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 const scale = Math.min(Math.min( (tbb.width - border) / gbb.width, (tbb.height - border - toolbarHeight) / gbb.height),1) 
                 const x =  -(gbb.width / 2) + (tbb.width / 2 )
                 const y =  -(gbb.height /2) + (tbb.height / 2 )
-                console.log(gbb.height)
-                console.log(tbb.height)
                 
                 gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
                 setScale(scale)
@@ -699,15 +920,15 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
     }
     
-    const viewAsSegments =primitive.type === "segment" && layers && !layers[layerSelection].items
-    const viewConfigs = props.category?.views.options?.["explore"]?.configs
+    const renderType = layers?.[layerSelection]?.items ? list?.[0]?.primitive?.type :  (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default"
+    const viewAsSegments = primitive.type === "segment" && layers && !layers[layerSelection]?.items
+    const viewConfigs = viewAsSegments && props.category?.views?.options?.["explore"]?.configs
     const viewConfig = viewConfigs?.[activeView]
-    const renderProps = viewConfig?.props ?? defaultRenderProps[ (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default" ]
+    const renderProps = viewConfig?.props ?? defaultRenderProps[renderType ]
     
     useMemo(()=>{
 
         if(renderProps?.details?.sync){
-            console.log(`GOT SYNC`)
             renderProps.details["x-axis"].minimum = list.map((d)=>{
                 const thisItems = itemsForGraph(renderProps.details.pivot, d.primitive.nestedItems ?? [])
                 
@@ -720,10 +941,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const enableClick = !renderProps?.graph
 
 
+
   return (
     <>
-      <div key='control' className='z-20 w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex rounded-t-lg bg-gray-50 border-b border-gray-200'>
+      <div key='control' className='z-20 w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex flex-wrap rounded-t-lg bg-gray-50 border-b border-gray-200'>
                 {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
+                <Panel.MenuButton icon={<DocumentArrowDownIcon className='w-4 h-4 -mx-1'/>} action={()=>exportViewToPdf(gridRef.current)}/>
                 <Panel.MenuButton icon={<ClipboardDocumentIcon className='w-4 h-4 -mx-1'/>} action={copyToClipboard}/>
                 {props.buttons}
                 <p>{list?.length} items</p>
@@ -781,7 +1004,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                         minWidth: '900px'
                                                         }
                                                     : { 
-                                                        columns:1
+                                                        display: "grid",
+                                                        gridAutoFlow: "dense",
+                                                        gridTemplateColumns: `repeat(${Math.floor(1.5 * Math.sqrt(columnColumns[cIdx]))}, 1fr )`
                                                     })
                                                 : {columns: Math.max(2, Math.floor(Math.sqrt(columnColumns[cIdx])))}
                                         } 
@@ -793,6 +1018,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 let item = wrapped.primitive
                                                 //let isWide = items.type === "segment" && item.
                                                 let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth:'16rem'}
+                                                let columns = undefined
                                                 let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
                                                 const staggerScale = scale  + (scale / 200 * (idx % 20))
                                                 if( props.render ){
@@ -801,6 +1027,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 let spanning = ""
                                                 if( viewConfig?.parameters?.fixedSpan ){
                                                     spanning= 'w-full'
+                                                }else if( viewConfig?.parameters?.span?.sqrt){
+                                                    columns = true//1 + Math.floor(Math.sqrt(wrapped.nestedCount) / 1.5)
                                                 }else if( viewConfig?.parameters?.span ){
                                                     if( wrapped.nestedCount > 10 ){
                                                         spanning ='col-span-2'
@@ -821,6 +1049,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 primitive={item} 
                                                 scale={staggerScale} 
                                                 fields={fields} 
+                                                columns
                                                 {...size} 
                                                 className={`mr-2 mb-2 touch-none ${spanning}`}
                                                 {...(props.renderProps || renderProps || {})} 

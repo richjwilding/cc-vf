@@ -33,6 +33,7 @@ import EditableTextField from './EditableTextField';
 import HierarchyView from './HierarchyView';
 import PrimitiveConfig from './PrimitiveConfig';
 import VFTable from './VFTable';
+import CoCreatedLogo from './CoCreatedLogo';
 
 
 let mainstore = MainStore()
@@ -316,7 +317,6 @@ export function PrimitivePage({primitive, ...props}) {
                   <CollectionViewer 
                     primitive={primitive} 
                     category={category} 
-                    excludeViews='explore'
                     setSelected={setSelected} 
                     onShowInfo={(e,p, s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
                     onInnerShowInfo={(e,p, s)=>{props.selectPrimitive(p,{scope: s || primitive})}}

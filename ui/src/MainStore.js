@@ -831,7 +831,7 @@ function MainStore (prims){
             if( primitive.referenceParameters?.notes?.lastFetched ){
                 revision = '?rev=' + new Date(primitive.referenceParameters?.notes?.lastFetched).getTime()
             }
-            const url = `/api/primitive/${primitive.id}/getDocument${revision}`
+            const url = `/api/primitive/${primitive.id}/getDocument${revision}?aaa`
                 const result = await fetch(url
                 ,{
                     method: "GET",
@@ -1055,6 +1055,7 @@ function MainStore (prims){
             return p
         })
     }
+    obj.uniquePrimitives = uniquePrimitives
     const primitive_access = (d, type)=>{
         if( d._id){
             d.id = d._id

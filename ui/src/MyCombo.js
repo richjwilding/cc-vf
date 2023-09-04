@@ -22,7 +22,9 @@ export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
           return item.title.toLowerCase().includes(query.toLowerCase())
         })
   return (
-    <Combobox multiple={Array.isArray(selectedItemReal)} as="div" value={selectedItemReal} onChange={setSelectedItemReal} className={props.className}>
+    <Combobox 
+      disabled={props.disabled}
+      multiple={Array.isArray(selectedItemReal)} as="div" value={selectedItemReal} onChange={setSelectedItemReal} className={props.className}>
       {props.label && <Combobox.Label className="block text-sm font-medium leading-6 text-gray-900">{props.label}</Combobox.Label>}
       <div className="relative w-48">
         <Combobox.Input
@@ -30,8 +32,8 @@ export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
           onChange={(event) => setQuery(event.target.value)}
           displayValue={(item) => Array.isArray(item) ?  `${props.prefix || ""}${item.length} items` : props.items ? `${props.prefix || ""}${props.items.find((d)=>d?.id === item)?.title}` : ""}
         />
-        <Combobox.Button className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-2 focus:outline-none">
-          <ChevronUpDownIcon className="h-5 w-5 text-gray-400" aria-hidden="true" />
+        <Combobox.Button disabled={props.disabled} className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-2 focus:outline-none">
+          <ChevronUpDownIcon className={`h-5 w-5 ${props.disabled ? "text-gray-200" : "text-gray-400"  }`} aria-hidden="true" />
         </Combobox.Button>
 
         {filteredItems.length > 0 && (
