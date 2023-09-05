@@ -33,9 +33,9 @@ export default function CollectionViewer({primitive, category, ...props}){
     const [page, setPage] = useState(0)
     const [showNew, setShowNew] = useState(false)
     const [showLink, setShowLink] = useState(false)
-    const [viewerPick, setViewerPick] = useState()
+    const [viewerPick, setViewerPick] = useState( )
+    const asViewer = category?.views?.options?.viewer || props.viewSelf
     let showDescend = category?.views?.options?.descend
-    const asViewer = category?.views?.options?.viewer
 
     if( category === undefined){
         category = {
@@ -98,17 +98,21 @@ export default function CollectionViewer({primitive, category, ...props}){
     let cardConfig = viewCategory?.views.options?.[view] || {fields: ['title']}
 
     let list
-    if( props.nested ){
-        list = primitive.primitives.descendants
-        if( props.nestedTypes ){
-            const types = [props.nestedTypes].flat()
-            list = list.filter((d)=>types.includes( d.type ) )
-        }
-        if( props.nestedReferenceIds ){
-            const ids = [props.nestedReferenceIds].flat()
-            list = list.filter((d)=>ids.includes( d.referenceId ) )
-        }
-    }else{        
+    if(props.viewSelf ){
+        list = [primitive]
+    }else{
+
+        if( props.nested ){
+            list = primitive.primitives.descendants
+            if( props.nestedTypes ){
+                const types = [props.nestedTypes].flat()
+                list = list.filter((d)=>types.includes( d.type ) )
+            }
+            if( props.nestedReferenceIds ){
+                const ids = [props.nestedReferenceIds].flat()
+                list = list.filter((d)=>ids.includes( d.referenceId ) )
+            }
+        }else{        
             if( descend ){
                 if( category.resultCategoryId ){
                     list = primitive.primitives.results.descendants.filter((d)=>d.referenceId === category.resultCategoryId)
@@ -119,13 +123,14 @@ export default function CollectionViewer({primitive, category, ...props}){
                     const cache = {}
                     list = MainStore().uniquePrimitives( list )
                 }
-
+                
             }else{
                 list = primitive.primitives.results ? primitive.primitives.results[category.id].map((d)=>d) : []
             }
-    }     
-    let clusters = list.filter((d)=>d.type === "view" )
-    if( !asViewer && clusters.length === 0 )
+        }     
+    }
+    let clusters = props.viewSelf ? [primitive] : list.filter((d)=>d.type === "view" )
+    if( !props.viewSelf && !asViewer && clusters.length === 0 )
     {
         allowed = allowed.filter((d)=>d !== "cluster" && d !== "proximity")   
     }
@@ -294,7 +299,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                 }
                 {view === "explore" &&
                     <PrimitiveExplorer 
-                        primitive={asViewer ? viewerPick?.primitives?.allItems[0] : primitive}
+                        primitive={asViewer ? (props.viewSelf ? primitive : viewerPick?.primitives?.allItems[0]) : primitive}
                         list={asViewer ? undefined : list}
                         category={
                             asViewer 
@@ -360,7 +365,17 @@ export default function CollectionViewer({primitive, category, ...props}){
      </>
 
     let mainContent 
-    if( asViewer ){
+    if( props.viewSelf ){
+        mainContent = <div 
+                className={`w-full min-h-[40vh] h-full bg-white rounded-md grid ${props.hidePanel ? "" : "max-h-[80vh] flex"}`}
+            >
+            <div className="w-full flex flex-col grow-0 max-h-[inherit]">
+                {buttonBar}
+                {viewerPick && content}
+            </div>
+        </div>
+
+    }else if( asViewer ){
         mainContent = <div 
                 style={{gridTemplateColumns: "9rem calc(100% - 9rem)"}}
                 className={`w-full min-h-[40vh] h-full bg-white rounded-md grid ${props.hidePanel ? "" : "max-h-[80vh]"}`}
@@ -380,8 +395,9 @@ export default function CollectionViewer({primitive, category, ...props}){
         </>
     }
     
-    const maxHeight = !asViewer && !props.hidePanel && view === "explore" ? "relative max-h-[80vh] flex-col flex bg-white" : ""
+    const maxHeight = !asViewer && !props.hidePanel && view === "explore" && list?.length > 0 ? "relative max-h-[80vh] flex-col flex bg-white" : ""
 
+    console.log(viewerPick)
     return props.hidePanel 
         ? <div className={`@container  ${props.className} flex flex-col relative`}>{mainContent}</div>
         : <Panel panelClassName={`@container ${maxHeight}`} expandButton={props.onExpand} key={category.title} count={list.length} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>

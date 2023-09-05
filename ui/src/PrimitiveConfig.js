@@ -69,7 +69,8 @@ const PrimitiveConfig = {
     types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view"],
     pageview:{
         "segment":{
-            evidence: true,
+            evidence: false,
+            viewer: true
           //  defaultWide: {type: 'result', index: 0} 
         }
     },

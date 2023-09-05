@@ -231,7 +231,7 @@ export default function HierarchyView({primitive, ...props}){
         console.log(`UPDATED`, primitiveId)
     }
 
-    const rootPrim = primitive?.primitives.allSegment[0]
+    const rootPrim = primitive?.type === "segment" ? primitive : primitive?.primitives.allSegment[0]
 
     let viewOptions = useMemo(()=>{
         if( rootPrim ){
@@ -348,6 +348,9 @@ export default function HierarchyView({primitive, ...props}){
     }, [])
 
     useLayoutEffect(()=>{
+        if( targetRef.current.offsetWidth === 0 ||  targetRef.current.offsetHeight === 0){
+            return
+        }
         if( !sizer.current ){
             console.log()
             sizer.current = sizer.current || document.createElement('p')
