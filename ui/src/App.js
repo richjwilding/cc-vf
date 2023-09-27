@@ -13,6 +13,8 @@ import SideNav from './SideNav';
 import SignIn from './SignIn';
 import HomeScreen from './HomeScreen';
 import toast, { Toaster } from 'react-hot-toast';
+import ConfirmationPopup from './ConfirmationPopup';
+import PrimitivePicker from './PrimitivePicker';
 
 library.add(fas, faLinkedin)
 
@@ -34,6 +36,8 @@ function App() {
   const [sidebarOptions, setSidebarOptions] = React.useState(undefined)
   const [widePage, setWidePage] = React.useState(false)
   const [workspaceView, setWorkspaceView] = React.useState(undefined)
+  const [showDeletePrompt, setShowDeletePrompt] = React.useState()
+  const [showPicker, setShowPicker] = React.useState()
 
 
   const checkPrimIsLoaded = ()=>{
@@ -77,6 +81,8 @@ function App() {
   }
 
   mainstore.sidebarSelect = selectPrimitive
+  mainstore.promptDelete = setShowDeletePrompt
+  mainstore.globalPicker = setShowPicker
 
   return (
     !loaded
@@ -109,12 +115,14 @@ function App() {
                           border:'1px solid #00d967'
                         }}}
                     />
-                    <PrimitivePage {...props} primitive={props.primitive} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
+                    <PrimitivePage {...props} primitive={props.primitive} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
                   </>
                   )}
                 </SideNav>}/>
             </Routes>
           <Sidebar open={open} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
+          {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" message={showDeletePrompt.prompt} confirm={showDeletePrompt.handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
+          {showPicker && <PrimitivePicker root={showPicker.root} callback={showPicker.callback} setOpen={setShowPicker} type={showPicker.type} referenceId={showPicker.referenceId}/>}
           </BrowserRouter>
       </div>
   )

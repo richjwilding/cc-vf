@@ -33,12 +33,20 @@ export default function DropdownButton({...props}) {
 
     const actualMenu = [
         props.flat 
-          ? <Menu.Button className={`h-full relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium focus:z-20 focus:outline-none  ${colors}`}>
+          ? <Menu.Button className={
+              [
+                props.small ? "text-xs py-1 px-2" : `text-sm py-2 px-2`,
+                `h-full relative inline-flex items-center rounded-md border font-medium focus:z-20 focus:outline-none  ${colors}`
+              ].join(' ')
+              }>
             {props.title}
             <ChevronDownIcon className="h-5 w-5 ml-1" aria-hidden="true" />
           </Menu.Button>
 
-          : <Menu.Button className={`h-full relative inline-flex items-center rounded-r-md border px-2 py-2 text-sm font-medium focus:z-20 focus:outline-none  ${colors}`}>
+          : <Menu.Button className={[
+              props.small ? "text-xs py-1 px-1" : `text-sm py-2 px-2`,
+              `h-full bg-red-400 relative inline-flex items-center rounded-r-md border font-medium focus:z-20 focus:outline-none  ${colors}`
+            ].join(" ")}>
           <span className="sr-only">Open options</span>
           <ChevronDownIcon className="h-5 w-5" aria-hidden="true" />
           </Menu.Button>
@@ -79,7 +87,10 @@ export default function DropdownButton({...props}) {
       <button
         type="button"
         onClick={props.main ? undefined : (e)=>{e.stopPropagation();props.items[0]?.action && props.items[0]?.action()}}
-        className={`relative inline-flex items-center rounded-l-md border  px-4 py-2 text-sm font-medium focus:z-20 focus:outline-none focus:ring-2  focus:ring-offset-2 ${colors} w-full `}
+        className={[
+            props.small ? "text-xs py-1 px-2" : `text-sm py-4 px-2`,
+          `relative inline-flex items-center rounded-l-md border font-medium focus:z-20 focus:outline-none focus:ring-2  focus:ring-offset-2 ${colors} w-full `
+        ].join(" ")}
       >
         {props.main ||  selected?.title || props.title || items[0].title}
       </button>}

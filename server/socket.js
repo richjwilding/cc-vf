@@ -1,4 +1,6 @@
 import { Server } from "socket.io";
+const redisAdapter = require('socket.io-redis');
+
 
 let io;
 let authentication
@@ -12,6 +14,12 @@ export const SIO = {
        });
        console.log(`registered socket`)
        this.attemptStartup()
+       io.adapter(redisAdapter({
+            host: process.env.QUEUES_REDIS_HOST, 
+            port: process.env.QUEUES_REDIS_PORT
+        ,
+       }));
+       console.log(`Using redis to sync ${process.env.QUEUES_REDIS_HOST}:${process.env.QUEUES_REDIS_PORT}`)
 
 
        return io;

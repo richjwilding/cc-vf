@@ -12,218 +12,13 @@ import MyCombo from './MyCombo';
 import TooggleButton from './ToggleButton';
 import { roundCurrency } from './RenderHelpers';
 import { itemsForGraph, projectData } from './SegmentCard';
-import jsPDF from 'jspdf';
-import { Canvg } from 'canvg';
-import { renderToString } from 'react-dom/server';
-import CoCreatedLogo from './CoCreatedLogo';
+import { exportViewToPdf } from './ExportHelper';
 
 
 const mainstore = MainStore()
 
-function deepCloneNodeWithCanvas(element) {
-    if (!element) {
-      return null;
-    }
-  
-    // Handle <canvas> elements
-    if (element.tagName === 'CANVAS') {
-      const originalContext = element.getContext('2d');
-  
-      // Create a new canvas element
-      const clonedCanvas = document.createElement('canvas');
-      clonedCanvas.width = element.width;
-      clonedCanvas.height = element.height;
-      clonedCanvas.style.width = element.style.width;
-      clonedCanvas.style.height = element.style.height;
-      const clonedContext = clonedCanvas.getContext('2d');
-  
-      // Copy the content from the original canvas to the cloned canvas
-      clonedContext.drawImage(element, 0, 0);
-      clonedContext.globalCompositeOperation = 'destination-over'
-      clonedContext.fillStyle = "white";
-      clonedContext.fillRect(0, 0, clonedCanvas.width, clonedCanvas.height);
-  
-      return clonedCanvas;
-    }
-  
-    // Clone the current element
-    const clonedElement = element.cloneNode(false); // Don't clone children yet
-  
-    // Clone and append child nodes
-    const childNodes = element.childNodes;
-    for (let i = 0; i < childNodes.length; i++) {
-      const clonedChild = deepCloneNodeWithCanvas(childNodes[i]);
-      if (clonedChild) {
-        clonedElement.appendChild(clonedChild);
-      }
-    }
-  
-    return clonedElement;
-  }
-
-export async function convertSVGToCanvas( svgElement, width, height){
-    const canvasElement = document.createElement('canvas');
-
-    // Set the canvas element's dimensions to match the SVG
-    canvasElement.width = width ?? svgElement.clientWidth * 2 ;
-    canvasElement.height = height ?? svgElement.clientHeight * 2;
-    const context = canvasElement.getContext('2d')
-    
-    // Insert the canvas element before the SVG element
-    
-    // Convert the SVG to canvas using canvg
-    let string =  typeof(svgElement) === "string" ? svgElement : new XMLSerializer().serializeToString(svgElement)
-    let color = typeof(svgElement) === "string" ? undefined : window.getComputedStyle( svgElement )?.color
-    if( string && color){
-        string = string.replaceAll('currentColor', color)          
-        console.log(string)
-    }
-    const c = await Canvg.from(context, string);
-    c.start()
-    canvasElement.style.width = (width ?? svgElement.clientWidth) + 'px';
-    canvasElement.style.height = (height ?? svgElement.clientHeight) + 'px';
-    
-    context.globalCompositeOperation = 'destination-over'
-    context.fillStyle = "white";
-    context.fillRect(0, 0, canvasElement.width, canvasElement.height);
-    return canvasElement
-
-}
-
-export async function exportViewToPdf( orignal_element, options = {} ){
-
-    //const element = orignal_element.cloneNode( true )
-    const element = deepCloneNodeWithCanvas( orignal_element )
-    document.body.appendChild(element)
-
-   for( const bg of element.querySelectorAll('.vfbgshape')){
-    bg.style.background='transparent'
-   }
 
 
-    const headerCanvas = await convertSVGToCanvas( renderToString(CoCreatedLogo()) )
-    document.body.appendChild(headerCanvas)
-
-    const {width = 210, 
-        height = 297, 
-        margin = [20, 10, 20, 10],
-        logo = [8, -8, 27, 6],
-        } = options
-    const eWidth = width - (margin[1] + margin[3])
-    const eHeight = height - (margin[0] + margin[2])
-
-    const oldTx = element.style.transform
-    element.style.transform = null
-
-
-    const scale = Math.min(1, eWidth / element.offsetWidth)
-
-    let pdf = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: 'a4',
-        putOnlyUsedFonts: true,
-       
-        });
-
-        
-    
-        const list = []
-        const convertElements = element.querySelectorAll('svg');
-        for(const svgElement of convertElements){
-            const canvasElement = await convertSVGToCanvas( svgElement )
-            svgElement.parentNode.insertBefore(canvasElement, svgElement);
-          
-            list.push( [svgElement, canvasElement, svgElement.style.display] )
-            svgElement.style.display = 'none';
-        }
-        const pages = {}
-        const scaledHeight = eHeight / scale
-        const targets = [...element.childNodes].map((d)=>[...d.childNodes]).flat()
-        let pageOffset = 0
-        let lastStart = 0
-        let page = 0
-        let topShift = {}
-        for( const el of targets){
-            const oldLastStart = lastStart
-            lastStart = Math.max(lastStart, el.offsetTop + el.offsetHeight)
-            pageOffset += lastStart- oldLastStart
-            const nextPage = pageOffset > scaledHeight
-            if( nextPage ){
-                page++
-                pageOffset = lastStart- oldLastStart
-            }
-            pages[page] = pages[page] || [] 
-            pages[page].push( el )
-            topShift[page] = topShift[page]  || el.offsetTop 
-        }
-        element.style.background='transparent'
-
-            const bandColors = [
-                "#00d967",
-                "#34e184",
-                "#65e8a2",
-                "#99f0c2",
-                "#65e8a2",
-                "#34e184",
-                "#00d967",
-                "#34e184",
-                "#65e8a2",
-                "#99f0c2",
-                "#65e8a2",
-                "#34e184",
-            ]
-            const bandSize  = width / bandColors.length
-
-        for( const page of Object.keys(pages)){
-            for( const page2 of Object.keys(pages)){
-                for( const item of pages[page2]){
-                    item.style.display = page2 === page ? null : 'none';
-                }
-
-            }
-            const pageTop = (parseInt(page) * height)
-
-            bandColors.forEach((d, idx)=>{
-                pdf.setFillColor( d )
-                pdf.rect(idx * bandSize, 0, bandSize, 3, "F")
-            })
-
-
-
-            pdf.addImage(
-                headerCanvas, 
-                logo[0] < 0 ? width + logo[0] : logo[0] , 
-                logo[1] < 0 ? height + logo[1] - logo[3] : logo[1] , 
-                logo[2],
-                logo[3])
-
-            await pdf.html(element, {
-                    x: margin[3], //+ item.offsetLeft,
-                    y: margin[0] +  pageTop,
-                    margin: [0,0,0,0],
-                    html2canvas: {
-                        scale: scale ,
-                    },
-                    callback: (updatedPdf)=>{
-                        if( parseInt(page) < (Object.keys(pages).length - 1)){
-                            updatedPdf.addPage()
-                        }
-                        return updatedPdf
-                    }
-                    
-                })
-
-        }
-        await pdf.save("download.pdf")
-    //    element.parentNode.removeChild(element)
-      //  headerCanvas.parentNode.removeChild(headerCanvas)
-       
-}
-
-window.exportViewToPdf = exportViewToPdf
-
-window.canvg = Canvg
 
 export default function PrimitiveExplorer({primitive, ...props}){
 
@@ -234,6 +29,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const [rowSelection, setRowSelection] = React.useState(0)//axisOptions.length > 1 ? 1 : 0)
     const [activeView, setActiveView] = React.useState(0)
     const layerNestPreventionList = React.useRef()
+    const [hideNull, setHideNull]= React.useState(false)
 
     function updateFilters(){
         let out = []
@@ -271,15 +67,19 @@ export default function PrimitiveExplorer({primitive, ...props}){
     },[primitive.id, update])
 
     let layers
-    if( primitive.type === "segment" ){
+    const asSegment = primitive.type === "segment" || (props.category && mainstore.category(props.category.resultCategoryId).primitiveType === "segment")
+    const skipFirstLayer =  asSegment && primitive.type !== "segment"
+    if( asSegment){
         
         layers = []
-        const nextLayer = (list)=>{
-            layers.push({id: layers.length, title: `Layer ${layers.length + 1}`})
+        const nextLayer = (list, idx = 0)=>{
+            if( !skipFirstLayer || idx > 0){
+                layers.push({id: layers.length, title: `Layer ${layers.length + 1}`})
+            }
             const thisLevel = list.map((d)=>d.primitives.allSegment).flat()
             
             if( thisLevel.length > 0 ){
-                nextLayer( thisLevel )
+                nextLayer( thisLevel, idx + 1 )
             }
         }
         nextLayer( [primitive] )
@@ -292,11 +92,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
         let keep = []
         if(layers){
             layerNestPreventionList.current = {}
-            if( layerSelection === 0){
+            const dLayer = layerSelection + (skipFirstLayer ? 1 : 0)
+            if( dLayer === 0){
                 out = [primitive]
             }
             
-           if( layerSelection > 1){
+           if( dLayer > 1){
                 const unpackLayer = (thisLayer)=>{
                     return thisLayer.map((d)=>{
                         const children = d.primitives.allSegment
@@ -316,13 +117,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     out = baseItems.map((d)=>d.nestedItems).flat()
                 }else{
                     
-                    for( let a = 0; a < (layerSelection - 1); a++){
+                    for( let a = 0; a < (dLayer - 1); a++){
                         out = MainStore().uniquePrimitives( unpackLayer(out) )
                     }
                 }
             }
             console.log(`HAD ${baseItems.length} now ${out.length}`)
         }
+        out = out.filter((d)=>!d?.referenceParameters?.duplicate)
         return [out,keep].flat()
     },[primitive.id, update, layerSelection])
     
@@ -334,7 +136,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
            // let type
             function topLevelCategory( item ){
                 const cats = item.categories
-                if( cats.length == 0){
+                if( cats.length == 0 || item.referenceId === 54){
                     if( item.type === "category" ){
                         return [item]
                     }                    
@@ -353,13 +155,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
             })
             return Object.values(catIds).map((d)=>{
                 const options = d.primitives.allUniqueCategory
+            console.log(`Set access = ${access} (${d.title})`)
                 return {
                     type: "category",
                     id: d.id,
                     category: d,
                     order: [undefined,options.map((d)=>d.id)].flat(),
-                    values: ["None", options.map((d)=>d.title)].flat(),
-                    title: `By ${d.title}`,
+                    values:["None", options.map((d)=>d.title)].flat(),
+                    title: `By ${d.title} (${list.map(d=>d.metadata.title ?? d.type).filter((d,i,a)=>a.indexOf(d)===i).join(", ")})`,
                     allowMove: access === 0,
                     access: access
                 }
@@ -438,7 +241,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 
             }
         }
-        const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>d2.id === d.id) === idx))
+        const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>(d2.id === d.id) && (d.access === d2.access)) === idx))
         if( colSelection >= final.length){
             setColSelection(0)
         }
@@ -617,7 +420,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }, primitive.type === "segment" ? 150 : 0)
         }
 
-    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds, update, layerSelection, activeView])
+    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds, /*update,*/ layerSelection, activeView, hideNull])
 
     function rebuildPrimitivePosition(){
         myState.current.primitivePositions = rebuildPosition('.pcard')
@@ -625,9 +428,18 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
     function rebuildPosition(selector){
         if(gridRef.current){
+            var gridRect = gridRef.current.getBoundingClientRect();
+            const [translateX, translateY, scale] = restoreState()
             const out = []
             for(const node of gridRef.current.querySelectorAll(selector)){
-                out.push( {x1: node.offsetLeft, y1: node.offsetTop, x2:node.offsetLeft + node.offsetWidth, y2: node.offsetTop + node.offsetHeight, id: node.getAttribute('id'), el: node} )
+                const bb = node.getBoundingClientRect()
+                const x1 = (bb.left - gridRect.left) / scale
+                const y1 = (bb.top - gridRect.top) / scale
+                const x2 = (bb.right - gridRect.left) / scale
+                const y2 = (bb.bottom - gridRect.top) / scale
+                
+                out.push( {x1: x1, y1: y1, x2: x2, y2: y2, id: node.getAttribute('id'), el: node} )
+                //out.push( {x1: node.offsetLeft, y1: node.offsetTop, x2:node.offsetLeft + node.offsetWidth, y2: node.offsetTop + node.offsetHeight, id: node.getAttribute('id'), el: node} )
             }
             return out
         }
@@ -650,13 +462,40 @@ export default function PrimitiveExplorer({primitive, ...props}){
         console.log(`${primitiveId} - >${startZone} > ${endZone}`)
         const primitive = mainstore.primitive(primitiveId)
         if( primitive ){
-            const [sc,sr] = startZone.split('-')
-            const [ec,er] = endZone.split('-')
-            if( sc !== ec){
-                await updateProcess(primitive, colSelection, columnExtents[sc], columnExtents[ec])
-            }
-            if( sr !== er){
-                await updateProcess(primitive, rowSelection, rowExtents[sr], rowExtents[er])
+            if(dropOnGrid){
+
+                const [sc,sr] = startZone.split('-')
+                const [ec,er] = endZone.split('-')
+                if( sc !== ec){
+                    await updateProcess(primitive, colSelection, columnExtents[sc], columnExtents[ec])
+                }
+                if( sr !== er){
+                    await updateProcess(primitive, rowSelection, rowExtents[sr], rowExtents[er])
+                }
+            }else{
+                console.log(`looking for direct realtion of ${primitiveId} to ${startZone}`)
+                const route = primitive.findRouteToParent( startZone )
+                if( route ){
+                    const directParent = route.reverse()[0]
+                    const target = mainstore.primitive(endZone)
+                    if( directParent && target ){
+                        if( directParent.id !== target.id ){
+
+                            console.log(`MOVING FROM ${directParent.plainId} > ${target.plainId}`)
+                            await directParent.removeRelationship( primitive, 'ref')
+                            await target.addRelationship( primitive, 'ref')
+                        }else{
+
+                            console.log(`NOT MOVING FROM - IS SAME ${directParent.plainId} > ${target.plainId}`)
+                        }
+
+                    }
+                    console.log(`Direct is ${directParent.plainId}`)
+                }else{
+                    console.log(`Couldnt `)
+                }         
+
+
             }
         }
 
@@ -699,7 +538,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 const parent=targetRef.current            
                 const grid = gridRef.current
 
-                const { width, height, x, y } = targetRef.current.getBoundingClientRect()
                 var parentRect = parent.getBoundingClientRect();
                 var gridRect = grid.getBoundingClientRect();
 
@@ -723,13 +561,17 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     const start = dropsAt(inGridX, inGridY )
                     myState.current.dragging = {...hits[0]}
                     if( start && start[0] ){
-                        const [c,r] = start[0].id.split('-')
-                        myState.current.dragging.startZone = start[0]
-                        if( axisOptions[rowSelection].allowMove !== true || axisOptions[colSelection].allowMove !== true){
-
-                            myState.current.dragging.constrain = {
-                                col: axisOptions[rowSelection].allowMove ? c : undefined, 
-                                row: axisOptions[colSelection].allowMove ? r : undefined
+                        const id = start[0].id
+                        if(id){
+                            myState.current.dragging.startZone = start[0]
+                            if( dropOnGrid ){
+                                const [c,r] = id.split('-')
+                                if( axisOptions[rowSelection].allowMove !== true || axisOptions[colSelection].allowMove !== true){
+                                    myState.current.dragging.constrain = {
+                                        col: axisOptions[rowSelection].allowMove ? c : undefined, 
+                                        row: axisOptions[colSelection].allowMove ? r : undefined
+                                    }
+                                }
                             }
                         }
 
@@ -737,6 +579,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     
                     const clone = myState.current.dragging.el.cloneNode(true);
                     clone.style.position = "absolute"
+                    clone.style.maxWidth = `${myState.current.dragging.el.offsetWidth}px`
+                    clone.style.minWidth = `${myState.current.dragging.el.offsetWidth}px`
                     clone.style.left = `${myState.current.dragging.x1}px`
                     clone.style.top = `${myState.current.dragging.y1}px`
                     clone.style.zIndex = `100`
@@ -766,17 +610,27 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 if( hits && hits.length > 0){
                     const target = hits[0]
                     if( !myState.current.dragging.startZone || target.id !==  myState.current.dragging.startZone.id){
-                        const [c,r] = target.id.split('-')
-                        if( !myState.current.dragging.constrain ||
-                            ((myState.current.dragging.constrain.col !== undefined && myState.current.dragging.constrain.col === c) ||
-                            (myState.current.dragging.constrain.row !== undefined && myState.current.dragging.constrain.row === r))){
-
+                        const id = target.id
+                        if(id){
+                            let cancelForConstraints = false
+                            
+                            if( dropOnGrid){
+                                const [c,r] = id.split('-')
+                                cancelForConstraints = true
+                                if( !myState.current.dragging.constrain ||
+                                    ((myState.current.dragging.constrain.col !== undefined && myState.current.dragging.constrain.col === c) ||
+                                    (myState.current.dragging.constrain.row !== undefined && myState.current.dragging.constrain.row === r))){
+                                        cancelForConstraints = false
+                                    }
+                            }
+                            if( !cancelForConstraints ){
                                 if( myState.current.dragging.dropzone && myState.current.dragging.dropzone !== target){
                                     myState.current.dragging.dropzone.el.style.background = null
                                 }
                                 target.el.style.background = "#6ee7b7"
                                 myState.current.dragging.dropzone = target
                             }
+                        }
                     }
                 }else{
                     if( myState.current.dragging.dropzone ){
@@ -788,12 +642,15 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 
             }
             if( state.last ){
-                if( myState.current.dragging){
+                if( myState.current.dragging ){
                     const hits = dropsAt(inGridX, inGridY )
-                    if( hits && hits.length > 0){
-                        const target = hits[0]
-                        if( !(myState.current.dragging.startZone && target.id ===  myState.current.dragging.startZone.id)){
-                            moveItem( myState.current.dragging.id, myState.current.dragging.startZone.id, target.id)
+                    if( myState.current.dragging.startZone ){
+
+                        if( hits && hits.length > 0){
+                            const target = hits[0]
+                            if( !(myState.current.dragging.startZone && target.id ===  myState.current.dragging.startZone.id)){
+                                moveItem( myState.current.dragging.id, myState.current.dragging.startZone.id, target.id)
+                            }
                         }
                     }
                     if( myState.current.dragging.helper){
@@ -875,7 +732,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const axisExtents = (fieldName, field)=>{
         if( !axisOptions || !axisOptions[field]){return []}
         if( axisOptions[field].type === "category" ){
-            return axisOptions[field].values
+            let base = axisOptions[field].values
+            if( hideNull ){
+                if( base.length > 1) {
+                    return base.filter(d=>d!=="None")
+                }
+            }
+            return base
         }
         if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number" ){
             return axisOptions[field].labels
@@ -887,11 +750,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
   const columnExtents = React.useMemo(()=>{
         return axisExtents("column", colSelection)
-    },[primitive.id, colSelection, rowSelection, update])
+    },[primitive.id, colSelection, rowSelection, update, hideNull])
   
     const rowExtents = React.useMemo(()=>{
         return axisExtents("row", rowSelection)
-    },[primitive.id, colSelection, rowSelection, update])
+    },[primitive.id, colSelection, rowSelection, update, hideNull])
 
 
 
@@ -899,9 +762,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
   const columnColumns = columnExtents.map((col)=>{
-      return Math.max(...Object.values(list.filter((d)=>d.column == (col?.idx ?? col)).reduce((o, d)=>{o[d.row?.idx ?? d.row] = (o[d.row?.idx ?? d.row] || 0) + 1;return o},{})))
+      return Math.max(...Object.values(list.filter((d)=>d.column == (col?.idx ?? col)).reduce((o, d)=>{
+                                                o[d.row?.idx ?? d.row] = (o[d.row?.idx ?? d.row] || 0) + ((hideNull && d.row === "None") ? 0 : 1)
+                                                return o
+                                            },{})))
     })
 
+    console.log(columnColumns)
     const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
 
 
@@ -921,7 +788,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
     
     const renderType = layers?.[layerSelection]?.items ? list?.[0]?.primitive?.type :  (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default"
-    const viewAsSegments = primitive.type === "segment" && layers && !layers[layerSelection]?.items
+    const viewAsSegments = asSegment && layers && !layers[layerSelection]?.items
     const viewConfigs = viewAsSegments && props.category?.views?.options?.["explore"]?.configs
     const viewConfig = viewConfigs?.[activeView]
     const renderProps = viewConfig?.props ?? defaultRenderProps[renderType ]
@@ -941,6 +808,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const enableClick = !renderProps?.graph
 
 
+    const dropOnGrid = !viewConfig?.config?.dropOnPrimitive
+
+
+    console.log(props.category)
 
   return (
     <>
@@ -954,6 +825,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 {layers && <MyCombo items={layers} selectedItem={layers[layerSelection] ? layerSelection :  0} setSelectedItem={setLayerSelection}/>}
                 {options && <MyCombo items={options} prefix="Columns: " selectedItem={options[colSelection] ? colSelection :  0} setSelectedItem={setColSelection}/>}
                 {options && <MyCombo items={options} prefix="Rows: " selectedItem={options[rowSelection] ? rowSelection : 0} setSelectedItem={setRowSelection}/>}
+                <TooggleButton enabled={hideNull} setEnabled={setHideNull} title={`Hide 'none'`}/>
                 {viewConfigs && <MyCombo items={viewConfigs} prefix="View: " selectedItem={activeView} setSelectedItem={setActiveView}/>}
             </div>
                 <div ref={targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain'>
@@ -966,8 +838,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         gridTemplateRows: `${hasColumnHeaders ? "min-content" : ""} repeat(${rowExtents.length}, min-content)`
                     }}
                     className='vfExplorer touch-none grid relative gap-8 w-fit h-fit'>
-                    {!hasColumnHeaders && !hasRowHeaders && <div key={`croot`} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[0] || "slate"}-200/20 border-2 border-${colors[0] || "slate"}-200/40`}></div>}
-                    {hasColumnHeaders && columnExtents.map((col, cIdx)=>(<div key={`c${cIdx}`} style={{gridColumnStart:cIdx + (hasRowHeaders ? 2 : 1), gridColumnEnd:cIdx + (hasRowHeaders ? 3 : 2)}} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[cIdx] || "slate"}-200/20 border-2 border-${colors[cIdx] || "slate"}-200/40`}></div>))}
+                    {!hasColumnHeaders && !hasRowHeaders && <div key={`croot`} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[0] || "slate"}-200 opacity-20 border-2 border-${colors[0] || "slate"}-400`}></div>}
+                    {hasColumnHeaders && columnExtents.map((col, cIdx)=>(<div key={`c${cIdx}`} style={{gridColumnStart:cIdx + (hasRowHeaders ? 2 : 1), gridColumnEnd:cIdx + (hasRowHeaders ? 3 : 2)}} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-${colors[cIdx] || "slate"}-200 opacity-20 border-2 border-${colors[cIdx] || "slate"}-400`}></div>))}
                     {hasRowHeaders && rowExtents.map((col, cIdx)=>(<div key={`r${cIdx}`} style={{gridRowStart:cIdx + (hasColumnHeaders ? 2 : 1), gridRowEnd:cIdx + (hasColumnHeaders ? 3 : 2)}} className={`touch-none vfbgshape z-0 absolute w-full h-full top-0 left-0 bg-slate-200/40 border-2 border-slate-200/50`}></div>))}
                     {hasColumnHeaders && <>
                         {hasRowHeaders && <p></p>}
@@ -1012,11 +884,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                         } 
                                         id={`${cIdx}-${rIdx}`}                                        
                                         className={
-                                            `${colOption?.allowMove || rowOption?.allowMove ? "dropzone" : ""} z-[2] w-full  p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children touch-none `
+                                            `${dropOnGrid && (colOption?.allowMove || rowOption?.allowMove) ? "dropzone" : ""} z-[2] w-full  p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children touch-none `
                                             }>
                                             {subList.map((wrapped, idx)=>{
                                                 let item = wrapped.primitive
-                                                //let isWide = items.type === "segment" && item.
+                                                let defaultRender = item.metadata?.defaultRenderProps?.card
+                                                let defaultFields = defaultRender?.fields
                                                 let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth:'16rem'}
                                                 let columns = undefined
                                                 let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
@@ -1048,10 +921,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 directOnly={layerNestPreventionList?.current ? layerNestPreventionList.current[item.id] : false}
                                                 primitive={item} 
                                                 scale={staggerScale} 
-                                                fields={fields} 
+                                                fields={defaultFields ?? fields} 
                                                 columns
                                                 {...size} 
-                                                className={`mr-2 mb-2 touch-none ${spanning}`}
+                                                className={`mr-2 mb-2 touch-none ${spanning} ${viewConfig?.config?.dropOnPrimitive ? "dropzone" : ""}`}
                                                 {...(props.renderProps || renderProps || {})} 
                                                 onInnerCardClick={ (e, p)=>{
                                                     if( myState.current?.cancelClick ){

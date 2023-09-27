@@ -50,6 +50,10 @@ const PrimitiveConfig = {
             needCategory:true,
             "createAtWorkspace": true,
         },
+        "category": {
+            needCategory:false,
+            defaultReferenceId: 54
+        },
         "hypothesis": {
             needCategory:false,
             defaultReferenceId: 39
@@ -78,6 +82,7 @@ const PrimitiveConfig = {
         "segment":{
             source: false,
             addToResult: "segment",
+            addToItems: [42],
         }
     },
     stateInfo:{

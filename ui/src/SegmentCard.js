@@ -582,31 +582,59 @@ export default function SegmentCard({primitive, ...props}){
 
     let itemLimit = nestedItems.length
     if(props.itemLimit ){
-        if( typeof(props.itemLimit) === "string"){
-            if( props.itemLimit === "flagged"){
-                nestedItems = nestedItems.sort((a,b)=>{
-                    const flaggedA = (a.referenceParameters?.top || a.referenceParameters?.important) ? 1 : 0
-                    const flaggedB = (b.referenceParameters?.top || b.referenceParameters?.important) ? 1 : 0
-                    return flaggedB - flaggedA
-                })
-                itemLimit = nestedItems.filter((d)=>d.referenceParameters?.top || d.referenceParameters?.important).length
-            }
-        }else{
+        const flagged = (items)=>{
+            const temp = items.sort((a,b)=>{
+                const flaggedA = (a.referenceParameters?.top || a.referenceParameters?.important) ? 1 : 0
+                const flaggedB = (b.referenceParameters?.top || b.referenceParameters?.important) ? 1 : 0
+                return flaggedB - flaggedA
+            })
+            return [temp, temp.filter((d)=>d.referenceParameters?.top || d.referenceParameters?.important).length]
+        }
+
+        if( typeof(props.itemLimit) === "number"){
             itemLimit = props.itemLimit ?? 10 
+
+        }else{
+    
+            let process = [props.itemLimit].flat()
+            let finalCount = 1
+            let finalSet = []
+            for( const d of process ){
+                let thisCount
+                let thisSet
+                console.log(`checking ${d}`)
+                if( d === "flagged"){
+                    [thisSet, thisCount] = flagged( nestedItems )
+                }
+                if( d.slice(0,7) === "recent_"){
+                    thisCount = 10
+                    thisSet = nestedItems.sort((a,b)=>b.plainId - a.plainId).slice(0,thisCount)
+
+                }
+                if( thisCount > 0 ){
+                    finalCount = thisCount
+                    finalSet = thisSet
+                    break
+                }
+            }
+            itemLimit = finalCount
+            nestedItems = finalSet
+
         }
     } 
     const moreToShow = Math.max(0, nestedItems.length - itemLimit)
     const wide = !props.compact && props.showGrid && itemLimit > 10//0
     //const columns = props.cardView ? (Math.floor(Math.sqrt(itemLimit) / 1.5) ) : (wide ? 10 : 5)
-    const columns = props.cardView ? Math.max(props.itemLimit ? 2 : 1, (1 + Math.floor(Math.sqrt(itemLimit) / 1.5)))  : (wide ? 10 : 5)
+    const columns = props.cardView ? Math.max(itemLimit ? 2 : 1, (1 + (Math.floor(Math.sqrt(itemLimit) / 3))))  : (wide ? 10 : 5)
 
 
     const mainContent = <>
             <p key='title' className={`${props.hideDetails ? "text-xl font-light mb-4" : props.cardView ? "text-xl font-semi m-2 mb-1" : "text-sm font-semi mb-2"} text-gray-800  `}>{primitive.title}</p>
             {!props.hideDetails && <p key='description' className={props.cardView ? 'text-lg text-gray-600 m-2 mb-3' : 'text-xs text-gray-600 mb-2'}>{primitive.referenceParameters.description}</p>}
-            {props.showGrid  && !props.itemLimit  && <div style={{gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`}} className={`grid place-items-center gap-1`}>
+            {props.showGrid  && !itemLimit  && <div style={{gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`}} className={`grid place-items-center gap-1`}>
                 {(showAll ? nestedItems : nestedItems.slice(0,itemLimit)).map((d)=>(
                     <PrimitiveCard 
+                        fullId
                         primitive={d}
                         micro={!props.imageOnly}
                         hideMenu={props.imageOnly}
@@ -615,21 +643,23 @@ export default function SegmentCard({primitive, ...props}){
                         titleAtBase
                         fields={props.cardView ? ["title","important","top"] : undefined}
                         compact={props.hideDetails}
-                        className={!props.imageOnly ? "min-w-[12rem]" : ""}
+                        className={!props.imageOnly ? "min-w-[10rem]" : ""}
                         onClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); props.onInnerCardClick(e, p, primitive)} : undefined}
                         />
                 ))}
             </div>}
-            {props.showGrid && props.itemLimit && <CardGrid 
+            {props.showGrid && itemLimit && <CardGrid 
                 list={showAll ? nestedItems : nestedItems.slice(0,itemLimit)}
+                columns={props.card ? columns : undefined}
                 onCardClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); props.onInnerCardClick(e, p, primitive)} : undefined}
                 cardProps={
                     {
+                        fullId: true,
                         micro:true,
                         fields: props.cardView ? ["title", "important","top"] : undefined
                     }
                 }
-                columnConfig={{xs:2, md: 3}}
+                columnConfig={{xs:2, md: 3,"2xl": 4, "4xl":5}}
             />}
             {!props.hideMore && props.showGrid && !showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`+ ${moreToShow} items`} onClick={()=>setShowAll(true)}/>}
             {!props.hideMore && props.showGrid && showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`Show less`} onClick={()=>setShowAll(false)}/>}
@@ -655,10 +685,12 @@ export default function SegmentCard({primitive, ...props}){
     if( props.graph ){
         width = '36rem'
     }
+    console.log(primitive.plainId, columns, width, props.cardView)
 
     return (
         <>
         <div 
+            id={primitive.id}
             key={primitive.id}
             onClick={props.onClick ? (e)=>props.onClick(e,primitive) : undefined }
             style={{

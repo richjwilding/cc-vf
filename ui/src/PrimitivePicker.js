@@ -41,9 +41,10 @@ const SearchPanel = (props)=>{
     })
   }
   if( props.referenceId ){
+    const ids = [props.referenceId].flat()
     filterSet.push({
       name: "Type",
-      action: (p)=>p.referenceId === props.referenceId || (props.root && props.root.id === p.id)
+      action: (p)=>ids.includes(p.referenceId) //|| (props.root && props.root.id === p.id)
     })
   }
 
@@ -55,8 +56,11 @@ const SearchPanel = (props)=>{
   }
 
   if( props.target){
-    const ids = props.target.primitives.allIds
-    const parentChain = props.target.findParentPrimitives().map((d)=>d.id).filter((d,i,a)=>a.indexOf(d)===i)
+    const target = [props.target].flat()
+    const selfIds = target.map(d=>d.id)
+    const ids = target.map(d=>d.primitives.allIds).flat()
+    //const parentChain = props.target.findParentPrimitives().map((d)=>d.id).filter((d,i,a)=>a.indexOf(d)===i)
+    const parentChain = target.map(d=>d.findParentPrimitives().map((d)=>d.id)).flat().filter((d,i,a)=>a.indexOf(d)===i)
     filterSet.push({
       name: "Parent chain",
       action: (p)=>{
@@ -71,8 +75,24 @@ const SearchPanel = (props)=>{
       name: "Already linked",
       action: (p)=>!ids.includes(p.id)
     })
+    filterSet.push({
+      name: "Self",
+      action: (p)=>!selfIds.includes(p.id)
+    })
   }
+    if( props.exclude ){
+      const eIds = props.exclude.map(d=>d.id)
+      console.log(`EXCLUDE = ${eIds}`)
+      filterSet.push({
+        name: "Exclude list",
+        action: (p)=>!eIds.includes(p.id)
+      })
+    }
   if( props.primitive){
+    filterSet.push({
+      name: "Self",
+      action: (p)=>p.id !== props.primitive.id
+    })
     filterSet.push({
       name: "Already linked",
       action: (p)=>!p.primitives.allIds.includes(props.primitive.id)

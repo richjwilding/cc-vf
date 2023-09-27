@@ -87,16 +87,27 @@ export function Sidebar({primitive, ...props}) {
             console.log(`cant add ${p.id} - no suitable result section`)
         }
     }
-
-    let resultIds = [primitive.referenceId]
+    
+    let thisType = primitive.type
     if( isMulti ){
         const types = primitive.map((d)=>d.type).filter((v,i,a)=>a.indexOf(v)===i)
         commonMultiType = types.length === 1 ? types[0] : undefined
-        showAddToResult = metadata?.sidebar?.addToResult ?? PrimitiveConfig.sidebar[commonMultiType]?.addToResult ?? false 
-        resultIds = primitive.map((d)=>d.referenceId).filter((v,i,a)=>a.indexOf(v)===i)
+        thisType = commonMultiType
+    }
+
+    let resultIds = metadata?.sidebar?.addToItems ?? PrimitiveConfig.sidebar[thisType]?.addToItems
+    if(resultIds){
+        showAddToResult = resultIds.length > 1 ? "item" : MainStore().category( resultIds[0] )?.title
+    }else{
+        resultIds = [primitive.referenceId]
+        if( isMulti ){
+            showAddToResult = metadata?.sidebar?.addToResult ?? PrimitiveConfig.sidebar[commonMultiType]?.addToResult ?? false 
+            resultIds = primitive.map((d)=>d.referenceId).filter((v,i,a)=>a.indexOf(v)===i)
+        }
     }
     let showButtons = !isMulti || (isMulti && commonMultiType)
     let showUnlinkFromScope = false 
+    console.log('here!!', resultIds)
 
     if( props.scope ){
         showUnlinkFromScope = true
@@ -119,7 +130,7 @@ export function Sidebar({primitive, ...props}) {
 
     return (
         <>
-    {showLink && <PrimitivePicker root={isMulti ? primitive[0].task : primitive.task} path='results' callback={linkTo} setOpen={setShowLink} hasResultCategoryFor={resultIds} type={(typeof(showAddToResult) === "string") ? showAddToResult : undefined} />}
+    {showLink && <PrimitivePicker target={isMulti ? primitive : [primitive]} root={isMulti ? primitive[0].task : primitive.task} path='results' callback={linkTo} setOpen={setShowLink} referenceId={resultIds} />}
     {showUnlinkPrompt && <ConfirmationPopup title="Confirm unlink" message={showUnlinkPrompt} confirmColor='indigo' confirmText='Unlink' confirm={unlinkFromScope} cancel={()=>setShowUnlinkPrompt(false)}/>}
     {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" message={showDeletePrompt} confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
     <Transition.Root 
@@ -168,6 +179,11 @@ export function Sidebar({primitive, ...props}) {
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
                     <Panel title="Significance" collapsable={true} open={true} major>
                         <PrimitiveCard.EvidenceHypothesisRelationship primitive={primitive} title={false} />
+                    </Panel>
+                }
+                {primitive.primitives.allUniqueEvidence.length > 0 && 
+                    <Panel title="Evidence" collapsable={true} open={true} major>
+                        <PrimitiveCard.EvidenceList primitive={primitive} hideTitle relationshipMode="none"/>
                     </Panel>
                 }
                 {origin && showSource &&

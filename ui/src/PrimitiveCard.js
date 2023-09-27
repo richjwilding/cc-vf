@@ -24,7 +24,7 @@ import useDataEvent from './CustomHook';
 import ContactPicker from './ContactPicker';
 import QuestionCard from './QuestionCard';
 import CategoryCard, { CategoryCardPill } from './CategoryCard';
-import {  BuildingOffice2Icon,  ChevronRightIcon,  FlagIcon,  LinkIcon,  TrashIcon } from '@heroicons/react/24/outline';
+import {  BuildingOffice2Icon,  ChevronRightIcon,  FlagIcon,  LinkIcon,  MagnifyingGlassCircleIcon,  TrashIcon } from '@heroicons/react/24/outline';
 import { Bars3Icon } from '@heroicons/react/20/solid';
 import ConfirmationPopup from './ConfirmationPopup';
 import AIProcessButton from './AIProcessButton';
@@ -56,6 +56,30 @@ let mainstore = MainStore()
           <dd className="text-gray-500 font-medium">{item.value ? "Yes" : "No"}</dd>
         )
 
+      }else if( item.type === "primitive"){
+        let base
+        const pick = ()=>{
+          console.log(item,props)
+          mainstore.globalPicker({
+            root: undefined,
+            callback:(pick)=>{
+              if( props.primitive){
+                props.primitive.addRelationship(pick, `params.${item.key}`)
+              }
+            },
+            type: item.primitiveType,
+            referenceId: item.referenceId
+            
+          })
+        }
+        const pickedItem = props.primitive?.primitives?.params?.[item.key].allItems?.[0]
+        console.log(pickedItem)
+        if( pickedItem ){
+          base = <PrimitiveCard primitive={pickedItem} compact onClick={pick}/>
+        }else{
+          base = <Panel.MenuButton small action={pick} title={<div className='flex place-items-center justify-center text-gray-600 w-full'><MagnifyingGlassCircleIcon className='w-5 h-5 mr-1'/>Select item</div>} className='w-full'/>
+        }
+        return <div className='w-full flex'>{base}</div>
       }else if( item.type === "category_source"){
         const task = props.primitive.task
         if( !task?.metadata){
@@ -67,32 +91,49 @@ let mainstore = MainStore()
         const list = []
 
         const evidenceCategories = [task.metadata.evidenceCategories, task.primitives.descendants.filter((d)=>d.type === "evidence").map((d)=>d.referenceId)].flat().filter((c,idx,a)=>c && a.indexOf(c)===idx)
-        console.log(evidenceCategories)
 
         evidenceCategories.forEach((d)=>{
-          list.push({key: d, isEvidence: true, title: `Evidence: ${mainstore.category(d).title}`})
+          const title = (props.excludeResultCategories ? "" : "Evidence: ") + mainstore.category(d).title
+          if( !props.ensurePresent || task.primitives.descendants.filter((d2)=>d2.referenceId === d).length > 0 ){
+            list.push({key: d, isEvidence: true, title: title})
+          }
         })
-        task.metadata.resultCategories?.forEach((d)=>{
-          list.push({key: `results.${d.id}`, title: d.title})
-        })
-        console.log(list)
+        if(!props.evidenceOnly){
+          task.metadata.resultCategories?.forEach((d)=>{
+            list.push({key: `results.${d.id}`, title: d.title})
+          })
+          console.log(list)
+        }
 
         const setSource = (idx)=>{
           const source = list[idx]
-          if( source.isEvidence ){
-            props.primitive.setParameter("referenceId", source.key  )
-            props.primitive.setParameter(item.key, "evidence" )
-          }else{
-            props.primitive.setParameter(item.key, source.key )
-          }
           const fieldKey = Object.keys(props.primitive.metadata.parameters).filter((d,idx,a)=>props.primitive.metadata.parameters[d].type === "category_field")?.[0]
-          if( fieldKey ){
-            props.primitive.setParameter( fieldKey, 'title' )
+
+
+          if( props.callback ){
+            const res = {}
+            props.callback(parseInt(source.key))
+
+          }else{
+            if( source.isEvidence ){
+              props.primitive.setParameter("referenceId", source.key  )
+              props.primitive.setParameter(item.key, "evidence" )
+            }else{
+              props.primitive.setParameter(item.key, source.key )
+            }
+            if( fieldKey ){
+              props.primitive.setParameter( fieldKey, 'title' )
+            }
           }
         }
-        let index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) ||(item.value === "evidence" && props.primitive.referenceParameters?.referenceId === undefined) || item.value === d.key) 
-        if( index == -1 ){
-          index = list.findIndex((d)=>(defaultConfig.target === "evidence" && d.key === defaultConfig.referenceId) || defaultConfig.target === d.key) 
+        let index 
+        if( props.local ){
+          index = list.findIndex((d)=>(d.isEvidence && d.key === item.value))
+        }else{
+          index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) ||(item.value === "evidence" && props.primitive.referenceParameters?.referenceId === undefined) || item.value === d.key) 
+          if( index == -1 ){
+            index = list.findIndex((d)=>(defaultConfig.target === "evidence" && d.key === defaultConfig.referenceId) || defaultConfig.target === d.key) 
+          }
         }
         console.log(item)
 
@@ -101,7 +142,7 @@ let mainstore = MainStore()
           selectedItem={index} 
           setSelectedItem={setSource}
           items={list.map((d, idx)=>{return {id:idx, ...d}})}
-          className='ml-auto'
+            className='ml-auto w-full'
           />
 
       }else if( item.type === "state"){
@@ -119,7 +160,7 @@ let mainstore = MainStore()
             selectedItem={props.primitive?.referenceParameters?.state ?? "open"} 
             setSelectedItem={setState}
             items={options}
-            className='ml-auto'
+            className='ml-auto w-full'
             />
         }else{
           const state = stateInfo[props.primitive?.referenceParameters?.state ?? "open"]
@@ -397,10 +438,16 @@ let mainstore = MainStore()
             title: d.title, 
             icon: d.icon || "PlayIcon", 
             action: async ()=>{
-              
               if( d.manualFields ){
                 setManualInputPrompt({
                   confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs),
+                })
+              }else if( d.actionFields ){
+                setManualInputPrompt({
+                  primitive: primitive,
+                  fields: d.actionFields,
+                  confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs),
+                  //confirm: async (inputs)=>console.log(inputs),
                 })
               }else{
                 const res = await MainStore().doPrimitiveAction(primitive, d.key)
@@ -910,7 +957,9 @@ const Title = function({primitive, ...props}){
   }
 
   let relationshipRender
-  if( props.relationshipMode === "presence"){
+  if( props.relationshipMode === "none"){
+  }
+  else if( props.relationshipMode === "presence"){
     const manageParentLinks = ()=>{
       setShowParentLinksManager(true)
       
@@ -1011,11 +1060,23 @@ const Categories = function({primitive, ...props}){
 
   const resultTypes = primitive.metadata?.resultCategories?.map((d)=>d.resultCategoryId) || []
 
-  const createCategory = async ()=>{
-    const newPrim = await MainStore().createPrimitive({type: 'category', parent: primitive})
+  const createCategory = async (referenceId)=>{
+    const newPrim = await MainStore().createPrimitive({type: 'category', parent: primitive, categoryId: referenceId})
   }
     
   let button
+  const baseCategories = [53,55]
+
+  let createButtons = [{title:"Create new", small:true, action: ()=>createCategory()}]
+  for(const d of baseCategories){
+    const category = mainstore.category(d)
+    if( category){
+      createButtons.push({title:`New ${category.title}`,small:true,  action: ()=>createCategory(d)})
+      
+    }
+  }
+
+
 
   const getAiProcessSummary = ()=>{
     if( !aiProcessSummary){
@@ -1041,7 +1102,7 @@ const Categories = function({primitive, ...props}){
     }
   }
   return (
-    <Panel key='analysis' title={(<>Categories{button}</>)} collapsable={true} open={props.panelOpen !== undefined ? props.panelOpen : list && list.length > 0 } titleButton={{title:'Create new',small:true,action: createCategory}} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
+    <Panel key='analysis' title={(<>Categories{button}</>)} collapsable={true} open={props.panelOpen !== undefined ? props.panelOpen : list && list.length > 0 } titleButton={createButtons} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
       <dd className="mt-1 text-sm text-gray-900">
         <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200 space-y-2">
           {(list === undefined || list.length === 0) && 

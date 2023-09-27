@@ -7,6 +7,8 @@ import { enrichCompanyFromLinkedIn } from "./linkedin_helper";
 import { findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
 import Category from "./model/Category";
 import { fetchArticlesFromGNews } from "./gnews_helper";
+import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
+import Parser from "@postlight/parser";
 
 
 let instance
@@ -19,12 +21,34 @@ export default function EnrichPrimitive(){
     instance = new Queue("enrichQueue", {
         connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT },
     });
+    instance.myInit = async ()=>{
+        console.log("Enrich Queue")
+        const jobCount = await instance.count();
+        console.log( jobCount + " jobs in queue (enrich)")
+        await instance.obliterate({ force: true });
+        const newJobCount = await instance.count();
+        console.log( newJobCount + " jobs in queue  (enrich)")
+    }
 
     instance.findArticles = (primitive, options )=>{
         if( primitive.type === "activity"){
             const field = `processing.articles`
             dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Finding articles"})
-            instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: "find_articles", options: options})
+            instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: "find_articles", options: options, field: field})
+        }
+    }
+    instance.siteDiscovery = (primitive, options )=>{
+        if( primitive.type === "entity"){
+            const field = `processing.site`
+            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining url"})
+            instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_discovery", options: options, field: field})
+        }
+    }
+    instance.findPosts = (primitive, options )=>{
+        if( primitive.type === "activity"){
+            const field = `processing.posts`
+            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Finding posts"})
+            instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "find_posts", options: options, field: field})
         }
     }
     instance.searchCompanies = (primitive, options )=>{
@@ -71,10 +95,35 @@ export default function EnrichPrimitive(){
     new Worker('enrichQueue', async job => {
         const primitive = await Primitive.findOne({_id: job.data.id})
         if( primitive){
+            if( job.data.mode === "site_discovery" ){
+                const url = primitive.referenceParameters?.url
+                console.log(`site_discovery ${primitive.id} ${url}`)
+
+                if( url ){
+                    console.log(`FETCHING`)
+                    const result = await Parser.parse(url, {
+                        contentType: 'markdown',
+                      })
+
+                    console.log(result)
+                    if( result ){
+                        dispatchControlUpdate(primitive.id, `referenceParameters.excerpt`, result.excerpt)
+                     //   dispatchControlUpdate(primitive.id, `referenceParameters.content`, result.content)
+                    }
+                    console.log(`back`)
+                }
+
+                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+            }
             if( job.data.mode === "find_articles" ){
                 console.log(`find_articles ${primitive.id} ${primitive.referenceParameters?.topics}`)
                 await fetchArticlesFromGNews( primitive, job.data.options )
-                dispatchControlUpdate(primitive.id, "processing.pivot" , null, {track: primitive.id})
+                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+            }
+            if( job.data.mode === "find_posts" ){
+                console.log(`find_posts ${primitive.id} ${primitive.referenceParameters?.topics}`)
+                await fetchPostsFromSocialSeracher( primitive, job.data.options )
+                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
             }
             if( job.data.mode === "search_company" ){
                 console.log(`search_company ${primitive.id} ${primitive.referenceParameters?.topics}`)

@@ -63,7 +63,11 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
     }
 
     if( list === undefined ){
-        list = category && primitive.primitives.results ?  primitive.primitives.results[category.id].map((d)=>d) : []
+        if( category && Object.keys(primitive.primitives.results).length > 0){
+            list = primitive.primitives.results[category.id].map((d)=>d) 
+        }else{
+            list = primitive.primitives.origin.allItems
+        }
     }
     
     if( fields ){
@@ -83,7 +87,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
 
     const resultCategory = category ? MainStore().category(category.resultCategoryId) : undefined
 
-    const columnCount = parseInt(active)
+    const columnCount = props.columns ?? parseInt(active)
     const columns = list.reduce((o, d, idx)=>{o[idx% columnCount]=o[idx% columnCount] || [];o[idx% columnCount].push(d);return o},[])
 
     return (<>

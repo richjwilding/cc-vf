@@ -60,7 +60,7 @@ export default function QuestionCard({primitive, ...props}){
                     className='!mt-0'
                     title={<div key='ai_title' className="font-semibold flex place-items-center">
                             <FontAwesomeIcon icon="fa-solid fa-robot" className="mr-1"/>Question will be processed by AI
-                            {props.relatedTo && <AIProcessButton small subset={primitive.id} active="document_questions" primitive={props.relatedTo} process={(p)=>p.analyzer().analyzeQuestions(true, [primitive])}/>}
+                            {props.relatedTo && <AIProcessButton showDelete={primitive} small subset={primitive.id} active="document_questions" primitive={props.relatedTo} process={(p)=>p.analyzer ? p.analyzer().analyzeQuestions(true, [primitive]) : MainStore().doPrimitiveDocumentQuestionsAnalysis(p,[primitive.id])}/>}
 
                             </div>}>
                 

@@ -18,8 +18,6 @@ import { setRefreshTokenHandler } from './google_helper';
 import { google } from "googleapis";
 import { SIO } from './socket';
 
-import QueueAI from './ai_queue';
-
 dotenv.config()
 
 const miro = new Miro()
@@ -345,6 +343,5 @@ if (process.env.NODE_ENV === 'production') {
     })
   }
   
-
 
 export default app;

@@ -296,8 +296,8 @@ export function PrimitivePage({primitive, ...props}) {
                           }
                       <PrimitiveCard.EvidenceList onCardClick={(p)=>props.selectPrimitive(p)} showCategories={primitive.primitives.allCategory.length > 0} relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                     </Panel>}
-              { PrimitiveConfig.pageview[primitive.type]?.viewer && 
-                <CollectionViewer primitive={primitive} viewSelf category={primitive.metadata.resultCategories[0]} />
+              { false && PrimitiveConfig.pageview[primitive.type]?.viewer && 
+                  <CollectionViewer hideCreate primitive={primitive} viewSelf category={primitive.metadata.resultCategories[0]} />
               }
               {primitive.type === "assessment" && primitive.framework &&
                     <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>
@@ -316,10 +316,14 @@ export function PrimitivePage({primitive, ...props}) {
               }
 
               {primitive.metadata?.resultCategories && primitive.metadata.resultCategories.map((category,idx)=>{
+                const asViewer = PrimitiveConfig.pageview[primitive.type]?.viewer && idx === 0
                 return !(showWorkingPane instanceof Object && showWorkingPane.type === "result" && showWorkingPane.index === idx) ?
                   <CollectionViewer 
                     primitive={primitive} 
                     category={category} 
+                    viewSelf={asViewer}
+                    hideCreate={asViewer}
+                    open={asViewer}
                     setSelected={setSelected} 
                     onShowInfo={(e,p, s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
                     onInnerShowInfo={(e,p, s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
@@ -396,7 +400,7 @@ export function PrimitivePage({primitive, ...props}) {
           <div key='content' 
             className={
               [
-                'mx-auto mt-8 grid sm:px-6 ',
+                'mt-8 grid sm:px-6 ',
                 fullScreenExplore ? "" :"gap-6",
                 showWorkingPane 
                   ? "grid-cols-1 lg:grid-cols-[1fr_1fr_min-content] 2xl:grid-cols-[repeat(2,min-content)_auto_min-content] 2xl:grid-rows-[min-content_1fr] " 
@@ -526,11 +530,11 @@ export function PrimitivePage({primitive, ...props}) {
             {(hasDocumentViewer || showWorkingPane)  && 
               <div 
                   style={{minWidth:0, minHeight:0}} 
-                  className={[
+                  className={
                     fullScreenExplore
-                      ? 'h-[calc(100vh_-_8em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'
-                      : 'h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[6em] row-span-1 2xl:row-span-2'
-                    ].join(" ")}
+                      ? `h-[calc(100vh_-_8em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky ${props.widePage ? "2xl:top-[2em]" : "2xl:top-[6em]"} row-span-1 2xl:row-span-2`
+                      : `h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky ${props.widePage ? "2xl:top-[2em]" : "2xl:top-[6em]"} row-span-1 2xl:row-span-2`
+                    }
                 >
                 <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col @container'>
                     {showWorkingPane === "evidence" && 
@@ -573,6 +577,8 @@ export function PrimitivePage({primitive, ...props}) {
                           onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx},{scope: primitive})} : undefined}
                           onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
                           selected={selected}
+                          viewSelf={PrimitiveConfig.pageview[primitive.type]?.viewer && showWorkingPane.index === 0}
+                          hideCreate={PrimitiveConfig.pageview[primitive.type]?.viewer && showWorkingPane.index === 0}
                           category={primitive?.metadata?.resultCategories?.[showWorkingPane.index]}/>
                     }
                 </div>
@@ -586,7 +592,7 @@ export function PrimitivePage({primitive, ...props}) {
                   showWorkingPane ? "min-w-[25em] lg:col-start-3 2xl:col-start-4 row-start-3 row-span-4 lg:row-start-1 2xl:row-span-2" : "lg:row-span-4 lg:col-start-3 row-start-2 lg:row-start-1 "
                 ].join(" ")
               }>
-              <div className="bg-white px-4 py-5 shadow sm:rounded-lg sm:px-6 sticky top-[6em]">
+              <div className={`bg-white px-4 py-5 shadow sm:rounded-lg sm:px-6 sticky ${props.widePage ? "2xl:top-[2em]" : "2xl:top-[6em]"}`}>
                             <Tab.Group>
                                 <Tab.List key='tabs' className="-mb-px flex space-x-8 border-b border-gray-200" aria-label="Tabs">
                                 <Tab key='t1' as={Fragment}>

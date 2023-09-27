@@ -17,7 +17,7 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import PrimitivePicker from "./PrimitivePicker";
 import { PrimitiveCard } from "./PrimitiveCard";
 
-const allViews = ["cluster", "explore", "cards","table","table_grid", "list", "proximity" ]
+const allViews = ["cards","cluster", "explore", "table","table_grid", "list", "proximity" ]
 const icons = {
     "explore": <RectangleGroupIcon className="w-5 h-5"/>,
     "cluster": <HeroIcon icon='Nest' className="w-5 h-5"/>,
@@ -33,7 +33,7 @@ export default function CollectionViewer({primitive, category, ...props}){
     const [page, setPage] = useState(0)
     const [showNew, setShowNew] = useState(false)
     const [showLink, setShowLink] = useState(false)
-    const [viewerPick, setViewerPick] = useState( )
+    const [viewerPick, setViewerPick] = useState( props.viewSelf ? primitive : undefined )
     const asViewer = category?.views?.options?.viewer || props.viewSelf
     let showDescend = category?.views?.options?.descend
 
@@ -54,7 +54,8 @@ export default function CollectionViewer({primitive, category, ...props}){
                             },
                             {
                                 "field": "title",
-                                "name": "Item"
+                                "name": "Item",
+                                "width": 0.7
                             },
                             {
                                 "field": "referenceName",
@@ -83,6 +84,27 @@ export default function CollectionViewer({primitive, category, ...props}){
         const view = props.defaultWide ? viewCategory.views.options?.defaultWide : viewCategory.views.options?.default
         return view || allowed[0] || "cards"
     }
+
+
+    const processFromClipboard = async (field)=>{
+        if (navigator.clipboard) {
+            // Attempt to read text from the clipboard
+            const text = await navigator.clipboard.readText()
+              
+                // `text` variable now contains the text from the clipboard
+                const items = text.split(',')
+                if( window.confirm(`Create ${items.length} from:\n${items.slice(0,10).join('\n')}`) ){
+                   for( const url of items){
+                        await createResult({referenceParameters: {[field]: url}})
+                   } 
+                }
+              
+          } else {
+            // Clipboard API is not supported
+            console.error("Clipboard API is not supported in this browser.");
+          }
+    }
+
 
     const [view, setView] = useState( pickDefault() )
 
@@ -115,12 +137,11 @@ export default function CollectionViewer({primitive, category, ...props}){
         }else{        
             if( descend ){
                 if( category.resultCategoryId ){
-                    list = primitive.primitives.results.descendants.filter((d)=>d.referenceId === category.resultCategoryId)
+                    list = primitive.primitives.descendants.filter((d)=>d.referenceId === category.resultCategoryId)
                 }else if( category.type ){
                     list = primitive.primitives.descendants.filter((d)=>d.type === category.type)
                 }
                 if( list ){
-                    const cache = {}
                     list = MainStore().uniquePrimitives( list )
                 }
                 
@@ -129,11 +150,13 @@ export default function CollectionViewer({primitive, category, ...props}){
             }
         }     
     }
-    let clusters = props.viewSelf ? [primitive] : list.filter((d)=>d.type === "view" )
+    let clusters = props.viewSelf ? [primitive] : primitive?.primitives.allView.filter((d)=>!props.nestedTypes || d.referenceParameters.target === props.nestedTypes) // list.filter((d)=>d.type === "view" )
+    //let clusters = props.viewSelf ? [primitive] : list.filter((d)=>d.type === "view" )
     if( !props.viewSelf && !asViewer && clusters.length === 0 )
     {
         allowed = allowed.filter((d)=>d !== "cluster" && d !== "proximity")   
     }
+    console.log(clusters)
 
     const resultCategory = category.resultCategoryId ? mainstore.category(category.resultCategoryId) : undefined
 
@@ -189,21 +212,30 @@ export default function CollectionViewer({primitive, category, ...props}){
                     </div>
                 : category.plurals || category.title
                 
-                createButtons = [{title:"Create new", action: ()=>createResult(undefined, true)}]
-                if( category?.views?.options?.showLink ){
-                        createButtons.push( {title: "Link existing", action: ()=>setShowLink(true)} )
+                if( !props.hideCreate ){
 
-                }
-                if( resultCategory ){
-                    if( resultCategory.parameters.notes ){
-                        createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
+                    createButtons = [{title:"Create new", action: ()=>createResult(undefined, true)}]
+                    if( category?.views?.options?.showLink ){
+                        createButtons.push( {title: "Link existing", action: ()=>setShowLink(true)} )
+                        
                     }
-                    
-                    (primitive.metadata.actions || []).forEach((d)=>{
-                        if( d.canCreate && d.resultCategory === resultCategory.id){
-                            createButtons.push( {title: d.title, action: async ()=>await mainstore.doPrimitiveAction(primitive, d.key, {path: `results.${category.id}`})})
+                    if( category?.views?.options?.createFromPaste ){
+                        category?.views?.options?.createFromPaste.forEach(p=>{
+                            createButtons.push( {title: `Create fom clipboard (${p.title})`, action: async ()=>await processFromClipboard(p.field)} )
+                        })
+                    }
+                    if( resultCategory){
+                        
+                        if( resultCategory.parameters.notes ){
+                            createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
                         }
-                    })
+                        
+                        (primitive.metadata.actions || []).forEach((d)=>{
+                            if( d.canCreate && d.resultCategory === resultCategory.id){
+                                createButtons.push( {title: d.title, action: async ()=>await mainstore.doPrimitiveAction(primitive, d.key, {path: `results.${category.id}`})})
+                            }
+                        })
+                    }
                 }
     }
 
@@ -211,7 +243,7 @@ export default function CollectionViewer({primitive, category, ...props}){
     const pages = Math.ceil( list.length / pageItems)
     const showPagination = ["table", "list", "cards"].includes(view)
 
-    const showBar = (showPagination && pages > 1) || (allowed.length > 1 || props.closeButton) && !["explore", "cluster"].includes(view)
+    const showBar = (showDescend || (showPagination && pages > 1) || (allowed.length > 1 || props.closeButton)) && !["explore", "cluster"].includes(view)
     const buttons = <>
                 {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
                 {allowed.length > 1 && viewCategory.views?.options && Object.keys(viewCategory.views.options).map((d)=>{
@@ -232,6 +264,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                 }
             }
 
+            
     console.log(allowed, view)
     if( !allowed.includes(view)){
         return <></>
@@ -299,14 +332,14 @@ export default function CollectionViewer({primitive, category, ...props}){
                 }
                 {view === "explore" &&
                     <PrimitiveExplorer 
-                        primitive={asViewer ? (props.viewSelf ? primitive : viewerPick?.primitives?.allItems[0]) : primitive}
-                        list={asViewer ? undefined : list}
+                        primitive={asViewer ? (props.viewSelf ? primitive : viewerPick ) : primitive}
+                        list={asViewer ? (props.viewSelf ? undefined : viewerPick?.primitives.allItems ) : list}
                         category={
                             asViewer 
                             ? viewCategory
                             : category?.id !== undefined ? category : undefined
                         }
-                        fields={[cardConfig.fields, "top", "important"].flat()}
+                        fields={[cardConfig.fields, "top", "important","duplicate"].flat()}
                         onClick ={props.onShowInfo}
                         onInnerCardClick ={props.onInnerShowInfo}
                         allowedCategoryIds={asViewer ? undefined : list.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} 
@@ -324,7 +357,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                     onDoubleClick={props.onNavigate}
                     page={page}
                     pageItems={pageItems}
-                    list={list} 
+                    list={asViewer ? undefined : list} 
                     showDetails={true}
                     className='p-2'
                     columnConfig={{"sm":1}}
@@ -340,7 +373,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                     onDoubleClick={props.onNavigate}
                     page={page}
                     pageItems={pageItems}
-                    list={list} 
+                    list={asViewer ? undefined : list} 
                     className='p-2'
                     columnConfig={
                         cardConfig?.wide
@@ -352,11 +385,11 @@ export default function CollectionViewer({primitive, category, ...props}){
                 {view === "cluster" && 
                     <HierarchyView 
                         buttons={buttons} 
-                        primitive={asViewer ? viewerPick : primitive}
+                        primitive={asViewer ? viewerPick : clusters[0]}
                 />}
                 {view === "proximity" && 
                     <ProximityView 
-                        primitive={asViewer ? viewerPick : primitive}
+                        primitive={asViewer ? viewerPick : clusters[0]}
                 />}
             </>
         }
@@ -367,13 +400,22 @@ export default function CollectionViewer({primitive, category, ...props}){
     let mainContent 
     if( props.viewSelf ){
         mainContent = <div 
-                className={`w-full min-h-[40vh] h-full bg-white rounded-md grid ${props.hidePanel ? "" : "max-h-[80vh] flex"}`}
+                style={{gridTemplateColumns: "100%"}}
+                className={`w-full min-h-[40vh] h-full bg-white rounded-md grid ${props.hidePanel ? "" : "max-h-[80vh]"}`}
             >
             <div className="w-full flex flex-col grow-0 max-h-[inherit]">
                 {buttonBar}
                 {viewerPick && content}
             </div>
         </div>
+        /*mainContent = <div 
+                className={`w-full min-h-[40vh] h-full bg-white rounded-md grid ${props.hidePanel ? "" : "max-h-[80vh] flex"}`}
+            >
+            <div className="w-full flex flex-col grow-0 max-h-[inherit]">
+                {buttonBar}
+                {viewerPick && content}
+            </div>
+        </div>*/
 
     }else if( asViewer ){
         mainContent = <div 
@@ -400,7 +442,7 @@ export default function CollectionViewer({primitive, category, ...props}){
     console.log(viewerPick)
     return props.hidePanel 
         ? <div className={`@container  ${props.className} flex flex-col relative`}>{mainContent}</div>
-        : <Panel panelClassName={`@container ${maxHeight}`} expandButton={props.onExpand} key={category.title} count={list.length} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+        : <Panel panelClassName={`@container ${maxHeight}`} expandButton={props.onExpand} key={category.title} count={list.length} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' open={props.open} collapsable={true}>
             {mainContent}
         </Panel>
     

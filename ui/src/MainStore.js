@@ -831,7 +831,7 @@ function MainStore (prims){
             if( primitive.referenceParameters?.notes?.lastFetched ){
                 revision = '?rev=' + new Date(primitive.referenceParameters?.notes?.lastFetched).getTime()
             }
-            const url = `/api/primitive/${primitive.id}/getDocument${revision}?aaa`
+            const url = `/api/primitive/${primitive.id}/getDocument${revision}`
                 const result = await fetch(url
                 ,{
                     method: "GET",
@@ -1377,6 +1377,12 @@ function MainStore (prims){
                     return receiver.primitives[type]
                 }
                 if( type === "primitive"){
+                    if( d.type === "view"){
+                        if( prop === "nestedItems"){
+                            return uniquePrimitives( receiver.primitives.allSegment.map(d=>d.nestedItems).flat() )
+                        }
+
+                    }
                     if( d.type === "segment"){
                         if( prop === "nestedItems"){
                             const segmentItems = (node)=>{
@@ -1388,7 +1394,7 @@ function MainStore (prims){
                                     }
                                 }).flat()
                             } 
-                            return segmentItems( receiver)
+                            return segmentItems( receiver).filter((d)=>!d.referenceParameters?.duplicate)
                         }
 
                     }
@@ -1524,6 +1530,31 @@ function MainStore (prims){
                 }
                 if( prop === "displayType"){
                     return d.type.charAt(0).toUpperCase() + d.type.slice(1)
+                }
+                if( prop === "findRouteToParent"){
+                    return function(target){
+                        const layerUp = (node, indent = 0)=>{
+                            let out
+                            if( node.parentPrimitiveIds.length === 0){
+                                return false
+                            }
+                            for(const d of node.parentPrimitives){
+                                if(d.id === target){
+                                    return [d]
+                                }
+                            }
+                            node.parentPrimitives.forEach((d)=>{
+                                if(!out){
+                                    const result = layerUp( d, indent + 1 )
+                                    if( result ){
+                                        out = [...result, d]
+                                    }
+                                }
+                            })
+                            return out   
+                        }
+                        return layerUp(receiver)
+                    }
                 }
                 if( prop === "findParentPrimitives"){
                     return function(options = {type: undefined, first: false}){

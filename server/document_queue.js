@@ -3,9 +3,9 @@ import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import { getDocumentAsPlainText, importDocument, locateQuote, removeDocument } from "./google_helper";
 import Primitive from "./model/Primitive";
-import { addRelationship, createPrimitive, dispatchControlUpdate, primitiveChildren, primitiveOrigin, primitivePrimitives, removePrimitiveById } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, getNestedValue, primitiveChildren, primitiveOrigin, primitivePrimitives, primitiveTask, removePrimitiveById } from "./SharedFunctions";
 import Category from "./model/Category";
-import { analyzeText } from "./openai_helper";
+import { analyzeText, analyzeText2, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
 import Contact from "./model/Contact";
 
 
@@ -16,19 +16,24 @@ async function processQuestions( data ){
 
         console.log(`Answering questions for ${data.id}`)
         const primitive = await Primitive.findOne({_id: data.id})
-        const origin = await Primitive.findOne({_id: primitiveOrigin(primitive) })
-        let questions = await primitiveChildren(origin, "question")
+        //const origin = await Primitive.findOne({_id: primitiveOrigin(primitive) })
+        //let questions = await primitiveChildren(origin, "question")
+        const task = await primitiveTask( primitive )
+        let questions = await primitiveChildren(task, "question")
 
         if( data.qIds ){
+            console.log(`Filter ${questions.length} questions`)
             questions = questions.filter((d)=>data.qIds.includes(d.id))
         }
+        console.log(`Got ${questions.length} questions from for ${task.id}`)
         
         const groups = {}
         for(const question of questions){
             const prompts = await primitiveChildren(question, "prompt")
             for(const prompt of prompts){
 
-                const oldEvidence =  await primitivePrimitives(prompt, 'primitives.auto', "evidence" )
+                let oldEvidence =  await primitivePrimitives(prompt, 'primitives.auto', "evidence" )
+                oldEvidence = oldEvidence.filter((d)=>d.parentPrimitives[data.id]?.includes('primitives.origin'))
                 console.log( `----> got ${oldEvidence.length} to remove`)
                 for( const old of oldEvidence){
                     await removePrimitiveById( old.id )
@@ -64,22 +69,83 @@ async function processQuestions( data ){
         const text = extract.plain
         for( const group of Object.values(groups)){
             const resultField = group.category.openai.field || "problem"
-            const result = await analyzeText( text, {
-                opener: group.category.openai.opener,
-                descriptor: group.category.openai.descriptor,
-                responseInstructions: group.category.openai.responseInstructions,
-                responseFields: group.category.openai.responseFields,
-                promptType: group.category.openai.promptType,
-                prompts: group.prompts.map((p)=>p.text),
-                normalize: true
-            })
+
+
+            let result 
+            if( group.category.openai.newProcess ){
+                result = await analyzeText2( text, {
+                    opener: group.category.openai.opener,
+                    descriptor: group.category.openai.descriptor,
+                    responseInstructions: group.category.openai.responseInstructions,
+                    responseFields: group.category.openai.responseFields,
+                    promptType: group.category.openai.promptType,
+                    sourceType: group.category.openai.sourceType,
+                    prompts: group.prompts.map((p)=>p.text),
+                    engine: group.category.openai.engine,
+                    prefix: group.category.openai.prefix,
+                    postfix: group.category.openai.postfix,
+                    responseQualifier: group.category.openai.responseQualifier,
+                    temperature: group.category.openai.temperature,
+                })
+                // remap
+                console.log(result.response)
+                if( result.success){
+                    result.response = Object.keys(result.response).map((k)=>{
+                        if( result.response[k].answered > 0 ){
+                            result.response[k].answers = result.response[k].answers.map((a)=>{return {...a, id:k, answered: true}})
+                        }else{
+                            result.response[k].answers = {answered: 0, answers: []}
+                        }
+                        return result.response[k].answers
+                    }).flat()
+                }
+                console.log(result.response)
+
+
+            }else{
+                result = await analyzeText( text, {
+                    opener: group.category.openai.opener,
+                    descriptor: group.category.openai.descriptor,
+                    responseInstructions: group.category.openai.responseInstructions,
+                    responseFields: group.category.openai.responseFields,
+                    promptType: group.category.openai.promptType,
+                    sourceType: group.category.openai.sourceType,
+                    prompts: group.prompts.map((p)=>p.text),
+                    engine: group.category.openai.engine,
+                    prefix: group.category.openai.prefix,
+                    postfix: group.category.openai.postfix,
+                    temperature: group.category.openai.temperature,
+                })
+
+            }
+
+            
             if( result.success && result.response ){
                 for( const answer of result.response ){
                     const idx = (answer.id && isNaN(answer.id)) ? answer.id.match(/\d+/) : answer.id
                     if( idx !== undefined ){
                         const prompt =  group.prompts[idx]
-                        if( answer.answered && answer[resultField] ){
-                            const highlights = locateQuote(answer.quote, extract.data)
+                        let process = true
+                        prompt.uTrack = prompt.uTrack  || {}
+                        if( group.category.unique){
+                            console.log(`Filter for unique`)
+                            if( prompt.uTrack[ answer[resultField] ]){
+                                process = false
+                            }
+                            prompt.uTrack[ answer[resultField] ] = true
+                        }
+                        if( group.category.openai.regex ){
+                            if( !(new RegExp(group.category.openai.regex ).test(answer[resultField]))){
+                                console.log('-- Fail regex')
+                                process = false
+                            }
+                        }
+                        if( process && answer.answered && answer[resultField] && answer[resultField] !== null   ){
+                            const highlights = extract.data ? locateQuote(answer.quote, extract.data) : undefined
+                            let params = {}
+                            if( group.category.openai.responseFields ){
+                                params = Object.keys( group.category.openai.responseFields ).reduce((o,k)=>{o[k]=answer[k]; return o}, {})
+                            }
                             const newData = {
                                 workspaceId: primitive.workspaceId,
                                 parent: primitive.id,
@@ -88,6 +154,7 @@ async function processQuestions( data ){
                                     referenceId: group.category.openai.resultCategory,
                                     title: Array.isArray(answer[resultField]) ? answer[resultField].map((d,idx)=>`${idx+1}) ${d}`).join(" ") : answer[resultField],
                                     referenceParameters:{
+                                        ...params,
                                         quoted: true,
                                         quote: answer.quote,
                                         highlightAreas: highlights
@@ -122,6 +189,14 @@ export default function QueueDocument(){
     instance = new Queue("documentQueue", {
         connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT },
     });
+    instance.myInit = async ()=>{
+        console.log("Document Queue")
+        const jobCount = await instance.count();
+        console.log( jobCount + " jobs in queue (document)")
+        await instance.obliterate({ force: true });
+        const newJobCount = await instance.count();
+        console.log( newJobCount + " jobs in queue (document)")
+    }
     
     instance.documentDiscovery = async ( primitive, req )=>{
         if( primitive.type === "result"){
@@ -181,6 +256,7 @@ export default function QueueDocument(){
     new Worker('documentQueue', async job => {
         console.log(job.data)
         if( job.data.mode === "questions" ){
+            //console.log('skip')
             await processQuestions( job.data )
             dispatchControlUpdate(job.data.id, job.data.field , null, {track: job.data.id})
         }
@@ -258,7 +334,13 @@ export default function QueueDocument(){
                                         const key = p.onRoot ? p.key : `referenceParameters.${p.key}`
                                         if( p.type === "string" || p.type === "long_string" )
                                         {
-                                            fields[key] = value                                         
+                                            if(p.summarize){
+                                                fields[key] = fields[key] || {summarize: true, items: [], theme: p.value}
+                                                fields[key].items.push(value)                                         
+
+                                            }else{
+                                                fields[key] = value                                         
+                                            }
                                         }else if(p.type === "number"){
                                             const number = isNaN(value) ? value.match(/[-+]?[0-9]*\.?[0-9]+/) : value
                                             console.log(number)
@@ -281,10 +363,19 @@ export default function QueueDocument(){
                         }
                     }
 
-                    const transformQuestions = (list)=>{
+                    const transformQuestions = (list, parent)=>{
                         return list.map((d)=>{
                             if( d.type === "number"){
                                 return {...d, prompt: `${d.prompt}. Provide your answer as a number without any other text`}
+                            }
+                            if( d.promptParentModifier){
+                                const value = getNestedValue( parent, d.promptParentModifier)
+                                console.log(`--- nESTED ${value}`)
+                                if( value ){
+                                    return {...d, prompt: d.prompt.replaceAll('{t}', value), value: value}
+                                }else{
+                                    return {...d, prompt: d.promptBlank}
+                                }
                             }
                             return d
                         })
@@ -302,7 +393,7 @@ export default function QueueDocument(){
                             opener: category.openai.opener,
                             descriptor: category.openai.descriptor,
                             text: text, 
-                            prompts: transformQuestions(questionList)
+                            prompts: transformQuestions(questionList, parent)
                         })
                         await processResponses( result, questionList)
                     }
@@ -323,13 +414,17 @@ export default function QueueDocument(){
                             text: text, 
                             skipQuote: true,
                             promptType: "task",
-                            prompts: transformQuestions(taskList)
+                            prompts: transformQuestions(taskList, parent)
                         })
                         processResponses( result, taskList)
                     }
-                    
 
                     if( Object.keys(fields).length > 0 ){
+                        for(const k of Object.keys(fields)){
+                            if( fields[k].summarize){
+                                fields[k] = (await summarizeMultiple(fields[k].items, {themes: fields[k].value}))?.summary ?? null
+                            }
+                        }
                         try{
 
                             await Primitive.findOneAndUpdate(

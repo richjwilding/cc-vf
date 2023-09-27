@@ -23,6 +23,9 @@ export default function GenericEditor({item, primitive,...props}) {
   
   const [open, setOpen] = useState(true)
   const list = useMemo(()=>{
+    if( primitive.metadata?.subCategories === "inherit"){
+      return undefined
+    }
     return props.set ? props.set(primitive) : primitive.primitives.allItems
   }, [primitive.id, eventRelationships])
   const targets = undefined
@@ -98,10 +101,12 @@ export default function GenericEditor({item, primitive,...props}) {
               
               <PrimitiveCard.Banner key='banner' primitive={primitive}/>
               <PrimitiveCard key='title' primitive={primitive} showEdit={true} showId={false} major={true}/>
-              {list && <p className='mt-4 text-gray-500 text-xs'>Parameters</p>}
-              <div className='p-4 bg-gray-50 rounded-md border border-gray-200'>
-                <PrimitiveCard.Parameters primitive={primitive} editing={true} fullList={true} />
-              </div>
+              {primitive?.metadata?.parameters && <>
+                <p className='mt-4 text-gray-500 text-xs'>Parameters</p>
+                <div className='p-4 bg-gray-50 rounded-md border border-gray-200'>
+                  <PrimitiveCard.Parameters primitive={primitive} editing={true} fullList={true} />
+                </div>
+              </>}
               {list && <p className='mt-4 text-gray-500 text-xs'>Category items</p>}
               {list && <div className='overscroll-contain overflow-y-scroll max-h-[50vh] rounded-md border border-gray-200 p-3 my-2 space-y-3 bg-gray-50 '>
                 {(list.length === 0) && 
@@ -118,7 +123,7 @@ export default function GenericEditor({item, primitive,...props}) {
                   <PrimitiveCard.Variant key={child.id} primitive={child} showEdit={true} editable={true} listType={props.listType}/>
                 ))}
               </div>}
-              <div className='w-full space-x-2'>
+              <div className='w-full space-x-2 mt-2'>
                 <DropdownButton flat={true} items={items} title='Add item' className='shrink-0 grow-0 h-8' dropdownWidth='w-96' align='left'/>
                 {props.actions && <DropdownButton flat={true} items={
                   props.actions.map((d)=>{

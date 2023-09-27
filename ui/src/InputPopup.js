@@ -1,29 +1,41 @@
 import { useState } from "react"
 import Popup from "./Popup"
+import { PrimitiveCard } from "./PrimitiveCard"
 
 export function InputPopup(props){
+
     function closeModal() {
         if( props.cancel ){
             props.cancel()
         }
     }
     function confirm(){
-        if( field && props.confirm){
-            props.confirm( {keywords: field} )
+        if( props.confirm){
+            props.confirm( Object.keys(data).reduce((a,c,)=>{a[c] = data[c].value; return a}, {}) )
         }
         closeModal()
     }
-    const [field, setField] = useState(undefined)
+    const [data, setData] = useState(props.fields || {"keywords": {type: "text"}})
+    const updateValue = (k,v)=>{
+        const newItem = {...data}
+        newItem[k] = newItem[k] || {}
+        newItem[k].value = v 
+        setData( newItem )
+        return true
+    }
+
     return (
         <Popup width='max-w-xl' setOpen={closeModal} title={`${props.title || "Input needed"}`}>
             {({ activeOption }) => (
                 <>
-                <input
-                    className="block w-full rounded-md border-0 py-1.5 px-2 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-200 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                    placeholder={props.prompt || "Search term..."}
-                    value={field}
-                    onChange={(e)=>setField(e.currentTarget.value)}
-                />
+                <div style={{gridTemplateColumns:'max-content auto'}} className="grid w-full gap-2 items-center">
+                {Object.keys(data).map((k)=>{
+                    return <>
+                    <p className="text-small text-gray-500">{data[k].title}</p>
+                    <PrimitiveCard.RenderItem editable local callback={(d)=>updateValue(k,d)} item={data[k]} primitive={props.primitive} ensurePresent evidenceOnly/>
+                    </>
+                })}
+                </div>
                     <div className="flex flex-shrink-0 justify-between space-x-2 pt-4 mt-1">
                         <button
                             type="button"

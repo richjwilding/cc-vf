@@ -113,7 +113,7 @@ export function PrimitiveTable(props) {
         const columnHelper = createColumnHelper()
 
         const fixed = columns.map((d)=>{
-            const width = (props.wide ? d.wideWidth : d.width) ?? 100
+            const width = (props.wide ? (d.wideWidth ?? d.width) : d.width) ?? 100
                           
             if(d.magic){
                 if( d.magic === "addresses_components"){
@@ -121,8 +121,8 @@ export function PrimitiveTable(props) {
                         {
                             export: info => info.row.original.primitive.addresses_components.map((d)=>`VF${d.order + 1}: ${d.title}`).join('<br>'),
                             cell: info => {
-                                const list = info.row.original.primitive.addresses_components?.map((d)=><p className={`px-1 py-0.5 m-0.5 rounded-full text-xs text-${d.lens.base}-800 bg-${d.lens.base}-200`}>VF{d.order + 1}</p>)
-                                return <div className="flex overflow-hidden flex-wrap place-items-start">
+                                const list = info.row.original.primitive.addresses_components?.map((d)=><p className={`flex justify-center place-items-center px-1 py-0.5 m-0.5 rounded-full text-xs whitespace-nowrap bg-${d.lens.base}-200 text-${d.lens.base}-800`}>VF{d.order + 1}: {d.title}</p>)
+                                return <div className="flex overflow-hidden flex-wrap place-items-start h-fit">
                                     {list}
                                 </div>
                             },

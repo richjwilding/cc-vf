@@ -231,12 +231,16 @@ export default function HierarchyView({primitive, ...props}){
         console.log(`UPDATED`, primitiveId)
     }
 
-    const rootPrim = primitive?.type === "segment" ? primitive : primitive?.primitives.allSegment[0]
+//    const rootPrim = primitive?.type === "segment" ? primitive : primitive?.primitives.allSegment[0]
+    const rootPrim = primitive?.primitives.allSegment.length === 1 ? primitive?.primitives.allSegment[0] :primitive
 
     let viewOptions = useMemo(()=>{
         if( rootPrim ){
             const out = []
             const leaves = rootPrim.nestedItems
+            if(leaves.length === 0){
+                return undefined
+            }
             leaves.forEach((leaf)=>{
                 if(out.find((d)=>d.type === leaf.type) === undefined){
                     out.push({id: 0, type:leaf.type, title: leaf.type, level: 0})
@@ -296,14 +300,14 @@ export default function HierarchyView({primitive, ...props}){
                     node.children.push( expand(segment, node, level + 1) )
                 }
                 let displayPrims  = prim.primitives.ref.allItems
-                if( viewOptions[viewItem].level > 0){
+                if( viewOptions?.[viewItem]?.level > 0){
                     displayPrims = displayPrims.map((d)=>d.origin)
                     console.log(`ORGIN = ${displayPrims.length}`)
                     displayPrims = displayPrims.filter((c,i,a)=>a.findIndex((d)=>d.id === c.id) === i)
                     console.log(`UNQIE = ${displayPrims.length}`)
                 }
                 displayPrims.forEach((prim, idx)=>{
-                    if( prim ){
+                    if( prim && !prim.referenceParameters?.duplicate ){
                         appearanceTrack[ prim.id ] = (appearanceTrack[ prim.id ] || 0) + 1
                         const thisId = prim.id + "_" + appearanceTrack[prim.id]
                         
@@ -400,29 +404,32 @@ export default function HierarchyView({primitive, ...props}){
         renderNodes(root, target)
         
         const result = arrangeSet( root, root.children, {width: targetRef.current.offsetWidth, height: targetRef.current.offsetHeight}, columnWidth, undefined, sizer.current, sizerDesc.current)
-        updatePositions( root.children )
-        root.size = {width: result.width, height: result.height}
+        if( result ){
 
-        const scale = Math.min(targetRef.current.offsetWidth / result.width , targetRef.current.offsetHeight / result.height,  1)
-
-        ref.current.style.transform = `scale(${scale})`
-        ref.current.setAttribute("width", result.width )
-        ref.current.setAttribute("height", result.height)
-
-        viewport.current = {
+            updatePositions( root.children )
+            root.size = {width: result.width, height: result.height}
+            
+            const scale = Math.min(targetRef.current.offsetWidth / result.width , targetRef.current.offsetHeight / result.height,  1)
+            
+            ref.current.style.transform = `scale(${scale})`
+            ref.current.setAttribute("width", result.width )
+            ref.current.setAttribute("height", result.height)
+            
+            viewport.current = {
                 width: targetRef.current.offsetWidth,
                 height: targetRef.current.offsetHeight,
                 shw: result.width / 2,
                 shh: result.height / 2,
             }
-
-        const dx = (viewport.current.width / 2) - viewport.current.shw
-        const dy = (viewport.current.height / 2) - viewport.current.shh
-        
-        
-        ref.current.style.transform = `translate(${dx}px,${dy}px) scale(${scale})`
-        updateForZoom(dx, dy, scale)
-        setScale(scale)
+            
+            const dx = (viewport.current.width / 2) - viewport.current.shw
+            const dy = (viewport.current.height / 2) - viewport.current.shh
+            
+            
+            ref.current.style.transform = `translate(${dx}px,${dy}px) scale(${scale})`
+            updateForZoom(dx, dy, scale)
+            setScale(scale)
+        }
 
 
     }, [count])
@@ -758,7 +765,7 @@ export default function HierarchyView({primitive, ...props}){
     <>
         <div key='control' className='z-20 w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex rounded-t-lg bg-gray-50 border-b border-gray-200'>
                 {props.buttons}
-                {viewOptions.length > 1 && <MyCombo items={viewOptions} selectedItem={viewOptions[viewItem] ? viewItem :  0} setSelectedItem={setViewItem}/>}
+                {viewOptions?.length > 1 && <MyCombo items={viewOptions} selectedItem={viewOptions[viewItem] ? viewItem :  0} setSelectedItem={setViewItem}/>}
                 {data?.nodes && <p>{Object.keys(data.nodes)?.length} items</p>}
         </div>
         <div

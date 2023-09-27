@@ -32,6 +32,20 @@ export async function getNextSequenceValue(sequenceName) {
         throw error
       }
 }
+export function getNestedValue(primitive, path){
+    const keys = path.split('.');
+    let value = primitive;
+  
+    for (const key of keys) {
+      if (value && typeof value === 'object' && key in value) {
+        value = value[key];
+      } else {
+        return undefined; // Path not found in the object structure
+      }
+    }
+  
+    return value;
+}
 
 async function doRemovePrimitiveLink(receiver, target, path){
     await Primitive.updateOne(
@@ -413,11 +427,28 @@ export async function getDataForProcessing(primitive, action, source, options = 
         console.log(`GOT ${list.length}`)
 
     }
+    if( action.constrainId ){
+        console.log(`Filtering ${list.length} for constraint ${action.constrainId} -- QUESTION OVERRIDE`)
+
+        let questions = await primitiveChildren(primitive, "question")
+        console.log(`Got ${questions.length} from task ${primitive.id}`)
+        let prompts = []
+        for(const q of questions){
+            prompts.push( (await primitiveChildren(q, "prompt")).map((d)=>d.id) )
+        }
+        prompts = prompts.flat()
+
+        console.log(`Got ${prompts.length}`)
+        list = list.filter((d)=>Object.keys(d.parentPrimitives).filter((d)=>prompts.includes(d)).length > 0)
+        console.log(`Filtered to ${list.length} items`)
+
+    }
 
     if( type ){
         list = list.filter((d)=>d.type === type)
     }
     if( referenceId ){
+        console.log(`Filter referenceId = ${referenceId}`)
         list = list.filter((d)=>d.referenceId === referenceId)
     }
     if( options.childPrimitiveIds ){
@@ -499,66 +530,6 @@ export async function getDataForAction(primitive, action, options = {}){
             ).filter((d)=>d)]
 }
 
-async function validateSegment( primitive, action, sourceSegment ){
-    let out = []
-    const validateResult = await validateAndRebuildSegments(primitive) 
-    const hasSubsegments = validateResult !== false
-    console.log(hasSubsegments)
-    if( Array.isArray(validateResult) ){
-        out = out.concat(validateResult)
-        primitive = await Primitive.findById(primitive._id.toString())
-    }
-    
-    if( hasSubsegments){
-        const subsegments = await primitiveChildren( primitive, "segment")
-        for(const sub of subsegments){
-            console.log(`-- Sub segment ${sub._id.toString()}`)
-            await validateSegment( sub, action, sourceSegment || primitive) 
-        }
-    }else{
-        console.log(`Linking to primitives of ${primitive._id.toString()}`)
-        sourceSegment = sourceSegment || (await primitiveParents(primitive,'origin'))?.[0]
-
-        const dataOptions = {
-            type: sourceSegment?.referenceParameters?.type || action.type, 
-            referenceId: sourceSegment?.referenceParameters?.referenceId || action.referenceId,
-        }
-        console.log(`getting config from ${sourceSegment?.id} (${sourceSegment?.plainId})`)
-
-        const unionParents = Object.keys(primitive.parentPrimitives).filter((d)=>primitive.parentPrimitives[d].includes('primitives.auto'))
-        console.log(unionParents)
-        
-        if( sourceSegment.type === "segment" && unionParents.length > 0 ){
-            const queryInner = [
-                { deleted: {$exists: false}},
-                dataOptions.type ? {type: dataOptions.type} : undefined,
-                dataOptions.referenceId ? {referenceId: dataOptions.referenceId} : undefined
-            ].filter((d)=>d)
-
-            console.log(queryInner )
-            const list = await Primitive.find({
-                $and:[
-                queryInner,
-                    unionParents.map((d)=>{ return {[`parentPrimitives.${d}`]: {$exists: true, $ne: []}}})
-                ].flat()
-            })
-            console.log(`got back ${list.length}`)
-            for( const item of list){
-                const targetId = item._id.toString()
-                if( !primitive.primitives?.ref?.includes(targetId) ){
-                    await addRelationship( primitive._id.toString(), targetId, 'ref')
-                    /*out.push({
-                        type: "add_relationship",
-                        id: primitive._id.toString(), 
-                        target: targetId,
-                        path: "ref"
-                    })*/
-                }
-            }
-        }
-    }
-    return out
-}
 
 export async function dispatchControlUpdate(id, controlField, status, flags = {}){
     try{
@@ -752,11 +723,25 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
                 done = true
             }
-            
+                if( command === "site_discovery"){
+                    await EnrichPrimitive().siteDiscovery(primitive, undefined, req)
+                }
             if( primitive.type === "result" ){
+                if( command === "questions"){
+                    await QueueDocument().processQuestions(primitive, undefined, req)
+                    done = true
+                }
                 if( command === "extract"){
                   //  if( actionKey === "extract_problems_addressed") {
-                        const text = await getDocumentAsPlainText( primitive._id.toString(), req )
+                    let text
+                    try{
+
+                        text = await getDocumentAsPlainText( primitive._id.toString(), req )
+                    }catch(error){
+                        console.log(`error on Extract`)
+                        console.log(error)
+                        throw error
+                    }
 
                         let title = primitive.title
                         if( action.titleSource === "origin"){
@@ -835,13 +820,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
             }
             if( primitive.type === "segment" ){
+                    if(command === "dedupe" ){
+                        QueueAI().aggregateDuplicatedInSegment( primitive, action )
+                    }
                     if(command === "roll_up" ){
                         const target = primitive
-                        const field = options.field || action.field
-                        const types = options.types || action.types
-                        const subTypes = options.subTypes || action.subTypes
-                        const summaryType = options.summaryType || action.summaryType
-                        const prompt = options.prompt || action.prompt
 
                         QueueAI().rollUp( primitive, target, action )
                         done = true
@@ -849,7 +832,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             if( primitive.type === "activity" ){
                 if( command === "find_articles"){
-                    result = await EnrichPrimitive().findArticles( primitive, {resultCategory: action.resultCategory} )
+                    result = await EnrichPrimitive().findArticles( primitive, {resultCategory: action.resultCategory, keywords: options.keywords} )
+                    done = true
+                }
+                if( command === "find_posts"){
+                    result = await EnrichPrimitive().findPosts( primitive, {resultCategory: action.resultCategory, keywords: options.keywords} )
                     done = true
                 }
                 if( command === "search"){
@@ -863,29 +850,46 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     if(command === "roll_up" ){
                         const target = options.target || action.target
                         const field = options.field || action.field
-                        const types = options.types || action.types
+                        let types = options.types || action.types
                         const subTypes = options.subTypes || action.subTypes
                         const summaryType = options.summaryType || action.summaryType
-                        const prompt = options.prompt || action.prompt
+                        let prompt = options.prompt || action.prompt
+                        const referenceId = (options.referenceId !== undefined ? parseInt( options.referenceId ) : undefined )|| action.referenceId
+                        const referenceCategory = primitive.referenceParameters?.resultCategory || action.resultCategory || PrimitiveConfig.typeConfig["view"].defaultReferenceId
+                        const baseId = primitive.referenceParameters?.baseCategory || action.baseCategory || PrimitiveConfig.typeConfig["view"].defaultReferenceBaseId || referenceCategory
+                        const constrainedSource = options.keywords
+                        const category = await Category.findOne({id: referenceId})
+                        if( category ){
+                            if( types === undefined){
+                                types = category.plural || category.title + "s"
+                            }
+                            if( prompt === undefined){
+                                prompt = category.plural || category.title + "s"
+                                prompt = `State the underlying ${category.title} that the ${types} have in common in more more than 30 words in the form '${types} related to...'`
+                            }
+                        }
 
                         if( target && field ){
-                            let existing = (await primitiveChildren( primitive, "view")).find((d)=>d.referenceParameters?.target === target && d.referenceParameters?.field === field )
+                            let existing = (await primitiveChildren( primitive, "view")).find((d)=>d.referenceId === referenceId && d.referenceParameters?.target === target && d.referenceParameters?.field === field && d.referenceParameters?.constrainId === constrainedSource)
                             if( ! existing ){
+                                console.log(`Creating new cluster source`)
                                 existing = await createPrimitive({
                                     workspaceId: primitive.workspaceId,
                                     parent: primitive.id,
                                     paths: ['origin'],
                                     data:{
                                         type: "view",
-                                        referenceId: primitive.referenceParameters?.resultCategory || action.resultCategory || PrimitiveConfig.typeConfig["view"].defaultReferenceId,
-                                        title: "New view",
+                                        referenceId: baseId,
+                                        title: category ? `Clusters - ${category.title}` : "New view",
                                         referenceParameters:{
                                             target: target,
                                             field: field,
                                             types:types,
                                             subTypes:subTypes,
                                             summaryType: summaryType,
-                                            prompt: prompt
+                                            prompt: prompt,
+                                            referenceId: referenceId,
+                                            constrainId: constrainedSource
                                         }
                                     }
                                 })
@@ -942,61 +946,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
             }
-            /*if( primitive.type === "segment" ){
-                                
-                const validateResult = await validateSegment( primitive, action )
-                const hasSubsegments = primitive.primitives?.axis
-                console.log('has segment', hasSubsegments)
-
-                if( command === "summarize" && hasSubsegments){
-                    const subsegments = await primitiveChildren( primitive, "segment")
-                    for(const sub of subsegments){
-                        console.log(`-- Summarize sub segment ${sub._id.toString()}`)
-                        await doPrimitiveAction(sub, actionKey, {...options, sourceSegment: options.sourceSegment || primitive}, req)
-                    }
-                }
-                if( command === "summarize" && !hasSubsegments){
-                    const sourceSegment = options.sourceSegment || (await primitiveParents(primitive,'origin'))?.[0]
-                    console.log(`doing sub`)
-
-                    const dataOptions = {
-                        type: sourceSegment?.referenceParameters?.type || action.type, 
-                        referenceId: sourceSegment?.referenceParameters?.referenceId || action.referenceId,
-                        parameter: sourceSegment?.referenceParameters?.field ? undefined : (sourceSegment?.referenceParameters?.parameter || action.parameter),
-                        field: sourceSegment?.referenceParameters?.field || action.field,
-                        asList: sourceSegment?.referenceParameters?.asList || action.asList,
-                    }
-
-                    const list = await primitivePrimitives(primitive, 'ref')
-                    console.log(dataOptions)
-
-                    const [undefined, data] = await getDataForAction(primitive, action, {...dataOptions, list})
-                    console.log(`data count = `, data.length)
-
-                    if( data && data.length > 0){
-                        const summary = await summarizeMultiple( data, {title: primitive.title, asList: dataOptions.asList, types: options.dataTypes || action.dataTypes, themes: options.themes || action.themes, prompt: options.prompt || action.prompt, aggregatePrompt: options.aggregatePrompt || action.aggregatePrompt} )
-                        
-                        const targetParam = action.targetParameter || "description"
-                        if( summary.success){
-                            done = true
-                            
-                            const prim = await Primitive.findOneAndUpdate(
-                                {"_id": primitive._id},
-                                {
-                                    [`referenceParameters.${targetParam}`]: summary.summary,
-                                })
-                                
-                            result = [{
-                                type:"set_fields",
-                                primitiveId: primitive._id.toString(),
-                                fields:{
-                                    [`referenceParameters.${targetParam}`]: summary.summary,
-                                }
-                            }]
-                        }
-                    }
-                }
-            }*/
             if( primitive.type === "activity" || primitive.type === "task" || primitive.type === "experiment" ){
                 const source = await Primitive.findById(options.source)
                 if( command === "categorize"){
@@ -1234,3 +1183,26 @@ export function euclideanDistance(point1, point2) {
   
     return scoreSum / numPoints;
   }
+
+export async function filterEntitiesByTopics( list, topics, key = "description"){
+    const rejectWords = ["somewhat","hardly", "not at all"]
+    list = list.filter((d)=>d[key] && d[key].trim() !== "" )
+    const test = list.map((d)=>`${d.title ? d.title + ". " : ""}${d[key]}`.replaceAll("\n",". "))
+    console.log(`Now: ${list.length}`)
+    console.log(test)
+
+    if( list && list.length > 0){
+        const result = await analyzeListAgainstTopics(test, topics, {prefix: "Article", type: "article", maxTokens: 6000})
+        if( !result.success){
+            return undefined
+        }
+        console.log(result)
+        list = list.filter((d,idx)=>{
+            const score = result.output.find((d)=>d.i === idx)
+            d.assessment = score.s
+            return !rejectWords.includes(score.s) 
+        })
+        console.log(`Now: ${list.length}`)
+    }
+    return list
+}

@@ -8,6 +8,9 @@ import app from '../app';
 import { SIO } from '../socket';
 import debugLib from 'debug';
 import http from 'http';
+import QueueDocument from '../document_queue';
+import QueueAI from '../ai_queue';
+import EnrichPrimitive from '../enrich_queue';
 const debug = debugLib('your-project-name:server');
 
 /**
@@ -29,6 +32,9 @@ var server = http.createServer(app);
  */
 
 SIO.init( server )
+QueueDocument().myInit()
+QueueAI().myInit()
+EnrichPrimitive().myInit()
 
 server.listen(port);
 server.on('error', onError);

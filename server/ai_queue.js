@@ -3,10 +3,13 @@ import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import { addRelationship, createPrimitive, dispatchControlUpdate, findPrimitiveOriginParent, getDataForProcessing, primitiveChildren, primitiveDescendents, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
-import { buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processPromptOnText, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
+import { analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processPromptOnText, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
 import { Cluster, agnes } from "ml-hclust";
 import DBSCAN from "@cdxoo/dbscan";
+import Category from "./model/Category";
+import PrimitiveParser from "./PrimitivesParser";
+import { buildDocumentEmbedding, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 
 
 let instance
@@ -38,6 +41,27 @@ function calculateCentroid(vectors) {
   
     return centroid;
   }
+
+
+  function cosineSimilarity(vectorA, vectorB) {
+    // Calculate dot product
+    const dotProduct = vectorA.reduce((acc, val, index) => acc + val * vectorB[index], 0);
+  
+    // Calculate magnitudes
+    const magnitudeA = Math.sqrt(vectorA.reduce((acc, val) => acc + val * val, 0));
+    const magnitudeB = Math.sqrt(vectorB.reduce((acc, val) => acc + val * val, 0));
+  
+    // Avoid division by zero
+    if (magnitudeA === 0 || magnitudeB === 0) {
+      return 0;
+    }
+  
+    // Calculate cosine similarity
+    const similarity = dotProduct / (magnitudeA * magnitudeB);
+  
+    return similarity;
+  }
+  
 
 function euclideanDistance(point1, point2) {
     if (point1.length !== point2.length) {
@@ -194,15 +218,45 @@ async function defineAxis( primitive, action ){
     }
 
 }
+async function aggregateDuplicatedInSegment( primitive, action ){
+    console.log('CHECKING FOR DUP')
+    
+    const [list, data] = await getDataForProcessing(primitive, action )
+    let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: action.field})
+    const toProcess = embeddings.map((d)=>d.embeddings)
+    
+    console.log(`Got back ${embeddings.length} embeddings`)
+
+    const clusterSet = DBSCAN({
+        dataset: toProcess,
+        epsilon: 0.05,
+        distanceFunction: euclideanDistance
+    });
+    if( clusterSet && clusterSet?.clusters){
+        for(const cluster of clusterSet.clusters){
+            console.log(`Similar = ${cluster.join(",")}`)
+            if( cluster.length > 1 ){
+
+                const item = list.find((d)=>d.id === embeddings[cluster[0]].foreignId)
+                console.log(  'KEEP: ' + item.id + " - " + item.title)
+                for(const ids of cluster.slice(1) ){
+                    const item = list.find((d)=>d.id === embeddings[ids].foreignId)
+                    console.log(  'FLAG: ' + item.id + " - " + item.title)
+                    await dispatchControlUpdate(item.id, `referenceParameters.duplicate`, true )
+                }
+            }
+        }
+    }
+
+}
 
 async function rollup( primitive, target, action ){
-    console.log(`Rollup ${primitive.id} staring`)
+    console.log(`Rollup ${primitive.id} starting`)
     let list, data
 
     if( ["param.aggregateFeatures","param.capabilities","param.offerings","param.customers"].includes(action.field) ){
-        [list, data] = await getDataForProcessing(primitive, {...action, field: "param.description"})
+        [list, data] = await getDataForProcessing(primitive, {...action, referenceId: target.referenceParameters?.referenceId, constrainId: target.referenceParameters?.constrainId, field: "param.description"})
         console.log(`-- back ${list.length} / ${data.length}`)
-        console.log(list?.[0])
         let idx = 0
         while(idx < list.length){
             console.log(`Extracting capabilities in batches of 50 - ${idx}`)
@@ -233,10 +287,10 @@ async function rollup( primitive, target, action ){
             }
             idx += 50
         }
-        [list, data] = await getDataForProcessing(primitive, action )
+        [list, data] = await getDataForProcessing(primitive, {...action, referenceId: target.referenceParameters?.referenceId, constrainId: target.referenceParameters?.constrainId} )
 
     }else{
-        [list, data] = await getDataForProcessing(primitive, action)
+        [list, data] = await getDataForProcessing(primitive, {...action, referenceId: target.referenceParameters?.referenceId, constrainId: target.referenceParameters?.constrainId})
     }
     
     if(data){
@@ -408,6 +462,14 @@ export default function QueueAI(){
     instance = new Queue("aiQueue", {
         connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT },
     });
+    instance.myInit = async ()=>{
+        console.log("AI Queue")
+        const jobCount = await instance.count();
+        console.log( jobCount + " jobs in queue (AI)")
+        await instance.obliterate({ force: true });
+        const newJobCount = await instance.count();
+        console.log( newJobCount + " jobs in queue (AI)")
+    }
     instance.defineAxis = (primitive, action, req)=>{
         if( primitive.type === "segment" || primitive.type === "activity"){
             const field = `processing.ai.define_axis`
@@ -416,7 +478,7 @@ export default function QueueAI(){
                 return false
             }
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Analyzing for axis"})
-            instance.add(`mark_${primitive.id}` , {id: primitive.id, action: action, mode: "define_axis", field: field})
+            instance.add(`axis_${primitive.id}` , {id: primitive.id, action: action, mode: "define_axis", field: field})
         }
     }
     instance.rollUp = (primitive, target, action, req)=>{
@@ -427,7 +489,16 @@ export default function QueueAI(){
             }
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Building clusters"})
             dispatchControlUpdate(target.id, field , {status: "pending"})
-            instance.add(`mark_${primitive.id}` , {id: primitive.id, action: action, targetId: target.id, mode: "rollup", field: field})
+            instance.add(`rollup_${primitive.id}` , {id: primitive.id, action: action, targetId: target.id, mode: "rollup", field: field})
+    }
+    instance.aggregateDuplicatedInSegment = (primitive, action, req)=>{
+            const field = `processing.ai.aggregate_duplicated_in_segment`
+            if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
+                console.log(`Already active - exiting`)
+                return false
+            }
+            dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Looking for duplicates"})
+            instance.add(`aggregate_duplicated_in_segment${primitive.id}` , {id: primitive.id, action: action, mode: "aggregate_duplicated_in_segment", field: field})
     }
 
     instance.markCategories = (primitive, target, action, req)=>{
@@ -471,18 +542,30 @@ export default function QueueAI(){
                 }
                 dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
             }
+            if( job.data.mode === "aggregate_duplicated_in_segment" ){
+                try{
+                    console.log(`----- STARTING DUPLICATAION CHECK -------`)
+                    await aggregateDuplicatedInSegment( primitive, action )
+                }catch(error){
+                    console.log(`Error in aiQueue.aggregate_duplicated_in_segment `)
+                    console.log(error)
+                }
+                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+            }
             if( job.data.mode === "rollup" ){
                 try{
                     const target = await Primitive.findOne({_id: job.data.targetId})
                     console.log(`----- STARTING ROLLUP -------`)
                     await rollup( primitive, target, action )
-                    //console.log("---- DISABLED ROLLUP")
                 }catch(error){
                     console.log(`Error in aiQueue.rollup `)
                     console.log(error)
                 }
+                console.log("a")
                 dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+                console.log("b")
                 dispatchControlUpdate(job.data.targetId, job.data.field , null)
+                console.log("c")
             }
             if( job.data.mode === "mark_categories" || job.data.mode === "categorize" ){
                 try{
@@ -522,7 +605,28 @@ export default function QueueAI(){
                         if( job.data.mode === "mark_categories" ){
                             try{
 
-                                const catOptions = await primitiveChildren( primitive, "category")
+                                let catOptions
+                                const pCategory = await Category.findOne({id: primitive.referenceId})
+                                
+                                if( pCategory?.subCategories === "inherit" ){
+                                    catOptions = []
+                                    console.log(`Will inherit categories`)
+                                    const parser = PrimitiveParser()
+                                    const pp = new Proxy(primitive.primitives, parser)
+                                    const sourceId = pp.params.source?.[0]
+                                    if( sourceId ){
+                                        const source = await Primitive.findOne({_id: sourceId})
+                                        if( source ){
+                                            console.log(source.plainId)
+                                            catOptions = await primitiveChildren( source, "category")
+                                            console.log(`Got ${catOptions.length} items from source`)
+                                        }
+                                    }
+
+                                }else{
+                                    catOptions = await primitiveChildren( primitive, "category")
+                                }
+
                                 const categoryList = catOptions.map((d)=>d.title)
                                 const categoryIds = catOptions.map((d)=>d._id.toString())
                                 
@@ -538,21 +642,219 @@ export default function QueueAI(){
                                         }
                                     }
                                 }
-                                
-                                const categoryAlloc = await categorize(data, categoryList, {engine:  primitive.referenceParameters?.engine || action.engine})
+                                const scoreMap = {
+                                    "strongly": 4, 
+                                    "clearly": 3,
+                                    "somewhat": 2, 
+                                    "hardly": 1, 
+                                    "not at all": 0}
+                                let categoryAlloc
+                                let resultMap
+                                if( pCategory?.mapMode === "content" ){
+                                    const search = []
+                                    for(const p of list){
+                                        try{
+                                            const embeddings = await fetchDocumentEmbeddings( p.id )
+                                            if( embeddings ){
+                                                for(const d of embeddings){
+                                                    if( d.embeddings ){
+                                                        search.push({ plainId: p.plainId, e: d})
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        catch(err){
+                                            console.log(`Error getting embeddings - skip`)                                         
+                                        }
+                                        
+                                    }
+                                    console.log(`got ${search.length} items to search`)
+                                    for(const category of catOptions){
+                                        const title = category.title
+                                        const response = await buildEmbeddings( title )
+                                        if( response.success){
+                                            const encoded = response.embeddings
+                                            console.log(`Got ${title} > ${encoded.length}`)
+
+                                            for(const d of search){
+                                                d.scores = d.scores || {}
+                                                d.scores[category.id] = cosineSimilarity(encoded, d.e.embeddings)
+                                            }
+                                        }
+                                        const sorted = search.sort((a,b)=>b.scores[category.id] - a.scores[category.id] )
+                                        let missing = 0
+                                        let missingMax = 2
+                                        const checked = {}
+                                        for( const d of sorted){
+                                            if( checked[d.e.foreignId]){
+                                                continue
+                                            }
+                                            checked[d.e.foreignId] = true
+                                            console.log(`check ${d.plainId}`)
+                                            const text = (await getDocumentAsPlainText( d.e.foreignId ))?.plain
+                                            if( text.match( title) ){
+                                                console.log(`-- FOUND in ${d.plainId}`)
+                                                missing = 0
+                                                await addRelationship( category._id.toString(), d.e.foreignId, "ref")
+                                                
+                                            }else
+                                            {
+                                                missing++
+                                            }
+                                            if( missing >= missingMax ){
+                                                console.log(`Missed ${missing} - halt`)
+                                                break
+                                            }
+                                        }
+
+                                    }
+                                    categoryAlloc = false
+
+                                }else if( pCategory?.mapMode === "children" ){
+                                    categoryAlloc = []
+                                    resultMap = {}
+                                    const thisData = data//[data[71]]//.slice(-1)
+                                    console.log(`MAP BY CHILDREN`)
+                                    let catId = 0
+                                    
+                                    for(const category of catOptions){
+                                        const title = categoryList[catId]
+                                        console.log(`Checking for ${category.plainId} - ${title}`)
+                                        const directs = await primitivePrimitives(category, "ref", "evidence")
+                                        const directLength = directs.length
+                                        console.log(`-- have ${directs.length} children`)
+                                        
+                                        let itemId = 0
+                                        for(const d of thisData){
+                                            console.log(`Test ${itemId} [${list[itemId].plainId}] - ${d.slice(0,12)}....`)
+                                            
+                                            let result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
+                                                type:"Jobs to be Done statement",
+                                                engine:  primitive.referenceParameters?.engine || action.engine,
+                                                prompt2: `For each Job to be done in the list, determine if it applies to the company in the overview, if it applies to customers of the company as stated in overview, or if it is not applicable to the company or the customers of the company as stated in the overview, and if the job to be done is solved by the company based on what is stated in the overview.`,
+                                                response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the Jobs to be done, a boolean 'internal' indicating if it applies to the company, a 'customer' field indicating if applies to the stated customers of the company, a 'neither' field indicating if it is applicable to neither, a 'solved' field indicating if the company solves the job to be done, and a 'reason' field explaining your rationale in 10 words or less.`,
+                                                postfix: "END OF LIST",
+                                                asScore: true,
+                                                // engine: 'gpt4',
+                                                debug: true, debug_content: true
+                                            } )
+                                            
+                                            if( result.success && result.output){
+                                                console.log(result.output)
+                                                const filtered = result.output.filter(d=>d.solved && d.customer && !d.internal)
+                                                const both = result.output.filter(d=>d.solved && d.customer && d.internal)
+                                                const passed = filtered.length
+                                                console.log(`met ${filtered.length} (vs ${both.length}) vs ${directLength}`)
+                                                const threshold = directLength > 3 ? directLength / 2 : 0
+                                                if( passed > threshold ){
+                                                    resultMap[itemId] = resultMap[itemId] || {}
+                                                    resultMap[itemId][catId] = resultMap[itemId][catId] || []
+                                                    
+                                                    resultMap[itemId][catId] = filtered.map(d=>{
+                                                        if( directs[d.i] === undefined || directs[d.i]?.title === undefined){
+                                                            console.log(`GOT NULL`)
+                                                            return undefined
+                                                        }
+                                                        return directs[d.i]?.title
+                                                    }).filter(d=>d)
+
+                                                }
+                                            }
+                                            itemId++
+                                        }
+                                        catId++
+                                    }
+                                    //resultMap = {}
+                                    
+                                    console.log(resultMap)
+                                    //throw "STOP"
+                                    const remapped = {}
+                                    for( const dataId of Object.keys(resultMap)){
+                                        const remap = Object.keys(resultMap[dataId]).map((catId)=>{
+                                            return resultMap[dataId][catId].map(d=>{return {title: d, catId: catId}}).filter(d=>d.title)
+                                        }).flat()
+                                        
+                                        
+                                        let result = await analyzeListAgainstItems( remap.map((d)=>d.title), thisData[dataId], {
+                                            type:"Jobs to be Done statement",
+                                            engine:  primitive.referenceParameters?.engine || action.engine,
+                                            prompt2: `Assess which Job to Done from the list is most directly addressed by the offering`,
+                                            response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the selected Job to be Done,  a 'user' field set to the end user, a boolean 'direct' field set to true if the stated user of the selected Job to be Done is a direct end customer of the offering - or set to false if the offering would be most likely used by a third party to deliver value indirectly, and a 'reason' field with a explanation of your rationale in no more than 6 words`,
+                                            asScore: true,
+                                             engine: 'gpt4',
+                                            debug: true, debug_content: true
+                                        } )
+                                        console.log(result.output)
+                                        if(result.success && result.output){
+                                            const winner = result.output[0]
+                                            if(winner){
+                                                const category = remap[winner.i]
+                                                if( category ){
+                                                    console.log(`${dataId} - > ${winner.i} / ${category.catId} = ${winner.direct}`)
+                                                    if(winner.direct){
+                                                        remapped[dataId] = {[category.catId]: 5}
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    resultMap = remapped
+                                    console.log(resultMap)
+                                }
+                                else if( primitive.referenceParameters?.categorizeByTopic ){
+                                    categoryAlloc = []
+                                    resultMap = {}
+                                    let catId = 0
+                                    for(const category of categoryList){
+                                        console.log(`Checking for ${category}`)
+                                        let result = await analyzeListAgainstTopics( data, category, {
+                                                type:"description",
+                                                engine:  primitive.referenceParameters?.engine || action.engine,
+                                                prompt: `Assess how strongly the description addresses ${category}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`,
+                                                debug: true, debug_content: false
+                                            } )
+                                        if( result.success && result.output){
+                                            result.output.forEach(d=>{
+                                                const score = scoreMap[d.s] ?? 0
+                                                resultMap[d.i] = resultMap[d.i] || {}
+                                                //resultMap[d.i][category] = score
+                                                resultMap[d.i][catId] = score > 3 ? score : 0
+                                            })
+                                        }
+                                        catId++
+                                    }
+                                }else{
+                                    categoryAlloc = await categorize(data, categoryList, {
+                                        matchPrompt:primitive.referenceParameters?.matchPrompt, 
+                                        evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
+                                        engine:  primitive.referenceParameters?.engine || action.engine
+                                    })
+                                }
+
+                                if( resultMap ){
+
+                                    console.log(resultMap)
+                                    Object.keys(resultMap).forEach(i=>{
+                                        const category = Object.keys(resultMap[i]).sort((a,b)=>resultMap[i][b] - resultMap[i][a])?.[0]
+                                        console.log(resultMap[i],category)
+                                        categoryAlloc.push({
+                                            id: i,
+                                            category: category
+                                        })
+                                    })
+                                }
                                 //console.log(categoryAlloc)
                                 
                                 if( Object.hasOwn(categoryAlloc, "success")){
                                     console.log("Error on mark_categories")
                                     console.log(categoryAlloc)
-                                }else{
+                                }else if(categoryAlloc){
                                     for(const item of categoryAlloc){
                                         let cat
                                         if( typeof(item.category === "number")){
                                             cat = catOptions[ item.category ]
                                         }else{
                                             const newId = categoryList.findIndex((d)=>d.title === item.category)
-                                          //  console.log(`   => ${item.category} > ${newId}`)
                                             cat = catOptions[ newId ]
                                         }
                                         if( cat ){
@@ -579,7 +881,12 @@ export default function QueueAI(){
         }
         
     },
-    {connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT }});
+    {
+        connection: { 
+            host: process.env.QUEUES_REDIS_HOST, 
+            port: process.env.QUEUES_REDIS_PORT 
+        }
+    });
     return instance
     
 }
@@ -704,32 +1011,34 @@ async function treeToCluster( tree, primitive){
     
     targetCount.forEach((target)=>{
         const newNodes = alignTree( target )
-        if( lastNodes ){
-            let targets = lastNodes
-            for(const cid of Object.keys(newNodes)){
-                const node = lookup[cid]
-                if( node ){
-                    const found = findRoutes(node, targets)
-                    if( found.length > 0){
-                        for(const tid of found){
-                            if( tid !== newNodes[cid].id ){
-                                newNodes[cid].children = newNodes[cid].children || []
-                                newNodes[cid].children.push(tid)
-                                nodes[tid].parent = node.id
-                                if( newNodes[cid].primitives){
-                                    const source = newNodes[cid].sparsePrimitives ? newNodes[cid].sparsePrimitives : newNodes[cid].primitives
-                                    newNodes[cid].sparsePrimitives = source.filter((d)=>!nodes[tid].primitives.includes(d))
+        if( newNodes ){
+            if( lastNodes ){
+                let targets = lastNodes
+                for(const cid of Object.keys(newNodes)){
+                    const node = lookup[cid]
+                    if( node ){
+                        const found = findRoutes(node, targets)
+                        if( found.length > 0){
+                            for(const tid of found){
+                                if( tid !== newNodes[cid].id ){
+                                    newNodes[cid].children = newNodes[cid].children || []
+                                    newNodes[cid].children.push(tid)
+                                    nodes[tid].parent = node.id
+                                    if( newNodes[cid].primitives){
+                                        const source = newNodes[cid].sparsePrimitives ? newNodes[cid].sparsePrimitives : newNodes[cid].primitives
+                                        newNodes[cid].sparsePrimitives = source.filter((d)=>!nodes[tid].primitives.includes(d))
+                                    }
                                 }
                             }
+                            targets = targets.filter((d)=>!found.includes(d))
                         }
-                        targets = targets.filter((d)=>!found.includes(d))
                     }
                 }
             }
-        }
-        lastNodes = Object.keys(newNodes).map((d)=>parseInt(d))
-        for(const k of Object.keys(newNodes)){
-            nodes[k] = {...(nodes[k] || {}), ...newNodes[k]}
+            lastNodes = Object.keys(newNodes).map((d)=>parseInt(d))
+            for(const k of Object.keys(newNodes)){
+                nodes[k] = {...(nodes[k] || {}), ...newNodes[k]}
+            }
         }
     })
     Object.values(nodes).forEach((node)=>{

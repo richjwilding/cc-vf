@@ -6,8 +6,15 @@ import moment from 'moment';
 import { Readable } from 'stream';
 import { finished } from 'stream/promises';
 import { htmlToText } from "html-to-text";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
 import { promisify } from "util";
+import PDFDocument from 'pdfkit';
+import MemoryStream from 'memory-streams';
+import Embedding from "./model/Embedding";
+import { encode } from "gpt-3-encoder";
+import { buildEmbeddings } from "./openai_helper";
+
+
 var ObjectId = require('mongoose').Types.ObjectId;
 
 let _ghState = undefined
@@ -47,8 +54,105 @@ function sleep(ms) {
       setTimeout(resolve, ms);
     });
   }
+export async function ensureDocumentEmbeddingsExist(id, req){
+    const embeddings = await Embedding.find({foreignId: id, type: "content"}, "_id")
+    const count = embeddings.length
+    if( count > 0){
+        return true
+    }
+    return await buildDocumentEmbedding(id,req)
+
+}
+export async function fetchDocumentEmbeddings(id, force, req){
+    if( !force ){
+
+        const embeddings = await Embedding.find({foreignId: id, type: "content"})
+        const count = embeddings.length
+        if( count > 0){
+            return embeddings
+        }
+    }
+   await buildDocumentEmbedding(id,req)
+   return await Embedding.find({foreignId: id, type: "content"})
+}
+export async function buildDocumentEmbedding(id, req){
+    const maxTokens = 8000
+    console.log(`Building content embeddings for ${id}`)
+    let embeddings = await Embedding.deleteMany({foreignId: id, type: "content"})
+    const content = (await getDocumentAsPlainText(id, req))
+    const text = content?.plain
+    if( id === "6511c742249568f6acaa716f")
+    {
+        console.log(`here`)
+    }
+    if( text ){
+
+    const splitWords = (text)=>{
+        let words = text.split(" ")
+        console.log(`Got ${words.length} words`)
+        words = words.filter(w=>w && w.length >0)
+        console.log(`Got ${words.length} words`)
+        const sections = []
+        let current = ""
+        let count = 0
+        while( words.length > 0){
+            const thisWord = words.shift()
+            const last = current
+            current = current + thisWord + " "
+
+            const tokens = encode( thisWord ).length
+            count += tokens
+
+            if( count > maxTokens ){
+                sections.push( last )
+                current = thisWord + " "
+                count = tokens
+            }
+        }
+        if( current.length > 0){
+            sections.push( current )
+        }
+        return sections
+    }
+
+        let sections = text.split(`\n\n`)
+        sections = sections.map(current=>{
+            const tokens = encode( current).length
+            if( tokens > maxTokens ){
+                console.log(`need to split paras`)
+                return splitWords( current )
+            }
+            return current
+        }).flat()
+        console.log(`>>> GOT ${sections.length} sections`)
+
+
+        let section = 0
+        for(const fragment of sections){
+            //console.log(`>>>>> ${fragment}`)
+            const response = await buildEmbeddings(fragment)
+            if( response.success){
+                const dbUpdate = await Embedding.findOneAndUpdate({
+                    type: "content",
+                    section:section,
+                    foreignId: id
+                },{
+                    embeddings: response.embeddings
+                },{upsert: true, new: true})
+                section++
+            }
+        }
+        return true
+    }
+    return false
+
+    
+
+}
 
 export async function getDocumentAsPlainText(id, req){
+
+    const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
     const bucketName = 'cc_vf_document_plaintext'
     const storage = new Storage({
         projectId: process.env.GOOGLE_PROJECT_ID,
@@ -57,17 +161,28 @@ export async function getDocumentAsPlainText(id, req){
     const bucket = storage.bucket(bucketName);
     let file = bucket.file(id)
 
-    if( !((await file.exists())[0]) ){
-        const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
-        
-        let notes = primitive.referenceParameters?.notes
-        let url = primitive.referenceParameters?.url
+    let notes = primitive.referenceParameters?.notes
+    let url = primitive.referenceParameters?.url
+    let fecthFromPdf = primitive.referenceParameters?.sourceType === "video"
+    if(url?.slice(-3)==="pdf"){
+        fecthFromPdf = true
+    }
 
-        if( notes ){
+    if( fecthFromPdf || !((await file.exists())[0]) ){
+        if( notes || fecthFromPdf ){
             console.log(`----- EXTRACT FROM PDF`)
             return await extractPlainTextFromPdf( id, req )
         }
         if( url ){
+            if( url.match(/^https?:\/\/(www\.)?facebook\.com\/[^\/]+\/posts\/[A-Za-z0-9_-]+/)){
+                console.log(`Fetch pdf of facebok post`)
+                await grabUrlAsPdf( url, id, req )
+                console.log(`--- now text`)
+                const text = (await extractPlainTextFromPdf( id, req ))?.plain
+                await writeTextToFile(id, text, req)
+                return {plain: text}
+            }            
+
 
             const extResult = await fetch( url );
             const html = await extResult.text();
@@ -86,7 +201,14 @@ export async function getDocumentAsPlainText(id, req){
                 ]
             }
             console.log(`Importing URL as text`)
-            const text = htmlToText(html, extractOptions);
+            let text = htmlToText(html, extractOptions);
+            if( text.match(/incapsula incident/i) ){
+                console.log(`Blocked - fallback to pdf`)
+                await grabUrlAsPdf( url, id, req )
+                console.log(`--- now text`)
+                text = (await extractPlainTextFromPdf( id, req ))?.plain
+            }
+
             if( text.match(/enable javascript/i) ){
                 return undefined
             }
@@ -132,7 +254,7 @@ export async function extractPlainTextFromPdf(id, req){
                 const pages = data.pages
                 // look for header / footer
                 const firstPage = pages[0].content[0]
-                const textSegment = firstPage.str.slice(0, firstPage.str.length * 0.8)
+                const textSegment = firstPage?.str.slice(0, firstPage.str.length * 0.8)
                 console.log(`looking for ${textSegment}`)
                 const sameCount = pages.filter((p)=>{
                     const thisPage = p.content[0]
@@ -468,95 +590,180 @@ export async function replicateURLtoStorage(url, id, bucketName){
 
 }
 
+export async function extractTranscriptFromVideo(url, id, req){
+    const isYoutube = url && url.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?([a-zA-Z0-9_-]+)/)
+
+    if( isYoutube ){
+        const fetchFromYT = async (attempts = 3)=>{
+            console.log(`Awaiting  page`)
+            const browser = await puppeteer.connect({
+                browserWSEndpoint: `wss://chrome.browserless.io?token=${process.env.BROWSERLESS_KEY}&stealth`,
+            });
+            
+            const page = await browser.newPage()
+            await page.goto(url);
+            console.log(`back`)
+            await new Promise(r => setTimeout(r, 1000));                    
+            console.log(`continue`)
+
+            const expand = await page.$('[id="above-the-fold"] [id="expand"]')
+            if( expand ){
+                console.log('Expand clicked')
+                await expand.evaluate(el => el.click())
+                const button = await page.$('[slot="extra-content"] [aria-label="Show transcript"]')
+                if(button ){
+                    console.log('Transcript clicked')
+                    await button.evaluate(el => el.click())
+                }
+            }
+            
+            /*
+            const menu = await page.$('[id="above-the-fold"] [id="menu"] button[aria-label="More actions"]')
+            if( menu ){
+                const text = await menu.evaluate(el=>el.textContent)
+                if( menu[0]){
+                    console.log('Menu clicked')
+                    await menu[0].evaluate(el => el.click())
+                }else{
+                    console.log('Menu clicked')
+                    await menu.evaluate(el => el.click())
+                }
+
+            }else{
+                console.log("couldnt find menu")
+            }
+
+            const elements = await page.$$('ytd-menu-service-item-renderer');
+        
+            for (const element of elements) {
+              const textContent = await element.evaluate(el => el.textContent);
+              if( textContent && textContent.match(/Show transcript/)){
+                console.log('Show transcript clicked')
+                await element.evaluate(el => el.click());
+              }
+            }
+            */
+
+            
+            await new Promise(r => setTimeout(r, 2000));                    
+            
+            const func = `() => {
+                const elements = document.querySelectorAll('div[class="segment style-scope ytd-transcript-segment-renderer"] yt-formatted-string');
+                const textContentArray = [];
+                for (const element of elements) {
+                    textContentArray.push(element.textContent);
+                }
+                return textContentArray;
+            }`
+            console.log(`Start eval`)
+            const out = (await page.evaluate(eval(func)))?.join(" ")
+            console.log(`Done eval - ${out.length}`)
+            if( out.length === 0){
+                if( attempts > 0){
+                    console.log(`Retry ${attempts}`)
+                    await page.close();
+                    await browser.close()
+                    return await fetchFromYT( attempts - 1 )
+                }
+            }
+            await page.close();
+            await browser.close()
+            return out
+        }
+        const out = await fetchFromYT()
+
+        return out
+        
+    }
+    return undefined
+}
+
+const createAndUploadPDF = async (text, file) => {
+    return new Promise(async (resolve, reject) => {
+        const doc = new PDFDocument();
+    
+        doc.fontSize(12).text(text, 100, 100);
+    
+        const pdfBuffer = [];
+    
+        doc.on('data', (chunk) => {
+          pdfBuffer.push(chunk);
+        });
+    
+        doc.on('end', async () => {
+          const completePDFBuffer = Buffer.concat(pdfBuffer);
+    
+          file.save(completePDFBuffer, (err) => {
+            if (err) {
+              reject(err);
+            } else {
+              console.log(`PDF uploaded`);
+              resolve();
+            }
+          });
+        });
+    
+        // Finalize the document to trigger the 'end' event
+        doc.end();
+      });
+  };
+  
 
 export async function grabUrlAsPdf(url, id, req){
+    const isYoutube = url && url.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?([a-zA-Z0-9_-]+)/)
+    let pdfBuffer
+    const storage = new Storage({
+        projectId: process.env.GOOGLE_PROJECT_ID,
+    });
+    
+    const bucketName = 'cc_vf_documents' 
+    const bucket = storage.bucket(bucketName);
+    const file = bucket.file(id)
+    if( (await file.exists())[0] ){
+        await file.delete()
+    }
     try{
 
-        //const browser = puppeteer.connect({ browserWSEndpoint: `wss://chrome.browserless.io?token=${process.env.BROWSERLESS_KEY}` })
-        /*const browser = await puppeteer.launch({headless: "new"});
-        const page = await browser.newPage();
+        if( isYoutube ){
+            const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
+            const transcript = await extractTranscriptFromVideo(url, id, req)
+            const text = "#" + primitive.plainId + "\n\n" + primitive.title + "\n\n" + primitive.referenceParameters?.description + "\n\n" + transcript
+            await createAndUploadPDF( text, file)
+        }else{
 
-        await page.goto(url, { waitUntil: 'networkidle0' });
-        await page.setViewport({ width: 1680, height: 1050 });
-
-        await page.emulateMediaType('screen');
-
-        const docHeight = () => {
-            const body = document.body
-            const html = document.documentElement;
-            return Math.max(body.scrollHeight, body.offsetHeight, html.clientHeight, html.scrollHeight, html.offsetHeight);
-          }
-
-        console.log(`looking for cookie consent`)
-        const needToWaitAgain = await page.evaluate(_ => {
-            let res = false
-            function xcc_contains(selector, text) {
-                var elements = document.querySelectorAll(selector);
-                return Array.prototype.filter.call(elements, function(element){
-                    return RegExp(text, "i").test(element.textContent.trim());
-                });
-            }
-            var _xcc;
-            _xcc = xcc_contains('a[id*=cookie], a[class*=cookie], button[id*=cookie], button[class*=cookie], button[class*=accept]', '^(Alle akzeptieren|Accept|Accept all|Accept All|Akzeptieren|Verstanden|Zustimmen|Okay|OK)$');
-            if (_xcc != null && _xcc.length != 0) { 
-                res = true
-                _xcc[0].click(); 
-            }
-            return res
-        });
-        console.log(`back = ${needToWaitAgain}`)
-        if( needToWaitAgain){
-            console.log(`Waiting for idle`)
-            await page.waitForNavigation({ waitUntil: 'networkidle0' });
-            console.log(`Back again`)
-        }
-
-        const pdf = await page.pdf({
-            height: await page.evaluate(docHeight)
-        });*/
-
-        const bUrl = `https://chrome.browserless.io/pdf?token=${process.env.BROWSERLESS_KEY}`
-
-
-        const response = await fetch(bUrl,{
-            method: 'POST',
-            headers: { 
-                'Cache-Control': 'no-cache' ,
-                'Content-Type': 'application/json' 
-            },
-            body:JSON.stringify({
-                "url": url,
+            const bUrl = `https://chrome.browserless.io/pdf?token=${process.env.BROWSERLESS_KEY}`
+            
+            
+            const response = await fetch(bUrl,{
+                method: 'POST',
+                headers: { 
+                    'Cache-Control': 'no-cache' ,
+                    'Content-Type': 'application/json' 
+                },
+                body:JSON.stringify({
+                    "url": url,
+                })
             })
-        })
-
-        if (response.ok) {
-            const pdfData = await response.arrayBuffer();
-            const pdfBuffer = Buffer.from(pdfData);
-            debugger
-
-            const storage = new Storage({
-                projectId: process.env.GOOGLE_PROJECT_ID,
-            });
             
-            const bucketName = 'cc_vf_documents' 
-            const bucket = storage.bucket(bucketName);
-            const file = bucket.file(id)
-            if( (await file.exists())[0] ){
-                await file.delete()
+            if (response.ok) {
+                const pdfData = await response.arrayBuffer();
+                pdfBuffer = Buffer.from(pdfData);
+                
+                // Use Promisify to convert callback to Promise
+                const savePromise = promisify(file.save).bind(file);
+                
+                await savePromise(pdfBuffer, {
+                    contentType: 'application/pdf',
+                    resumable: false, // Adjust as needed
+                });
+                
+                await waitForFileToExit(id, bucket)
+                console.log('PDF saved to Google Cloud Storage.');
+            }else{
+                if(url.slice(-3)==="pdf"){
+                    await replicateURLtoStorage(url, id, bucketName)
+                }
             }
-            
-
-            // Use Promisify to convert callback to Promise
-            const savePromise = promisify(file.save).bind(file);
-
-            await savePromise(pdfBuffer, {
-                contentType: 'application/pdf',
-                resumable: false, // Adjust as needed
-            });
-
-            console.log('PDF saved to Google Cloud Storage.');
-
-            //await file.save(pdfBuffer, {metadata: {contentType: 'application/pdf'}}) 
         }
     }catch(error){
         console.log(`Error on processing URL to PDF ${url}`)

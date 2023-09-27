@@ -691,7 +691,7 @@ router.get('/primitive/:id/getDocumentAsPlainText', async function(req, res, nex
     console.log( primitiveId )
     try{
         const result = await getDocumentAsPlainText( primitiveId, req )
-        res.json({success: true, result: result?.plain})
+        res.json({success: true, result: result?.plain, encoded: result?.data})
     }catch(err){
         res.status(400).json( {error: err.message})
         return
