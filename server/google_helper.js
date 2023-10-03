@@ -72,8 +72,9 @@ export async function fetchDocumentEmbeddings(id, force, req){
             return embeddings
         }
     }
-   await buildDocumentEmbedding(id,req)
-   return await Embedding.find({foreignId: id, type: "content"})
+    return false
+  // await buildDocumentEmbedding(id,req)
+   //return await Embedding.find({foreignId: id, type: "content"})
 }
 export async function buildDocumentEmbedding(id, req){
     const maxTokens = 8000
@@ -183,9 +184,16 @@ export async function getDocumentAsPlainText(id, req){
                 return {plain: text}
             }            
 
+            let html
 
-            const extResult = await fetch( url );
-            const html = await extResult.text();
+            try{
+
+                const extResult = await fetch( url );
+                html = await extResult.text();
+            }catch(error){
+                console.log(`Error - couldnt fetch ${url} in getDocumentAsPlainText `)
+                return undefined
+            }
 
             const extractOptions = {
                 baseElements:{

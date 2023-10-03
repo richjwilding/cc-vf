@@ -10,6 +10,9 @@ import DBSCAN from "@cdxoo/dbscan";
 import Category from "./model/Category";
 import PrimitiveParser from "./PrimitivesParser";
 import { buildDocumentEmbedding, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
+import DocumentSearch, { checkForIndex, indexDocument, searchFiles } from "./DocumentSearch";
+import agglo from "agglo";
+import { distance } from "agglo/lib/metrics";
 
 
 let instance
@@ -253,25 +256,29 @@ async function aggregateDuplicatedInSegment( primitive, action ){
 async function rollup( primitive, target, action ){
     console.log(`Rollup ${primitive.id} starting`)
     let list, data
+    let redo = []
 
-    if( ["param.aggregateFeatures","param.capabilities","param.offerings","param.customers"].includes(action.field) ){
+    if( ["param.aggregateFeatures","param.technology","param.offerings","param.customers"].includes(action.field) ){
         [list, data] = await getDataForProcessing(primitive, {...action, referenceId: target.referenceParameters?.referenceId, constrainId: target.referenceParameters?.constrainId, field: "param.description"})
         console.log(`-- back ${list.length} / ${data.length}`)
         let idx = 0
         while(idx < list.length){
             console.log(`Extracting capabilities in batches of 50 - ${idx}`)
+            const field  = action.field.split(".").slice(-1)
             
-            const tempList = list.slice(idx, idx+50).filter((d)=>d.referenceParameters?.capabilities === undefined)
+            const tempList = list.slice(idx, idx+50).filter((d)=>d.referenceParameters?.[field] === undefined || d.referenceParameters?.[field] === null)
             if( tempList.length > 0){
-                const featureList = await extractFeautures( tempList.map((d)=>d.referenceParameters.description.replaceAll(/\n|\r/g,". ")))
+                const featureList = await extractFeautures( tempList.map((d)=>d.referenceParameters.description.replaceAll(/\n|\r/g,". ")), {engine:"gpt4", debug:true, debug_content: true})
                 if( featureList.success && featureList.output.length === tempList.length ){
                     for(const result of featureList.output){
                         const p = tempList[ result.id ]
+                        redo.push( p.id )
                         const agg = []
-                        for( const field of ["capabilities", "offerings","customers"]){
+                        for( const field of ["technology", "offerings","customers", "name"]){
                             let res = result[field]
                             if( res && res !== "NONE" ){
                                 if( Array.isArray(res) ){
+                                    res = res.filter(d=>d!=='NONE')
                                     res = res.join(", ")
                                 }
                                 await dispatchControlUpdate(p.id, `referenceParameters.${field}`, res )
@@ -300,6 +307,10 @@ async function rollup( primitive, target, action ){
             let revert //=  target.clusters
             if( !revert ){
                 let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: action.field})
+                console.log(`Have ${embeddings.length}`)
+                embeddings = embeddings.filter(d=>!redo.includes(d.foreignId))
+                console.log(`Noe ${embeddings.length} after checking for redo`)
+
                 const missingIdx = list.map((d, idx)=>embeddings.find((e)=>e.foreignId === d.id) ? undefined : idx).filter((d)=>d  !== undefined)
                 console.log( `missingIdx = ${missingIdx.join(", ")}`)
                 for(const idx of missingIdx){
@@ -330,13 +341,13 @@ async function rollup( primitive, target, action ){
                 }
                 console.log(`build cache`)
                 const toProcess = embeddings.map((d)=>d.embeddings)
-
+/*
                 let epsilon
                 let clusterCount
                 let clusterSet
                 let iter = 200
                 let theta = 1.12
-                let maxClusterSize = toProcess.length * 0.2
+                let maxClusterSize = toProcess.length * 0.35
 
                 const targetClusters = toProcess.length > 1000 ? toProcess.length / 5 : toProcess.length > 200 ? toProcess.length / 3 : toProcess.length / 8
                
@@ -346,7 +357,8 @@ async function rollup( primitive, target, action ){
                     clusterSet = DBSCAN({
                         dataset: toProcess,
                         epsilon: epsilon,
-                        distanceFunction: euclideanDistance
+                        //distanceFunction: euclideanDistance
+                        distanceFunction: (a,b)=>1-cosineSimilarity(a,b)
                     });
                     const thisCount = clusterSet.clusters?.length
                     const counts = clusterSet.clusters.map((d)=>d.length)
@@ -367,24 +379,267 @@ async function rollup( primitive, target, action ){
 
                 const tree = agnes(newProcess, {
                     method: 'ward2',
+                    distanceFunction: (a,b)=>1-cosineSimilarity(a,b)
                 });
-
-                const flattenTree = (node)=>{
+                const nodes = []
+                const flattenTree = (node, id = 0)=>{
+                    node.id = id
+                    nodes.push(node)
                     if( node.isLeaf ){
                         //node.primitiveId = list[node.index].id
                         const set = newSet[node.index]
                         const pIds = set.map((d)=>list[d].id).flat()
                         node.primitiveIds = pIds
-                        console.log(pIds)
+                        node.primitives = set.map((d)=>list[d]).flat()
                     }else{
                         for(const c of node.children){
-                            flattenTree(c)
+                            flattenTree(c, id + 1)
                         }
                     }
                 }
                 flattenTree(tree)
+                console.log(tree)
 
-                const clusters = await treeToCluster( tree, target )
+                console.log(`Got ${nodes.length}`)
+
+                const targetLevels = 3
+                const topHeight = tree.height
+                const steps = topHeight / (targetLevels)
+                const cuts = new Array(targetLevels - 1).fill(0).map((_,idx)=>topHeight - ((idx+1)*steps))
+                console.log(cuts)
+                let nodeIdx = 0
+                const root = {id: 0}
+                const clusters = [root]
+
+                const rebuildSection = ( node, parent, thresholdIdx)=>{
+                    if(node.height > cuts[thresholdIdx]){
+                        if( node.children ){
+                            for(const child of node.children){
+                                rebuildSection(child, parent, thresholdIdx)
+                            }
+                        }
+                    }else{
+                        parent.children = parent.children || []
+                        if( thresholdIdx === (targetLevels - 1)){
+                            const rollupPrimitives = (d)=>{
+                                const nested = (d.children ? d.children.map(d=>rollupPrimitives(d)) : []).flat()
+                                if( d.primitives ){
+                                    return [...d.primitives, ...nested]
+                                }
+                                return nested
+                            }
+                            parent.primitives = (parent.primitives || []).concat(rollupPrimitives( node ))
+                        }else{
+
+                            nodeIdx++
+                            const newNode = {id: nodeIdx, primitives: node.primitives || []}
+                            parent.children.push( newNode )
+                            clusters.push(newNode)
+                            for(const child of node.children){
+                                rebuildSection(child, newNode, thresholdIdx + 1)
+                            }
+                        }
+                    }
+                }
+                rebuildSection(tree, root, 0)
+
+
+
+                
+                console.log(`Now ${clusters.length}`)
+                console.log(`Prims ${clusters.map(d=>d.primitives?.length ?? 0).reduce((a,c)=>a+c)}`)
+               */
+
+                console.log("START")
+                const levels = agglo(embeddings,
+                    {
+                    distance: (a,b)=>1 - cosineSimilarity(a.embeddings,b.embeddings)
+                })
+                console.log("Done")
+
+                const targetClusterSize = levels.length > 5000 ? (levels.length / 100) : levels.length > 1000 ? 10 : levels.length > 500 ? 8 : levels.length > 250 ? 4 : levels.length > 150 ? 3 : 2
+                let maxClusters 
+                let testSize = targetClusterSize
+                let levelDensity
+                let count
+                do{
+                    levelDensity = levels.map(d=>d.clusters.filter(d=>d.length > testSize ).length)
+                    count = levelDensity.filter(d=>d > 0 ).length
+                    console.log(`- For test of ${testSize} got ${count}`)
+                    testSize--
+                }while( testSize > 1 && count === 0)
+                maxClusters= levelDensity.reduce((a,c)=>a > c ? a : c, 0)
+                const maxIdx = levelDensity.findIndex(d=>d === maxClusters)
+                console.log( `found ${maxClusters} at ${maxIdx} / ${targetClusterSize}`)
+                
+
+                const slice = 5
+                const steps = (levels.length - maxIdx) / (slice - 1) 
+                const extract = new Array(slice - 1).fill(0).map((_,idx)=>Math.floor(idx  * steps) - 1 + maxIdx)
+                while(levels.length - extract[extract.length - 1] > 10 ){
+                    const newItem = Math.floor(levels.length - ((levels.length - extract[extract.length - 1]) * 0.6))
+                    console.log(newItem)
+                    extract.push(newItem)
+                }
+                const totalLevels = extract.length
+                console.log(extract)
+                extract.push(levels.length - 1)
+                const nodes = []
+                let nId = 0
+
+                extract.forEach((idx, layer)=>{
+                    const temp = levels[idx].clusters.filter(d=>d.length > 1)
+                    const set = temp.map(d=>d.map(d=>d.foreignId))
+                    for( const primIds of set){
+                        const node ={
+                            id: nId,
+                            layer: layer,
+                            primIds: [...primIds],
+                            shortList: [...primIds]
+                        }
+                        if(layer === 0 ){
+                            nodes.push( node )
+                            nId++
+                        }else{
+                            const overlaps = nodes.filter(d=>(d.layer === layer - 1) && (d.primIds.filter(d=>primIds.includes(d)).length >0 ))
+                            let addNode = true
+                            if( overlaps.length > 0 ){
+                                for(const findLast of overlaps){
+                                    //console.log(`Found in ${findLast.id}`)
+                                    if(findLast.primIds.length === primIds.length ){
+                                      //  console.log(`-- no chnages`)
+                                        findLast.layer = layer
+                                        addNode = false
+                                    }else{
+                                        node.children = node.children || []
+                                        findLast.parent = node
+                                        node.children.push( findLast )
+                                        node.shortList = node.shortList.filter(d=>!findLast.primIds.includes(d))
+                                    }
+                                }
+                                if( addNode ){
+                                    if( node.children && node.children.length === 1 && node.shortList.length > 0 && node.shortList.length < 3){
+                                        const child = node.children[0]
+                                        child.layer = layer
+                                        child.parent = undefined
+                                        child.primIds = node.primIds
+                                        child.shortList = child.shortList.concat( node.shortList ).filter((d,i,a)=>a.indexOf(d)===i)
+                                    }else{
+                                        nodes.push( node )
+                                        nId++
+                                    }
+                                }
+                            }else{
+                                nodes.push( node )
+                                nId++
+                            }
+                        }
+                    }
+                })
+                let clusters = nodes.reverse()
+                if( clusters[0].shortList?.length > 0 ){
+                    const newNode = {
+                        layer: clusters[0].layer - 1,
+                        parent: clusters[0],
+                        shortList: clusters[0].shortList
+                    }
+                    clusters[0].shortList = []
+                    clusters[0].children = clusters[0].children || [] 
+                    clusters[0].children.push(newNode)
+                    clusters.push(newNode)
+                }
+
+                let changed = false
+                const primCount = clusters.map(d=>d.shortList.length).flat(2).reduce((a,c)=>a+c)
+                console.log(`TOTAL PRIMS = ${primCount}`)
+                do{
+                    changed = false
+                    const targets = clusters.filter(d=>!d.cleared && d.layer < (totalLevels - 1) && (!d.children || d.children.length === 0) &&d.shortList && d.shortList.length > 0 && d.shortList.length < (testSize/2))
+                    console.log(`Min size check - have ${targets.length}`)
+                    for( const target of targets){
+                        if( !target.cleared && !target.parent.processed && target.parent.children){
+                            target.parent.processed = true
+                            //const subChildren = target.parent.children.map(d=>d.children ? d.children.length : 0).reduce((a,c)=>a+c,0)
+                            //if(subChildren === 0)
+                            {
+                                for(const child of target.parent.children){
+                                    if( child.cleared ){
+                                        throw "ERROR"
+                                    }
+                                    target.parent.shortList = (target.parent.shortList || []).concat(child.shortList)
+                                    target.parent.newChildren = (target.parent.newChildren || []).concat(child.children).filter(d=>d && !d?.cleared)
+                                    target.parent.newChildren.forEach(child=>{
+                                        child.parent = target.parent
+                                        child.layer++
+                                    })
+
+                                    child.cleared = true
+                                    console.log(`Extending ${target.parent.id} to ${target.parent.shortList.length}`)
+                                    changed = true
+                                }
+                                const thisCount = clusters.filter(d=>!d.cleared).map(d=>d.shortList.length).flat(2).reduce((a,c)=>a+c)
+                                if( thisCount !== primCount ){
+                                    debugger
+                                }
+                                target.parent.children = target.parent.newChildren 
+                            }
+                        }
+                    }
+                }while(changed)
+                clusters = clusters.filter(d=>!d.cleared)
+
+
+                for(const node of clusters ){
+                    node.primitives = node.shortList.map(id=>list.find(d=>d.id === id))
+                }
+                console.log(extract)
+
+                for(let idx = 0; idx < extract.length; idx++){
+                    console.log(`L${idx} => ${nodes.filter(d=>d.layer === idx).length} ${levels[extract[idx]].clusters.filter(d=>d.length>1).length}`)
+                }
+                console.log(`TOTAL PRIMS = ${clusters.map(d=>d.shortList.length).flat(2).reduce((a,c)=>a+c)}`)
+                
+                
+          //      throw "STOP"
+
+
+/*
+                const dataset = embeddings.map((d)=>{ return {data:d.embeddings, opt: d.foreignId}})
+
+                // two distance measure functions are supported:
+                // 1) euclidean
+                // 2) geoDist (take inputs as lonlat points)
+                const distFunc = Clustering.distFunc.euclidean;
+
+                const clusters = []
+                const cluster = new Clustering(dataset, distFunc);
+                const treeNode = cluster.getTree();
+                const repack = (node,parent)=>{
+                    const newNode = {}
+                    clusters.push(newNode)
+                    const children = [
+                        node.left ? repack(node.left, newNode) : undefined,
+                        node.right ? repack(node.right, newNode) : undefined,
+                    ].filter(d=>d)
+                    let primIds = node.opt
+                    let childPrimitives = children.map(d=>d.primIds).flat().filter(d=>d)
+                    let primitives = node.opt.filter(d=>!childPrimitives.includes(d)).map(d=>list.find(d2=>d2.id === d))
+
+                    const hasChildren = node.children && node.children.length > 0
+                    newNode.primIds = primIds
+                    newNode.primitives = primitives
+                    newNode.children = children.length > 0 ? children : undefined
+                    newNode.parent = parent
+                    return newNode
+                }
+                repack(treeNode)
+                console.log( clusters )
+                */
+
+
+                //const clusters = await treeToCluster( tree, target )
+                //const clusters = nodes
+
 
                 let configTask = target.type === "segment" ? await findPrimitiveOriginParent( target, "view" ) : target
                 if( configTask !== target ){
@@ -407,8 +662,8 @@ async function rollup( primitive, target, action ){
             }
 
             const convertList = async ( set, parent, root) => {
-                for( const nodeId of set ){
-                    const node = revert[nodeId]
+                for( const node of set ){
+                    //const node = revert[nodeId]
                     const newPrim = await createPrimitive({
                         workspaceId: target.workspaceId,
                         parent: parent.id,
@@ -427,7 +682,8 @@ async function rollup( primitive, target, action ){
                     if( newPrim ){
                         if( node.primitives ){
                             for(const primId of node.primitives){
-                                await addRelationship(newPrim.id, primId, "ref")
+                                console.log(`adding ${primId.id}`)
+                                await addRelationship(newPrim.id, primId.id, "ref")
                             }
                         }
                         if( node.children ){
@@ -445,7 +701,7 @@ async function rollup( primitive, target, action ){
                     await removeRelationship( target.id, oldPrim.id, 'ref')
                 }
             }else{
-                await convertList( [0], target)
+                await convertList( [revert[0]], target)
             }
             console.log('Converstion complete')
         }
@@ -460,7 +716,14 @@ export default function QueueAI(){
     }
     
     instance = new Queue("aiQueue", {
-        connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT },
+        connection: { 
+            host: process.env.QUEUES_REDIS_HOST, 
+            port: process.env.QUEUES_REDIS_PORT,
+            maxStalledCount: 0,
+            stalledInterval:300000
+
+
+        },
     });
     instance.myInit = async ()=>{
         console.log("AI Queue")
@@ -652,68 +915,41 @@ export default function QueueAI(){
                                 let resultMap
                                 if( pCategory?.mapMode === "content" ){
                                     const search = []
-                                    for(const p of list){
-                                        try{
-                                            const embeddings = await fetchDocumentEmbeddings( p.id )
-                                            if( embeddings ){
-                                                for(const d of embeddings){
-                                                    if( d.embeddings ){
-                                                        search.push({ plainId: p.plainId, e: d})
-                                                    }
-                                                }
-                                            }
+                                    const toProcess = list//.slice(0,10)
+
+                                    const missing = toProcess.filter(d=>!d.indexReady)
+//                                    const missing = await DocumentSearch().checkForIndex(ids, primitive.workspaceId)
+                                    console.log(`${missing.length} to add to index first`)
+                                    let left = missing.length
+                                    for(const d of missing ){
+                                        const id = d._id.toString()
+                                        let mark = true
+                                        console.log(`indexing ${left--}`)
+                                        const text = (await getDocumentAsPlainText(id))?.plain
+                                        if( text && text.length > 0){
+                                            mark = await DocumentSearch().indexDocument(id, text ?? "", primitive.workspaceId)
                                         }
-                                        catch(err){
-                                            console.log(`Error getting embeddings - skip`)                                         
+                                        if( mark ){
+                                            await Primitive.updateOne({_id: id},{$set:{indexReady: true}})
                                         }
-                                        
                                     }
-                                    console.log(`got ${search.length} items to search`)
+
                                     for(const category of catOptions){
-                                        const title = category.title
-                                        const response = await buildEmbeddings( title )
-                                        if( response.success){
-                                            const encoded = response.embeddings
-                                            console.log(`Got ${title} > ${encoded.length}`)
-
-                                            for(const d of search){
-                                                d.scores = d.scores || {}
-                                                d.scores[category.id] = cosineSimilarity(encoded, d.e.embeddings)
+                                        const result = await DocumentSearch().searchFiles(category.title, primitive.workspaceId)
+                                        console.log(category.title, result)
+                                        if( result ){
+                                            for(const id of result){
+                                                await addRelationship( category._id.toString(), id, "ref")
                                             }
                                         }
-                                        const sorted = search.sort((a,b)=>b.scores[category.id] - a.scores[category.id] )
-                                        let missing = 0
-                                        let missingMax = 2
-                                        const checked = {}
-                                        for( const d of sorted){
-                                            if( checked[d.e.foreignId]){
-                                                continue
-                                            }
-                                            checked[d.e.foreignId] = true
-                                            console.log(`check ${d.plainId}`)
-                                            const text = (await getDocumentAsPlainText( d.e.foreignId ))?.plain
-                                            if( text.match( title) ){
-                                                console.log(`-- FOUND in ${d.plainId}`)
-                                                missing = 0
-                                                await addRelationship( category._id.toString(), d.e.foreignId, "ref")
-                                                
-                                            }else
-                                            {
-                                                missing++
-                                            }
-                                            if( missing >= missingMax ){
-                                                console.log(`Missed ${missing} - halt`)
-                                                break
-                                            }
-                                        }
-
                                     }
                                     categoryAlloc = false
 
                                 }else if( pCategory?.mapMode === "children" ){
                                     categoryAlloc = []
                                     resultMap = {}
-                                    const thisData = data//[data[71]]//.slice(-1)
+                                    //const thisData = data//[data[71]]//.slice(-1)
+                                    const [list, thisData] = await getDataForProcessing(primitive, {...job.data.action, field: 'param.aggregateFeatures'}, source)
                                     console.log(`MAP BY CHILDREN`)
                                     let catId = 0
                                     
@@ -827,7 +1063,9 @@ export default function QueueAI(){
                                     categoryAlloc = await categorize(data, categoryList, {
                                         matchPrompt:primitive.referenceParameters?.matchPrompt, 
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
-                                        engine:  primitive.referenceParameters?.engine || action.engine
+                                        engine:  primitive.referenceParameters?.engine || action.engine,
+                                        debug: true,
+                                        debug_true
                                     })
                                 }
 
@@ -1088,14 +1326,14 @@ async function summarizeClusters( nodes, primitive ){
         needSummary = Object.values(nodes).filter((d)=>!d.summary)
         if( needSummary.length > 0 && needSummary.length !== lastNeed){
             console.log(`${needSummary.length} nodes need a summary (${lastNeed})`)
-            const toProcess = needSummary.filter((d)=>!d.children || d.children.reduce((a, d)=>a && (nodes[d].summary ? true : false), true))
+            const toProcess = needSummary.filter((d)=>(d.primitives && !d.children) || (d.children && d.children.reduce((a, d)=>a && (d.summary ? true : false), true)))
             let idx = 0
             for(const node of toProcess){
                 console.log(node.parent, node.primitives?.length)
                 
                 const items = node.primitives
                 console.log(`Cluster ${idx} / ${toProcess.length} = ${node.id} : ${items?.length} items`)
-                if( items.length > 0){
+                if( items && items.length > 0){
                     
                     const list = (await Primitive.find({_id: {$in: items}}))
                     
@@ -1108,11 +1346,11 @@ async function summarizeClusters( nodes, primitive ){
                 }
                 if( node.children && node.children.length > 0){
                     console.log(`Need to combine with others`)
-                    const summaries = node.children.map((d)=>nodes[d].summary)
+                    const summaries = node.children.map((d)=>d.summary)
                     if( node.summary ){
                         summaries.push( node.summary )
                     }
-                    const overall = await summarizeMultiple( summaries, {types: primitive.referenceParameters?.types ||   "problem statements", prompt: primitive.referenceParameters?.prompt ||  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4"})
+                    const overall = await summarizeMultiple( summaries, {types: primitive.referenceParameters?.types ||   "problem statements", prompt: primitive.referenceParameters?.combinePrompt ?? primitive.referenceParameters?.prompt ??  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4"})
                     if( overall.success ){
                         console.log(`GOT BACK SUMMARY OF SUMMARY`)
                         node.summary = overall.summary
@@ -1130,8 +1368,8 @@ async function summarizeClusters( nodes, primitive ){
     
     // traverse back down
     const rewriteLabels = async ( node, path = [])=>{
-        if( node.children ){
-            const childLabels = node.children.map((d)=>nodes[d].summary )
+        if( node.children && node.children.length > 1){
+            const childLabels = node.children.map((d)=>d.summary )
             const currentLabel = node.short || node.summary
             const thisPath = [...path, currentLabel]
 
@@ -1142,15 +1380,10 @@ async function summarizeClusters( nodes, primitive ){
             console.log(rewrites)
             if( rewrites.success){
                 for(const r of rewrites.summaries){
-                    const childId = node.children[ r.id ]
-                    const childNode = nodes[childId]
+                    const childNode = node.children[ r.id ]
                     if( childNode ){
-
-                        if( childId !== undefined ){
                             childNode.label = r.label
                             childNode.short = r.description
-                        }
-                        console.log(childNode)
                         await rewriteLabels( childNode, thisPath )
                     }
                 }

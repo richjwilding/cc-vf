@@ -578,6 +578,13 @@ export default function SegmentCard({primitive, ...props}){
     const ring = !props.disableHover
 
     let nestedItems = props.directOnly ? primitive.primitives.ref.allItems : primitive.nestedItems
+
+    if( props.details?.pivot){
+        if(props.details.pivot === "origin"){
+            nestedItems = MainStore().uniquePrimitives( nestedItems.map(d=>d.origin) )
+        }
+    }
+
     let nestedTypes = nestedItems.map((d)=>d.metadata?.plurals ?? (d.metadata?.title ? d.metadata?.title + "s" : undefined) ?? d.type).filter((v,i,a)=>a.indexOf(v)===i)
 
     let itemLimit = nestedItems.length
@@ -608,7 +615,7 @@ export default function SegmentCard({primitive, ...props}){
                 }
                 if( d.slice(0,7) === "recent_"){
                     thisCount = 10
-                    thisSet = nestedItems.sort((a,b)=>b.plainId - a.plainId).slice(0,thisCount)
+                    thisSet = nestedItems.sort((a,b)=>b.plainId - a.plainId)//.slice(0,thisCount)
 
                 }
                 if( thisCount > 0 ){
@@ -624,9 +631,7 @@ export default function SegmentCard({primitive, ...props}){
     } 
     const moreToShow = Math.max(0, nestedItems.length - itemLimit)
     const wide = !props.compact && props.showGrid && itemLimit > 10//0
-    //const columns = props.cardView ? (Math.floor(Math.sqrt(itemLimit) / 1.5) ) : (wide ? 10 : 5)
     const columns = props.cardView ? Math.max(itemLimit ? 2 : 1, (1 + (Math.floor(Math.sqrt(itemLimit) / 3))))  : (wide ? 10 : 5)
-
 
     const mainContent = <>
             <p key='title' className={`${props.hideDetails ? "text-xl font-light mb-4" : props.cardView ? "text-xl font-semi m-2 mb-1" : "text-sm font-semi mb-2"} text-gray-800  `}>{primitive.title}</p>

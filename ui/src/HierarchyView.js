@@ -690,7 +690,7 @@ export default function HierarchyView({primitive, ...props}){
             },
             pinch: {
                 from: ()=>[scale,scale],
-                scaleBounds: { min: 0.03, max: 1500 },
+                scaleBounds: { min: 0.03, max: 15000 },
             },
         }
     )

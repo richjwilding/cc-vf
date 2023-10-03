@@ -182,7 +182,7 @@ export function ReportPage({primitive, ...props}){
                     {primitive.referenceParameters?.company || "Company unknown"}
                 </Text>
                 <Text style={styles.headerOverview} >
-                    {primitive.summary || ""}
+                    {primitive.summary || primitive.referenceParameters.summary || ""}
                 </Text>
             </View>
         </View>
@@ -241,10 +241,10 @@ export function ReportPage({primitive, ...props}){
 export default function ReportView({primitive, ...props}) {
     const config= {
         bgColor:primitive.reports?.bgColor || "#374151",
-    leftListText: primitive.reports?.leftListText || "OVERVIEW OF ACTIVITY",
-    leftListCategory: primitive.reports?.leftListCategory || 31,
+    leftListText: primitive.reports?.leftListText || "OVERVIEW OF NEEDS",
+    leftListCategory: primitive.reports?.leftListCategory || 4,
     rightListCategory: primitive.reports?.rightListCategory || 10,
-    leftCallout: primitive.reports?.leftCallout || 3,
+    leftCallout: primitive.reports?.leftCallout || 52,
     rightListText: primitive.reports?.rightListText || "KEY PROBLEMS"}
 
     console.log(config)

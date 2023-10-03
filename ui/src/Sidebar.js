@@ -52,15 +52,22 @@ export function Sidebar({primitive, ...props}) {
 
     const promptDelete = ()=>{
         if( isMulti ){
-            throw "NOT IMPLEMENTED"
-            return
+            setShowDeletePrompt( `Are you sure you want to remove ${primitive.length} items` )
+        }else{
+
+            setShowDeletePrompt( `Are you sure you want to remove ${primitive.displayType} #${primitive.plainId}` )
         }
-      setShowDeletePrompt( `Are you sure you want to remove ${primitive.displayType} #${primitive.plainId}` )
      // setPrimitive(null)
     }
 
-    const handleDelete = ()=>{
-      MainStore().removePrimitive( primitive )
+    const handleDelete = async ()=>{
+        if( isMulti ){
+            for( const p of primitive ){
+                await MainStore().removePrimitive( p )
+            }
+        }else{
+            MainStore().removePrimitive( primitive )
+        }
       setShowDeletePrompt( null )
       props.setOpen(false)
     }
@@ -176,6 +183,7 @@ export function Sidebar({primitive, ...props}) {
             </div>}
             {!isMulti && <div className="pb-2 pl-4 pr-4 pt-4">
                 <PrimitiveCard primitive={primitive} showQuote showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
+                {primitive.type === "result" && primitive.referenceParameters?.url && <Panel.MenuButton title='View text' onClick={async ()=>alert(await primitive.getDocumentAsText())}/>}
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
                     <Panel title="Significance" collapsable={true} open={true} major>
                         <PrimitiveCard.EvidenceHypothesisRelationship primitive={primitive} title={false} />

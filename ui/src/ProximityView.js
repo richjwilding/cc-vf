@@ -111,7 +111,9 @@ export default function ProximityView({primitive, target,...props}){
                 segment.items = thisLayer
                 return segment
             })
-            orbits.push(outerOrbit)
+            if( outerOrbit.sets.length > 0){
+                orbits.push(outerOrbit)
+            }
         }
         
         if( !distanceIds ){

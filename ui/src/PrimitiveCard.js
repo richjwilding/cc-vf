@@ -88,21 +88,35 @@ let mainstore = MainStore()
 
         const defaultConfig = task.metadata.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
 
-        const list = []
+        let list = []
 
         const evidenceCategories = [task.metadata.evidenceCategories, task.primitives.descendants.filter((d)=>d.type === "evidence").map((d)=>d.referenceId)].flat().filter((c,idx,a)=>c && a.indexOf(c)===idx)
 
         evidenceCategories.forEach((d)=>{
           const title = (props.excludeResultCategories ? "" : "Evidence: ") + mainstore.category(d).title
           if( !props.ensurePresent || task.primitives.descendants.filter((d2)=>d2.referenceId === d).length > 0 ){
-            list.push({key: d, isEvidence: true, title: title})
+            const cat = mainstore.category(d)
+            list.push({key: d, isEvidence: true, title: title, category: cat})
           }
         })
-        if(!props.evidenceOnly){
+        if(task?.metadata?.resultCategories){
           task.metadata.resultCategories?.forEach((d)=>{
-            list.push({key: `results.${d.id}`, title: d.title})
+            const cat = mainstore.category(d.resultCategoryId)
+            if( props.local ){
+              list.push({key: cat.id, title: cat.title, category: cat})
+              
+            }else{
+              list.push({key: `results.${d.id}`, title: d.title, categoryId: cat.id, category: cat})
+            }
           })
           console.log(list)
+        }
+        console.log(props.types)
+        if( props.types ){
+          list = list.filter(d=>props.types.includes(d.category.primitiveType))
+        }
+        if( props.referenceIds ){
+          list = list.filter(d=>props.referenceIds.includes(d.category.id))
         }
 
         const setSource = (idx)=>{
@@ -128,9 +142,13 @@ let mainstore = MainStore()
         }
         let index 
         if( props.local ){
-          index = list.findIndex((d)=>(d.isEvidence && d.key === item.value))
+          index = list.findIndex((d)=>(d.key === item.value))
         }else{
           index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) ||(item.value === "evidence" && props.primitive.referenceParameters?.referenceId === undefined) || item.value === d.key) 
+          if( index == -1 ){
+            console.log(`here` , item.value)
+            index = list.findIndex((d)=>item.value !== "evidence" && d.categoryId === props.primitive?.referenceParameters?.referenceId)
+          }
           if( index == -1 ){
             index = list.findIndex((d)=>(defaultConfig.target === "evidence" && d.key === defaultConfig.referenceId) || defaultConfig.target === d.key) 
           }
@@ -1130,7 +1148,7 @@ const Questions = function({primitive, ...props}){
   let analyzer
   let promptCategories
 
-  if(props.relatedTo ){
+  if(false && props.relatedTo ){
     if(props.relatedTo.analyzer){
       analyzer = props.relatedTo.analyzer()
       if(analyzer.aiProcessSummary){

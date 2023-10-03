@@ -15,7 +15,7 @@ export default function QuestionCard({primitive, ...props}){
 
     //let aiSummary = props.aiProcessSummary
     
-    const aiSummary = useMemo(()=>{
+    const aiSummary = undefined/*useMemo(()=>{
         const source = (props.relatedTo || primitive)
         if( source ){
             if( source.analyzer ){
@@ -23,7 +23,7 @@ export default function QuestionCard({primitive, ...props}){
                 return refresh.analyzer().aiProcessSummary()
             }
         }
-    }, [eventRelationships])
+    }, [eventRelationships])*/
     
     return (
         <>

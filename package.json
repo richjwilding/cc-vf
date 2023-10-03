@@ -30,14 +30,17 @@
     ]
   },
   "dependencies": {
+    "@akryum/flexsearch-es": "^0.7.32",
     "@babel/cli": "^7.20.7",
     "@babel/core": "^7.20.12",
     "@babel/preset-env": "^7.20.2",
     "@cdxoo/dbscan": "^1.1.1",
+    "@elastic/elasticsearch": "^8.10.0",
     "@google-cloud/storage": "^6.9.4",
     "@mirohq/miro-api": "^1.0.4",
     "@postlight/parser": "^2.2.3",
     "@socket.io/redis-adapter": "^8.2.1",
+    "agglo": "^0.0.1",
     "babel-jest": "^29.5.0",
     "bullmq": "^4.2.0",
     "cookie-parser": "~1.4.4",

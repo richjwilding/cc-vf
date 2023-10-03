@@ -123,7 +123,9 @@ export function PrimitivePage({primitive, ...props}) {
     const fullScreenExplore = doFullScreenExplore(showWorkingPane )
     const showOutcomes = primitive.type !== "assessment" && showWorkingPane !== "evidence" && !fullScreenExplore
     //const nestedEvidence = useMemo(()=>primitive.primitives.allUniqueResult.map((d)=>d.primitives.allUniqueEvidence).flat(), [primitive.id])
-    const nestedEvidence = useMemo(()=>primitive.primitives.descendants.filter((d)=>d.type==="evidence"), [primitive.id])
+    const nestedEvidence = useMemo(()=>{
+            return (primitive.type === "activity" ? primitive.primitives.results.descendants : primitive.primitives.descendants).filter((d)=>d.type==="evidence")
+    }, [primitive.id])
     const hasNestedEvidence = (PrimitiveConfig.pageview[primitive.type]?.evidence ?? true) && (primitive.isTask || nestedEvidence.length > 0)
     const showMetrics = (primitive.isTask || primitive.type === "cohort" ) && primitive.metadata.metrics
 

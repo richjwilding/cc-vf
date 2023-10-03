@@ -18,6 +18,19 @@ import { exportViewToPdf } from './ExportHelper';
 const mainstore = MainStore()
 
 
+    const findAxisItem = (primitive, axis, axisOptions)=>{
+        if( primitive ){
+            const struct = primitive.referenceParameters?.axis?.[axis]
+            if( struct ){
+                if(struct.type === "parameter" ){
+                    return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                }
+                const connectedPrim = primitive.primitives.axis[axis].allIds[0]
+                return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+            }
+            return 0
+        }
+    }
 
 
 export default function PrimitiveExplorer({primitive, ...props}){
@@ -49,6 +62,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }, [selectedCategoryIds])
 
 
+
     
     let baseItems = React.useMemo(()=>{
         let list
@@ -57,9 +71,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }else{
             if( props.types ){
                 const types = [props.types].flat()
-                list = primitive.primitives.uniqueAllItems.filter((d)=>types.includes(d.type) )
+                list = primitive.itemsForProcessing.filter((d)=>types.includes(d.type) )
             }else{
-                list = primitive.primitives.uniqueAllItems
+                list = primitive.itemsForProcessing
             }
         }
         console.log(`pre - ${list.length}`)
@@ -155,10 +169,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
             })
             return Object.values(catIds).map((d)=>{
                 const options = d.primitives.allUniqueCategory
-            console.log(`Set access = ${access} (${d.title})`)
                 return {
                     type: "category",
-                    id: d.id,
+                    primitiveId: d.id,
                     category: d,
                     order: [undefined,options.map((d)=>d.id)].flat(),
                     values:["None", options.map((d)=>d.title)].flat(),
@@ -241,14 +254,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 
             }
         }
-        const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>(d2.id === d.id) && (d.access === d2.access)) === idx))
-        if( colSelection >= final.length){
-            setColSelection(0)
-        }
-        if( rowSelection >= final.length){
-            setRowSelection(0)
-        }
-        return final
+        const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access)) === idx))
+        const labelled = final.map((d,idx)=>{return {id:idx, ...d}})
+
+
+        setColSelection( findAxisItem(primitive, "column", labelled ))
+        setRowSelection( findAxisItem(primitive, "row", labelled))
+        return labelled
     }, [primitive.id, update, layerSelection])
 
 
@@ -768,7 +780,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                             },{})))
     })
 
-    console.log(columnColumns)
     const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
 
 
@@ -779,6 +790,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const defaultRenderProps = {
         "segment":{
             hideDetails: true
+        },
+        "result": {
+            fixedSize: "8rem"
         },
         "entity": {
             hideCover: true,
@@ -811,7 +825,46 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const dropOnGrid = !viewConfig?.config?.dropOnPrimitive
 
 
-    console.log(props.category)
+    const updateAxis = async ( axis, idx )=>{
+        const item = axisOptions[idx]
+        console.log(axis, item)
+        if( item.type === "none"){
+            primitive.setField(`referenceParameters.axis.${axis}`, null)
+        }else if( item.type === "category"){
+            if( primitive.referenceParameters ){
+                const fullState = {
+                    type: "category",
+                    access: item.access
+                }
+                primitive.setField(`referenceParameters.axis.${axis}`, fullState)
+                const toRemove = primitive.primitives.axis[axis].allItems
+                console.log(`removeing old`)
+                for(const old of toRemove){
+                    console.log(`-- ${old.plainId} / ${old.id}`)
+                    await primitive.removeRelationship( old, `axis.${axis}`)
+                }
+                    console.log(`++ ${item.category.plainId} / ${item.category.id}`)
+                await primitive.addRelationship( item.category, `axis.${axis}`)
+            }
+        }else if( item.type === "parameter"){
+            if( primitive.referenceParameters ){
+                const fullState = {
+                    type: "parameter",
+                    parameter:  item.parameter,
+                    access: item.access
+                }
+                primitive.setField(`referenceParameters.axis.${axis}`, fullState)
+            }
+        }
+        if( axis === "column"){
+            setColSelection( idx )
+        }
+        if( axis === "row"){
+            setRowSelection( idx )
+        }
+    }
+
+
 
   return (
     <>
@@ -823,8 +876,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 <p>{list?.length} items</p>
                 {props.allowedCategoryIds && props.allowedCategoryIds.length > 1 && <MyCombo prefix="Showing: " items={props.allowedCategoryIds.map((id)=>mainstore.category(id))} selectedItem={selectedCategoryIds} setSelectedItem={setSelectedCategoryIds} className='w-42'/>}
                 {layers && <MyCombo items={layers} selectedItem={layers[layerSelection] ? layerSelection :  0} setSelectedItem={setLayerSelection}/>}
-                {options && <MyCombo items={options} prefix="Columns: " selectedItem={options[colSelection] ? colSelection :  0} setSelectedItem={setColSelection}/>}
-                {options && <MyCombo items={options} prefix="Rows: " selectedItem={options[rowSelection] ? rowSelection : 0} setSelectedItem={setRowSelection}/>}
+                {axisOptions && <MyCombo items={axisOptions} prefix="Columns: " selectedItem={findAxisItem(primitive, "column", axisOptions)} setSelectedItem={(d)=>updateAxis("column", d)}/>}
+                {axisOptions && <MyCombo items={axisOptions} prefix="Rows: " selectedItem={findAxisItem(primitive, "row", axisOptions)} setSelectedItem={(d)=>updateAxis("row", d)}/>}
                 <TooggleButton enabled={hideNull} setEnabled={setHideNull} title={`Hide 'none'`}/>
                 {viewConfigs && <MyCombo items={viewConfigs} prefix="View: " selectedItem={activeView} setSelectedItem={setActiveView}/>}
             </div>
@@ -878,7 +931,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                     : { 
                                                         display: "grid",
                                                         gridAutoFlow: "dense",
-                                                        gridTemplateColumns: `repeat(${Math.floor(1.5 * Math.sqrt(columnColumns[cIdx]))}, 1fr )`
+                                                        gridTemplateColumns: `repeat(${Math.max(4, Math.floor(1.5 * Math.sqrt(columnColumns[cIdx])))}, 1fr )`
                                                     })
                                                 : {columns: Math.max(2, Math.floor(Math.sqrt(columnColumns[cIdx])))}
                                         } 

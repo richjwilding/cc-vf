@@ -826,6 +826,19 @@ function MainStore (prims){
                 const response = await result.json()
                 return response
         },
+        getPrimitiveDocumentAsText:async function ( primitive ){
+            let revision = ''
+            if( primitive.referenceParameters?.notes?.lastFetched ){
+                revision = '?rev=' + new Date(primitive.referenceParameters?.notes?.lastFetched).getTime()
+            }
+            const url = `/api/primitive/${primitive.id}/getDocumentAsPlainText${revision}`
+                const result = await fetch(url
+                ,{
+                    method: "GET",
+                })
+                const response = (await result.json())?.result
+                return response
+        },
         getPrimitiveDocument:async function ( primitive ){
             let revision = ''
             if( primitive.referenceParameters?.notes?.lastFetched ){
@@ -1377,6 +1390,31 @@ function MainStore (prims){
                     return receiver.primitives[type]
                 }
                 if( type === "primitive"){
+                    if( prop === "itemsForProcessing"){
+                        if( Object.keys(receiver.primitives).includes("imports")){
+                            console.log(`Importing from other sources`)
+                            let list = []
+                            for( const source of receiver.primitives.imports.allItems){
+                                console.log(`-- ${receiver.type} ${receiver.plainId}`)
+                                let node = source.primitives
+                                if( receiver.referenceParameters?.path ){
+                                    console.log(`---- ${receiver.referenceParameters?.path}`)
+                                    node = node.fromPath(receiver.referenceParameters?.path)
+                                }
+                                let items = node.allItems
+                                if( receiver.referenceParameters?.referenceId ){
+                                    items = items.filter(d=>d.referenceId === receiver.referenceParameters.referenceId) 
+                                }
+                                if( receiver.referenceParameters?.type ){
+                                    items = items.filter(d=>d.referenceId === receiver.referenceParameters.type) 
+                                }
+                                list = list.concat(items)
+                            }
+                            return list
+                        }else{
+                            return receiver.primitives.uniqueAllItems
+                        }                        
+                    }
                     if( d.type === "view"){
                         if( prop === "nestedItems"){
                             return uniquePrimitives( receiver.primitives.allSegment.map(d=>d.nestedItems).flat() )
@@ -1523,6 +1561,11 @@ function MainStore (prims){
                         return obj.doPrimitiveDocumentQuestionsAnalysis( receiver, ids )
                     }
                 }
+                if( prop === "getDocumentAsText"){
+                    return ()=>{
+                        return obj.getPrimitiveDocumentAsText( receiver )
+                    }
+                }
                 if( prop === "getDocument"){
                     return ()=>{
                         return obj.getPrimitiveDocument( receiver )
@@ -1533,6 +1576,7 @@ function MainStore (prims){
                 }
                 if( prop === "findRouteToParent"){
                     return function(target){
+                        const ids = {}
                         const layerUp = (node, indent = 0)=>{
                             let out
                             if( node.parentPrimitiveIds.length === 0){
@@ -1544,10 +1588,13 @@ function MainStore (prims){
                                 }
                             }
                             node.parentPrimitives.forEach((d)=>{
-                                if(!out){
-                                    const result = layerUp( d, indent + 1 )
-                                    if( result ){
-                                        out = [...result, d]
+                                if( !ids[d.id] ){
+                                    ids[d.id] = true
+                                    if(!out){
+                                        const result = layerUp( d, indent + 1 )
+                                        if( result ){
+                                            out = [...result, d]
+                                        }
                                     }
                                 }
                             })
@@ -1558,16 +1605,26 @@ function MainStore (prims){
                 }
                 if( prop === "findParentPrimitives"){
                     return function(options = {type: undefined, first: false}){
+                        const ids = {}
                         const scatter = (list)=>{
                             if( list === undefined){ return []}
                             let expanded = list.map((p)=>p.parentPrimitives).flat()
                             let out = uniquePrimitives( expanded )
+                            out = out.filter(d=>{
+                                const res = !ids[d.id]
+                                if( res ){
+                                    ids[d.id] = true
+                                }
+                                return res
+                            })
+
                             return out
                         }
                         let found = []
                         let current = scatter( [receiver] )
                         
                         while( current.length > 0){
+                            console.log('d')
                             if( options.type === undefined ){
                                 found = [...found, ...current]
                             }else{

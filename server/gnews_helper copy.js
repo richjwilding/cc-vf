@@ -3,7 +3,6 @@ import {createPrimitive, flattenPath, doPrimitiveAction, primitiveOrigin, primit
 import { replicateURLtoStorage, writeTextToFile } from "./google_helper";
 import { analyzeListAgainstTopics, analyzeText, analyzeTextAgainstTopics, buildKeywordsFromList } from "./openai_helper";
 import { filterEntitiesByTopics } from "./SharedFunctions";
-import Parser from "@postlight/parser";
 
 
 
@@ -13,8 +12,7 @@ export async function fetchArticlesFromGNews(primitive, options = {}){
         return
     }
     let count = 0
-    const topics = primitive.referenceParameters?.topics
-    let keywords = options.keywords
+    const keywords = options.keywords || primitive.referenceParameters?.topics
     const paths = ['origin']
     const category = await primitiveMetadata( primitive )
     const targetResultSet =  category.resultCategories?.find((d)=>d.resultCategoryId === options.resultCategory)
@@ -26,25 +24,20 @@ export async function fetchArticlesFromGNews(primitive, options = {}){
     
 
         
-    const doLookup = async  (keywords, attempts = 3)=>{
+    const doLookup = async  (keywords, page = 1, attempts = 3)=>{
         try{
 
-            console.log(keywords)
 
-            const excludeList = ["wkrb13.com", "modernreaders.com", "etfdailynews.com", "themarketsdaily.com", "tickerreport.com"]
-            
-            const excludeEncoded = excludeList.filter(d=>d.length > 15).map(d=>` -domain:${d}`).join("")
-            
             const query = new URLSearchParams({ 
-                "query": keywords + " " + excludeEncoded,
-                "mode": "artlist",
-                "maxrecords": 250,
-                "format": "json",
-            }).toString() 
+                "q": keywords,
+                "expand": "content",
+                "max": 25,
+                "page": page,
+                "apikey": process.env.GNEWS_KEY
+            }).toString()
+            console.log(keywords)
             
-            const url = `https://api.gdeltproject.org/api/v2/doc/doc?${query}`
-            console.log(url)
-
+            const url = `https://gnews.io/api/v4/search?${query}`
             
             console.log(options)
             const response = await fetch(url,{
@@ -62,15 +55,12 @@ export async function fetchArticlesFromGNews(primitive, options = {}){
                 let articleFilter = []
                 for( const article of data.articles){
                     console.log(`check ${article.url}`)
-                    if( excludeList.includes(article.domain) ){
-                        console.log(`SKIPPING ${article.domain}}`)
-                        continue
-                    }
                     if( article.url ){
-                        if( articleFilter.includes(article.title) ){
+                        if( articleFilter.includes(article.description) || articleFilter.includes(article.title) ){
                             console.log(`skipping duplicate`)
                             continue
                         }
+                        articleFilter.push(article.description)
                         articleFilter.push(article.title)
                         const existing = await Primitive.findOne({
                             "workspaceId": primitive.workspaceId,
@@ -86,31 +76,7 @@ export async function fetchArticlesFromGNews(primitive, options = {}){
                     }
                 }
                 console.log(`GOT ${pending.length} to consider`)
-                for(const article of pending ){
-                    console.log(`Fetching text for filter ${article.url}`)
-                    try{
-                        const result = await Parser.parse(article.url, {
-                            contentType: 'text',
-                        })
-                        if( result?.content){                    
-                            article.content = result.content
-                            article.description = result.content.split(" ").slice(0,400).join(" ")
-                            article.image = result.lead_image_url ?? article.image ?? result.socialimage 
-                            article.posted_on = result.date_published ?? article.seendate
-                        }else{
-                            article.skip = true
-                        }
-                        if( result.word_count < 50 ){
-                            article.skip = true
-                            console.log(`ARTICLE TOO SHORT TO BE INTERESTING`)
-                        }
-                        
-                    }catch(error){
-                        console.log(`Error in fetching text for ${article.url}`)
-                        console.log(error)
-                    }
-                }
-                pending = pending.filter(d=>!d.skip)
+                pending = await filterEntitiesByTopics( pending, keywords) 
                 if( pending ){
                     console.log(`NOW ${pending.length} to add`)
                     for( const article of pending ){
@@ -126,9 +92,7 @@ export async function fetchArticlesFromGNews(primitive, options = {}){
                                     url: article.url,
                                     imageUrl: article.image,
                                     hasImg: article.image ? true : false,
-                                    source: article.domain,
                                     description: article.description,
-                                    posted: article.posted_on
                                 }
                             }
                         }
@@ -148,30 +112,19 @@ export async function fetchArticlesFromGNews(primitive, options = {}){
             if( attempts > 0){
                 await new Promise(r => setTimeout(r, 2000));                    
                 console.log('retry....')
-                await doLookup(keywords, attempts--)
+                await doLookup(keywords, page, attempts--)
             }
         }
     }
 
-    //const topicTerm = topics ? " (" + topics.split(/,|\sor\s|\sand\s/).map(d=>(d ?? "").trim()).filter(d=>d).map(d=>`"${d}"`).join(" OR ") + ")" : ""
-
-    if( keywords || topics){
-        if(keywords === 'undefined'){
-            keywords = undefined
-        }
+    if( keywords ){
         console.log( keywords )
-        const topicList = topics.split(/,|\sor\s|\sand\s/).map(d=>(d ?? "").trim()).filter(d=>d).map(d=>`"${d}"`)
-        for( const topic of topicList ){
-            if( keywords ){
-
-                const set = keywords.split(/,|\sor\s|\sand\s/)
-                for(let keyword of set){
-                    //await doLookup( keyword.trim().replace(/\b(\w+-\w+(?:-\w+)*)\b/g, '"$1"')+ " " + topic, 0 )
-                    await doLookup( '"' + keyword.trim() + '" ' + topic, 0 )
-                }
-            }else{
-                    await doLookup( topic, 0 )
+        const set = keywords.split(/,|\sor\s|\sand\s/)
+        for(let keyword of set){
+            for( let page = 1; page < 4; page++){
+                await doLookup( keyword.trim().replaceAll( /\b(\w+-\w+)\b/g, '"$1"'), page )
             }
+
         }
     }
 }

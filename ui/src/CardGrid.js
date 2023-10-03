@@ -66,7 +66,8 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
         if( category && Object.keys(primitive.primitives.results).length > 0){
             list = primitive.primitives.results[category.id].map((d)=>d) 
         }else{
-            list = primitive.primitives.origin.allItems
+            //list = primitive.primitives.origin.allItems
+            list = primitive.itemsForProcessing
         }
     }
     

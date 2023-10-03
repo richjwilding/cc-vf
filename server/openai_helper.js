@@ -58,8 +58,9 @@ export async function extractFeautures( list, options = {}){
         return {success: true, output: []}
     }
     let opener = `Here is a list of description about organizations:`
-    let prompt =  `For each item in the list produce a set of keywords which highlight 1) capabilities , b) product or service offerings and c) customers served.`
-    let output = `Provide the result as a json object with an array called 'results' with each entry having an "id" field containing the number of the organization in the original list, a "capabilities" field containing a string of relevant keywords, a "offerings" field containing a string of relevant keywords, and a "customers" field containing a string of relevant keywords  Set the appropriate field to "NONE" if there are no relevant keywords. Do not put anything other than the raw json object in the response .`
+    let prompt =  `For each item in the list analyze the details of the organization to determine a) its target customer or markets, b) the offerings it provides to customers - but without detailing who the customers are, c) the technology the organization uses, and d) the organizations name.  Use only the information provided to form your response and be as specific as possible in your response by using the adjectives and qualifiers used in the description`
+    let output = `Provide the result as a json object with an array called 'results' with each entry having an "id" field containing the number of the organization in the original list, an "offerings" field containing a list of offerings , a "customers" field containing a list of customers, a "technology" fields containing a list of technologies, and a "name" field containing the name of the company.  Set the appropriate field to "NONE" if there are no relevant keywords. Do not put anything other than the raw json object in the response`    
+
 
     const interim = await processInChunk( list,
             [
@@ -91,7 +92,7 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
                 {"role": "user", "content": `Provide the result as a json object with a single field called 'summary' with conatins "a string with your summary. Do not put anything other than the raw json object in the response .`},
             ],
-            {field: "summary", debug: false, engine: options.engine })
+            {field: "summary", debug: false, engine: options.engine, ...options })
 
 
     if( Object.hasOwn(interim, "success")){
@@ -298,11 +299,18 @@ export async function analyzeTextAgainstTopics( text, topics, options = {}){
     const list = text.split(`\n`)
     const single = topics.split(",").length > 1 
     const type = options.type || "description"
+
+    const scoreMap = {
+        "strongly": 4, 
+        "clearly": 3,
+        "somewhat": 2, 
+        "hardly": 1, 
+        "not at all": 0}
     
     let opener = `Here is a ${type}: `
     let prompt =  options.prompt || `Assess how strongly the ${type} relates to ${single ? "the topic of" : "one or more of the following topics:"} ${topics}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`
 
-    const interim = await processInChunk( list,
+    let interim = await processInChunk( list,
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": opener}],
@@ -311,12 +319,14 @@ export async function analyzeTextAgainstTopics( text, topics, options = {}){
                 {"role": "user", "content": `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the ${type}, and a "s" field containing your assessment as a string.`}
 
             ],
-            {field: "result",  no_num: true})
+            {field: "result",  no_num: true, ...options})
     if( Object.hasOwn(interim, "success")){
         console.log(interim)
         return interim
     }
-    return {success: true, output: interim[0]}
+    interim = interim.map((d)=>{return {...d, s: scoreMap[d.s] ?? 0}})
+    const final_score = interim.reduce((a,c)=>c.s > a ? c.s : a, 0)
+    return {success: true, output: final_score}
 }
 export async function analyzeListAgainstItems( list, overview, options = {}){
     const type = options.type || "description"
@@ -341,6 +351,40 @@ export async function analyzeListAgainstItems( list, overview, options = {}){
     }
     return {success: true, output: interim}
 }
+/*export async function analyzeItemAgainstTopics( text, topics, options = {}){
+    const list = text.split(`\n`)
+    const single = topics.split(",").length == 1 
+    const type = options.type || "description"
+    const scoreMap = {
+        "strongly": 4, 
+        "clearly": 3,
+        "somewhat": 2, 
+        "hardly": 1, 
+        "not at all": 0}
+    
+    let opener = `Here is a ${options.plural ? options.plural : `${type}s`}: `
+    let prompt =  options.prompt || `Assess the degree to which the ${type} relates to ${single ? "the topic of" : "one or more of the following topics:"} ${topics}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`
+
+    let interim = await processInChunk( list,
+            [
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                {"role": "user", "content": opener}],
+            [
+                {"role": "user", "content": prompt},
+                {"role": "user", "content": `Provide the result as a json object with an array called 'result' which contains an object with the following fields: a "s" field containing your assessment as a string ${options.rationale ? "and " + options.rationale  : ""}`}
+
+            ],
+            {field: "result", ...options})
+    if( Object.hasOwn(interim, "success")){
+        console.log(interim)
+        return interim
+    }
+    if( options.asScore ){
+        interim = interim.map((d)=>{return {...d, s: scoreMap[d.s] ?? 0}})
+    }
+
+    return {success: true, output: interim}
+}*/
 export async function analyzeListAgainstTopics( list, topics, options = {}){
     const single = topics.split(",").length == 1 
     const type = options.type || "description"
@@ -596,7 +640,7 @@ export  async function categorize(list, categories, options = {} ){
                 {"role": "user", "content": `${match} If there is a strong match assign the ${targetType} to the most suitable category number - otherwise assign it -1`} ,
                 {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item and a 'category' field set to the assigned number or label${options.evidencePrompt}. Do not put anything other than the raw JSON in the response .`}
             ],
-            {field: "results", maxTokens: (options.engine === "gpt4" ? 2000 : 12000), engine:  options.engine, debug: true})
+            {field: "results", maxTokens: (options.engine === "gpt4" ? 2000 : 12000), engine:  options.engine, ...options})
     return interim
 }
 
@@ -678,7 +722,7 @@ export async function analyzeText2(text, options = {}){
         }
         
         //responseInstructions += `field called 'answered' set to the number of ${responseQualifier}, and an 'answers' field which is an array of problems for that task (if any), with each entry being an object with the following fields: a 'quote' field containing no more than the first 30 words of the exact text from the article used to produce the answer without correcting bad spelling or grammar or altering the text in anyway,  and a '${field}' field containing the problems you identify in the form 'It sucks that...'.Do not put anything other than the raw JSON in the response `
-        responseInstructions += `field called 'answered' set to the number of ${responseQualifier}, and an 'answers' field which is an array of problems for that task (if any), with each entry being an object with the following fields: a 'quote' field containing no more than the first 30 words of the exact text from the article used to produce the answer without correcting bad spelling or grammar or altering the text in anyway${fieldList}.Do not put anything other than the raw JSON in the response `
+        responseInstructions += `field called 'answered' set to the number of ${responseQualifier}, and an 'answers' field which is an array of ${field}s for that task (if any), with each entry being an object with the following fields: a 'quote' field containing no more than the first 30 words of the exact text from the article used to produce the answer without correcting bad spelling or grammar or altering the text in anyway${fieldList}.Do not put anything other than the raw JSON in the response `
 
     }
 

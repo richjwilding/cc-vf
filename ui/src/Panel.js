@@ -116,7 +116,7 @@ export default function Panel({...props}){
             ref={ref}
           >
             <Disclosure.Panel className={props.panelClassName}>
-                {props.children}
+                {typeof(props.children) === "function" ? props.children() : props.children}
             </Disclosure.Panel>
           </Transition>
         </div>

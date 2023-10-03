@@ -52,7 +52,6 @@ async function doRemovePrimitiveLink(receiver, target, path){
         {
             "_id": new ObjectId(receiver),
             [path]: {$in: [target]},
-            [`${path}.1`]: { "$exists": true }
         },
         {
             $pull: { [path]: target }
@@ -61,8 +60,7 @@ async function doRemovePrimitiveLink(receiver, target, path){
     await Primitive.updateOne(
         {
             "_id": new ObjectId(receiver),
-            [path]: {$in: [target]},
-            [`${path}.1`]: { "$exists": false }
+            [path]: { "$exists": true, $eq: [] }
         },
         {
             $unset: {[path]: ""}
@@ -289,8 +287,14 @@ export async function primitiveDescendents(primitive, types, options={}){
                 return
             }
             if( item ){
-                Object.values(item).forEach((value)=>{
-                    unpack(value)
+                //Object.values(item).forEach((value)=>{
+                Object.keys(item).forEach((key)=>{
+                    if( key === "imports"){
+                        console.log(`NOT FOLLOWING IMPORTS`)
+                    }else{
+                        const value = item[key]
+                        unpack(value)
+                    }
                 })
             }
         }
@@ -847,9 +851,65 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         result = EnrichPrimitive().pivotCompany(primitive, "crunchbase", action)
                         done = true
                     }
+                    if(command === "build_view" ){
+                        const target = options.target || action.target
+                        const path = options.path || action.path
+                        const types = options.types || action.types
+                        const referenceId = (options.referenceId !== undefined ? parseInt( options.referenceId ) : undefined )|| action.referenceId
+                        const referenceCategoryId = (options.referenceCategoryId !== undefined ? parseInt( options.referenceCategoryId ) : undefined )|| action.referenceCategoryId
+                        const baseId = primitive.referenceParameters?.baseCategory || action.baseCategory || PrimitiveConfig.typeConfig["view"].defaultReferenceBaseId || referenceCategory
+                        const self = true
+                        //const constrainedSource = options.keywords
+                        let category
+                        let sourcePath = 'results'
+                        if( referenceId ){
+                            category = await Category.findOne({id: referenceId})
+                        }else if( referenceCategoryId ){
+                            const resultRef = primitive.resultCategories[ referenceCategoryId ]?.resultCategoryId
+                            category = await Category.findOne({id: resultRef})
+                        }
+
+                        if( target  ){
+                            const paths = ['origin']
+                            if( path ){
+                                paths.push(path)
+                            }
+                            if( referenceCategoryId ){
+                                sourcePath = `results.${referenceCategoryId}`
+                            }
+                            const newPrim = await createPrimitive({
+                                workspaceId: primitive.workspaceId,
+                                parent: primitive.id,
+                                paths: paths,
+                                data:{
+                                    type: "view",
+                                    referenceId: baseId,
+                                    title: category ? `View - ${category.title}` : "New view",
+                                    referenceParameters:{
+                                        types:types,
+                                        referenceId: referenceId,
+                                        path: sourcePath,
+                                        self: self
+                                    }
+                                }
+                            })
+                            if( newPrim && self ){
+                                await addRelationship(newPrim.id, primitive.id, "imports")
+
+                                console.log(`Check circular child ${newPrim.id}`)
+                                const check = await Primitive.findOne({_id:  primitive._id})
+                                await primitiveDescendents(check, undefined, {paths: []})
+                                console.log(`Check circular parent`)
+                                const check2 = await Primitive.findOne({_id:  newPrim._id})
+                                await primitiveParents( check2 )
+                                console.log(`DONE CHECKS`)
+                            }
+                        }
+                    }
                     if(command === "roll_up" ){
                         const target = options.target || action.target
                         const field = options.field || action.field
+                        const path = options.path || action.path
                         let types = options.types || action.types
                         const subTypes = options.subTypes || action.subTypes
                         const summaryType = options.summaryType || action.summaryType
@@ -870,13 +930,17 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         }
 
                         if( target && field ){
+                            const paths = ['origin']
+                            if( path ){
+                                paths.push(path)
+                            }
                             let existing = (await primitiveChildren( primitive, "view")).find((d)=>d.referenceId === referenceId && d.referenceParameters?.target === target && d.referenceParameters?.field === field && d.referenceParameters?.constrainId === constrainedSource)
                             if( ! existing ){
                                 console.log(`Creating new cluster source`)
                                 existing = await createPrimitive({
                                     workspaceId: primitive.workspaceId,
                                     parent: primitive.id,
-                                    paths: ['origin'],
+                                    paths: paths,
                                     data:{
                                         type: "view",
                                         referenceId: baseId,

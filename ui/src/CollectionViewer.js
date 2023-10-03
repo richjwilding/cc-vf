@@ -16,6 +16,7 @@ import NewPrimitive from "./NewPrimitive";
 import PrimitiveConfig from "./PrimitiveConfig";
 import PrimitivePicker from "./PrimitivePicker";
 import { PrimitiveCard } from "./PrimitiveCard";
+import { InputPopup } from './InputPopup';
 
 const allViews = ["cards","cluster", "explore", "table","table_grid", "list", "proximity" ]
 const icons = {
@@ -34,6 +35,7 @@ export default function CollectionViewer({primitive, category, ...props}){
     const [showNew, setShowNew] = useState(false)
     const [showLink, setShowLink] = useState(false)
     const [viewerPick, setViewerPick] = useState( props.viewSelf ? primitive : undefined )
+    const [manualInputPrompt, setManualInputPrompt] = useState(false)
     const asViewer = category?.views?.options?.viewer || props.viewSelf
     let showDescend = category?.views?.options?.descend
 
@@ -123,9 +125,8 @@ export default function CollectionViewer({primitive, category, ...props}){
     if(props.viewSelf ){
         list = [primitive]
     }else{
-
         if( props.nested ){
-            list = primitive.primitives.descendants
+            list = primitive.type === "activity" ? primitive.primitives.results.descendants : primitive.primitives.descendants
             if( props.nestedTypes ){
                 const types = [props.nestedTypes].flat()
                 list = list.filter((d)=>types.includes( d.type ) )
@@ -150,8 +151,12 @@ export default function CollectionViewer({primitive, category, ...props}){
             }
         }     
     }
-    let clusters = props.viewSelf ? [primitive] : primitive?.primitives.allView.filter((d)=>!props.nestedTypes || d.referenceParameters.target === props.nestedTypes) // list.filter((d)=>d.type === "view" )
+    let clusters = props.viewSelf ? [primitive] : [] //primitive?.primitives.allView.filter((d)=>!props.nestedTypes || d.referenceParameters.target === props.nestedTypes) // list.filter((d)=>d.type === "view" )
     //let clusters = props.viewSelf ? [primitive] : list.filter((d)=>d.type === "view" )
+
+
+    clusters = primitive?.primitives?.allView
+
     if( !props.viewSelf && !asViewer && clusters.length === 0 )
     {
         allowed = allowed.filter((d)=>d !== "cluster" && d !== "proximity")   
@@ -174,6 +179,26 @@ export default function CollectionViewer({primitive, category, ...props}){
     }
 
     const createResult = async( options = {}, open = false )=>{
+        if( options.actionFields){
+            if(!options.action?.key){
+                console.error("NOT IMPLEMENETED")
+                return
+            }
+                setManualInputPrompt({
+                  primitive: primitive,
+                  fields: options.actionFields,
+                  confirm: async (inputs)=>{
+                    const actionOptions = {
+                        ...options.action,
+                        path: `results.${category.id}`,
+                        ...inputs
+                    }
+                    console.log(options.action.key , actionOptions)
+                    await MainStore().doPrimitiveAction(primitive, options.action.key , actionOptions)
+                  },
+                })
+            return
+        }
         const type = resultCategory?.primitiveType ?? category.type ?? "result"
 
         if( PrimitiveConfig.typeConfig[type]?.needCategory && !resultCategory){
@@ -214,7 +239,9 @@ export default function CollectionViewer({primitive, category, ...props}){
                 
                 if( !props.hideCreate ){
 
-                    createButtons = [{title:"Create new", action: ()=>createResult(undefined, true)}]
+                    const defaultCreateOptions = category?.views?.create?.default
+
+                    createButtons = [{title:"Create new", action: ()=>createResult(defaultCreateOptions, true)}]
                     if( category?.views?.options?.showLink ){
                         createButtons.push( {title: "Link existing", action: ()=>setShowLink(true)} )
                         
@@ -241,15 +268,15 @@ export default function CollectionViewer({primitive, category, ...props}){
 
     const pageItems = view ==="table" && !props.defaultWide ? 25 : 100
     const pages = Math.ceil( list.length / pageItems)
-    const showPagination = ["table", "list", "cards"].includes(view)
+    const showPagination = ["table", "list", "cards"].includes(view) && pages > 1
 
-    const showBar = (showDescend || (showPagination && pages > 1) || (allowed.length > 1 || props.closeButton)) && !["explore", "cluster"].includes(view)
+    const showBar = (showDescend || showPagination  || (allowed.length > 1 || props.closeButton)) && !["explore", "cluster"].includes(view)
     const buttons = <>
                 {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
                 {allowed.length > 1 && viewCategory.views?.options && Object.keys(viewCategory.views.options).map((d)=>{
                     return  allowed.includes(d) && viewCategory.views.options[d] ? <Panel.MenuButton title={icons[d] || d} onClick={()=>setView(d)}/> : undefined
                 })}
-                {showDescend && <TooggleButton enabled={descend} setEnabled={setDescend} title={`Include ${category ? category.plurals : "items"} from children`}/>}
+                {showDescend && <TooggleButton enabled={descend} setEnabled={setDescend} title={`Include nested ${category ? category.plurals : "items"}`}/>}
                 {showPagination && <Panel.MenuButton narrow icon={<ChevronLeftIcon className='w-4 h-4 '/>} className='!ml-auto mr-1' action={()=>setPage(page > 0 ? page - 1 : page)}/>}
                 {showPagination && <p className="bg-white border border-gray-300 flex place-items-center px-2 rounded-md shadow-sm text-gray-600 text-sm">{page + 1} / {pages}</p>}
                 {showPagination && <Panel.MenuButton narrow icon={<ChevronRightIcon className='w-4 h-4'/>} className='mr-1' action={()=>setPage(page < (pages - 1) ? page + 1 : pages - 1)}/>}
@@ -275,7 +302,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                 {buttons}
             </div>
 
-    const content = <>
+    const content = ()=><>
             {(list === undefined || list.length === 0)  
             ? <div className='w-full p-2'>
                     {!category?.views?.options?.showLink && <button
@@ -333,7 +360,8 @@ export default function CollectionViewer({primitive, category, ...props}){
                 {view === "explore" &&
                     <PrimitiveExplorer 
                         primitive={asViewer ? (props.viewSelf ? primitive : viewerPick ) : primitive}
-                        list={asViewer ? (props.viewSelf ? undefined : viewerPick?.primitives.allItems ) : list}
+                        //list={asViewer ? (props.viewSelf ? undefined : viewerPick?.primitives.allItems ) : list}
+                        list={asViewer ? undefined : list}
                         category={
                             asViewer 
                             ? viewCategory
@@ -399,13 +427,12 @@ export default function CollectionViewer({primitive, category, ...props}){
 
     let mainContent 
     if( props.viewSelf ){
-        mainContent = <div 
-                style={{gridTemplateColumns: "100%"}}
-                className={`w-full min-h-[40vh] h-full bg-white rounded-md grid ${props.hidePanel ? "" : "max-h-[80vh]"}`}
+        mainContent = ()=><div 
+                className={`w-full min-h-[40vh] h-full bg-white rounded-md flex ${props.hidePanel ? "" : "max-h-[80vh]"}`}
             >
             <div className="w-full flex flex-col grow-0 max-h-[inherit]">
                 {buttonBar}
-                {viewerPick && content}
+                {viewerPick && content()}
             </div>
         </div>
         /*mainContent = <div 
@@ -418,33 +445,38 @@ export default function CollectionViewer({primitive, category, ...props}){
         </div>*/
 
     }else if( asViewer ){
-        mainContent = <div 
-                style={{gridTemplateColumns: "9rem calc(100% - 9rem)"}}
-                className={`w-full min-h-[40vh] h-full bg-white rounded-md grid ${props.hidePanel ? "" : "max-h-[80vh]"}`}
+        mainContent = ()=><div 
+              //  style={{gridTemplateColumns: "9rem calc(100% - 9rem)"}}
+                className={`w-full flex min-h-[40vh] h-full bg-white rounded-md  ${props.hidePanel ? "" : "max-h-[80vh]"}`}
             >
             <div className="w-36 border-r overflow-y-scroll space-y-2 p-1 shrink-0 max-h-[inherit]">
-                {list.map((d)=><PrimitiveCard primitive={d} compact onClick={()=>setViewerPick(d)}/>)}
+                {list.map((d)=><PrimitiveCard primitive={d} compact onClick={()=>setViewerPick(d)} showExpand onEnter={()=>mainstore.sidebarSelect(d)}/>)}
             </div>
-            <div className="w-full flex flex-col grow-0 max-h-[inherit]">
+            <div 
+                style={{width: "calc(100% - 9rem)"}}
+                className="w-full flex flex-col grow-0 max-h-[inherit]">
                 {buttonBar}
-                {viewerPick && content}
+                {viewerPick && content()}
             </div>
         </div>
     }else{
-        mainContent = <>
+        mainContent = ()=><>
             {buttonBar}
-            {content}
+            {content()}
         </>
     }
     
     const maxHeight = !asViewer && !props.hidePanel && view === "explore" && list?.length > 0 ? "relative max-h-[80vh] flex-col flex bg-white" : ""
 
     console.log(viewerPick)
-    return props.hidePanel 
-        ? <div className={`@container  ${props.className} flex flex-col relative`}>{mainContent}</div>
+    return <>
+        {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
+        {props.hidePanel 
+        ? <div className={`@container  ${props.className} flex flex-col relative`}>{mainContent()}</div>
         : <Panel panelClassName={`@container ${maxHeight}`} expandButton={props.onExpand} key={category.title} count={list.length} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' open={props.open} collapsable={true}>
-            {mainContent}
-        </Panel>
+            {()=>mainContent()}
+        </Panel>}
+     </>
     
 
 }
