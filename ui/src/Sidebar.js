@@ -12,6 +12,7 @@ import Panel from './Panel'
 import PrimitiveConfig from './PrimitiveConfig'
 import PrimitivePicker from './PrimitivePicker'
 import { VFImage } from './VFImage'
+import useDataEvent from './CustomHook'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -21,6 +22,8 @@ export function Sidebar({primitive, ...props}) {
     const [showDeletePrompt, setShowDeletePrompt] = useState(false)
     const [showUnlinkPrompt, setShowUnlinkPrompt] = useState(false)
     const [showLink, setShowLink] = useState(false)
+    
+    useDataEvent('set_field', Array.isArray(primitive) ?  primitive.map(d=>d?.id) : primitive?.id )
 
     let isMulti = false
     let commonMultiType 
@@ -120,6 +123,7 @@ export function Sidebar({primitive, ...props}) {
         showUnlinkFromScope = true
         const list = isMulti ? primitive : [primitive]
         for( const p of list){
+            console.log(`check`, props.scope, p, p.origin?.id === props.scope.id, !p.parentPaths( props.scope ))
             if( p.origin?.id === props.scope.id || !p.parentPaths( props.scope )){
                 showUnlinkFromScope = false
             }
@@ -134,6 +138,7 @@ export function Sidebar({primitive, ...props}) {
         }
         setShowUnlinkPrompt(false)
     }
+
 
     return (
         <>
@@ -182,7 +187,7 @@ export function Sidebar({primitive, ...props}) {
                 {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} className='ml-auto m-2'/> }            
             </div>}
             {!isMulti && <div className="pb-2 pl-4 pr-4 pt-4">
-                <PrimitiveCard primitive={primitive} showQuote showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
+                <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
                 {primitive.type === "result" && primitive.referenceParameters?.url && <Panel.MenuButton title='View text' onClick={async ()=>alert(await primitive.getDocumentAsText())}/>}
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
                     <Panel title="Significance" collapsable={true} open={true} major>
@@ -206,6 +211,18 @@ export function Sidebar({primitive, ...props}) {
                 </div>}
             </div>}
             {showButtons && <div className="flex-shrink-0 justify-between space-y-2 p-4 mt-1">
+                {false && props.context?.row !== undefined && props.context?.column !== undefined &&
+                    <button
+                        type="button"
+                        className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        onClick={async ()=>{
+                            const result = await MainStore().doPrimitiveAction( primitive.origin, "quick_query", {lookup: [props.context.column,props.context.row].filter(d=>d && d.length >0).join(" and ")})
+                            //alert(result)
+                        }}
+                    >
+                        Extract context ({props.context.column} {props.context.row})
+                    </button>
+                    }
                 {showUnlinkFromScope && <button
                     type="button"
                     className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -226,6 +243,20 @@ export function Sidebar({primitive, ...props}) {
                     onClick={()=>{props.unlink(primitive);props.setOpen(false)}}
                 >
                     Remove from {props.unlinkText ? props.unlinkText : 'item'}
+                </button>}
+                    {primitive.type === "segment" && <button
+                        type="button"
+                        className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        onClick={async ()=>{
+                            await MainStore().createPrimitive({
+                                title: "New Segment",
+                                type: "segment",
+                                categoryId: primitive.referenceId,
+                                parent: primitive
+                            })
+                        }}
+                    >
+                        Create sub segment
                 </button>}
                 <button
                     type="button"

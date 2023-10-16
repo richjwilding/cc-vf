@@ -80,7 +80,8 @@ async function createPrimitiveFromCBData( entity, referenceId, parent, paths ){
                 url: properties.website_url,
                 hasImg: properties.image_url,
                 description: properties.description,
-                assessment: entity?.assessment
+                assessment: entity?.assessment,
+                location: entity.properties.location_identifiers?.find(d=>d.location_type === "country")?.value || entity.properties.location_identifiers?.[0]?.value
             }
         }
     }
@@ -93,7 +94,8 @@ async function createPrimitiveFromCBData( entity, referenceId, parent, paths ){
             short_description: entity.properties.short_description,
             image_url:entity.properties.image_url,
             website_url: entity.properties.website_url,
-            categories: entity.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}})
+            categories: entity.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}}),
+            locations: entity.properties.location_identifiers
             
         }
         newPrim.set("crunchbaseData", store)
@@ -104,6 +106,54 @@ async function createPrimitiveFromCBData( entity, referenceId, parent, paths ){
         }
     }
     return newPrim
+}
+async function createOrganizationByUUID( uuid, parent, options ){
+    try{
+        
+        const category = options.category || await Category.findOne({id: parent.referenceId})
+        const resultSet =  options.resultSet || (category && category.resultCategories.find((d)=>d.resultCategoryId == options.referenceId)?.id)
+        if( !category || resultSet === undefined ){
+            return
+        }
+        const query = new URLSearchParams({ 
+                "field_ids": [
+                "identifier",
+                "categories",
+                "location_identifiers",
+                "short_description",
+                "website_url",
+                "image_url",
+                "name",
+                "description",
+                "rank_org"
+
+                ]
+            }).toString()
+        console.log(`Doing Crunchbase query`)
+        const url = `https://api.crunchbase.com/api/v4/entities/organizations/${uuid}?${query}`
+        const response = await fetch(url,{
+            method: 'GET',
+            headers: {
+                'X-cb-user-key': `${process.env.CRUNCHBASE_KEY}`
+            }
+        });
+        
+        if( response.status !== 200){
+            console.log(`Error from crunchbase`)
+            console.log(response)
+        }
+        const data = await response.json();
+        if( data ){
+            if( data.properties ){
+                await createPrimitiveFromCBData( {properties: data.properties}, options.referenceId, parent, ['origin', `results.${resultSet}`])
+            }
+        }
+
+    }catch(error){
+        console.log(`Error on findOrganizationsFromCB`)
+        console.log(error)
+    }
+
 }
 
 export async function findOrganizationsFromCB(parent, options){
@@ -581,6 +631,49 @@ export async function pivotFromCrunchbaseArticles(primitive, options = {}, force
     }
     return count
 }
+export async function extractAcquisitionsFromCrunchbase(primitive, options = {}, force = false){
+
+    let data = primitive.crunchbaseData
+    if( !options.path || !options.type || !options.referenceId){
+        console.log(`Extract failed - params not set`)
+        console.log(options)
+        return undefined
+    }
+
+    if(force || !data ){
+        data = await fetchCompanyDataFromCrunchbase(primitive)
+        if( data.error ){
+            return {error: data.error}
+        }
+    }
+    let acquisitionData = data.acquisitions
+
+    if( acquisitionData === undefined){
+        acquisitionData = await fetchAcquisitionFromCrunchbase(primitive, data.id)
+        
+    }
+    if( acquisitionData === undefined ){
+        return {error: "no_data"}
+    }
+        if( data.error ){
+            return {error: data.error}
+        }
+
+    let out = []
+
+    if( acquisitionData){
+        const id = primitive._id.toString()
+        const category = await Category.findOne({id: primitive.referenceId})
+        const resultSet =  category && category.resultCategories.find((d)=>d.resultCategoryId == options.referenceId)?.id
+        for( const acquisition of acquisitionData){
+
+            if( acquisition?.identifier?.uuid){
+                await createOrganizationByUUID( acquisition?.identifier?.uuid, primitive, {...options, category: category, resultSet: resultSet})
+            }
+        }
+    }
+    return out
+}
 export async function extractArticlesFromCrunchbase(primitive, options = {}, force = false){
 
     let data = primitive.crunchbaseData
@@ -719,6 +812,65 @@ export async function fetchCompanyDataFromCrunchbase( primitive ){
         }else{
             return {error: "no data"}
         }
+    }catch(error){
+        return {error: error}
+    }
+
+    
+}
+export async function fetchAcquisitionFromCrunchbase( primitive, cbId ){
+    try{
+
+        const uuid = cbId || primitive.crunchbaseData?.id
+        const query = new URLSearchParams({ 
+            "card_ids":["acquiree_acquisitions"]
+        }).toString()
+        
+        const url = `https://api.crunchbase.com/api/v4/entities/organizations/${uuid}?${query}`
+        console.log(url)
+        
+        console.log(`Doing Crunchbase query`)
+        const response = await fetch(url,{
+            method: 'GET',
+            headers: {
+                'X-cb-user-key': `${process.env.CRUNCHBASE_KEY}`
+            }
+        });
+        
+        if( response.status !== 200){
+            console.log(`Error from crunchbase`)
+            console.log(response)
+            return {error: response}
+        }
+        const data = await response.json();
+        if( data ){
+            console.log(data)
+            if( data.cards?.acquiree_acquisitions){
+                const store = data.cards?.acquiree_acquisitions.map((d)=>{
+                    return {
+                        name: d.acquiree_identifier?.value,
+                        identifier: d.acquiree_identifier,
+                        announced_on: d.announced_on,
+                        short_description: d.short_description,
+                        acquiree_categories: d.acquiree_categories,
+                        acquisition_type: d.acquisition_type,
+                        acquiree_locations: d.acquiree_locations,
+                        acquiree_revenue_range: d.acquiree_revenue_range,
+                        acquiree_short_description: d.acquiree_short_description,
+                        price: d.price,
+                        status: d.status
+
+                    }
+                })
+                primitive.set("crunchbaseData.acquisitions", store)
+                primitive.markModified("crunchbaseData.acquisitions")
+
+
+                await primitive.save()
+                return store
+            }
+        }
+        return {error: "no data"}
     }catch(error){
         return {error: error}
     }

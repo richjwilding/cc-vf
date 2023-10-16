@@ -275,7 +275,7 @@ export function ComponentRow(props) {
           </div>
               {!compact && hypothesis_list.map((h)=>(
                 <div key={h.id} className="bg-white col-start-1 sticky z-10 left-0 px-4 py-1">
-                  <PrimitiveCard primitive={h} fields={["title","important"]} bigMargin={true} ringColor={color.base} compact={true}  onClick={props.selectPrimitive ? ()=>props.selectPrimitive(h, {unlink:(p)=>unlinkHypothesis(p)}) : undefined}/>
+                  <PrimitiveCard primitive={h} showState fields={["title","important"]} bigMargin={true} ringColor={color.base} compact={true}  onClick={props.selectPrimitive ? ()=>props.selectPrimitive(h, {unlink:(p)=>unlinkHypothesis(p)}) : undefined}/>
                 </div>
               ))
             }

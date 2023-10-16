@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
     header:{
         paddingHorizontal: 10,
         paddingVertical: 10,
-        minHeight:250,
+        minHeight:150,
         color:"white",
         display:"flex",
         flexDirection:"row"
@@ -102,6 +102,8 @@ const styles = StyleSheet.create({
         flexDirection:"row"
     },
     block:{
+        marginHorizontal: 5,
+        marginVertical: 5,
         paddingHorizontal: 5,
         paddingVertical: 5,
     },
@@ -118,7 +120,8 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight:400,
         fontFamily: "Handlee",
-        color: "#1f2937"
+        color: "#1f2937",
+        width:"42%"
     },  
     card:{
         display:"flex",
@@ -128,15 +131,23 @@ const styles = StyleSheet.create({
         paddingVertical: 6,
         border: "1px solid #d1d5db",
         borderRadius: 5,
-        fontSize: 12,
+        fontSize: 10,
         fontWeight:300,
-        color: "#1f2937"
+        color: "#1f2937",
+        width:"24%"
     },  
     sectionHeader:{
         marginBottom:5,
         fontSize: 10,
         fontWeight:400,
         color: "#1f2937"
+    },
+    twoColumn:{
+        display: 'flex',
+        flexWrap: 'wrap',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        width:"100%"
     }
   });
 
@@ -153,12 +164,12 @@ export function ReportPage({primitive, ...props}){
 
 
   const evidence = primitive.primitives.allEvidence
-  const responses =  filterHighlights(evidence.filter((d)=>d.referenceId === props.config.leftListCategory))
+  const responses =  filterHighlights(evidence.filter((d)=>d.referenceId === props.config.leftListCategory || d.referenceId === 31))
   const problems =  filterHighlights(evidence.filter((d)=>d.referenceId === props.config.rightListCategory))
   const quotes =  filterHighlights(evidence.filter((d)=>d.referenceId === props.config.leftCallout))
   const needs =  filterHighlights(evidence.filter((d)=>d.referenceId === 4))
     return (
-    <Page size={[1000/16*9, 1000]} orientation="landscape" style={styles.page}>
+    <Page size={ [612.0 * 1.5 , 792.0 * 1.5 ]} style={styles.page}>
         <View style={{...styles.header, backgroundColor: props.config.bgColor}}>
             <View style={styles.avatar}>
                {primitive.referenceParameters?.contact?.avatarUrl && <Image style={{width: 140, height:140,borderRadius: '50%', marginLeft:10, marginTop:10, objectFit: "contain", border:"7px solid white"}} source={primitive.referenceParameters?.contact?.avatarUrl}/>} 
@@ -186,36 +197,9 @@ export function ReportPage({primitive, ...props}){
                 </Text>
             </View>
         </View>
-        <View style={styles.base}>
-            <View style={{...styles.block, flex: 3}}>
-                <Text style={styles.sectionHeader}>{props.config.leftListText}</Text>
-                {responses.length > 0 && responses.map((d)=>(
-                    <>
-                        <Text style={styles.overview} >
-                            {d.title}
-                        </Text>
-                    </>
-                ))}
-                {quotes.length > 0 && quotes.map((d)=>(
-                        <View style={styles.quote} wrap={false}>
-                            <Svg style={{flexGrow:0, width:30,height:25}}>
-                                <G transform='scale(0.04) translate(20,20)'>
-                                    <Path fill='#4b5563' d="M0 216C0 149.7 53.7 96 120 96h8c17.7 0 32 14.3 32 32s-14.3 32-32 32h-8c-30.9 0-56 25.1-56 56v8h64c35.3 0 64 28.7 64 64v64c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V320 288 216zm256 0c0-66.3 53.7-120 120-120h8c17.7 0 32 14.3 32 32s-14.3 32-32 32h-8c-30.9 0-56 25.1-56 56v8h64c35.3 0 64 28.7 64 64v64c0 35.3-28.7 64-64 64H320c-35.3 0-64-28.7-64-64V320 288 216z"/>
-                                </G>
-                            </Svg>
-                            <Text style={{flex: 1}} >
-                                {d.title}
-                            </Text>
-                            <Svg style={{flexGrow:0, width:30,height:25,marginLeft:5,bottom:0}}>
-                            <G transform='scale(0.04) translate(20,20)'>
-                                <Path fill='#4b5563' d="M448 296c0 66.3-53.7 120-120 120h-8c-17.7 0-32-14.3-32-32s14.3-32 32-32h8c30.9 0 56-25.1 56-56v-8H320c-35.3 0-64-28.7-64-64V160c0-35.3 28.7-64 64-64h64c35.3 0 64 28.7 64 64v32 32 72zm-256 0c0 66.3-53.7 120-120 120H64c-17.7 0-32-14.3-32-32s14.3-32 32-32h8c30.9 0 56-25.1 56-56v-8H64c-35.3 0-64-28.7-64-64V160c0-35.3 28.7-64 64-64h64c35.3 0 64 28.7 64 64v32 32 72z"/>
-                            </G>
-                            </Svg>
-                        </View>
-                ))}
-            </View>
-            <View style={{...styles.block, flex: 2}}>
+            <View style={{...styles.block}}>
                 <Text style={styles.sectionHeader}>{props.config.rightListText}</Text>
+                <View style={styles.twoColumn}>
                 {problems.length > 0 && problems.map((d)=>(
                     <>
                         <View style={styles.card} wrap={false}>
@@ -230,8 +214,48 @@ export function ReportPage({primitive, ...props}){
                         </View>
                         </>
                 ))}
+                </View>
             </View>
-        </View>
+            <View style={{...styles.block}}>
+                <Text style={styles.sectionHeader}>{props.config.leftListText}</Text>
+                <View style={styles.twoColumn}>
+                {responses.length > 0 && responses.map((d)=>(
+                    <>
+                        <View style={styles.card} wrap={false}>
+                            <Svg style={{flexGrow:0, width:30,height:25}}>
+                                <G transform='scale(1)'>
+                                    <Path stroke='#374151' stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/>
+                                </G>
+                            </Svg>
+                            <Text style={{flex: 1}} >
+                                {d.title}
+                            </Text>
+                        </View>
+                        </>
+                ))}
+                </View>
+            </View>
+            <View style={{...styles.block}}>
+                <View style={styles.twoColumn}>
+                {quotes.length > 0 && quotes.map((d)=>(
+                        <View style={styles.quote} wrap={false}>
+                            <Svg style={{flexGrow:0, width:30,height:25}}>
+                                <G transform='scale(0.04) translate(20,20)'>
+                                <Path  d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/>
+                                </G>
+                            </Svg>
+                            <Text style={{flex: 1}} >
+                                {d.title}
+                            </Text>
+                            <Svg style={{flexGrow:0, width:30,height:25,marginLeft:5,bottom:0}}>
+                            <G transform='scale(0.04) translate(20,20)'>
+                                <Path fill='#4b5563' d="M448 296c0 66.3-53.7 120-120 120h-8c-17.7 0-32-14.3-32-32s14.3-32 32-32h8c30.9 0 56-25.1 56-56v-8H320c-35.3 0-64-28.7-64-64V160c0-35.3 28.7-64 64-64h64c35.3 0 64 28.7 64 64v32 32 72zm-256 0c0 66.3-53.7 120-120 120H64c-17.7 0-32-14.3-32-32s14.3-32 32-32h8c30.9 0 56-25.1 56-56v-8H64c-35.3 0-64-28.7-64-64V160c0-35.3 28.7-64 64-64h64c35.3 0 64 28.7 64 64v32 32 72z"/>
+                            </G>
+                            </Svg>
+                        </View>
+                ))}
+                </View>
+            </View>
     </Page>)
 
 }
@@ -241,7 +265,7 @@ export function ReportPage({primitive, ...props}){
 export default function ReportView({primitive, ...props}) {
     const config= {
         bgColor:primitive.reports?.bgColor || "#374151",
-    leftListText: primitive.reports?.leftListText || "OVERVIEW OF NEEDS",
+    leftListText: primitive.reports?.leftListText || "OBSERVATIONS",
     leftListCategory: primitive.reports?.leftListCategory || 4,
     rightListCategory: primitive.reports?.rightListCategory || 10,
     leftCallout: primitive.reports?.leftCallout || 52,

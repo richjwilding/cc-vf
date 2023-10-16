@@ -439,7 +439,7 @@ export default function ProximityView({primitive, target,...props}){
 
     return (
         <>
-        {showPicker && <PrimitivePicker list={primitive.primitives.allSegment[0].nestedItems} callback={(p)=>{setShowPicker(null);setDistanceIds(null);setFocus(p)}} setOpen={setShowPicker} />}
+        {showPicker && <PrimitivePicker list={primitive.nestedItems} callback={(p)=>{setShowPicker(null);setDistanceIds(null);setFocus(p)}} setOpen={setShowPicker} />}
         <div
             ref={targetRef}
             className="w-full h-full bg-white overflow-hidden touch-none relative "

@@ -2,7 +2,7 @@
             if(number === 0){
                 return "$0"
             }
-            const suffixes = ["", "K", "M","B"];
+            const suffixes = ["", "K", "M","B","T"];
             const suffixIndex = Math.floor(Math.log10(Math.abs(number)) / 3);
 
             const scaledNumber = number / Math.pow(10, suffixIndex * 3);

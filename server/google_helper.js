@@ -151,7 +151,7 @@ export async function buildDocumentEmbedding(id, req){
 
 }
 
-export async function getDocumentAsPlainText(id, req){
+export async function getDocumentAsPlainText(id, req, override_url){
 
     const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
     const bucketName = 'cc_vf_document_plaintext'
@@ -163,7 +163,7 @@ export async function getDocumentAsPlainText(id, req){
     let file = bucket.file(id)
 
     let notes = primitive.referenceParameters?.notes
-    let url = primitive.referenceParameters?.url
+    let url = override_url || primitive.referenceParameters?.url
     let fecthFromPdf = primitive.referenceParameters?.sourceType === "video"
     if(url?.slice(-3)==="pdf"){
         fecthFromPdf = true
@@ -191,6 +191,7 @@ export async function getDocumentAsPlainText(id, req){
                 const extResult = await fetch( url );
                 html = await extResult.text();
             }catch(error){
+                console.log(error)
                 console.log(`Error - couldnt fetch ${url} in getDocumentAsPlainText `)
                 return undefined
             }
@@ -598,6 +599,47 @@ export async function replicateURLtoStorage(url, id, bucketName){
 
 }
 
+
+export async function fetchLinksFromWebQuery(query, id, req){
+    console.log(`go`)
+    try{
+            const bUrl = `https://chrome.browserless.io/scrape?token=${process.env.BROWSERLESS_KEY}`
+            const response = await fetch(bUrl,{
+                method: 'POST',
+                headers: { 
+                    'Cache-Control': 'no-cache' ,
+                    'Content-Type': 'application/json' 
+                },
+                body:JSON.stringify({
+                    "url": `https://html.duckduckgo.com/html/?q=${query}`,
+                    "elements": [
+                    {
+                        "selector": ".result__body > .result__title",
+                    },
+                    {
+                        "selector": ".result__body > .result__extras > .result__extras__url > .result__url"
+                    }
+                    ]
+                })
+            })
+
+        const results = await response.json();
+        if( results && results.data?.[0]?.results){
+            return results.data[0].results.map((d, idx)=>{
+                return {
+                    title: d.text,
+                    url: "https://" + results.data?.[1]?.results?.[idx]?.text?.trim()
+                }
+            })
+        }
+        return []
+    }catch(error){
+        console.log(`Error in fetchLinksFromQebQuery`)
+        console.log(error)
+    }
+    return undefined
+}
+
 export async function extractTranscriptFromVideo(url, id, req){
     const isYoutube = url && url.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?([a-zA-Z0-9_-]+)/)
 
@@ -739,7 +781,7 @@ export async function grabUrlAsPdf(url, id, req){
             await createAndUploadPDF( text, file)
         }else{
 
-            const bUrl = `https://chrome.browserless.io/pdf?token=${process.env.BROWSERLESS_KEY}`
+            const bUrl = `https://chrome.browserless.io/pdf?token=${process.env.BROWSERLESS_KEY}&stealth`
             
             
             const response = await fetch(bUrl,{
@@ -875,4 +917,27 @@ export function locateQuote(oQuote, document){
     }
     return out
 
+}
+export async function buildEmbeddingsForPrimitives( list, field = "title", fill_missing = true ){
+    let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: field})
+    const missingIdx = list.map((d, idx)=>embeddings.find((e)=>e.foreignId === d.id) ? undefined : idx).filter((d)=>d  !== undefined)
+    console.log(`Have ${embeddings.length} embeddings - ${missingIdx.length} missing`)
+    if( fill_missing ){
+        console.log( `missingIdx = ${missingIdx.join(", ")}`)
+        for(const idx of missingIdx){
+            let thisItem = list[idx][field]
+            console.log(`Embeddings for ${idx} - ${list[idx].id} ${thisItem}`)
+            const response = await buildEmbeddings(thisItem)
+            if( response.success){
+                const dbUpdate = await Embedding.findOneAndUpdate({
+                    type: field,
+                    foreignId: list[idx].id
+                },{
+                    embeddings: response.embeddings
+                },{upsert: true, new: true})
+                embeddings.push( dbUpdate )
+            }
+        }
+    }
+    return embeddings
 }

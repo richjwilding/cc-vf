@@ -9,9 +9,9 @@ import Category from '../model/Category';
 import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
-import { getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
-import analyzeDocument from '../openai_helper';
-import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance} from '../SharedFunctions'
+import { buildEmbeddingsForPrimitives, getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
+import analyzeDocument, { buildEmbeddings } from '../openai_helper';
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
 import { SIO } from '../socket';
 import QueueAI from '../ai_queue';
@@ -652,6 +652,82 @@ router.get('/primitive/:id/action/:action', async function(req, res, next) {
     }catch(error){
         console.log(error)
         res.status(501).json({message: "Error", error: error})
+    }
+
+})
+router.get('/primitive/:id/queryPrimitives', async function(req, res, next) {
+    let data = req.body
+    const primitiveId = req.params.id
+    const limit = req.query.limit ?? 10
+    const value = req.query.value
+    const parentId = req.query.parent
+    const types = [req.query.types].flat().filter(d=>d)
+    const threshold = req.query.threshold
+
+    try{
+        let result = []
+        if( value && value.trim() > ""){
+
+            let list = []
+                const primitive = await Primitive.findOne({"_id": new ObjectId( primitiveId)})
+            const parent = parentId && await Primitive.findOne({"_id": new ObjectId(parentId)})
+            if( parent ){
+                list = await primitiveDescendents(parent, types)
+            }else{
+                if(primitive){
+                    list = await Primitive.find({
+                        $and:[
+                            {"workspaceId": primitive.workspaceId},
+                            {type: types.length === 0 ? {$ne: ""} : {$in: types}},
+                            { deleted: {$exists: false}}
+                        ]
+                    },"_id title parentPrimitives")
+                }            
+            }
+            const validOrigins = await Primitive.find({
+                $and:[
+                    {"workspaceId": primitive.workspaceId},
+                    {referenceId: {$in: [9,22]}},
+                    { deleted: {$exists: false}}
+                ]
+            },"_id title referenceId")
+            const validIds = validOrigins.map(d=>d.id)
+
+            console.log(`QUERY got ${list.length} items / ${validIds.length} origins`)
+            const e_list = []
+
+                for( const d of list){
+                    const oId = primitiveOrigin( d )
+                    if( validIds.includes( oId ) ){
+                        e_list.push( d )
+                    }
+                }
+            console.log(`Filterd to ${e_list.length} items`)
+            
+            const embedding = await buildEmbeddings( value)
+            if( embedding.success ){
+                console.log(`Got embedding`)
+                const e_embeddings = await buildEmbeddingsForPrimitives( e_list, "title", false )
+                
+                console.log(`Scoring`)
+                result = e_embeddings.map(d=>{
+                    return {
+                        id: d.foreignId,
+                        score: cosineSimilarity( embedding.embeddings, d.embeddings )
+                    }
+                }).sort((a,b)=>b.score-a.score).slice(0, limit)
+                console.log(`back`)
+                if( threshold ){
+                    result = result.filter(d=>d.score >= threshold)
+                }
+                
+            }
+        }
+
+        res.json({success: true, result: result.map(d=>d.id)})
+    }catch(error){
+        console.log(error)
+        res.status(501).json({message: error})
     }
 
 })

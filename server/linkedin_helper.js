@@ -3,6 +3,7 @@ import {createPrimitive, flattenPath, doPrimitiveAction} from './SharedFunctions
 import moment from 'moment';
 import { replicateURLtoStorage } from './google_helper';
 import { htmlToText } from "html-to-text";
+import Category from "./model/Category";
 var ObjectId = require('mongoose').Types.ObjectId;
 
 
@@ -160,6 +161,124 @@ export async function enrichCompanyFromLinkedIn(primitive, force = false){
         ]
 
         return result
+}
+export async function findPeopleFromLinkedIn( primitive, options, action ){
+    
+    const resultCategoryId = options.resultCategory || action.resultCategory
+    
+    const category = options.category || await Category.findOne({id: primitive.referenceId})
+    const resultSet =  options.resultSet || (category && category.resultCategories.find((d)=>d.resultCategoryId == resultCategoryId)?.id)
+    console.log(resultSet, category?.title)
+    
+    const lookup = async ( role )=>{
+        try{
+            
+            const query = new URLSearchParams({ 
+                company_name: primitive.title,
+                role: role,
+               // enrich_profile: "enrich"
+            }).toString()
+            const url = `https://nubela.co/proxycurl/api/find/company/role/?${query}`
+            
+            console.log(`Doing proxycurl query`)
+            const response = await fetch(url,{
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
+                },
+            });
+            
+            if( response.status !== 200){
+                console.log(`Error from proxycurl`)
+                console.log(response)
+                return {error: response}
+            }
+            const profileResult = await response.json();
+
+
+            if( profileResult && profileResult.linkedin_profile_url){
+                const query = new URLSearchParams({ 
+                    linkedin_profile_url: profileResult.linkedin_profile_url,
+                    use_cache: "if-recent"
+                // enrich_profile: "enrich"
+                }).toString()
+                const url = `https://nubela.co/proxycurl/api/v2/linkedin?${query}`
+                
+                console.log(`Doing 2nd proxycurl query - ${profileResult.linkedin_profile_url}`)
+                const response = await fetch(url,{
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
+                    },
+                });
+                
+                if( response.status !== 200){
+                    console.log(`Error from proxycurl`)
+                    console.log(response)
+                    return {error: response}
+                }
+                let data = {profile: (await response.json())};
+                
+                if( data && data.profile && !data.profile.occupation){
+                    console.log(`====> Empty occupation, refreshing`)
+                    const response = await fetch(url,{
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
+                        },
+                    });
+                    data = {profile: (await response.json())};
+                }
+                console.log(data)
+
+                if( data && data.profile ){
+
+                    const oldestDegree = data.profile.education?.filter(d=>d.degree_name).reverse()[0]
+
+                    const newData = {
+                        workspaceId: primitive.workspaceId,
+                        parent: primitive.id,
+                        paths: ['origin', `results.${resultSet}`],
+                        data:{
+                            type: "entity",
+                            referenceId: resultCategoryId,
+                            title: data.profile.full_name,
+                            referenceParameters:{
+                                role: data.profile.occupation,
+                                headline: data.profile.headline,
+                                summary: data.profile.summary,
+                                targetRole: role,
+                                profile_pic_url: data.profile.profile_pic_url,
+                                degree: oldestDegree?.degree_name,
+                                degree_end_year: oldestDegree?.ends_at?.year,
+                                profile: profileResult.linkedin_profile_url
+                            },
+                            linkedInData: data
+                        }
+                    }
+                    const newPrim = await createPrimitive( newData )
+                    /*if( newPrim ){
+                        if(data.profile.profile_pic_url){
+                            await replicateURLtoStorage( data.profile.profile_pic_url, newPrim.id, 'cc_vf_images' )
+                        }
+                    }*/
+                }
+            }
+        }catch(error){
+            console.log(`Error in findPeopleFromLinkedIn`)
+            console.log(error)
+            return {error: error}
+        }
+    }
+
+    if(primitive.title && category && resultSet){
+        for(const role of options.roles || action.roles || []){
+            console.log(`Looking up ${role} on ${primitive.title}`)
+            await lookup( role )
+        }
+    }
+
+    
 }
 export async function fetchCompanyProfileFromLinkedIn( primitive ){
     try{

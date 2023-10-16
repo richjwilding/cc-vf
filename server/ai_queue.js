@@ -153,39 +153,6 @@ async function defineAxis( primitive, action ){
         }
     }
     if( axis ){
-        const oldPrims = (await primitiveDescendents( primitive, "category")).map((d)=>d.id)
-        console.log(`Need to remove ${oldPrims.length} old categories`)
-
-        for(const id of oldPrims){
-            await removePrimitiveById( id )
-        }
-
-       /* for( const segment of list ){
-            const descriptionList = []
-            const nodes = [segment, await primitiveDescendents( segment, "segment")].flat()
-            for( const subseg of nodes ){
-                const leaves = await  primitivePrimitives(subseg, 'ref'  )
-                for( const leaf of leaves ){
-                    descriptionList.push( (leaf.referenceParameters?.description || leaf.title).replaceAll(/\n|\r/g,"") )
-                }
-            }
-            console.log(`for ${segment.id} got ${descriptionList.length}`)
-            const insights = await processPromptOnText( descriptionList.join('\n'), {
-                prompt: "Extract the 3 most significant problems referred to in the descriptions.  Do not create problems that are not mentioned in the descriptions and do not mention specific companies  or specific regions, countries or geographies", 
-                type: "list of company descriptions", 
-                output: `Provide the result as a json object  with an array called results. Each entry in the array must have a "problem" field containing the problem you identify . If there is are no problems then set the results field to an empty array`,
-                engine: 'gpt4',
-                extractNoun: "problem", 
-                debug: true, 
-                debug_content: true} )
-            console.log(insights.output)
-            
-            if( insights.success){
-                await dispatchControlUpdate(segment.id, `insights`, insights.output)
-            }
-        }*/
-
-
         for( const a of axis ){
             if( a.title && a.values && a.values.length ){
                 const newPrim = await createPrimitive({
@@ -304,404 +271,275 @@ async function rollup( primitive, target, action ){
         if( data.length !== list.length){
             console.log(`Mismatch on data vs list size`)
         }else{
-            let revert //=  target.clusters
-            if( !revert ){
-                let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: action.field})
-                console.log(`Have ${embeddings.length}`)
-                embeddings = embeddings.filter(d=>!redo.includes(d.foreignId))
-                console.log(`Noe ${embeddings.length} after checking for redo`)
+            let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: action.field})
+            console.log(`Have ${embeddings.length}`)
+            embeddings = embeddings.filter(d=>!redo.includes(d.foreignId))
+            console.log(`Noe ${embeddings.length} after checking for redo`)
 
-                const missingIdx = list.map((d, idx)=>embeddings.find((e)=>e.foreignId === d.id) ? undefined : idx).filter((d)=>d  !== undefined)
-                console.log( `missingIdx = ${missingIdx.join(", ")}`)
-                for(const idx of missingIdx){
-                    console.log(`Embeddings for ${idx} - ${list[idx].id}`)
-                    let thisItem = data[idx]
-                    if( Array.isArray(thisItem) ){
-                        thisItem = thisItem.join(", ")
-                    }
-                    const response = await buildEmbeddings(thisItem)
-                    if( response.success){
-                        const dbUpdate = await Embedding.findOneAndUpdate({
-                            type: action.field,
-                            foreignId: list[idx].id
-                        },{
-                            embeddings: response.embeddings
-                        },{upsert: true, new: true})
-                        embeddings.push( dbUpdate )
-                    }
+            const missingIdx = list.map((d, idx)=>embeddings.find((e)=>e.foreignId === d.id) ? undefined : idx).filter((d)=>d  !== undefined)
+            console.log( `missingIdx = ${missingIdx.join(", ")}`)
+            for(const idx of missingIdx){
+                console.log(`Embeddings for ${idx} - ${list[idx].id}`)
+                let thisItem = data[idx]
+                if( Array.isArray(thisItem) ){
+                    thisItem = thisItem.join(", ")
                 }
-                console.log(`fetched`)
-                const ids = list.map((d)=>d.id)
-                list = list.sort((a,b)=>a.id.localeCompare(b.id))
-                embeddings = embeddings.filter((d)=>ids.includes(d.foreignId))
-                embeddings = embeddings.sort((a,b)=>a.foreignId.localeCompare(b.foreignId))
-                const ensureOrder = list.map((d,idx)=>d.id === embeddings[idx].foreignId).reduce((o,a)=>o && a, true)
-                if( !ensureOrder ){
-                    throw new Error(`Items out of order`)
+                const response = await buildEmbeddings(thisItem)
+                if( response.success){
+                    const dbUpdate = await Embedding.findOneAndUpdate({
+                        type: action.field,
+                        foreignId: list[idx].id
+                    },{
+                        embeddings: response.embeddings
+                    },{upsert: true, new: true})
+                    embeddings.push( dbUpdate )
                 }
-                console.log(`build cache`)
-                const toProcess = embeddings.map((d)=>d.embeddings)
-/*
-                let epsilon
-                let clusterCount
-                let clusterSet
-                let iter = 200
-                let theta = 1.12
-                let maxClusterSize = toProcess.length * 0.35
+            }
+            console.log(`fetched`)
+            const ids = list.map((d)=>d.id)
+            list = list.sort((a,b)=>a.id.localeCompare(b.id))
+            embeddings = embeddings.filter((d)=>ids.includes(d.foreignId))
+            embeddings = embeddings.sort((a,b)=>a.foreignId.localeCompare(b.foreignId))
+            const ensureOrder = list.map((d,idx)=>d.id === embeddings[idx].foreignId).reduce((o,a)=>o && a, true)
+            if( !ensureOrder ){
+                throw new Error(`Items out of order`)
+            }
+            console.log(`build cache`)
+            const toProcess = embeddings.map((d)=>d.embeddings)
 
-                const targetClusters = toProcess.length > 1000 ? toProcess.length / 5 : toProcess.length > 200 ? toProcess.length / 3 : toProcess.length / 8
-               
-                
-                do{
-                    epsilon = epsilon ? epsilon * theta : 0.01
-                    clusterSet = DBSCAN({
-                        dataset: toProcess,
-                        epsilon: epsilon,
-                        //distanceFunction: euclideanDistance
-                        distanceFunction: (a,b)=>1-cosineSimilarity(a,b)
-                    });
-                    const thisCount = clusterSet.clusters?.length
-                    const counts = clusterSet.clusters.map((d)=>d.length)
-                    const maxCount = Math.max(...counts)
-                    console.log('clusters = ', thisCount, clusterSet.noise?.length, targetClusters, maxCount, epsilon)
-                    if( thisCount < (clusterCount * 0.75) || maxCount > maxClusterSize){
-                        console.log(`backup`)
-                        epsilon = epsilon / theta / theta
-                        iter = 1
+            console.log("START")
+            const levels = agglo(embeddings,
+                {
+                distance: (a,b)=>1 - cosineSimilarity(a.embeddings,b.embeddings)
+            })
+            console.log("Done")
+
+            const targetClusterSize = levels.length > 5000 ? (levels.length / 100) : levels.length > 1000 ? 10 : levels.length > 500 ? 8 : levels.length > 250 ? 4 : levels.length > 150 ? 3 : 2
+            let maxClusters 
+            let testSize = targetClusterSize
+            let levelDensity
+            let count
+            do{
+                levelDensity = levels.map(d=>d.clusters.filter(d=>d.length > testSize ).length)
+                count = levelDensity.filter(d=>d > 0 ).length
+                console.log(`- For test of ${testSize} got ${count}`)
+                testSize--
+            }while( testSize > 1 && count === 0)
+            maxClusters= levelDensity.reduce((a,c)=>a > c ? a : c, 0)
+            const maxIdx = levelDensity.findIndex(d=>d === maxClusters)
+            console.log( `found ${maxClusters} at ${maxIdx} / ${targetClusterSize}`)
+            
+
+            const slice = 5
+            const steps = (levels.length - maxIdx) / (slice - 1) 
+            const extract = new Array(slice - 1).fill(0).map((_,idx)=>Math.floor(idx  * steps) - 1 + maxIdx)
+            while(levels.length - extract[extract.length - 1] > 10 ){
+                const newItem = Math.floor(levels.length - ((levels.length - extract[extract.length - 1]) * 0.6))
+                console.log(newItem)
+                extract.push(newItem)
+            }
+            const totalLevels = extract.length
+            console.log(extract)
+            extract.push(levels.length - 1)
+            const nodes = []
+            let nId = 0
+
+            extract.forEach((idx, layer)=>{
+                const temp = levels[idx].clusters.filter(d=>d.length > 1)
+                const set = temp.map(d=>d.map(d=>d.foreignId))
+                for( const primIds of set){
+                    const node ={
+                        id: nId,
+                        layer: layer,
+                        primIds: [...primIds],
+                        shortList: [...primIds]
                     }
-                    clusterCount = thisCount 
-                }while( clusterCount < targetClusters && (iter--) > 0 )
-                
-
-                const newSet = [...clusterSet.clusters,...clusterSet.noise.map((d)=>[d])]
-                const newProcess = newSet.map((set)=>calculateCentroid(set.map((d)=>toProcess[d])))
-
-
-                const tree = agnes(newProcess, {
-                    method: 'ward2',
-                    distanceFunction: (a,b)=>1-cosineSimilarity(a,b)
-                });
-                const nodes = []
-                const flattenTree = (node, id = 0)=>{
-                    node.id = id
-                    nodes.push(node)
-                    if( node.isLeaf ){
-                        //node.primitiveId = list[node.index].id
-                        const set = newSet[node.index]
-                        const pIds = set.map((d)=>list[d].id).flat()
-                        node.primitiveIds = pIds
-                        node.primitives = set.map((d)=>list[d]).flat()
+                    if(layer === 0 ){
+                        nodes.push( node )
+                        nId++
                     }else{
-                        for(const c of node.children){
-                            flattenTree(c, id + 1)
-                        }
-                    }
-                }
-                flattenTree(tree)
-                console.log(tree)
-
-                console.log(`Got ${nodes.length}`)
-
-                const targetLevels = 3
-                const topHeight = tree.height
-                const steps = topHeight / (targetLevels)
-                const cuts = new Array(targetLevels - 1).fill(0).map((_,idx)=>topHeight - ((idx+1)*steps))
-                console.log(cuts)
-                let nodeIdx = 0
-                const root = {id: 0}
-                const clusters = [root]
-
-                const rebuildSection = ( node, parent, thresholdIdx)=>{
-                    if(node.height > cuts[thresholdIdx]){
-                        if( node.children ){
-                            for(const child of node.children){
-                                rebuildSection(child, parent, thresholdIdx)
-                            }
-                        }
-                    }else{
-                        parent.children = parent.children || []
-                        if( thresholdIdx === (targetLevels - 1)){
-                            const rollupPrimitives = (d)=>{
-                                const nested = (d.children ? d.children.map(d=>rollupPrimitives(d)) : []).flat()
-                                if( d.primitives ){
-                                    return [...d.primitives, ...nested]
+                        const overlaps = nodes.filter(d=>(d.layer === layer - 1) && (d.primIds.filter(d=>primIds.includes(d)).length >0 ))
+                        let addNode = true
+                        if( overlaps.length > 0 ){
+                            for(const findLast of overlaps){
+                                //console.log(`Found in ${findLast.id}`)
+                                if(findLast.primIds.length === primIds.length ){
+                                    //  console.log(`-- no chnages`)
+                                    findLast.layer = layer
+                                    addNode = false
+                                }else{
+                                    node.children = node.children || []
+                                    findLast.parent = node
+                                    node.children.push( findLast )
+                                    node.shortList = node.shortList.filter(d=>!findLast.primIds.includes(d))
                                 }
-                                return nested
                             }
-                            parent.primitives = (parent.primitives || []).concat(rollupPrimitives( node ))
+                            if( addNode ){
+                                if( node.children && node.children.length === 1 && node.shortList.length > 0 && node.shortList.length < 3){
+                                    const child = node.children[0]
+                                    child.layer = layer
+                                    child.parent = undefined
+                                    child.primIds = node.primIds
+                                    child.shortList = child.shortList.concat( node.shortList ).filter((d,i,a)=>a.indexOf(d)===i)
+                                }else{
+                                    nodes.push( node )
+                                    nId++
+                                }
+                            }
                         }else{
-
-                            nodeIdx++
-                            const newNode = {id: nodeIdx, primitives: node.primitives || []}
-                            parent.children.push( newNode )
-                            clusters.push(newNode)
-                            for(const child of node.children){
-                                rebuildSection(child, newNode, thresholdIdx + 1)
-                            }
-                        }
-                    }
-                }
-                rebuildSection(tree, root, 0)
-
-
-
-                
-                console.log(`Now ${clusters.length}`)
-                console.log(`Prims ${clusters.map(d=>d.primitives?.length ?? 0).reduce((a,c)=>a+c)}`)
-               */
-
-                console.log("START")
-                const levels = agglo(embeddings,
-                    {
-                    distance: (a,b)=>1 - cosineSimilarity(a.embeddings,b.embeddings)
-                })
-                console.log("Done")
-
-                const targetClusterSize = levels.length > 5000 ? (levels.length / 100) : levels.length > 1000 ? 10 : levels.length > 500 ? 8 : levels.length > 250 ? 4 : levels.length > 150 ? 3 : 2
-                let maxClusters 
-                let testSize = targetClusterSize
-                let levelDensity
-                let count
-                do{
-                    levelDensity = levels.map(d=>d.clusters.filter(d=>d.length > testSize ).length)
-                    count = levelDensity.filter(d=>d > 0 ).length
-                    console.log(`- For test of ${testSize} got ${count}`)
-                    testSize--
-                }while( testSize > 1 && count === 0)
-                maxClusters= levelDensity.reduce((a,c)=>a > c ? a : c, 0)
-                const maxIdx = levelDensity.findIndex(d=>d === maxClusters)
-                console.log( `found ${maxClusters} at ${maxIdx} / ${targetClusterSize}`)
-                
-
-                const slice = 5
-                const steps = (levels.length - maxIdx) / (slice - 1) 
-                const extract = new Array(slice - 1).fill(0).map((_,idx)=>Math.floor(idx  * steps) - 1 + maxIdx)
-                while(levels.length - extract[extract.length - 1] > 10 ){
-                    const newItem = Math.floor(levels.length - ((levels.length - extract[extract.length - 1]) * 0.6))
-                    console.log(newItem)
-                    extract.push(newItem)
-                }
-                const totalLevels = extract.length
-                console.log(extract)
-                extract.push(levels.length - 1)
-                const nodes = []
-                let nId = 0
-
-                extract.forEach((idx, layer)=>{
-                    const temp = levels[idx].clusters.filter(d=>d.length > 1)
-                    const set = temp.map(d=>d.map(d=>d.foreignId))
-                    for( const primIds of set){
-                        const node ={
-                            id: nId,
-                            layer: layer,
-                            primIds: [...primIds],
-                            shortList: [...primIds]
-                        }
-                        if(layer === 0 ){
                             nodes.push( node )
                             nId++
-                        }else{
-                            const overlaps = nodes.filter(d=>(d.layer === layer - 1) && (d.primIds.filter(d=>primIds.includes(d)).length >0 ))
-                            let addNode = true
-                            if( overlaps.length > 0 ){
-                                for(const findLast of overlaps){
-                                    //console.log(`Found in ${findLast.id}`)
-                                    if(findLast.primIds.length === primIds.length ){
-                                      //  console.log(`-- no chnages`)
-                                        findLast.layer = layer
-                                        addNode = false
-                                    }else{
-                                        node.children = node.children || []
-                                        findLast.parent = node
-                                        node.children.push( findLast )
-                                        node.shortList = node.shortList.filter(d=>!findLast.primIds.includes(d))
-                                    }
+                        }
+                    }
+                }
+            })
+            let clusters = nodes.reverse()
+            if( clusters[0].shortList?.length > 0 ){
+                const newNode = {
+                    layer: clusters[0].layer - 1,
+                    parent: clusters[0],
+                    shortList: clusters[0].shortList
+                }
+                clusters[0].shortList = []
+                clusters[0].children = clusters[0].children || [] 
+                clusters[0].children.push(newNode)
+                clusters.push(newNode)
+            }
+
+            let changed = false
+            const primCount = clusters.map(d=>d.shortList.length).flat(2).reduce((a,c)=>a+c)
+            console.log(`TOTAL PRIMS = ${primCount}`)
+            do{
+                changed = false
+                const targets = clusters.filter(d=>!d.cleared && d.layer < (totalLevels - 1) && (!d.children || d.children.length === 0) &&d.shortList && d.shortList.length > 0 && d.shortList.length < (testSize/2))
+                console.log(`Min size check - have ${targets.length}`)
+                for( const target of targets){
+                    if( !target.cleared && !target.parent.processed && target.parent.children){
+                        target.parent.processed = true
+                        //const subChildren = target.parent.children.map(d=>d.children ? d.children.length : 0).reduce((a,c)=>a+c,0)
+                        //if(subChildren === 0)
+                        {
+                            for(const child of target.parent.children){
+                                if( child.cleared ){
+                                    throw "ERROR"
                                 }
-                                if( addNode ){
-                                    if( node.children && node.children.length === 1 && node.shortList.length > 0 && node.shortList.length < 3){
-                                        const child = node.children[0]
-                                        child.layer = layer
-                                        child.parent = undefined
-                                        child.primIds = node.primIds
-                                        child.shortList = child.shortList.concat( node.shortList ).filter((d,i,a)=>a.indexOf(d)===i)
-                                    }else{
-                                        nodes.push( node )
-                                        nId++
-                                    }
-                                }
-                            }else{
-                                nodes.push( node )
-                                nId++
+                                target.parent.shortList = (target.parent.shortList || []).concat(child.shortList)
+                                target.parent.newChildren = (target.parent.newChildren || []).concat(child.children).filter(d=>d && !d?.cleared)
+                                target.parent.newChildren.forEach(child=>{
+                                    child.parent = target.parent
+                                    child.layer++
+                                })
+
+                                child.cleared = true
+                                console.log(`Extending ${target.parent.id} to ${target.parent.shortList.length}`)
+                                changed = true
                             }
+                            const thisCount = clusters.filter(d=>!d.cleared).map(d=>d.shortList.length).flat(2).reduce((a,c)=>a+c)
+                            if( thisCount !== primCount ){
+                                debugger
+                            }
+                            target.parent.children = target.parent.newChildren 
+                        }
+                    }
+                }
+            }while(changed)
+            clusters = clusters.filter(d=>!d.cleared)
+
+
+            for(const node of clusters ){
+                node.primitives = node.shortList.map(id=>list.find(d=>d.id === id))
+            }
+            console.log(extract)
+
+            for(let idx = 0; idx < extract.length; idx++){
+                console.log(`L${idx} => ${nodes.filter(d=>d.layer === idx).length} ${levels[extract[idx]].clusters.filter(d=>d.length>1).length}`)
+            }
+            console.log(`TOTAL PRIMS = ${clusters.map(d=>d.shortList.length).flat(2).reduce((a,c)=>a+c)}`)
+            
+            let segmentBase
+            if( target.type === "segment"  ){
+                segmentBase = target                
+                throw "NOT IMPLEMENTED - NEED TO WALK TO ROOT"
+            }else{
+                console.log(`Creating base segment with config`)
+                const parts = action.field.split('.')
+                const segmentTitle = parts.length === 1 ? parts : parts[parts.length - 1]
+                
+                segmentBase = await createPrimitive({
+                    workspaceId: target.workspaceId,
+                    parent: target.id,
+                    paths: ['origin'],
+                    data:{
+                        type: "segment",
+                        title: "Segmentation by " + segmentTitle,
+                        referenceId: action.resultCategory,
+                        referenceParameters:{
+                            field: action.field,
+                            resultCategory: action.resultCategory,
+                            ...action.aiConfig?.[action.field]
                         }
                     }
                 })
-                let clusters = nodes.reverse()
-                if( clusters[0].shortList?.length > 0 ){
-                    const newNode = {
-                        layer: clusters[0].layer - 1,
-                        parent: clusters[0],
-                        shortList: clusters[0].shortList
-                    }
-                    clusters[0].shortList = []
-                    clusters[0].children = clusters[0].children || [] 
-                    clusters[0].children.push(newNode)
-                    clusters.push(newNode)
-                }
 
-                let changed = false
-                const primCount = clusters.map(d=>d.shortList.length).flat(2).reduce((a,c)=>a+c)
-                console.log(`TOTAL PRIMS = ${primCount}`)
-                do{
-                    changed = false
-                    const targets = clusters.filter(d=>!d.cleared && d.layer < (totalLevels - 1) && (!d.children || d.children.length === 0) &&d.shortList && d.shortList.length > 0 && d.shortList.length < (testSize/2))
-                    console.log(`Min size check - have ${targets.length}`)
-                    for( const target of targets){
-                        if( !target.cleared && !target.parent.processed && target.parent.children){
-                            target.parent.processed = true
-                            //const subChildren = target.parent.children.map(d=>d.children ? d.children.length : 0).reduce((a,c)=>a+c,0)
-                            //if(subChildren === 0)
-                            {
-                                for(const child of target.parent.children){
-                                    if( child.cleared ){
-                                        throw "ERROR"
-                                    }
-                                    target.parent.shortList = (target.parent.shortList || []).concat(child.shortList)
-                                    target.parent.newChildren = (target.parent.newChildren || []).concat(child.children).filter(d=>d && !d?.cleared)
-                                    target.parent.newChildren.forEach(child=>{
-                                        child.parent = target.parent
-                                        child.layer++
-                                    })
-
-                                    child.cleared = true
-                                    console.log(`Extending ${target.parent.id} to ${target.parent.shortList.length}`)
-                                    changed = true
-                                }
-                                const thisCount = clusters.filter(d=>!d.cleared).map(d=>d.shortList.length).flat(2).reduce((a,c)=>a+c)
-                                if( thisCount !== primCount ){
-                                    debugger
-                                }
-                                target.parent.children = target.parent.newChildren 
-                            }
-                        }
-                    }
-                }while(changed)
-                clusters = clusters.filter(d=>!d.cleared)
-
-
-                for(const node of clusters ){
-                    node.primitives = node.shortList.map(id=>list.find(d=>d.id === id))
-                }
-                console.log(extract)
-
-                for(let idx = 0; idx < extract.length; idx++){
-                    console.log(`L${idx} => ${nodes.filter(d=>d.layer === idx).length} ${levels[extract[idx]].clusters.filter(d=>d.length>1).length}`)
-                }
-                console.log(`TOTAL PRIMS = ${clusters.map(d=>d.shortList.length).flat(2).reduce((a,c)=>a+c)}`)
+            }
+            if( segmentBase ){
                 
+                const summarized = await summarizeClusters( clusters, segmentBase )
                 
-          //      throw "STOP"
-
-
-/*
-                const dataset = embeddings.map((d)=>{ return {data:d.embeddings, opt: d.foreignId}})
-
-                // two distance measure functions are supported:
-                // 1) euclidean
-                // 2) geoDist (take inputs as lonlat points)
-                const distFunc = Clustering.distFunc.euclidean;
-
-                const clusters = []
-                const cluster = new Clustering(dataset, distFunc);
-                const treeNode = cluster.getTree();
-                const repack = (node,parent)=>{
-                    const newNode = {}
-                    clusters.push(newNode)
-                    const children = [
-                        node.left ? repack(node.left, newNode) : undefined,
-                        node.right ? repack(node.right, newNode) : undefined,
-                    ].filter(d=>d)
-                    let primIds = node.opt
-                    let childPrimitives = children.map(d=>d.primIds).flat().filter(d=>d)
-                    let primitives = node.opt.filter(d=>!childPrimitives.includes(d)).map(d=>list.find(d2=>d2.id === d))
-
-                    const hasChildren = node.children && node.children.length > 0
-                    newNode.primIds = primIds
-                    newNode.primitives = primitives
-                    newNode.children = children.length > 0 ? children : undefined
-                    newNode.parent = parent
-                    return newNode
-                }
-                repack(treeNode)
-                console.log( clusters )
-                */
-
-
-                //const clusters = await treeToCluster( tree, target )
-                //const clusters = nodes
-
-
-                let configTask = target.type === "segment" ? await findPrimitiveOriginParent( target, "view" ) : target
-                if( configTask !== target ){
-                    console.log(`USING CONFIG FROM ${configTask.plainId}`)
-
-                }
-
-                const summarized = await summarizeClusters( clusters, configTask )
-
-                //await dispatchControlUpdate(target.id, "clusters", summarized )
-                revert = summarized
-            }
-            // convert clusters to segment objects
-            const oldPrims = (await primitiveDescendents( target, "segment")).map((d)=>d.id)
-            console.log(`Need to remove ${oldPrims.length} old segments`)
-
-            for(const id of oldPrims){
-                console.log(`-- remove segment ${id}`)
-                await removePrimitiveById( id )
-            }
-
-            const convertList = async ( set, parent, root) => {
-                for( const node of set ){
-                    //const node = revert[nodeId]
-                    const newPrim = await createPrimitive({
-                        workspaceId: target.workspaceId,
-                        parent: parent.id,
-                        paths: ['origin'],
-                        data:{
-                            type: "segment",
-                            title: node.label ? node.label : node.summary,
-                            referenceId: action.resultCategory,
-                            referenceParameters:{
-                                root: root,
-                                short: node.short,
-                                description: node.summary,
+                const revert = summarized
+                
+                // convert clusters to segment objects
+               /* const oldPrims = (await primitiveDescendents( target, "segment")).map((d)=>d.id)
+                console.log(`Need to remove ${oldPrims.length} old segments`)
+                
+                for(const id of oldPrims){
+                    console.log(`-- remove segment ${id}`)
+                    await removePrimitiveById( id )
+                }*/
+                
+                const convertList = async ( set, parent, root) => {
+                    for( const node of set ){
+                        //const node = revert[nodeId]
+                        const newPrim = await createPrimitive({
+                            workspaceId: target.workspaceId,
+                            parent: parent.id,
+                            paths: ['origin'],
+                            data:{
+                                type: "segment",
+                                title: node.label ? node.label : node.summary,
+                                referenceId: action.resultCategory,
+                                referenceParameters:{
+                                    root: root,
+                                    short: node.short,
+                                    description: node.summary,
+                                }
+                            }
+                        })
+                        if( newPrim ){
+                            if( node.primitives ){
+                                for(const primId of node.primitives){
+                                    console.log(`adding ${primId.id}`)
+                                    await addRelationship(newPrim.id, primId.id, "ref")
+                                }
+                            }
+                            if( node.children ){
+                                await convertList( node.children, newPrim, root?.id || newPrim?.id )
                             }
                         }
-                    })
-                    if( newPrim ){
-                        if( node.primitives ){
-                            for(const primId of node.primitives){
-                                console.log(`adding ${primId.id}`)
-                                await addRelationship(newPrim.id, primId.id, "ref")
-                            }
-                        }
-                        if( node.children ){
-                            await convertList( node.children, newPrim, root?.id || newPrim?.id )
-                        }
+                        
                     }
-
                 }
-            }
-            console.log('Converting structure to segments')
-            if( target.type === "segment"){
-                await convertList( revert[0].children, target)
-                // remove old links
-                for(const oldPrim of list){
-                    await removeRelationship( target.id, oldPrim.id, 'ref')
+                console.log('Converting structure to segments')
+                if( target.type === "segment"){
+                    await convertList( revert[0].children, target)
+                    // remove old links
+                    for(const oldPrim of list){
+                        await removeRelationship( target.id, oldPrim.id, 'ref')
+                    }
+                }else{
+                    await convertList( revert[0].children, segmentBase)
+                    //await convertList( [revert[0]], target)
                 }
-            }else{
-                await convertList( [revert[0]], target)
             }
             console.log('Converstion complete')
         }
@@ -734,7 +572,7 @@ export default function QueueAI(){
         console.log( newJobCount + " jobs in queue (AI)")
     }
     instance.defineAxis = (primitive, action, req)=>{
-        if( primitive.type === "segment" || primitive.type === "activity"){
+        //if( primitive.type === "segment" || primitive.type === "activity"){
             const field = `processing.ai.define_axis`
             if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
@@ -742,7 +580,7 @@ export default function QueueAI(){
             }
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Analyzing for axis"})
             instance.add(`axis_${primitive.id}` , {id: primitive.id, action: action, mode: "define_axis", field: field})
-        }
+        //}
     }
     instance.rollUp = (primitive, target, action, req)=>{
             const field = `processing.ai.rollup`
@@ -824,18 +662,15 @@ export default function QueueAI(){
                     console.log(`Error in aiQueue.rollup `)
                     console.log(error)
                 }
-                console.log("a")
                 dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
-                console.log("b")
                 dispatchControlUpdate(job.data.targetId, job.data.field , null)
-                console.log("c")
             }
             if( job.data.mode === "mark_categories" || job.data.mode === "categorize" ){
                 try{
                     
                     const source = await Primitive.findOne({_id: job.data.targetId})
                     const [list, data] = await getDataForProcessing(primitive, job.data.action, source)
-
+                    
                     console.log(`got ${list.length} / ${data.length} from ${source.id} - ${source.title}`)
                     if( list !== undefined && data.length > 0){
                         if( job.data.mode === "categorize" ){
@@ -1063,9 +898,7 @@ export default function QueueAI(){
                                     categoryAlloc = await categorize(data, categoryList, {
                                         matchPrompt:primitive.referenceParameters?.matchPrompt, 
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
-                                        engine:  primitive.referenceParameters?.engine || action.engine,
-                                        debug: true,
-                                        debug_true
+                                        engine:  primitive.referenceParameters?.engine || action.engine
                                     })
                                 }
 

@@ -135,6 +135,31 @@ export function PrimitiveTable(props) {
                         })
                         
                     }
+                if( d.magic === "relationship"){
+                    return columnHelper.accessor(d.magic + d.resultId,
+                        {
+                            export: info =>{
+                                const primitive = info.row.original.primitive
+                                const items = primitive.primitives.results[d.resultId]?.allItems
+                                return items.map((d)=>`${d.metadata?.title ?? d.type} #${d.plainId} - ${d.title}`).join('<br>')
+                            }, 
+                            cell: info => {
+                                const primitive = info.row.original.primitive
+                                const items = primitive.primitives[d.relationship]?.allItems
+                                const list = items.map((d)=><PrimitiveCard textSize='xs' onClick={props.onClick ? (e)=>{e.stopPropagation(); props.onClick(e, d, primitive)} : undefined} primitive={d} compact={true} className={'mx-1 mb-2'} titleAtBase showLink/>)
+                                return <div className="flex flex-wrap w-full  place-items-start group">
+                                    {list}
+                                </div>
+                            },
+                            header: () => d.name || d.title,
+                            sortingFn: (a,b,idx)=>{
+                                        return (a.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "").localeCompare(b.original.primitive.addresses_components?.map((d)=>d.order).join("-") || "") || 0
+                                    },
+                            startSize: width,
+                            minSize: width
+                        })
+                        
+                    }
                 if( d.magic === "results"){
                     return columnHelper.accessor(d.magic + d.resultId,
                         {
@@ -220,7 +245,9 @@ export function PrimitiveTable(props) {
                 }else if(d.type === 'state'){
                     return columnHelper.accessor(d.field,
                         {
-                            cell: info => <PrimitiveCard.RenderItem compact={true} primitive={info.row.original.primitive} item={{type:'state', value: info.getValue() }}/>,
+                            cell: info => {
+                                return <PrimitiveCard.RenderItem compact={true} primitive={info.row.original.primitive} item={{type:'state', value: info.getValue() }}/>
+                            },
                             header: () => d.name || d.title,
                             sortingFn: (a,b)=>{
                                 console.log(a.getValue(d.field));

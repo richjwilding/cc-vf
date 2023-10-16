@@ -334,11 +334,6 @@ function SegmentGraph({primitive, ...props}){
                 ]
             })
 
-            if( false ){
-                const maxY = data.reduce((a,c)=>c[1] > a ? c[1] : a, 0)
-                data = data.map((d)=>[d[0], d[1] / maxY, d[2], d[3]])
-            }
-
             data = data.filter((d)=>d[1] > 100000)
             data = data.map((d)=>[d[0], d[1] ? Math.log10(d[1]) : null, d[2], d[3]])
             
@@ -419,7 +414,7 @@ function SegmentGraph({primitive, ...props}){
 
         }else{
 
-        let data = list.map((d)=>{
+            let data = list.map((d)=>{
     //        const group = projectData( d, props["y-axis"].sort)
             let stats, group
             if( props["x-axis"].delta ){
@@ -437,6 +432,8 @@ function SegmentGraph({primitive, ...props}){
             const x = [projectData( d, props["x-axis"], props.log, roundStats)].flat().reduce((o, c, i)=>{o['x'+ i] = c; return o}, {})
             const y = [projectData( d, props["y-axis"], props.log, roundStats)].flat().reduce((o, c, i)=>{o['y'+ i] = c; return o}, {})
             const z = [projectData( d, props["z-axis"], props.log, roundStats)].flat().reduce((o, c, i)=>{o['z'+ i] = c; return o}, {})
+
+
             return {
                 ...x,
                 ...y,
@@ -490,6 +487,7 @@ function SegmentGraph({primitive, ...props}){
                     } : false
                 }
             })
+
             return {
                 dataset: {
                     source: data,
@@ -502,6 +500,7 @@ function SegmentGraph({primitive, ...props}){
                 },
                 xAxis: {
                     type: props.log ? "log" : "value",
+                    max: (d)=>d.max * 1.1,
                     axisLabel: {
                         formatter: axisFormatter[props["x-axis"].formatter]
                     }
@@ -556,10 +555,10 @@ function SegmentGraph({primitive, ...props}){
         }
     }, [primitive, props["x-axis"],props["y-axis"], props["z-axis"], props.log])
 
-    const height =  (props.mode === "timeline" || props.mode === "xy")  ? "400px" : (100 + (list.length * 20)) + "px"
-    if(primitive.plainId === 30905){
-        console.log( items.length)
-    }
+
+    const height =  (props.mode === "timeline" || props.mode === "xy")  ? "400px" : (100 + (option?.dataset?.source?.length * 20)) + "px"
+    console.log(primitive.plainId, list.length, option.series?.data?.length)
+
 
     const clickCallback = (e)=>{
         console.log('click', e.event.offsetX, e.event.offsetY)
@@ -632,6 +631,7 @@ export default function SegmentCard({primitive, ...props}){
     const moreToShow = Math.max(0, nestedItems.length - itemLimit)
     const wide = !props.compact && props.showGrid && itemLimit > 10//0
     const columns = props.cardView ? Math.max(itemLimit ? 2 : 1, (1 + (Math.floor(Math.sqrt(itemLimit) / 3))))  : (wide ? 10 : 5)
+    console.log(primitive.plainId, props.cardView, props.card, columns)
 
     const mainContent = <>
             <p key='title' className={`${props.hideDetails ? "text-xl font-light mb-4" : props.cardView ? "text-xl font-semi m-2 mb-1" : "text-sm font-semi mb-2"} text-gray-800  `}>{primitive.title}</p>
@@ -653,9 +653,9 @@ export default function SegmentCard({primitive, ...props}){
                         />
                 ))}
             </div>}
-            {props.showGrid && itemLimit && <CardGrid 
+            {props.showGrid && (itemLimit !== undefined) && <CardGrid 
                 list={showAll ? nestedItems : nestedItems.slice(0,itemLimit)}
-                columns={props.card ? columns : undefined}
+                columns={props.cardView ? columns : undefined}
                 onCardClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); props.onInnerCardClick(e, p, primitive)} : undefined}
                 cardProps={
                     {
@@ -665,6 +665,7 @@ export default function SegmentCard({primitive, ...props}){
                     }
                 }
                 columnConfig={{xs:2, md: 3,"2xl": 4, "4xl":5}}
+                className='grow'
             />}
             {!props.hideMore && props.showGrid && !showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`+ ${moreToShow} items`} onClick={()=>setShowAll(true)}/>}
             {!props.hideMore && props.showGrid && showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`Show less`} onClick={()=>setShowAll(false)}/>}
@@ -704,6 +705,7 @@ export default function SegmentCard({primitive, ...props}){
             }}
             className={
                 ["relative py-3 pl-3 pr-4 group bg-white p-1 rounded-lg",
+                "flex flex-col",
                     props.overlay ? "@container" : "",
                     props.flatBorder ? '' : 'rounded-lg',
                     ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
@@ -735,11 +737,13 @@ export default function SegmentCard({primitive, ...props}){
                 <p style={{fontSize: "min(12cqh, 4cqw)"}} className="px-2 py-1 font-light text-gray-500">{primitive.title}</p>
 
             </div> }
-            {props.graph && <SegmentGraph 
+            {props.graph && <div className="grow">
+                <SegmentGraph 
                 primitive={primitive}
                 parentScale={props.scale}
                 items={nestedItems} {...props.details} 
-                />}
+                />
+            </div>}
             
             
             <p key='footer' className='text-xs text-gray-400'>#{primitive.plainId}</p>

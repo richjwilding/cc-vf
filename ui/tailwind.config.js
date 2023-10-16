@@ -9,10 +9,10 @@ module.exports = {
   safelist: [
     {pattern: /pattern-./},
     {pattern: /bg-./,
-    variants: ['hover','group-hover','active'],    
+    variants: ['hover','group-hover','active',,'focus'],    
     },
     {pattern: /text-./,
-      variants: ['hover','group-hover','active'],    
+      variants: ['hover','group-hover','active','focus'],    
     },
     {pattern: /ring-cc./,
       variants: ['hover','group-hover','active'],    

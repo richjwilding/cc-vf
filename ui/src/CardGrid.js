@@ -114,6 +114,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                         >
                         <PrimitiveCard 
                             key={p.id}
+                            fullId
                             compact={true} primitive={p} 
                             onClick={props.onCardClick ? (e,p)=>props.onCardClick(e,p) : undefined}
                             onInnerCardClick ={ props.onInnerCardClick !== undefined ? props.onInnerCardClick : props.onCardClick ? props.onCardClick : undefined}

@@ -86,6 +86,11 @@ const PrimitiveConfig = {
         }
     },
     stateInfo:{
+        "hypothesis":{
+            "open": {title: "Open", colorBase: "blue"},
+            "invalid": {title: "Invalidated", colorBase: "amber"},
+            "valid": {title: "Validated", colorBase: "cyan"},
+        },
         "activity":{
             "open": {title: "Not started", colorBase: "blue"},
             "active": {title: "Underway", colorBase: "amber"},

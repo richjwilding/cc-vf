@@ -5,7 +5,7 @@ import GoogleHelper from './GoogleHelper';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Panel from './Panel';
 import { useEffect, useState } from "react";
-import { ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, ListBulletIcon, RectangleGroupIcon, TableCellsIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftCircleIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, ListBulletIcon, RectangleGroupIcon, TableCellsIcon } from '@heroicons/react/24/outline';
 import PrimitiveExplorer from "./PrimitiveExplorer";
 import HierarchyView from "./HierarchyView";
 import { HeroIcon } from "./HeroIcon";
@@ -17,15 +17,17 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import PrimitivePicker from "./PrimitivePicker";
 import { PrimitiveCard } from "./PrimitiveCard";
 import { InputPopup } from './InputPopup';
+import ViewBase from "./ViewBase";
 
 const allViews = ["cards","cluster", "explore", "table","table_grid", "list", "proximity" ]
 const icons = {
-    "explore": <RectangleGroupIcon className="w-5 h-5"/>,
-    "cluster": <HeroIcon icon='Nest' className="w-5 h-5"/>,
-    "table": <TableCellsIcon className="w-5 h-5"/>,
-    "table_grid": <TableCellsIcon className="w-5 h-5"/>,
-    "list": <ListBulletIcon className="w-5 h-5"/>,
-    "cards": <HeroIcon icon='LargeGrid' className="w-5 h-5"/>,
+    "explore": <RectangleGroupIcon className="w-5 h-5 -mx-1"/>,
+    "cluster": <HeroIcon icon='Nest' className="w-5 h-5 -mx-1"/>,
+    "proximity": <HeroIcon icon='FABullseye' className="w-5 h-5 -mx-1"/>,
+    "table": <TableCellsIcon className="w-5 h-5 -mx-1"/>,
+    "table_grid": <TableCellsIcon className="w-5 h-5 -mx-1"/>,
+    "list": <ListBulletIcon className="w-5 h-5 -mx-1"/>,
+    "cards": <HeroIcon icon='LargeGrid' className="w-5 h-5 -mx-1"/>,
 }
 
 export default function CollectionViewer({primitive, category, ...props}){
@@ -34,6 +36,7 @@ export default function CollectionViewer({primitive, category, ...props}){
     const [page, setPage] = useState(0)
     const [showNew, setShowNew] = useState(false)
     const [showLink, setShowLink] = useState(false)
+    const [showViewerPick, setShowViewerPick] = useState(true)
     const [viewerPick, setViewerPick] = useState( props.viewSelf ? primitive : undefined )
     const [manualInputPrompt, setManualInputPrompt] = useState(false)
     const asViewer = category?.views?.options?.viewer || props.viewSelf
@@ -82,7 +85,15 @@ export default function CollectionViewer({primitive, category, ...props}){
     let allowed = (props.permittedViews || allViews).filter((d)=>active.includes(d) && (!props.excludeViews || !props.excludeViews.includes(d) ))
     
     
-    const pickDefault = ()=>{
+    const pickDefault = ( )=>{
+        if( asViewer ){
+            if( viewerPick ){
+                if( viewerPick.referenceParameters?.viewSelection ){
+                    console.log(`LOADING view`, viewerPick.referenceParameters?.viewSelection)
+                    return viewerPick.referenceParameters?.viewSelection
+                }
+            }
+        }
         const view = props.defaultWide ? viewCategory.views.options?.defaultWide : viewCategory.views.options?.default
         return view || allowed[0] || "cards"
     }
@@ -111,9 +122,19 @@ export default function CollectionViewer({primitive, category, ...props}){
     const [view, setView] = useState( pickDefault() )
 
     useEffect(()=>{
-        setView( pickDefault() )
         setViewerPick( list?.[0] )
     }, [primitive.id, category?.id, viewCategory?.id])
+
+    useEffect(()=>{
+        setView( pickDefault( ) )
+    }, [primitive.id, category?.id, viewerPick])
+
+    const pickView = (view)=>{
+        if( asViewer && viewerPick ){
+            viewerPick.setField('referenceParameters.viewSelection', view)
+        }
+        setView( view)
+    }
 
     useEffect(()=>{
         setPage(0)
@@ -270,16 +291,16 @@ export default function CollectionViewer({primitive, category, ...props}){
     const pages = Math.ceil( list.length / pageItems)
     const showPagination = ["table", "list", "cards"].includes(view) && pages > 1
 
-    const showBar = (showDescend || showPagination  || (allowed.length > 1 || props.closeButton)) && !["explore", "cluster"].includes(view)
+    const showBar = (showDescend || showPagination  || (allowed.length > 1 || props.closeButton)) //&& !["explore", "cluster"].includes(view)
     const buttons = <>
-                {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} action={props.closeButton}/> }
                 {allowed.length > 1 && viewCategory.views?.options && Object.keys(viewCategory.views.options).map((d)=>{
-                    return  allowed.includes(d) && viewCategory.views.options[d] ? <Panel.MenuButton title={icons[d] || d} onClick={()=>setView(d)}/> : undefined
+                    return  allowed.includes(d) && viewCategory.views.options[d] ? <Panel.MenuButton title={icons[d] || d}  onClick={()=>pickView(d)} className={view === d ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}/> : undefined
                 })}
                 {showDescend && <TooggleButton enabled={descend} setEnabled={setDescend} title={`Include nested ${category ? category.plurals : "items"}`}/>}
                 {showPagination && <Panel.MenuButton narrow icon={<ChevronLeftIcon className='w-4 h-4 '/>} className='!ml-auto mr-1' action={()=>setPage(page > 0 ? page - 1 : page)}/>}
                 {showPagination && <p className="bg-white border border-gray-300 flex place-items-center px-2 rounded-md shadow-sm text-gray-600 text-sm">{page + 1} / {pages}</p>}
                 {showPagination && <Panel.MenuButton narrow icon={<ChevronRightIcon className='w-4 h-4'/>} className='mr-1' action={()=>setPage(page < (pages - 1) ? page + 1 : pages - 1)}/>}
+                {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} className='!ml-auto' action={props.closeButton}/> }
             </>
 
             const previewFromList = (p)=>{
@@ -298,7 +319,7 @@ export default function CollectionViewer({primitive, category, ...props}){
     }
 
 
-    const buttonBar = showBar && <div className={`flex w-full p-2  space-x-2  ${props.defaultWide ? "bg-gray-50 sticky top-0 z-20 rounded-t-lg border-b border-gray-200" : ""}`}>
+    const buttonBar = showBar && <div className={`flex w-full p-2  space-x-2 w-full ${(props.defaultWide || asViewer) ? "bg-gray-50 sticky top-0 z-20 rounded-t-lg bg-gray-50 border-b border-gray-200 " : ""}`}>
                 {buttons}
             </div>
 
@@ -332,6 +353,8 @@ export default function CollectionViewer({primitive, category, ...props}){
                         </div>
                     </div>}
                 </div>
+            : asViewer
+            ? <ViewBase primitive={viewerPick} closeButton={props.closeButton} isExpanded={showViewerPick} setExpanded={setShowViewerPick}/>
             : <>
                 {view === "table" && 
                     <PrimitiveTable 
@@ -356,23 +379,6 @@ export default function CollectionViewer({primitive, category, ...props}){
                         wide={props.defaultWide}
                         onInnerCardClick ={props.onInnerShowInfo}
                         primitives={list} className='w-full min-h-[24em] bg-white'/> 
-                }
-                {view === "explore" &&
-                    <PrimitiveExplorer 
-                        primitive={asViewer ? (props.viewSelf ? primitive : viewerPick ) : primitive}
-                        //list={asViewer ? (props.viewSelf ? undefined : viewerPick?.primitives.allItems ) : list}
-                        list={asViewer ? undefined : list}
-                        category={
-                            asViewer 
-                            ? viewCategory
-                            : category?.id !== undefined ? category : undefined
-                        }
-                        fields={[cardConfig.fields, "top", "important","duplicate"].flat()}
-                        onClick ={props.onShowInfo}
-                        onInnerCardClick ={props.onInnerShowInfo}
-                        allowedCategoryIds={asViewer ? undefined : list.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} 
-                        buttons={buttons} 
-                    />
                 }
                 {view === "list" && <CardGrid 
                     key="card_list"
@@ -409,10 +415,25 @@ export default function CollectionViewer({primitive, category, ...props}){
                             : {"md":2, "xl":3, "2xl":4}
                     }
                     />}
-
+                {view === "explore" &&
+                    <PrimitiveExplorer 
+                        primitive={asViewer ? (props.viewSelf ? primitive : viewerPick ) : primitive}
+                        //list={asViewer ? (props.viewSelf ? undefined : viewerPick?.primitives.allItems ) : list}
+                        list={asViewer ? undefined : list}
+                        compare={category?.views?.options?.explore?.compare}
+                        category={
+                            asViewer 
+                            ? viewCategory
+                            : category?.id !== undefined ? category : undefined
+                        }
+                        fields={[cardConfig.fields, "top", "important","duplicate"].flat()}
+                        onClick ={props.onShowInfo}
+                        onInnerCardClick ={props.onInnerShowInfo}
+                        allowedCategoryIds={asViewer ? undefined : list.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} 
+                    />
+                }
                 {view === "cluster" && 
                     <HierarchyView 
-                        buttons={buttons} 
                         primitive={asViewer ? viewerPick : clusters[0]}
                 />}
                 {view === "proximity" && 
@@ -426,37 +447,39 @@ export default function CollectionViewer({primitive, category, ...props}){
      </>
 
     let mainContent 
-    if( props.viewSelf ){
+    /*if( props.viewSelf || (asViewer && !showViewerPick) ){
         mainContent = ()=><div 
                 className={`w-full min-h-[40vh] h-full bg-white rounded-md flex ${props.hidePanel ? "" : "max-h-[80vh]"}`}
             >
             <div className="w-full flex flex-col grow-0 max-h-[inherit]">
-                {buttonBar}
                 {viewerPick && content()}
             </div>
         </div>
-        /*mainContent = <div 
-                className={`w-full min-h-[40vh] h-full bg-white rounded-md grid ${props.hidePanel ? "" : "max-h-[80vh] flex"}`}
-            >
-            <div className="w-full flex flex-col grow-0 max-h-[inherit]">
-                {buttonBar}
-                {viewerPick && content}
-            </div>
-        </div>*/
 
-    }else if( asViewer ){
+    }else */
+    if( asViewer ){
+        const showPicker = (showViewerPick || props.viewSelf)
         mainContent = ()=><div 
               //  style={{gridTemplateColumns: "9rem calc(100% - 9rem)"}}
                 className={`w-full flex min-h-[40vh] h-full bg-white rounded-md  ${props.hidePanel ? "" : "max-h-[80vh]"}`}
             >
-            <div className="w-36 border-r overflow-y-scroll space-y-2 p-1 shrink-0 max-h-[inherit]">
-                {list.map((d)=><PrimitiveCard primitive={d} compact onClick={()=>setViewerPick(d)} showExpand onEnter={()=>mainstore.sidebarSelect(d)}/>)}
-            </div>
+            {showPicker &&
+                <div className={[
+                        props.defaultWide ? "w-48 p-2" : "w-36 p-1 ",
+                        "border-r shrink-0 max-h-[inherit] flex flex-col place-content-between"
+                    ].join(" ")}>
+                    <div className="overflow-y-scroll space-y-2 p-1">
+                        {list.map((d)=><PrimitiveCard primitive={d} compact onClick={()=>setViewerPick(d)} showExpand onEnter={()=>mainstore.sidebarSelect(d)} className={d === viewerPick ? "!bg-ccgreen-100 !border-ccgreen-200 !border" : "!border !border-gray-50"}/>)}
+                    </div>
+                    <div className='shrink-0 grow-0'>
+                        <Panel.MenuButton title="Create new" className='w-full'/>
+                    </div>
+                </div>
+            }
             <div 
-                style={{width: "calc(100% - 9rem)"}}
+                style={showPicker ? {width: `calc(100% - ${props.defaultWide ? "12" : "9"}rem)`} : {}}
                 className="w-full flex flex-col grow-0 max-h-[inherit]">
-                {buttonBar}
-                {viewerPick && content()}
+                {viewerPick && <div className='flex overflow-y-scroll flex-col h-full'>{content()}</div>}
             </div>
         </div>
     }else{

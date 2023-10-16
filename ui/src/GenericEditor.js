@@ -93,6 +93,15 @@ export default function GenericEditor({item, primitive,...props}) {
 
     }
 
+    const actions = [
+      {
+        key: "categorize", 
+        title: "Auto discover categories from data",
+        action: async ()=>await MainStore().doPrimitiveAction(props.target, "categorize", {source: primitive.id})
+      },
+      ...(props.actions || [])
+    ]
+
   return (
     <>
       <Popup width='max-w-xl' setOpen={handleClose} >
@@ -125,8 +134,8 @@ export default function GenericEditor({item, primitive,...props}) {
               </div>}
               <div className='w-full space-x-2 mt-2'>
                 <DropdownButton flat={true} items={items} title='Add item' className='shrink-0 grow-0 h-8' dropdownWidth='w-96' align='left'/>
-                {props.actions && <DropdownButton flat={true} items={
-                  props.actions.map((d)=>{
+                {actions && <DropdownButton flat={true} items={
+                  actions.map((d)=>{
                     return {
                       key: d.key,
                       title: d.title,

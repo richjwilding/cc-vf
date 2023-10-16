@@ -32,7 +32,7 @@ export function InputPopup(props){
                 {Object.keys(data).map((k)=>{
                     return <>
                     <p className="text-small text-gray-500">{data[k].title}</p>
-                    <PrimitiveCard.RenderItem editable local callback={(d)=>updateValue(k,d)} item={data[k]} primitive={props.primitive} ensurePresent types={data[k].primitiveTypes} referenceIds={data[k].referenceIds}/>
+                    <PrimitiveCard.RenderItem editable local allowNone={data[k].allowNone} callback={(d)=>updateValue(k,d)} item={data[k]} primitive={props.primitive} ensurePresent types={data[k].primitiveTypes} referenceIds={data[k].referenceIds}/>
                     </>
                 })}
                 </div>

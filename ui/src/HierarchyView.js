@@ -763,11 +763,11 @@ export default function HierarchyView({primitive, ...props}){
 
     return (
     <>
-        <div key='control' className='z-20 w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex rounded-t-lg bg-gray-50 border-b border-gray-200'>
+        {false && <div key='control' className='z-20 w-full p-2 sticky top-0 left-0 space-x-3 place-items-center flex rounded-t-lg bg-gray-50 border-b border-gray-200'>
                 {props.buttons}
                 {viewOptions?.length > 1 && <MyCombo items={viewOptions} selectedItem={viewOptions[viewItem] ? viewItem :  0} setSelectedItem={setViewItem}/>}
                 {data?.nodes && <p>{Object.keys(data.nodes)?.length} items</p>}
-        </div>
+        </div>}
         <div
             ref={targetRef}
             className="w-full h-full bg-white overflow-hidden touch-none relative flex grow-0"

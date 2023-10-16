@@ -385,6 +385,59 @@ export async function analyzeListAgainstItems( list, overview, options = {}){
 
     return {success: true, output: interim}
 }*/
+export async function buildRepresentativeItemssForHypothesisTest( hypothesis, options = {}){
+    const type = options.type || "problem statement"
+    
+    let opener = `Here is a hypothesis: `
+    let prompt =  `I have a large list of problem statements and user quotes from interviews which i can filter with embeddings.  You must produce a list of new statements i can use to find similar items from the list: 5 problem statements in the form "It stinks that..." which validate the hypothesis, 5 quotes from an interviewee which validate the hypothesis, 5 problem statements in the form "It stinks that..." which invalidate the hypothesis, and 5 quotes from an interviewee which invalidate the hypothesis. You must ignore any mention of a target entity in your response. Limit each item to 20 words`
+
+    let interim = await processInChunk( [hypothesis],
+            [
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                {"role": "user", "content": opener}],
+            [
+                {"role": "user", "content": prompt},
+                {"role": "user", "content": `Provide the result as a json object with an array called 'result' containing your responses as a single list of strings`}
+
+            ],
+            {field: "result", ...options})
+    if( Object.hasOwn(interim, "success")){
+        console.log(interim)
+        return interim
+    }
+
+    return {success: true, output: interim}
+}
+export async function analyzeEvidenceAgainstHypothesis( list, hypothesis, options = {}){
+    const type = options.type || "problem statement"
+    const scoreMap = {
+        "strongly": 4, 
+        "clearly": 3,
+        "somewhat": 2, 
+        "hardly": 1, 
+        "not at all": 0}
+    
+    let opener = `Here is a list of ${options.plural ? options.plural : `${type}s`}: `
+    let prompt =  options.prompt || `Assess the degree to which each ${type} speaks to the following hypothesis '${hypothesis}'.\n\n Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`
+
+    let interim = await processInChunk( list,
+            [
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                {"role": "user", "content": opener}],
+            [
+                {"role": "user", "content": prompt},
+                {"role": "user", "content": `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the ${type},${options.rationale ? options.rationale + ", " : ""}, a "s" field containing your assessment as a string, a boolean "validates" field indicating if the evidence validates or supports the hypothesis, and a boolean "invalidates" field indicating if the evidence contradicts or invalidates the hypothesis.`}
+
+            ],
+            {field: "result", ...options})
+    if( Object.hasOwn(interim, "success")){
+        console.log(interim)
+        return interim
+    }
+    interim = interim.map((d)=>{return {...d, s: scoreMap[d.s] ?? 0}})
+
+    return {success: true, output: interim}
+}
 export async function analyzeListAgainstTopics( list, topics, options = {}){
     const single = topics.split(",").length == 1 
     const type = options.type || "description"

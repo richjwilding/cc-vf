@@ -69,15 +69,8 @@ export function CategoryCardPill({primitive, ...props}){
 
 export default function CategoryCard({primitive, ...props}){
     useDataEvent("set_parameter set_field relationship_update", [primitive.id, primitive.primitives.uniqueAllIds].flat())
-    let aiSummary = props.aiProcessSummary
     const ring = !props.disableHover
     const [editPrompt, setEditPrompt] = useState(null)
-    if( !aiSummary ){
-        const source = (props.relatedTo || primitive)
-        if( source.analyzer ){
-            aiSummary = source.analyzer().aiProcessSummary()
-        }
-    }
     return (
         <>
         <div 
@@ -105,7 +98,7 @@ export default function CategoryCard({primitive, ...props}){
                             />
                     }
                     </div>}>
-            {!props.showDetails && 
+            { 
                 primitive.primitives.allCategory.length > 0 && 
                         <div className='py-2 flex flex-wrap'>
                             {primitive.primitives.allCategory.map((category)=>{
@@ -114,7 +107,7 @@ export default function CategoryCard({primitive, ...props}){
                             })}
                         </div>
             }
-            {props.showDetails && 
+            {false && props.showDetails && 
                 primitive.primitives.allCategory.length > 0 && 
                         <div className='py-2 flex flex-col grid' style={{gridTemplateColumns: '1fr 3fr'}}>
                             {primitive.primitives.allCategory.map((category)=>{
@@ -129,7 +122,7 @@ export default function CategoryCard({primitive, ...props}){
                                                 markOnProcess
                                                 small
                                                 primitive={category} 
-                                                process={async ()=>MainStore().doPrimitiveAction(category, "summarize", {source: category.task.id})}
+                                                process={async ()=>MainStore().doPrimitiveAction(category, "summarize", {source: category.origin.id})}
                                                 />
                                             </div>
                                             <Panel 
@@ -152,7 +145,8 @@ export default function CategoryCard({primitive, ...props}){
         </Panel>
         <p key='footer' className='text-xs text-gray-400'>#{primitive.plainId}</p>
         </div>
-        {editPrompt && <GenericEditor target={primitive.task} actions={primitive.task?.metadata?.actions ? primitive.task.metadata.actions.filter((d)=>d.key === "categorize") : undefined} set={(p)=>p.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>d.primitiveType === "category")} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
+        {false && editPrompt && <GenericEditor target={primitive.task} actions={primitive.task?.metadata?.actions ? primitive.task.metadata.actions.filter((d)=>d.key === "categorize") : undefined} set={(p)=>p.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>d.primitiveType === "category")} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
+        {editPrompt && <GenericEditor target={primitive.origin} set={(p)=>p.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>[32,53,55].includes(d.id))} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
         </>
     )
 }

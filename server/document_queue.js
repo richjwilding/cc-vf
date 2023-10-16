@@ -26,6 +26,7 @@ async function processQuestions( data ){
             questions = questions.filter((d)=>data.qIds.includes(d.id))
         }
         console.log(`Got ${questions.length} questions from for ${task.id}`)
+
         
         const groups = {}
         for(const question of questions){
@@ -52,6 +53,16 @@ async function processQuestions( data ){
                         out = category.empty
                     }else{
                         out = category.base.replace("${t}", prompt.title)
+                        out = out.replace("${pt}", primitive.title)
+                        if( out.indexOf("${ot}") > -1 ){
+                            const parent = await Primitive.findOne({_id: await primitiveOrigin(primitive) })
+                            out = out.replace("${ot}", parent.title)
+                        }
+                        if( out.indexOf("${oot}") > -1 ){
+                            const p = await Primitive.findOne({_id: await primitiveOrigin(primitive) })
+                            const parent = await Primitive.findOne({_id: await primitiveOrigin(p) })
+                            out = out.replace("${oot}", parent.title)
+                        }
                     }
                     if( out ){
                         out = out.replace("${n}", prompt.referenceParameters?.count || category.parameters?.count?.default) 

@@ -131,7 +131,7 @@ export function PrimitivePage({primitive, ...props}) {
 
 
     const hasQuestions = (task && task.metadata.sections?.questions) || (primitive && primitive.metadata.sections?.questions)
-    const hasCategories = (task && task.metadata.sections?.categories) || (primitive && primitive.metadata.sections?.categories)
+    const hasCategories = false //(task && task.metadata.sections?.categories) || (primitive && primitive.metadata.sections?.categories)
 
     useEffect(()=>{
       console.log(`re run effect ${primitive.id}`)
@@ -317,9 +317,9 @@ export function PrimitivePage({primitive, ...props}) {
                                     <Panel.MenuButton title='Table' action={()=>setShowWorkingPane("assessment_table")}/>
               }
 
-              {primitive.metadata?.resultCategories && primitive.metadata.resultCategories.map((category,idx)=>{
+              {primitive.metadata?.resultCategories && primitive.metadata.resultCategories.filter(d=>!d.hide).map((category,idx)=>{
                 const asViewer = PrimitiveConfig.pageview[primitive.type]?.viewer && idx === 0
-                return !(showWorkingPane instanceof Object && showWorkingPane.type === "result" && showWorkingPane.index === idx) ?
+                return !(showWorkingPane instanceof Object && showWorkingPane.type === "result" && showWorkingPane.index === category.id) ?
                   <CollectionViewer 
                     primitive={primitive} 
                     category={category} 
@@ -330,7 +330,7 @@ export function PrimitivePage({primitive, ...props}) {
                     onShowInfo={(e,p, s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
                     onInnerShowInfo={(e,p, s)=>{props.selectPrimitive(p,{scope: s || primitive})}}
                     setShowAIPopup={setShowAIPopup}
-                    onExpand={()=>setShowWorkingPane( {type: 'result', index: idx} )}
+                    onExpand={()=>setShowWorkingPane( {type: 'result', index: category.id })}
                     onPreview={setSelected ? (p, s)=>{setSelected(p,{scope: s || primitive})} : undefined}
                     onPreviewFromList={setSelected ? (e, p, list, idx)=>{setSelected({list: list, idx: idx},{scope: primitive})} : undefined}
                     onNavigate={(e, p) =>{e.preventDefault();navigate(`/item/${p.id}`)}}
@@ -565,7 +565,7 @@ export function PrimitivePage({primitive, ...props}) {
                     }
                     {hasDocumentViewer && (typeof(showWorkingPane) === 'boolean')  && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
                     {showWorkingPane === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
-                    {(showWorkingPane instanceof Object && showWorkingPane.type === "result" ) && primitive?.metadata?.resultCategories?.[showWorkingPane.index] && 
+                    {(showWorkingPane instanceof Object && showWorkingPane.type === "result" )  && 
                       <CollectionViewer 
                           closeButton={()=>setShowWorkingPane()}
                           hidePanel={true} 
@@ -581,7 +581,7 @@ export function PrimitivePage({primitive, ...props}) {
                           selected={selected}
                           viewSelf={PrimitiveConfig.pageview[primitive.type]?.viewer && showWorkingPane.index === 0}
                           hideCreate={PrimitiveConfig.pageview[primitive.type]?.viewer && showWorkingPane.index === 0}
-                          category={primitive?.metadata?.resultCategories?.[showWorkingPane.index]}/>
+                          category={primitive?.metadata?.resultCategories?.find(d=>d.id === showWorkingPane.index)}/>
                     }
                 </div>
               </div>

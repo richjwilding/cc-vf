@@ -784,6 +784,27 @@ function MainStore (prims){
             })
 
         },
+        queryPrimitives:async function (primitive, params){
+            let url = `/api/primitive/${primitive.id}/queryPrimitives`
+
+            if(params){
+                for(const k in params){
+                    if( params[k] === undefined){
+                        delete params[k]
+                    }
+                }
+                url += '?' + new URLSearchParams(params)
+            }
+
+            let out
+
+            const result = await fetch(url,{
+                method: "GET",
+            })
+            const response = await result.json()
+            return response
+
+        },
         doPrimitiveAction:async function (primitive, action, params){
             let url = `/api/primitive/${primitive.id}/action/${action}`
 
@@ -797,6 +818,7 @@ function MainStore (prims){
                 method: "GET",
             })
             const response = await result.json()
+            console.log(response)
             return this.ajaxResponseHandler(response)
 
         },
@@ -1402,6 +1424,9 @@ function MainStore (prims){
                                     node = node.fromPath(receiver.referenceParameters?.path)
                                 }
                                 let items = node.allItems
+                                if( receiver.referenceParameters?.descend ){
+                                    items = items.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
+                                }
                                 if( receiver.referenceParameters?.referenceId ){
                                     items = items.filter(d=>d.referenceId === receiver.referenceParameters.referenceId) 
                                 }
@@ -1409,20 +1434,18 @@ function MainStore (prims){
                                     items = items.filter(d=>d.referenceId === receiver.referenceParameters.type) 
                                 }
                                 list = list.concat(items)
+                                
                             }
-                            return list
+                            return uniquePrimitives(list)
                         }else{
                             return receiver.primitives.uniqueAllItems
                         }                        
                     }
-                    if( d.type === "view"){
-                        if( prop === "nestedItems"){
+                    if( prop === "nestedItems"){
+                        if( d.type === "view"){
                             return uniquePrimitives( receiver.primitives.allSegment.map(d=>d.nestedItems).flat() )
                         }
-
-                    }
-                    if( d.type === "segment"){
-                        if( prop === "nestedItems"){
+                        if( d.type === "segment"){
                             const segmentItems = (node)=>{
                                 return node.primitives.uniqueAllItems.map((d)=>{
                                     if( d.type === "segment" ){
@@ -1434,7 +1457,7 @@ function MainStore (prims){
                             } 
                             return segmentItems( receiver).filter((d)=>!d.referenceParameters?.duplicate)
                         }
-
+                        return []
                     }
                     if( d.type === "result"){
                         d.analyzer =  ()=>{
@@ -1489,6 +1512,9 @@ function MainStore (prims){
                             return origin.findParentPrimitives({type: ["experiment", "activity"]})[0]
                         }
                         return undefined
+                    }
+                    if( prop === "_parentPrimitives"){
+                        return d.parentPrimitives
                     }
                     if( prop === "parentPrimitives"){
                         //const old = obj.primitives().filter((t)=>t.primitives.includes(d.id)).map((d)=>d.plainId).sort()
@@ -1624,7 +1650,6 @@ function MainStore (prims){
                         let current = scatter( [receiver] )
                         
                         while( current.length > 0){
-                            console.log('d')
                             if( options.type === undefined ){
                                 found = [...found, ...current]
                             }else{

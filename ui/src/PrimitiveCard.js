@@ -24,7 +24,7 @@ import useDataEvent from './CustomHook';
 import ContactPicker from './ContactPicker';
 import QuestionCard from './QuestionCard';
 import CategoryCard, { CategoryCardPill } from './CategoryCard';
-import {  BuildingOffice2Icon,  ChevronRightIcon,  FlagIcon,  LinkIcon,  MagnifyingGlassCircleIcon,  TrashIcon } from '@heroicons/react/24/outline';
+import {  BuildingOffice2Icon,  ChevronRightIcon,  FlagIcon,  LinkIcon,  MagnifyingGlassCircleIcon,  PlusCircleIcon,  QuestionMarkCircleIcon,  SparklesIcon,  TrashIcon } from '@heroicons/react/24/outline';
 import { Bars3Icon } from '@heroicons/react/20/solid';
 import ConfirmationPopup from './ConfirmationPopup';
 import AIProcessButton from './AIProcessButton';
@@ -37,6 +37,7 @@ import { Grid } from  'react-loader-spinner'
 import PrimitiveConfig from './PrimitiveConfig';
 import MyCombo from './MyCombo';
 import { InputPopup } from './InputPopup';
+import TooggleButton from './ToggleButton';
 
 const ExpandArrow = function(props) {
   return (
@@ -52,8 +53,17 @@ let mainstore = MainStore()
   const RenderItem = ({item, ...props})=>{
     let icon = item.icon && typeof(item.icon) === "object" && item.icon.library === "fa" && <FontAwesomeIcon icon={item.icon.icon} className='mr-1 text-slate-500'/>
       if( item.type === "boolean"){
+        if( props.editable || props.editing){
+          return <TooggleButton enabled={item.value} setEnabled={(v)=>{
+            if(props.callback){
+              props.callback(v)
+            }else{
+              props.primitive.setParameter(item.key, v )
+            }
+          }}/>
+        }
         return (
-          <dd className="text-gray-500 font-medium">{item.value ? "Yes" : "No"}</dd>
+          <dd className="text-gray-500 font-medium self-center">{item.value ? "Yes" : "No"}</dd>
         )
 
       }else if( item.type === "primitive"){
@@ -81,42 +91,95 @@ let mainstore = MainStore()
         }
         return <div className='w-full flex'>{base}</div>
       }else if( item.type === "category_source"){
-        const task = props.primitive.task
-        if( !task?.metadata){
-          return <></>
-        }
-
-        const defaultConfig = task.metadata.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
-
         let list = []
 
-        const evidenceCategories = [task.metadata.evidenceCategories, task.primitives.descendants.filter((d)=>d.type === "evidence").map((d)=>d.referenceId)].flat().filter((c,idx,a)=>c && a.indexOf(c)===idx)
+        if( props.allowNone){
+                list.push({key: "none", title: "No items", categoryId: undefined, category: undefined})
+        }
 
-        evidenceCategories.forEach((d)=>{
-          const title = (props.excludeResultCategories ? "" : "Evidence: ") + mainstore.category(d).title
-          if( !props.ensurePresent || task.primitives.descendants.filter((d2)=>d2.referenceId === d).length > 0 ){
-            const cat = mainstore.category(d)
-            list.push({key: d, isEvidence: true, title: title, category: cat})
+        let defaultConfig
+        console.log(item)
+
+
+        if( item.scope ){
+          const origin = props.primitive.origin
+          if( origin ){
+            console.log(`SCOPE ==== ${item.scope}`)
+            console.log(origin)
+            let items
+
+            const unpackItems = (items, level)=>{
+                const types = items.map(d=>d.metadata).filter((d,i,a)=>a.findIndex(d2=>d.id === d2.id)===i)
+                for( const cat of types ){
+                  list.push({key: "items", target: "items", title: cat.title, categoryId: cat.id, category: cat, pivot: level > 0 ? level : undefined})
+                }                
+            }
+
+            for(const scope of item.scope){
+              let scopeName = scope instanceof Object ? scope.scope : scope
+
+              if(scopeName === "resultCategories"){
+                for( const cat of origin.metadata?.resultCategories ){
+                  list.push({key: `results.${cat.id}`, title: cat.title, categoryId: cat.resultCategoryId, category: cat})
+                }                
+              }else if(scopeName === "items"){
+                items = items || origin.itemsForProcessing
+                unpackItems( items )
+              }else if(scopeName === "parents"){
+                const type_filter = scope?.types
+                const walk = (items)=>{
+                  const parents = items.map(d=>d.parentPrimitives).flat()
+                  return mainstore.uniquePrimitives( type_filter ? parents.filter(d=>type_filter.includes(d.type)) : parents )
+                }
+                let parents = walk( items )
+                let level = 1
+                while( parents.length > 0){
+                  unpackItems( parents, level )
+                  parents = walk( parents )
+                  level++
+                }
+              }
+            }
           }
-        })
-        if(task?.metadata?.resultCategories){
-          task.metadata.resultCategories?.forEach((d)=>{
-            const cat = mainstore.category(d.resultCategoryId)
-            if( props.local ){
-              list.push({key: cat.id, title: cat.title, category: cat})
-              
-            }else{
-              list.push({key: `results.${d.id}`, title: d.title, categoryId: cat.id, category: cat})
+        }else{
+
+          const task = props.primitive.task
+          if( !task?.metadata){
+            return <></>
+          }
+          
+          defaultConfig = task.metadata.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
+          
+          
+          const evidenceCategories = [task.metadata.evidenceCategories, task.primitives.descendants.filter((d)=>d.type === "evidence").map((d)=>d.referenceId)].flat().filter((c,idx,a)=>c && a.indexOf(c)===idx)
+          
+          evidenceCategories.forEach((d)=>{
+            const title = (props.excludeResultCategories ? "" : "Evidence: ") + mainstore.category(d).title
+            if( !props.ensurePresent || task.primitives.descendants.filter((d2)=>d2.referenceId === d).length > 0 ){
+              const cat = mainstore.category(d)
+              list.push({key: d, isEvidence: true, target: "evidence", title: title, categoryId: cat.id, category: cat})
             }
           })
-          console.log(list)
+          if(task?.metadata?.resultCategories){
+            task.metadata.resultCategories?.forEach((d)=>{
+              const cat = mainstore.category(d.resultCategoryId)
+              if( props.local ){
+                list.push({key: cat.id, title: cat.title, category: cat})
+                
+              }else{
+                list.push({key: `results.${d.id}`, title: d.title, categoryId: cat.id, category: cat})
+              }
+            })
+          }
         }
-        console.log(props.types)
+          
+
         if( props.types ){
-          list = list.filter(d=>props.types.includes(d.category.primitiveType))
+          list = list.filter(d=>!d.category || props.types.includes(d.category.primitiveType))
         }
+        
         if( props.referenceIds ){
-          list = list.filter(d=>props.referenceIds.includes(d.category.id))
+          list = list.filter(d=>props.referenceIds.includes(d.category?.id))
         }
 
         const setSource = (idx)=>{
@@ -129,9 +192,10 @@ let mainstore = MainStore()
             props.callback(parseInt(source.key))
 
           }else{
-            if( source.isEvidence ){
-              props.primitive.setParameter("referenceId", source.key  )
-              props.primitive.setParameter(item.key, "evidence" )
+            if( source.target ){
+              props.primitive.setParameter("referenceId", source.categoryId  )
+              props.primitive.setParameter("pivot", source.pivot, false, true  )
+              props.primitive.setParameter(item.key, source.target )
             }else{
               props.primitive.setParameter(item.key, source.key )
             }
@@ -141,18 +205,24 @@ let mainstore = MainStore()
           }
         }
         let index 
-        if( props.local ){
-          index = list.findIndex((d)=>(d.key === item.value))
+        if( item.scope ){
+            index = list.findIndex((d)=>(d.target === item.value && props.primitive.referenceParameters.referenceId === d.categoryId))
         }else{
-          index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) ||(item.value === "evidence" && props.primitive.referenceParameters?.referenceId === undefined) || item.value === d.key) 
-          if( index == -1 ){
-            console.log(`here` , item.value)
-            index = list.findIndex((d)=>item.value !== "evidence" && d.categoryId === props.primitive?.referenceParameters?.referenceId)
-          }
-          if( index == -1 ){
-            index = list.findIndex((d)=>(defaultConfig.target === "evidence" && d.key === defaultConfig.referenceId) || defaultConfig.target === d.key) 
+
+          if( props.local ){
+            index = list.findIndex((d)=>(d.key === item.value))
+          }else{
+            index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) ||(item.value === "evidence" && props.primitive.referenceParameters?.referenceId === undefined) || item.value === d.key) 
+            if( index == -1 ){
+              console.log(`here` , item.value)
+              index = list.findIndex((d)=>item.value !== "evidence" && d.categoryId === props.primitive?.referenceParameters?.referenceId)
+            }
+            if( index == -1 && defaultConfig){
+              index = list.findIndex((d)=>(defaultConfig.target === "evidence" && d.key === defaultConfig.referenceId) || defaultConfig.target === d.key) 
+            }
           }
         }
+        console.log(list)
         console.log(item)
 
         return <MyCombo 
@@ -210,20 +280,17 @@ let mainstore = MainStore()
 
       }else if( item.type === "category_field"){
         const task = props.primitive.task
-        if( !task?.metadata){
-          return <></>
-        }
 
         const defaultConfig = task.metadata.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
         let sourceMeta
 
         let _target = props.primitive?.referenceParameters?.target ? props.primitive.referenceParameters.target : defaultConfig.target
-        let _refId =  (props.primitive?.referenceParameters?.target == "evidence" ? props.primitive.referenceParameters.referenceId : defaultConfig.referenceId) || defaultConfig.referenceId
+        let _refId =  props.primitive.referenceParameters.referenceId ?? defaultConfig.referenceId
 
-        if(_target === "evidence"){
+        if(_target === "evidence" || _target === "items"){
           sourceMeta =  mainstore.category(_refId) 
         }
-        else if( _target.slice(0,7) === "results"){
+        else if(task && _target.slice(0,7) === "results"){
           sourceMeta = mainstore.category(task.metadata?.resultCategories[_target.slice(8)].resultCategoryId)
         }
 
@@ -241,12 +308,16 @@ let mainstore = MainStore()
 
         let index = list.findIndex((d)=>item.value === d.key)
         if( index === -1 ){
-          index = list.findIndex((d)=>defaultConfig.field === d.key)
+         // index = list.findIndex((d)=>defaultConfig.field === d.key)
         }
 
         const setField = (idx=>{
           const field = list[idx]
-          props.primitive.setParameter(item.key, field.key)
+          if( props.callback ){
+            props.callback(field.key)
+          }else{
+            props.primitive.setParameter(item.key, field.key, undefined , true)
+          }
         })
 
         return <MyCombo 
@@ -556,6 +627,17 @@ const EvidenceHypothesisRelationship = function({primitive, ...props}){
 
   let relationships =  [
       {
+          key: "candidate",
+          title: "Candidate",
+          icon: "QuestionMarkCircleIcon",
+          bgColor: 'blue-100',
+          textColor: 'blue-600',
+          items: h.filter((d)=>{
+            const res = primitive.parentRelationship(d)
+            return res.includes("candidate")
+          })
+      },
+      {
           key: "negative",
           title: "Negative",
           icon: "HandThumbDownIcon",
@@ -574,14 +656,14 @@ const EvidenceHypothesisRelationship = function({primitive, ...props}){
           textColor: 'green-500',
           items: h.filter((d)=>{
             const res = primitive.parentRelationship(d)
-            return !res.includes("negative")
+            return res.includes("positive")
           })
       }
   ]
 
   const updateRelationship = (item, set)=>{
     let to
-    let current = primitive.parentPaths(item.id).find((d)=>["positive","negative"].includes(d.split(".").pop()))
+    let current = primitive.parentPaths(item.id).find((d)=>["candidate","positive","negative"].includes(d.split(".").pop()))
     if( current){
       const root = current.split(".")
       root.pop()
@@ -1076,8 +1158,6 @@ const Categories = function({primitive, ...props}){
   let aiProcessSummary
   let analyzer
 
-  const resultTypes = primitive.metadata?.resultCategories?.map((d)=>d.resultCategoryId) || []
-
   const createCategory = async (referenceId)=>{
     const newPrim = await MainStore().createPrimitive({type: 'category', parent: primitive, categoryId: referenceId})
   }
@@ -1085,7 +1165,10 @@ const Categories = function({primitive, ...props}){
   let button
   const baseCategories = [53,55]
 
-  let createButtons = [{title:"Create new", small:true, action: ()=>createCategory()}]
+  let createButtons = [
+                          {title:"Create new", small:true, action: ()=>createCategory()},
+                          {title:"As Axis", small:true, action: ()=>MainStore().doPrimitiveAction(primitive, "define_axis")}
+                      ]
   for(const d of baseCategories){
     const category = mainstore.category(d)
     if( category){
@@ -1094,33 +1177,15 @@ const Categories = function({primitive, ...props}){
     }
   }
 
-
-
-  const getAiProcessSummary = ()=>{
-    if( !aiProcessSummary){
-      console.log(`BUILDIN ${primitive.plainId}`)
-      if(props.relatedTo ){
-        if(props.relatedTo.analyzer){
-          analyzer = props.relatedTo.analyzer()
-          if(analyzer.aiProcessSummary){
-            aiProcessSummary = analyzer.aiProcessSummary() 
-          }
-        }
-      }
-    }
-    return aiProcessSummary
-
-  }
-
-  let list = primitive.primitives.allUniqueCategory
+  let list = props.directOnly ? primitive.primitives.origin.allUniqueCategory : primitive.primitives.allUniqueCategory
   if( !props.includeResult ){
     if( primitive.metadata?.resultCategories ){
       const excludeIds = primitive.primitives.results.uniqueAllIds
       list = list.filter((d)=>!excludeIds.includes(d.id))
     }
   }
-  return (
-    <Panel key='analysis' title={(<>Categories{button}</>)} collapsable={true} open={props.panelOpen !== undefined ? props.panelOpen : list && list.length > 0 } titleButton={createButtons} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
+
+  const content = <>
       <dd className="mt-1 text-sm text-gray-900">
         <ul role="list" className="divide-y divide-gray-200 rounded-md border border-gray-200 space-y-2">
           {(list === undefined || list.length === 0) && 
@@ -1134,11 +1199,23 @@ const Categories = function({primitive, ...props}){
             </button>
             </div>
           }
-          {list.map((primitive, idx) => <CategoryCard key={primitive.id} primitive={primitive} {...props} aiProcessSummary={getAiProcessSummary()} disableHover/>)}
+          {list.map((primitive, idx) => <CategoryCard key={primitive.id} primitive={primitive} {...props} disableHover/>)}
         </ul>
       </dd>
+  </>
+
+  return props.hidePanel 
+    ? 
+      <div class={props.className ?? 'w-full h-full relative'}>
+        {content}
+        <div className='absolute right-6 bottom-2'>
+          <DropdownButton flat noBorder icon={<PlusCircleIcon className='w-5 h-5'/>} items={createButtons} portal placement='right-end'/>
+        </div>
+      </div>
+    : <Panel key='analysis' title={(<>Categories{button}</>)} collapsable={true} open={props.panelOpen !== undefined ? props.panelOpen : list && list.length > 0 } titleButton={createButtons} titleClassName='w-full font-medium text-sm text-gray-500 pt-5 pb-2 flex place-items-center'>
+      {content}
     </Panel>
-  )
+  
 }
 
 const Questions = function({primitive, ...props}){
@@ -1157,6 +1234,7 @@ const Questions = function({primitive, ...props}){
     }
   }
   const resultTypes = primitive.metadata?.resultCategories?.map((d)=>d.resultCategoryId) || []
+  console.log(resultTypes)
   promptCategories = resultTypes.map((id)=>{
     return mainstore.category(id).promptCategories
   }).flat().filter((v,i,a)=>v && a.indexOf(v)==i)
@@ -1244,6 +1322,55 @@ const Entity=({primitive, ...props})=>{
       content = logoImg ? <VFImage className={`${props.compact ? "p-0.5" : "p-4"} min-w-[2rem] min-h-[2rem] w-full h-full object-contain m-auto`} src={`/api/image/${primitive.id}`} /> : <BuildingOffice2Icon className='text-gray-500 p-4'/>
        
       buttonSize = props.compact ? 5 : 16
+  }else if(props.fullCard){
+    const offerings = props.showOfferings && primitive.referenceParameters.offerings?.split(',').map(d=>d.trim().replace(/^and\s+/i, '')).map(d=>d.charAt(0).toUpperCase() + d.slice(1))
+    const customers = props.showCustomers && primitive.referenceParameters.customers?.split(',').map(d=>d.trim().replace(/^and\s+/i, '')).map(d=>d.charAt(0).toUpperCase() + d.slice(1))
+
+    let middle = [
+      offerings &&  <div className='flex flex-col w-full border p-2 rounded-md min-h-[8rem]'>
+        <p className='font-semibold text-xs'>Offerings</p>
+        {offerings.map(d=><p>{d}</p>)}
+      </div>,
+      customers && <div className='flex flex-col w-full border p-2 rounded-md min-h-[8rem]'>
+        <p className='font-semibold text-xs'>Target Customers</p>
+        {customers.map(d=><p>{d}</p>)}
+      </div>
+    ]
+    header = <>
+          {props.hideCover !== true && bgImg && (bgImg !== null) &&
+              <VFImage className="object-cover h-24 w-full rounded-t-lg" src={`/api/image/${primitive.id}-background`}/>
+          }
+          {props.hideCover !== true && (!bgImg || (bgImg === null)) &&
+              <div className="min-h-[4rem] w-full rounded-t-lg bg-gray-300"/>
+          }
+          {!props.hideTitle && <div className={`px-4 py-1 ${props.hideCover !== true ? "bg-gray-800/50 absolute top-0 left-0 text-white " : "text-gray-800"} rounded-t-lg w-full`}>
+              <p className='text-sm'>{primitive.displayType} #{primitive.plainId}</p>
+            </div>}
+           </>
+      content = <>
+        <div className='w-full px-4 pt-2 flex place-items-center'>
+          { logoImg && (logoImg !== null) &&
+            <VFImage className="w-8 h-8 object-contain my-auto" src={`/api/image/${primitive.id}`} />
+            }
+            <p className={`${props.fixedSize ? "line-clamp-2" : "py-2"} px-2 text-lg text-gray-700 font-semibold`}>{primitive.title}</p>
+          </div>
+          {props.hideDescription !== true && 
+            <div className='grow'>
+              <p className={`${props.fixedSize ? "line-clamp-4" : "py-2"} text-gray-500 px-4 text-sm `}>
+                {primitive.referenceParameters.description}
+            </p>
+          </div>
+          }
+          {middle && <div className='flex gap-2 font-light m-4 text-gray-600 text-sm'>{middle}</div>}
+          {primitive.referenceParameters?.url && 
+            <a 
+              target='_blank'
+              href={primitive.referenceParameters.url}
+              className='text-gray-300 hover:text-gray-600 px-4 py-2 mt-1 text-xs font-semibold flex'>
+              <LinkIcon className='h-4 pr-0.5'/><p className='truncate'>{props.urlShort ? "Link" : primitive.referenceParameters.url}</p>
+            </a>}
+        </>
+
   }else{
     header = <>
           {props.hideCover !== true && bgImg && (bgImg !== null) &&
@@ -1703,6 +1830,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
                   <p className='pl-2 border-l-4 text-gray-500 italic text-sm line-clamp-6'><strong>Original text:</strong> {primitive.quote || primitive.referenceParameters?.quote}</p>
               </div>
           }
+        {false && props.editState && <div className='w-full flex'><DropdownButton colorKey='colorBase' items={PrimitiveConfig.stateInfo[primitive.type]} setSelectedItem={(d)=>primitive.setField('state', Object.keys(PrimitiveConfig.stateInfo[primitive.type])[d] )} selected={primitive.state} portal small className='ml-auto'/></div>}
         {showDetails === true && <PrimitiveCard.Details primitive={primitive} editing={props.editing}/>}
         {showUsers === true && <PrimitiveCard.Users primitive={primitive}/>}
         {(showDetails === "panel" || showUsers === "panel") && <Panel title="More" collapsable={true} open={props.panelOpen}>

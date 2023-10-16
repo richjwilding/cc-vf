@@ -28,7 +28,7 @@ export async function fetchPostsFromSocialSeracher(primitive, options = {}){
         try{
             const query = new URLSearchParams({ 
                 "q": keywords,
-                "limit": 100,
+                "limit": 200,
                 "page": page,
                 "network": network,
               //  "type": link,
@@ -121,7 +121,8 @@ export async function fetchPostsFromSocialSeracher(primitive, options = {}){
     }
 
     //const sources = ["web", "reddit","youtube","dailymotion", "facebook", "instagram"]
-    const sources = ["web", "reddit","youtube","dailymotion"]
+    //const sources = ["web", "reddit","youtube","dailymotion"]
+    const sources = ["web", "youtube"]
 
     if( keywords ){
         console.log( keywords )

@@ -347,6 +347,10 @@ export default function PrimitiveParser(obj){
                             return receiver.allItems.filter((p)=>p.type === type)
                         }
                     }
+                    if(prop === "strictDescendants"){
+                        const ids = receiver._buildDescendantIds( {}, true, true )
+                        return ids.map((d)=>obj.primitive(d)).filter((d)=>d)
+                    }
                     if(prop === "descendants"){
                         return receiver.descendantIds.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
@@ -354,12 +358,12 @@ export default function PrimitiveParser(obj){
                         return receiver._buildDescendantIds( {}, true )
                     }
                     if(prop === "_buildDescendantIds"){
-                        return function(temp = {}, first = true){
-                            const childrenIds = receiver.uniqueAllIds
+                        return function(temp = {}, first = true, origin_only){
+                            const childrenIds = origin_only ? receiver.origin.uniqueAllIds : receiver.uniqueAllIds
                             childrenIds.forEach((id)=>{
                                 if( id && temp[id] === undefined){
                                     temp[id] = true
-                                    obj.primitive(id)?.primitives._buildDescendantIds( temp, false)
+                                    obj.primitive(id)?.primitives._buildDescendantIds( temp, false, origin_only)
                                 }
                             })
                             if( first ){
