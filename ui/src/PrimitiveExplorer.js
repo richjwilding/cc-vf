@@ -16,6 +16,7 @@ import { exportViewToPdf } from './ExportHelper';
 import DropdownButton from './DropdownButton';
 import { HeroIcon } from './HeroIcon';
 import { SearchPane } from './SearchPane';
+import { motion } from 'framer-motion';
 
 
 const mainstore = MainStore()
@@ -40,11 +41,11 @@ const mainstore = MainStore()
 export default function PrimitiveExplorer({primitive, ...props}){
 
     const [selectedCategoryIds, setSelectedCategoryIds] = React.useState( props.allowedCategoryIds )
-    const [layerSelection, setLayerSelection] = React.useState(0)//axisOptions.length > 1 ? 1 : 0)
+    const [layerSelection, setLayerSelection] = React.useState(primitive?.referenceParameters?.explore?.layer ?? 0)//axisOptions.length > 1 ? 1 : 0)
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [colSelection, setColSelection] = React.useState(0)
     const [rowSelection, setRowSelection] = React.useState(props.compare ? 1 : 0)//axisOptions.length > 1 ? 1 : 0)
-    const [activeView, setActiveView] = React.useState(0)
+    const [activeView, setActiveView] = React.useState(primitive?.referenceParameters?.explore?.view ?? 0)
     const layerNestPreventionList = React.useRef()
     const [hideNull, setHideNull]= React.useState(primitive?.referenceParameters?.explore?.hideNull)
     const [showCategoryPane, setshowCategoryPane] = React.useState(false)
@@ -52,6 +53,17 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const [importantOnly, setImportantOnly] = React.useState(true)
     const [colFilter, setColFilter] = React.useState(undefined)
     const [rowFilter, setRowFilter] = React.useState(undefined)
+
+
+    const updateExpand = (state, item)=>{
+        const current = state[item] ?? false
+        return {
+            ...state,
+            [item]: !current
+        }
+    }
+
+    const [expandState, setExpandState] = React.useReducer(updateExpand, {})
 
 
     function updateFilters(){
@@ -86,7 +98,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 list = primitive.itemsForProcessing
             }
         }
-        console.log(`pre - ${list.length}`)
         return list.filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true))
     },[primitive.id, update])
 
@@ -115,7 +126,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
             console.log(`HARD CODE HYPOTHESIS COMPARE ${primitive.plainId}`)
             return mainstore.primitives().filter(d=>d.type === "evidence" && d.origin?.type === "result")
         }
-        console.log(`REDO FOR ${primitive.plainId}`)
         let out = baseItems
         let keep = []
         if(layers){
@@ -157,6 +167,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
         const excluded = ['category', 'activity','task']
         out = out.filter(d=>!excluded.includes(d.type))
+        
+        setLayerSelection( primitive?.referenceParameters?.explore?.layer ?? 0 )
+        setHideNull( primitive?.referenceParameters?.explore?.hideNull )
+        setActiveView( primitive?.referenceParameters?.explore?.view  ?? 0)
 
         return [out,keep].flat()
     },[primitive.id, update, layerSelection])
@@ -203,10 +217,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
                 return []
             }
-            //list.filter(d=>d.type!=='category').forEach((p)=>{
             list.forEach((p)=>{
-                console.log(p)
-                //type = type || d.metadata.title
                 for(const d of topLevelCategory(p)){
                     if( !catIds[d.id] ){
                         catIds[d.id] = d
@@ -300,7 +311,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 
             }
         }
-        console.log(out)
         const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access)) === idx))
         const labelled = final.map((d,idx)=>{return {id:idx, ...d}})
 
@@ -465,7 +475,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 //const fontScale = Math.max(1 / 1600  *  gridRef.current.offsetWidth, 1 / 2000  *  gridRef.current.offsetHeight)
                 const fontScale = props.compare ? 1 : Math.max(1, gridRef.current.offsetWidth / 1600 )
                 const fontSize = 14 * fontScale
-                console.log(fontScale, gridRef.current)
                 
                 for(const node of gridRef.current.querySelectorAll('.vfbgtitle')){
                     node.style.fontSize = `${fontSize}px`
@@ -488,8 +497,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 setScale(scale)
             }, primitive.type === "segment" ? 150 : 150)
         }
+        
+    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds, /*update,*/ layerSelection, activeView, hideNull, importantOnly, Object.keys(expandState).join(",")])
 
-    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds, /*update,*/ layerSelection, activeView, hideNull, importantOnly])
 
     function rebuildPrimitivePosition(){
         myState.current.primitivePositions = rebuildPosition('.pcard')
@@ -818,7 +828,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             const thisScale = memo[4] * ms
 
             gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${thisScale})`
-            if(!props.compare){
+            if( myState.current.needsScaleState ){
                 setScale(thisScale)
             }
             myState.current.needRecalc = true
@@ -954,6 +964,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const viewConfig = viewConfigs?.[activeView]
     const renderProps = viewConfig?.props ?? defaultRenderProps[renderType ]
 
+    if( myState.current ){
+        myState.current.needsScaleState = renderProps?.scales
+    }
+
     useMemo(()=>{
 
         if(renderProps?.details?.sync){
@@ -976,6 +990,18 @@ export default function PrimitiveExplorer({primitive, ...props}){
         forceUpdate()
     }
 
+    const updateViewMode = (value)=>{
+        if( primitive.referenceParameters ){
+            primitive.setField(`referenceParameters.explore.view`, value)
+        }
+        setActiveView(value)
+    }
+    const updateLayer = (value)=>{
+        if( primitive.referenceParameters ){
+            primitive.setField(`referenceParameters.explore.layer`, value)
+        }
+        setLayerSelection( value )
+    }
     const updateHideNull = (value)=>{
         if( primitive.referenceParameters ){
             primitive.setField(`referenceParameters.explore.hideNull`, value)
@@ -1075,6 +1101,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
 
 
+
     const exploreView = 
     <>
         {props.allowedCategoryIds && props.allowedCategoryIds.length > 1 && 
@@ -1088,8 +1115,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     <div key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 top-32 p-1.5 flex flex-col place-items-start space-y-2'>
                         {!props.compare && axisOptions && <DropdownButton noBorder icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={axisOptions} flat placement='left-start' portal showTick selectedItemIdx={selectedColIdx} setSelectedItem={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && axisOptions && <DropdownButton noBorder icon={<HeroIcon icon='Rows' className='w-5 h-5'/>} items={axisOptions} flat placement='left-start' portal showTick selectedItemIdx={selectedRowIdx} setSelectedItem={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {!props.compare && layers && layers.length > 1 && <DropdownButton noBorder icon={<HeroIcon icon='Layers' className='w-5 h-5'/>} items={layers} flat placement='left-start' portal showTick selectedItemIdx={layers[layerSelection] ? layerSelection :  0} setSelectedItem={setLayerSelection} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${layerSelection > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {!props.compare && viewConfigs && <DropdownButton noBorder icon={<HeroIcon icon='Eye' className='w-5 h-5'/>} items={viewConfigs} flat placement='left-start' portal showTick selectedItemIdx={activeView} setSelectedItem={setActiveView} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${activeView > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {!props.compare && layers && layers.length > 1 && <DropdownButton noBorder icon={<HeroIcon icon='Layers' className='w-5 h-5'/>} items={layers} flat placement='left-start' portal showTick selectedItemIdx={layers[layerSelection] ? layerSelection :  0} setSelectedItem={updateLayer} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${layerSelection > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {!props.compare && viewConfigs && <DropdownButton noBorder icon={<HeroIcon icon='Eye' className='w-5 h-5'/>} items={viewConfigs} flat placement='left-start' portal showTick selectedItemIdx={activeView} setSelectedItem={updateViewMode} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${activeView > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && <DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>updateHideNull(!hideNull)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${hideNull ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {props.compare && <DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>updateImportantOnly(!importantOnly)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${importantOnly ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {props.compare && <DropdownButton noBorder title='CF' showTick hideArrow flat items={axisFilterOptions(axisOptions[colSelection], colFilter)} placement='left-start' setSelectedItem={(d)=>updateAxisFilter(d, axisOptions[colSelection], colFilter, setColFilter )} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${axisOptions[colSelection].exclude && axisOptions[colSelection].exclude.reduce((a,c)=>a||c,false) ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
@@ -1158,15 +1185,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                     subList = list.filter((item)=>item.column === (column?.idx ?? column) && item.row === (row?.idx ?? row))
                                 }
                                 let spanning = ""
-                                if( viewConfig?.config?.searchPane ){
-                                        subList = subList.sort((a,b)=>a.plainId - b.plainId)
-                                }else{
                                     if( viewAsSegments ){
                                         subList.forEach((d)=>d.nestedCount = layerNestPreventionList.current[d.primitive.id] ? d.primitive.primitives.ref.allItems.length : d.primitive.nestedItems.length )
                                         subList = subList.sort((a,b)=>b.nestedCount - a.nestedCount )
                                     }else{
                                         subList = subList.sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
                                     }
+                                if( viewConfig?.config?.searchPane ){
+                                    subList = subList.sort((a,b)=>a.plainId - b.plainId)
                                 }
                                 return <div 
                                         style={
@@ -1181,12 +1207,15 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                         gridAutoFlow: "dense",
                                                         gridTemplateColumns: `repeat(${Math.max(4, Math.floor(1.5 * Math.sqrt(columnColumns[cIdx])))}, 1fr )`
                                                     })
-                                                : {columns: columnOverride ?? Math.max(2, Math.floor(Math.sqrt(columnColumns[cIdx])))}
+                                                : {columns: columnOverride ?? Math.max(1, Math.floor(Math.sqrt(columnColumns[cIdx])))}
                                         } 
                                         id={`${cIdx}-${rIdx}`}                                        
                                         key={`${cIdx}-${rIdx}-${update}`}                                        
-                                        className={
-                                            `${dropOnGrid && (colOption?.allowMove || rowOption?.allowMove) ? "dropzone" : ""} ${rowOption.colors ? `bg-${rowOption.colors?.filter((_,idx)=>!rowFilter || !rowFilter[idx])?.[rIdx]}-50` : "bg-gray-50"} z-[2] w-full  p-2 gap-0 overflow-y-scroll max-h-[inherit] no-break-children touch-none `
+                                        className={[
+                                            
+                                            `${dropOnGrid && (colOption?.allowMove || rowOption?.allowMove) ? "dropzone" : ""} ${rowOption.colors ? `bg-${rowOption.colors?.filter((_,idx)=>!rowFilter || !rowFilter[idx])?.[rIdx]}-50` : "bg-gray-50"} z-[2] w-full  p-2 overflow-y-scroll max-h-[inherit] no-break-children touch-none `,
+                                            renderProps?.showList || renderProps?.showGrid ? (Math.max(...columnColumns) > 8 ? "gap-12" : "gap-2") : "gap-0"    
+                                        ].join(" ")
                                             }>
                                             {subList.map((wrapped, idx)=>{
                                                 let item = wrapped.primitive
@@ -1196,34 +1225,50 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 let columns = undefined
                                                 let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
                                                 const staggerScale = scale  + (scale / 200 * (idx % 20))
+                                                let style = {}
                                                 if( props.render ){
                                                     return props.render( item, staggerScale)
                                                 }
                                                 let spanning = ""
                                                 if( viewConfig?.parameters?.fixedSpan ){
                                                     spanning= 'w-full'
-                                                }else if( viewConfig?.parameters?.span?.sqrt){
-                                                    columns = true//1 + Math.floor(Math.sqrt(wrapped.nestedCount) / 1.5)
-                                                }else if( viewConfig?.parameters?.span ){
-                                                    if( wrapped.nestedCount > 10 ){
-                                                        spanning ='col-span-2'
-                                                        if( wrapped.nestedCount > 100 ){
-                                                            spanning ='col-span-2 row-span-4'
-                                                        }else if(wrapped.nestedCount > 70 ){
-                                                            spanning ='col-span-2 row-span-3'
-                                                        }else if(wrapped.nestedCount > 20 ){
-                                                            spanning ='col-span-2 row-span-2'
+                                                }
+                                                let spanColumns = undefined
+                                                let spanRows = undefined
+                                                if(renderProps?.columns){
+                                                    if( typeof(renderProps.columns) === "number" ){
+                                                    }else{
+                                                        let defaultColumns = renderProps.columns.default ?? 1
+                                                        let defaultRows = renderProps.rows?.default ?? defaultColumns 
+                                                        let innerColumns = defaultColumns
+                                                        let collapseCount = 10
+                                                        if(renderProps.itemLimit){
+                                                            if( typeof( renderProps.itemLimit) === "number"){
+                                                                collapseCount = renderProps.itemLimit
+                                                            }
                                                         }
+                                                        const visibleCount = expandState[item.id] ? wrapped.nestedCount : Math.min( wrapped.nestedCount, collapseCount)
+                                                        for(const min of Object.keys(renderProps.columns) ){
+                                                            if( parseInt(min) < visibleCount ){
+                                                                innerColumns = renderProps.columns[min]
+                                                            }
+                                                        }
+                                                        spanColumns = Math.ceil( innerColumns / defaultColumns )
+                                                        spanRows = Math.floor( visibleCount / innerColumns / defaultRows)
                                                     }
-                                                } 
+                                                }
                                             return <PrimitiveCard 
                                                 fullId 
                                                 key={item.id} 
                                                 border={false} 
                                                 directOnly={layerNestPreventionList?.current ? layerNestPreventionList.current[item.id] : false}
                                                 primitive={item} 
-                                                scale={props.comapre ? undefined : staggerScale} 
+                                                scale={staggerScale} 
                                                 fields={defaultFields ?? fields} 
+                                                showAll={expandState[item.id]}
+                                                setShowAll={()=>setExpandState(item.id)}
+                                                spanColumns={spanColumns}
+                                                spanRows={spanRows}
                                                 columns
                                                 {...size} 
                                                 className={`mr-2 mb-2 touch-none ${spanning} ${viewConfig?.config?.dropOnPrimitive ? "dropzone" : ""}`}

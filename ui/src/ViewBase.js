@@ -18,21 +18,39 @@ const views = [
 ]
 
 export default function ViewBase({primitive, ...props}){
+    const loadSegmentView = (view, skip = false)=>{
+        if( view=== "cards"){
+            if( skip ){
+                return undefined
+            }
+            setSegmentView(undefined)
+        }else{
+            const list = primitive.primitives.allSegment
+            const picked = list.find(d=>d.id === primitive.referenceParameters.segmentView) ?? list[0]
+            if( skip ){
+                return picked 
+            }
+            setSegmentView(picked )
+        }
+
+    }
+
     const [showViewPane, setShowViewPane] = useState(false)
-    const [view, setView] = useState("cards")
-    const [segmentView, setSegmentView] = useState(undefined)
+    const [view, setView] = useState( primitive?.referenceParameters?.viewMode ?? "cards")
+    const [segmentView, setSegmentView] = useState(loadSegmentView(primitive?.referenceParameters?.viewMode ?? "cards", true) )
     const [manualInputPrompt, setManualInputPrompt] = useState(false)
 
     useEffect(()=>{
-        setSegmentView( primitive.primitives.allSegment[0] )
+        loadSegmentView( view )
     },[primitive?.id])
 
     const content = useMemo(()=>{
         console.log(`REDO CONTENT ${view} ${primitive?.plainId} ${segmentView?.plainId}`)
+        setView( primitive?.referenceParameters?.viewMode ?? "cards" )
         return <>
                 {view === "cards" &&
                     <PrimitiveExplorer
-                        key='explore'
+                        key='explore_cards'
                         primitive={primitive}
                     />
                 }
@@ -57,6 +75,8 @@ export default function ViewBase({primitive, ...props}){
     }, [view, primitive?.id, segmentView?.id])
 
 
+
+
     const segmentOptions = useMemo(()=>{
         const segemnts = primitive.primitives.allSegment
 
@@ -75,20 +95,22 @@ export default function ViewBase({primitive, ...props}){
             }},
             ...segemnts.map((d,idx)=>{
                 return {
-                    id: d.id, title: d.title ?? `Segment view ${idx}`, action: ()=>setSegmentView(d)
+                    id: d.id, title: d.title ?? `Segment view ${idx}`, action: ()=>selectSegmentView(d)
                 }
             })
         ]
 
     }, [view, primitive?.id, segmentView?.id ])
 
+    const selectSegmentView = (d)=>{
+        setSegmentView(d)
+        primitive.setField(`referenceParameters.segmentView`, d.id)
+    }
+
     const selectView = (view)=>{
         setView(views[view].id)
-        if( view === "cards"){
-            setSegmentView(undefined)
-        }else{
-            setSegmentView(primitive.primitives.allSegment?.[0])
-        }
+        primitive.setField(`referenceParameters.viewMode`, views[view].id)
+        loadSegmentView( views[view].id )
     }
 
     const buildSegment = ()=>{

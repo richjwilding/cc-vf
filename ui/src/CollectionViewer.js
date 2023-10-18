@@ -89,7 +89,6 @@ export default function CollectionViewer({primitive, category, ...props}){
         if( asViewer ){
             if( viewerPick ){
                 if( viewerPick.referenceParameters?.viewSelection ){
-                    console.log(`LOADING view`, viewerPick.referenceParameters?.viewSelection)
                     return viewerPick.referenceParameters?.viewSelection
                 }
             }
@@ -182,7 +181,6 @@ export default function CollectionViewer({primitive, category, ...props}){
     {
         allowed = allowed.filter((d)=>d !== "cluster" && d !== "proximity")   
     }
-    console.log(clusters)
 
     const resultCategory = category.resultCategoryId ? mainstore.category(category.resultCategoryId) : undefined
 
@@ -313,7 +311,6 @@ export default function CollectionViewer({primitive, category, ...props}){
             }
 
             
-    console.log(allowed, view)
     if( !allowed.includes(view)){
         return <></>
     }
@@ -491,7 +488,6 @@ export default function CollectionViewer({primitive, category, ...props}){
     
     const maxHeight = !asViewer && !props.hidePanel && view === "explore" && list?.length > 0 ? "relative max-h-[80vh] flex-col flex bg-white" : ""
 
-    console.log(viewerPick)
     return <>
         {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
         {props.hidePanel 

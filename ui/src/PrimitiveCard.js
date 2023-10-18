@@ -1296,6 +1296,7 @@ const Entity=({primitive, ...props})=>{
           onClick={props.onClick ? (e)=>{props.onClick(e, primitive)} : undefined}
           onKeyDown={props.onEnter ? handleEnter : undefined}
           tabIndex='0'
+          style={props.style}
           id={primitive.id}
           className={
           [
@@ -1756,7 +1757,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
   const packedFields = fields ? fields.filter((d)=>d?.indexOf(",") >= 0).map((d)=>d.split(",")).flat() : undefined
   fields = fields ? fields.filter((d)=> (d !== "title") && (d?.indexOf(",") === -1)) : undefined
 
-  let style = {}
+  let style = props.style || {}
   if( props.fixedWidth){
     style.minWidth = props.fixedWidth
     style.maxWidth = props.fixedWidth

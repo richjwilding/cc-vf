@@ -571,9 +571,11 @@ function SegmentGraph({primitive, ...props}){
     )
 }
 
-export default function SegmentCard({primitive, ...props}){
+export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
     useDataEvent("set_parameter set_field relationship_update", [primitive.id, primitive.primitives.uniqueAllIds].flat())
-    const [showAll, setShowAll] = useState(false)
+//    const [showAll, setShowAll] = useState(false)
+
+
     const ring = !props.disableHover
 
     let nestedItems = props.directOnly ? primitive.primitives.ref.allItems : primitive.nestedItems
@@ -608,7 +610,6 @@ export default function SegmentCard({primitive, ...props}){
             for( const d of process ){
                 let thisCount
                 let thisSet
-                console.log(`checking ${d}`)
                 if( d === "flagged"){
                     [thisSet, thisCount] = flagged( nestedItems )
                 }
@@ -630,14 +631,32 @@ export default function SegmentCard({primitive, ...props}){
     } 
     const moreToShow = Math.max(0, nestedItems.length - itemLimit)
     const wide = !props.compact && props.showGrid && itemLimit > 10//0
-    const columns = props.cardView ? Math.max(itemLimit ? 2 : 1, (1 + (Math.floor(Math.sqrt(itemLimit) / 3))))  : (wide ? 10 : 5)
-    console.log(primitive.plainId, props.cardView, props.card, columns)
+
+    const visibleList = showAll ? nestedItems : nestedItems.slice(0,itemLimit)
+    let columns
+    
+    if( props.columns !== undefined ){
+        columns = 1
+        if( typeof(props.columns) === "number" ){
+            columns = props.columns 
+        }else{
+            columns = props.columns.default ?? 1
+            const visibleCount = visibleList.length
+            for(const min of Object.keys(props.columns) ){
+                if( parseInt(min) < visibleCount ){
+                    columns = props.columns[min]
+                }
+            }
+        }
+    }else{
+        columns = props.cardView ? Math.max(itemLimit ? 2 : 1, (1 + (Math.floor(Math.sqrt(itemLimit) / 3))))  : (wide ? 10 : 5)
+    } 
 
     const mainContent = <>
             <p key='title' className={`${props.hideDetails ? "text-xl font-light mb-4" : props.cardView ? "text-xl font-semi m-2 mb-1" : "text-sm font-semi mb-2"} text-gray-800  `}>{primitive.title}</p>
             {!props.hideDetails && <p key='description' className={props.cardView ? 'text-lg text-gray-600 m-2 mb-3' : 'text-xs text-gray-600 mb-2'}>{primitive.referenceParameters.description}</p>}
-            {props.showGrid  && !itemLimit  && <div style={{gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`}} className={`grid place-items-center gap-1`}>
-                {(showAll ? nestedItems : nestedItems.slice(0,itemLimit)).map((d)=>(
+            {props.showGrid  && <div style={{gridTemplateColumns: `repeat(${columns}, minmax(min-content, 1fr))`}} className={`grid place-items-center gap-1`}>
+                {visibleList.map((d)=>(
                     <PrimitiveCard 
                         fullId
                         primitive={d}
@@ -649,13 +668,16 @@ export default function SegmentCard({primitive, ...props}){
                         fields={props.cardView ? ["title","important","top"] : undefined}
                         compact={props.hideDetails}
                         className={!props.imageOnly ? "min-w-[10rem]" : ""}
+                        style={{
+                            minWidth: props.minWidth  ? props.minWidth : undefined
+                        }}
                         onClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); props.onInnerCardClick(e, p, primitive)} : undefined}
                         />
                 ))}
             </div>}
-            {props.showGrid && (itemLimit !== undefined) && <CardGrid 
-                list={showAll ? nestedItems : nestedItems.slice(0,itemLimit)}
-                columns={props.cardView ? columns : undefined}
+            {props.showList && <CardGrid 
+                list={visibleList}
+                columns={columns}
                 onCardClick={props.onInnerCardClick ? (e,p)=>{e.stopPropagation(); props.onInnerCardClick(e, p, primitive)} : undefined}
                 cardProps={
                     {
@@ -664,11 +686,10 @@ export default function SegmentCard({primitive, ...props}){
                         fields: props.cardView ? ["title", "important","top"] : undefined
                     }
                 }
-                columnConfig={{xs:2, md: 3,"2xl": 4, "4xl":5}}
                 className='grow'
             />}
-            {!props.hideMore && props.showGrid && !showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`+ ${moreToShow} items`} onClick={()=>setShowAll(true)}/>}
-            {!props.hideMore && props.showGrid && showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`Show less`} onClick={()=>setShowAll(false)}/>}
+            {!props.hideMore && (props.showList || props.showGrid) && !showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`+ ${moreToShow} items`} onClick={()=>setShowAll(true)}/>}
+            {!props.hideMore && (props.showList || props.showGrid) && showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`Show less`} onClick={()=>setShowAll(false)}/>}
             {props.showInsight && primitive.insights && primitive.insights.length > 0 &&
                 <Panel title='Problems' titleClassName='text-xs w-fit flex text-gray-500 flex place-items-center font-medium' collapsable defaultOpen={false}>
                 <div 
@@ -686,12 +707,11 @@ export default function SegmentCard({primitive, ...props}){
 
     let width = wide ? "48rem" : '24rem' 
     if( props.cardView ){
-        width = (columns * 20) + "rem"
+        width = (columns * (props.minWidth || 16)) + "rem"
     }
     if( props.graph ){
         width = '36rem'
     }
-    console.log(primitive.plainId, columns, width, props.cardView)
 
     return (
         <>
@@ -701,7 +721,8 @@ export default function SegmentCard({primitive, ...props}){
             onClick={props.onClick ? (e)=>props.onClick(e,primitive) : undefined }
             style={{
                 minWidth: width,
-                gridColumn: props.cardView ? `span ${columns}` : undefined,
+                gridColumn: props.spanColumns ? `span ${parseInt(props.spanColumns)}` : undefined,
+                gridRow: props.spanRows ? `span ${parseInt(props.spanRows)}` : undefined,
             }}
             className={
                 ["relative py-3 pl-3 pr-4 group bg-white p-1 rounded-lg",
