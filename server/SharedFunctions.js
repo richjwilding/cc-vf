@@ -3,7 +3,7 @@ import Category from './model/Category';
 import Counter from './model/Counter';
 import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
-import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn, findPeopleFromLinkedIn} from './linkedin_helper'
+import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn, findPeopleFromLinkedIn, fetchLinkedInProfile, addPersonFromProxyCurlData, searchPosts, liPostExtractor} from './linkedin_helper'
 import { enrichCompanyFunding, extractAcquisitionsFromCrunchbase, extractArticlesFromCrunchbase, pivotFromCrunchbase } from './crunchbase_helper';
 import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
@@ -16,6 +16,7 @@ import QueueDocument from './document_queue';
 import { localeData } from 'moment';
 import Parser from '@postlight/parser';
 
+Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
 
 const parser = PrimitiveParser()
@@ -469,17 +470,22 @@ export async function getDataForProcessing(primitive, action, source, options = 
                     newList = newList.concat( await primitiveDescendents(child))
                 }
                 items = newList
+                console.log( "After descend ", items.length)
+
+                console.log( list.length)
             }
             if( source.referenceParameters?.referenceId ){
                 items = items.filter(d=>d.referenceId === source.referenceParameters.referenceId) 
+                console.log( "After ref filter ", items.length)
             }
             if( source.referenceParameters?.type ){
                 items = items.filter(d=>d.referenceId === source.referenceParameters.type) 
+                console.log( "After type filter ", items.length)
             }
             list = list.concat(items)
         }
         list = uniquePrimitives(list)
-                console.log( list.length)
+        console.log( list.length)
 
         
         console.log(primitive.referenceParameters.pivot )
@@ -487,6 +493,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
             const parentTypes = ["result", "entity"]
             for( let idx = 0; idx < primitive.referenceParameters.pivot; idx++ ){
                 const originIds = list.map(d=> Object.keys(d.parentPrimitives).filter((k)=>d.parentPrimitives[k].includes(`primitives.origin`))[0]).filter((d,i,a)=>a.indexOf(d)===i)
+               // const originIds = list.map(d=> Object.keys(d.parentPrimitives)).flat().filter((d,i,a)=>d && d !== "undefined" && a.indexOf(d)===i)
                 console.log(`ids = ${originIds.length}`)
 
                 const query = {$and:[
@@ -951,7 +958,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         done = true
                     }
                     if(command === "build_view" ){
-                        const target = options.target || action.target
                         const path = options.path || action.path
                         const types = options.types || action.types
                         const referenceId = (options.referenceId !== undefined ? parseInt( options.referenceId ) : undefined )|| action.referenceId
@@ -960,7 +966,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         const self = true
                         //const constrainedSource = options.keywords
                         let category
-                        let sourcePath = 'results'
+                        let sourcePath 
                         if( referenceId ){
                             category = await Category.findOne({id: referenceId})
                         }else if( referenceCategoryId ){
@@ -968,7 +974,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                             category = await Category.findOne({id: resultRef})
                         }
 
-                        if( target  ){
                             const paths = ['origin']
                             if( path ){
                                 paths.push(path)
@@ -986,6 +991,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                     title: category ? `View - ${category.title}` : "New view",
                                     referenceParameters:{
                                         types:types,
+                                        target: "items",
                                         referenceId: referenceId,
                                         descend: options.descend || action.descend,
                                         path: sourcePath,
@@ -1004,7 +1010,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                 await primitiveParents( check2 )
                                 console.log(`DONE CHECKS`)
                             }
-                        }
                     }
                     if(command === "roll_up" ){
                         const target = options.target || action.target
@@ -1216,6 +1221,122 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 await findPeopleFromLinkedIn(primitive, options, action)
 
             }
+            if( command === "lookup_author" ){
+                const task = await primitiveTask( primitive )
+                const resultCategory = action.resultCategory
+                const resultSet = await findResultSetForCategoryId( task, resultCategory)
+                console.log(`adding to ${task.id} / results.${resultSet}`)
+                if( resultSet !== undefined ){
+                    const m = primitive.referenceParameters.url.match(/\S+.linkedin.com\/posts\/(.*)_/)
+                    if( m ){
+                        const profileUrl = "https://www.linkedin.com/in/" + m[1]
+                        console.log(`${profileUrl} <- ${primitive.referenceParameters.url}}`)
+
+                        let existing = await Primitive.findOne({
+                            "workspaceId": primitive.workspaceId,
+                            [`parentPrimitives.${primitive.id}`]: {$in: ['primitives.origin']},
+                            deleted: {$exists: false},
+                            "referenceParameters.profile": profileUrl
+                        })
+                        if( existing ){
+                            console.log(url, " already exists")
+                        }else{
+                            const profile_data = await fetchLinkedInProfile(profileUrl)
+                            if( profile_data ){
+                                existing = await addPersonFromProxyCurlData( profile_data, profileUrl, resultCategory, task, resultSet)
+                            }
+                        }
+                        if( existing ){
+                            const resultSet = await findResultSetForCategoryId( existing, primitive.referenceId)
+                            console.log(`-- Will link existing post at results.${resultSet}`)
+                            if( resultSet !== undefined ){
+                                await addRelationship( existing.id, primitive.id, `results.${resultSet}` )
+                            }
+                        }
+                    }
+
+                }
+
+            }
+            if( command === "test_li" ){
+                const postResult = await Parser.parse(
+                             //   'https://www.linkedin.com/posts/jody-friend-shrm-scp-she-her-hers-865570_green-construction-services-activity-6905535239238860800-9m0C'
+                             'https://www.linkedin.com/posts/claudio-tadeu-leite_boeing-and-airbus-sustainable-material-aluminium-activity-7122940669010018304-_K4S'
+                                , {
+                                contentType: 'text',
+                            })
+                console.log(postResult)
+            }
+            if( command === "convert_activities" ){
+                if( primitive.linkedInData ){
+                    const resultCategory = action.resultCategory
+                    const resultSet = await findResultSetForCategoryId( primitive, resultCategory)
+                    console.log(`Unpack ${primitive.linkedInData.activities?.length} items to results.${resultSet}`)
+                            const remap = {
+                                "Liked": "Liked",
+                                "Shared": "Shared",
+                                "Consigliato": "Shared"
+                            }
+                    if( resultSet !== undefined ){
+                        for( const activity of primitive.linkedInData.activities){
+                            const existing = await Primitive.findOne({
+                                "workspaceId": primitive.workspaceId,
+                                [`parentPrimitives.${primitive.id}`]: {$in: ['primitives.origin']},
+                                deleted: {$exists: false},
+                                "referenceParameters.url": activity.link
+                            })
+                            if( existing ){
+                                continue
+                            }
+                            
+                            let prefix = activity.activity_status?.split(" ")?.[0]
+                            let activityType = remap[prefix] ?? prefix
+
+                            const postResult = await Parser.parse(activity.link, {
+                                contentType: 'text',
+                            })
+                            let text
+                            if( postResult && postResult.content ){
+                                text = postResult.content
+                                const m = text.match(/^.*?\d+(w|mo|y)\s{2,}(.*)/)
+                                if( m ){
+                                    text = m[2]
+                                }
+                                if( text.match(/LinkedIn and 3rd parties use essential and non-essential cookies to provide, secure/)){
+                                    text = activity.title
+                                }
+                            }
+
+                            
+                            const newData = {
+                                workspaceId: primitive.workspaceId,
+                                parent: primitive.id,
+                                paths: ['origin', `results.${resultSet}`],
+                                data:{
+                                    type: action.type,
+                                    referenceId: resultCategory,
+                                    title: activity.title,
+                                    referenceParameters:{
+                                        url: activity.link,
+                                        status: activityType,
+                                        text: text,
+                                        source: "LinkedIn"
+                                    }
+                                }
+                            }
+                            const newPrim = await createPrimitive( newData )
+                            if( newPrim && text){
+                                await writeTextToFile(newPrim.id, text)
+                            }
+                            
+                        }
+                    }
+                }
+
+            }
+            if( command === "query_linkedin_posts" ){
+                const result = await searchPosts( primitive, options, action )
+            }
             if( command === "fetch_articles_from_query" ){
                 let query = action.query
                 if( action.autoQuery && query){
@@ -1227,7 +1348,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 if( query ){
                     console.log(query)
 
-                    const resultCategory = options.resultCategory || action.resultCategory
+                    const resultCategory = options.resultCat
                     let out = await fetchLinksFromWebQuery(query)
                     const outputPath = await findResultSetForCategoryId(primitive, resultCategory)
                     if( outputPath !== undefined ){
@@ -1247,6 +1368,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                         referenceParameters:{
                                             url: item.url,
                                             tag: action.tag,
+                                            snippet: item.snippet,
                                             source:`Web query "${query}"`,
                                         }
                                     }

@@ -198,7 +198,12 @@ export default function QueueDocument(){
     }
     
     instance = new Queue("documentQueue", {
-        connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT },
+        connection: { 
+            host: process.env.QUEUES_REDIS_HOST, 
+            port: process.env.QUEUES_REDIS_PORT,
+            maxStalledCount: 0,
+            stalledInterval:300000
+        },
     });
     instance.myInit = async ()=>{
         console.log("Document Queue")

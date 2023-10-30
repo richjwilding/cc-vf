@@ -657,12 +657,20 @@ async function executeAI(messages, options = {}){
         }
         const answers = response.data?.choices[0]?.message?.content
         try{
+            let unpack
             const p1 = answers.replace(/,([\s\n\r]*[}\]])/g, '$1')
-            const regex = /\{[\s\S]*\}/;
-            const match = p1.match(regex);
-            if( match ){
-                const unpack = JSON.parse(match[0])
+            if( p1[0] === "[" && p1[p1.length - 1] === "]"){
+                unpack = p1
+            }else{
+                const regex = /\{[\s\S]*\}/;
+                const match = p1.match(regex);
+                if( match ){
+                    unpack = JSON.parse(match[0])
+                }
+            }
+            if( unpack ){
                 return {response: unpack, success: true, instructions: messages[2], raw: answers}
+
             }
             return {success: false, instructions: messages[2], raw: answers}
 
@@ -691,7 +699,8 @@ export  async function categorize(list, categories, options = {} ){
             [
                 {"role": "user", "content": `And here are a list of numbered categories: ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
                 {"role": "user", "content": `${match} If there is a strong match assign the ${targetType} to the most suitable category number - otherwise assign it -1`} ,
-                {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item and a 'category' field set to the assigned number or label${options.evidencePrompt}. Do not put anything other than the raw JSON in the response .`}
+                {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item and a 'category' field set to the assigned number or label. Do not put anything other than the raw JSON in the response .`}
+                //{"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item and a 'category' field set to the assigned number or label, and a 'rationale' field containing the reason for your choice in no more than 8 words. Do not put anything other than the raw JSON in the response .`}
             ],
             {field: "results", maxTokens: (options.engine === "gpt4" ? 2000 : 12000), engine:  options.engine, ...options})
     return interim

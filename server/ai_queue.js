@@ -879,11 +879,11 @@ export default function QueueAI(){
                                     for(const category of categoryList){
                                         console.log(`Checking for ${category}`)
                                         let result = await analyzeListAgainstTopics( data, category, {
-                                                type:"description",
-                                                engine:  primitive.referenceParameters?.engine || action.engine,
-                                                prompt: `Assess how strongly the description addresses ${category}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`,
-                                                debug: true, debug_content: false
-                                            } )
+                                            type:"description",
+                                            engine:  primitive.referenceParameters?.engine || action.engine,
+                                            prompt: `Assess how strongly the description addresses ${category}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`,
+                                            debug: true, debug_content: false
+                                        } )
                                         if( result.success && result.output){
                                             result.output.forEach(d=>{
                                                 const score = scoreMap[d.s] ?? 0
@@ -898,7 +898,8 @@ export default function QueueAI(){
                                     categoryAlloc = await categorize(data, categoryList, {
                                         matchPrompt:primitive.referenceParameters?.matchPrompt, 
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
-                                        engine:  primitive.referenceParameters?.engine || action.engine
+                                        engine:  primitive.referenceParameters?.engine || action.engine,
+                                        debug: true
                                     })
                                 }
 
@@ -907,11 +908,13 @@ export default function QueueAI(){
                                     console.log(resultMap)
                                     Object.keys(resultMap).forEach(i=>{
                                         const category = Object.keys(resultMap[i]).sort((a,b)=>resultMap[i][b] - resultMap[i][a])?.[0]
-                                        console.log(resultMap[i],category)
-                                        categoryAlloc.push({
-                                            id: i,
-                                            category: category
-                                        })
+                                        if( resultMap[i][category] > 0 ){
+                                            console.log(resultMap[i],category)
+                                            categoryAlloc.push({
+                                                id: i,
+                                                category: category
+                                            })
+                                        }
                                     })
                                 }
                                 //console.log(categoryAlloc)

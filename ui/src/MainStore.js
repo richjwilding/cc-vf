@@ -1374,19 +1374,15 @@ function MainStore (prims){
                     }
                 }
                 if( prop === "removeChildren"){
-                    return async function(dry_run = false){
-                        let directs = [receiver.primitives.origin.uniqueAllItems, receiver.primitives.auto.uniqueAllItems].flat()
+                    return async function(allItems = false){
+                        let directs = allItems ? receiver.primitives.uniqueAllItems : [receiver.primitives.origin.uniqueAllItems, receiver.primitives.auto.uniqueAllItems].flat()
                         directs = directs.filter((d)=>!d.lock)
                         let nested = [] 
                         for( d of directs ){
-                            nested = nested.concat(await d.removeChildren(dry_run))
+                            nested = nested.concat(await d.removeChildren())
                         }
-                        if( dry_run ){
-                            return nested.concat(directs.map((d)=>d.plainId))
-                        }else{
-                            for(const prim of directs){
-                                await obj.removePrimitive( prim )
-                            }
+                        for(const prim of directs){
+                            await obj.removePrimitive( prim )
                         }
                     }
                 }
@@ -1417,10 +1413,8 @@ function MainStore (prims){
                             console.log(`Importing from other sources`)
                             let list = []
                             for( const source of receiver.primitives.imports.allItems){
-                                console.log(`-- ${receiver.type} ${receiver.plainId}`)
                                 let node = source.primitives
                                 if( receiver.referenceParameters?.path ){
-                                    console.log(`---- ${receiver.referenceParameters?.path}`)
                                     node = node.fromPath(receiver.referenceParameters?.path)
                                 }
                                 let items = node.allItems

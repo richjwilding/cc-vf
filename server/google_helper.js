@@ -13,6 +13,7 @@ import MemoryStream from 'memory-streams';
 import Embedding from "./model/Embedding";
 import { encode } from "gpt-3-encoder";
 import { buildEmbeddings } from "./openai_helper";
+import Parser from '@postlight/parser';
 
 
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -183,6 +184,18 @@ export async function getDocumentAsPlainText(id, req, override_url){
                 await writeTextToFile(id, text, req)
                 return {plain: text}
             }            
+            if( url.match(/^https?:\/\/(www\.)?linkedin\.com\/posts\//)){
+                console.log(`Fetch LinkedIn post`)
+                const result = await Parser.parse(url, {
+                    contentType: 'text',
+                })
+                if( result && result.content ){
+                    const text = result.content
+                    await writeTextToFile(id, text, req)
+                    return {plain: text}
+
+                }
+            }
 
             let html
 
@@ -600,9 +613,14 @@ export async function replicateURLtoStorage(url, id, bucketName){
 }
 
 
-export async function fetchLinksFromWebQuery(query, id, req){
+export async function fetchLinksFromWebQuery(query, withNextPage = false, attempt = 3){
     console.log(`go`)
     try{
+        let qp = `q=${query}`
+        if( withNextPage instanceof Object  ){
+            qp = new URLSearchParams(withNextPage).toString()
+        }
+        console.log(qp)
             const bUrl = `https://chrome.browserless.io/scrape?token=${process.env.BROWSERLESS_KEY}`
             const response = await fetch(bUrl,{
                 method: 'POST',
@@ -611,26 +629,54 @@ export async function fetchLinksFromWebQuery(query, id, req){
                     'Content-Type': 'application/json' 
                 },
                 body:JSON.stringify({
-                    "url": `https://html.duckduckgo.com/html/?q=${query}`,
+                    "url": `https://html.duckduckgo.com/html/?${qp}`,
                     "elements": [
                     {
                         "selector": ".result__body > .result__title",
                     },
                     {
                         "selector": ".result__body > .result__extras > .result__extras__url > .result__url"
-                    }
+                    },
+                    {
+                        "selector": ".result__body > .result__snippet"
+                    },
+                        {
+                            "selector": '.nav-link > form > [type="hidden"]'
+                        }
                     ]
                 })
             })
 
         const results = await response.json();
         if( results && results.data?.[0]?.results){
-            return results.data[0].results.map((d, idx)=>{
-                return {
-                    title: d.text,
-                    url: "https://" + results.data?.[1]?.results?.[idx]?.text?.trim()
+            const links = results.data[0].results.map((d, idx)=>{
+                    return {
+                        title: d.text,
+                        snippet: results.data?.[2]?.results?.[idx]?.text?.trim(),
+                        url: "https://" + results.data?.[1]?.results?.[idx]?.text?.trim()
+                    }
+                })
+                if( links.length === 0){
+                    console.log("GOT NO RESULTS")
+                    console.log(results)
+                    if( attempt > 0){
+                        console.log("retry")
+                        return await  fetchLinksFromWebQuery(query, withNextPage, attempt--) 
+                    }
                 }
-            })
+            if( withNextPage ){
+                const attributes = results.data?.[3]?.results?.map(d=>d.attributes)
+                const query = attributes.reduce((a,c)=>{
+                    a[c.find(d=>d.name === "name")?.value] = c.find(d=>d.name === "value")?.value
+                    return a
+                }, {})
+                return {
+                    nextPageQuery: query,
+                    links: links
+                }
+            }else{
+                return links
+            }
         }
         return []
     }catch(error){

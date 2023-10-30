@@ -11,8 +11,8 @@ import { InputPopup } from "./InputPopup";
 
 
 const views = [
-    {id: "cards", icon: <HeroIcon icon='LargeGrid' className="w-5 h-5"/>, title: "Explorer view"},
-    {id: "explore", icon: <RectangleGroupIcon className="w-5 h-5"/>, title: "Segment view", sNoun: "segment"},
+    {id: "cards", icon: <HeroIcon icon='LargeGrid' className="w-5 h-5"/>, title: "Explorer view", embed_close:true},
+    {id: "explore", icon: <RectangleGroupIcon className="w-5 h-5"/>, title: "Segment view", sNoun: "segment", embed_close:true},
     {id: "cluster", icon: <HeroIcon icon='Nest' className="w-5 h-5"/>, title: "Hierarchy view", sNoun: "hierarchy"},
     {id: "proximity", icon: <HeroIcon icon='FABullseye' className="w-5 h-5"/>, title: "Proximity view", sNoun: "proximity"},
 ]
@@ -34,6 +34,9 @@ export default function ViewBase({primitive, ...props}){
         }
 
     }
+    const closeButton = <div key='close_toolbar' className={`flex space-x-4 bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 top-4 p-1.5 flex flex-col place-items-start space-y-2`}>
+                            <DropdownButton noBorder icon={<ArrowsPointingInIcon className="w-5 h-5"/>} onClick={props.closeButton} flat className={`hover:text-ccgreen-800 hover:shadow-md`}/>
+                        </div>
 
     const [showViewPane, setShowViewPane] = useState(false)
     const [view, setView] = useState( primitive?.referenceParameters?.viewMode ?? "cards")
@@ -51,12 +54,14 @@ export default function ViewBase({primitive, ...props}){
                 {view === "cards" &&
                     <PrimitiveExplorer
                         key='explore_cards'
+                        closeButton={closeButton}
                         primitive={primitive}
                     />
                 }
                 {view === "explore" && segmentView &&
                     <PrimitiveExplorer
                         key='explore'
+                        closeButton={closeButton}
                         primitive={segmentView}
                     />
                 }
@@ -128,6 +133,7 @@ export default function ViewBase({primitive, ...props}){
     const selectedIdx = views.findIndex(d=>d.id===view)
     const segmentIdx = segmentOptions?.findIndex(d=>d.id === segmentView?.id)
 
+
     return <div className="w-full h-full flex flex-col relative">
                 {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
                 <div key='category_toolbar' className={`flex space-x-3 absolute z-50 left-4 top-4 p-0.5 place-items-start`}>
@@ -139,13 +145,11 @@ export default function ViewBase({primitive, ...props}){
                     <div key='view_select' className={`flex bg-white rounded-md shadow-lg border-gray-200 border p-0.5 place-items-start `}>
                         <DropdownButton showTick placement='bottom-start' portal setSelectedItem={selectView} selectedItemIdx={selectedIdx} noBorder icon={views[selectedIdx]?.icon} items={views} flat className={`hover:text-ccgreen-800 hover:shadow-md`}/>
                     </div>
-                    {view !== "cards" && <div key='segment_menu' className={`flex bg-white rounded-md shadow-lg border-gray-200 border p-0.5 place-items-start `}>
+                    {view !== "cards" && <div key='segment_menu' className={`flex bg-white rounded-md shadow-lg border-gray-200 border p-0.5 place-items-start max-w-[45cqw]`}>
                         <DropdownButton showTick placement='bottom-start' title={segmentOptions?.[segmentIdx === -1 ? 0 : segmentIdx].title} portal noBorder selectedItemIdx={segmentIdx > -1 ? segmentIdx : undefined} items={segmentOptions} flat className={`!px-1.5`}/>
                     </div>}
                 </div>
-                {props.closeButton && <div key='close_toolbar' className={`flex space-x-4 bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 top-4 p-1.5 flex flex-col place-items-start space-y-2`}>
-                    <DropdownButton noBorder icon={<ArrowsPointingInIcon className="w-5 h-5"/>} onClick={props.closeButton} flat className={`hover:text-ccgreen-800 hover:shadow-md`}/>
-                </div>}
+                {props.closeButton && !views.find(d=>d.id === view)?.embed_close && closeButton}
                 {content}
             </div>
 }

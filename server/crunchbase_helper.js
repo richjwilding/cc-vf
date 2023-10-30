@@ -480,7 +480,7 @@ export async function enrichCompanyFunding( primitive, options = {}){
         const totalRaised = uniqueRounds.reduce((a,c)=>a+(c[0] || 0),0)
         
         const investors = funding.map((d)=>d.investor_identifier?.value).filter((c,i,a)=>a.indexOf(c)===i)
-        let rounds = funding.map((d)=>[d.funding_round_identifier?.value, d.announced_on, d.funding_round_money_raised?.value]).filter((c,i,a)=>a.findIndex((d)=>d[0] == c[0] && d[1] === c[1])===i).map((d)=>{return {title: d[0].split(' - ')[0], amount: d[2],annouced: new Date(d[1])}}).sort((a,b)=>a.annouced - b.annouced)
+        let rounds = funding.map((d)=>[d.funding_round_identifier?.value, d.announced_on, d.funding_round_money_raised?.value_usd]).filter((c,i,a)=>a.findIndex((d)=>d[0] == c[0] && d[1] === c[1])===i).map((d)=>{return {title: d[0].split(' - ')[0], amount: d[2],annouced: new Date(d[1])}}).sort((a,b)=>a.annouced - b.annouced)
         
         let earliest = funding.founded ? new Date(funding.founded?.value) : undefined
 

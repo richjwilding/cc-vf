@@ -611,7 +611,7 @@ export default function HierarchyView({primitive, ...props}){
                             }
                             
                             if( node.isPrimitive ){
-                                MainStore().sidebarSelect( myState.current.selected.nodes.map((d)=>d.p.id), {scope: rootPrim} )
+                                MainStore().sidebarSelect( myState.current.selected.nodes.map((d)=>d.p.id), {scope: rootPrim, allowRemoveChildren: true} )
                             }
                         }
                     }

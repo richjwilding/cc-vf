@@ -284,8 +284,9 @@ let mainstore = MainStore()
         const defaultConfig = task.metadata.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
         let sourceMeta
 
-        let _target = props.primitive?.referenceParameters?.target ? props.primitive.referenceParameters.target : defaultConfig.target
-        let _refId =  props.primitive.referenceParameters.referenceId ?? defaultConfig.referenceId
+        let _target = props.primitive?.referenceParameters?.target ? props.primitive.referenceParameters?.target : defaultConfig?.target
+        let _refId =  props.primitive.referenceParameters?.referenceId ?? defaultConfig?.referenceId
+        console.log(_target)
 
         if(_target === "evidence" || _target === "items"){
           sourceMeta =  mainstore.category(_refId) 

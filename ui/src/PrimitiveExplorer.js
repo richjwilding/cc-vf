@@ -16,7 +16,6 @@ import { exportViewToPdf } from './ExportHelper';
 import DropdownButton from './DropdownButton';
 import { HeroIcon } from './HeroIcon';
 import { SearchPane } from './SearchPane';
-import { motion } from 'framer-motion';
 
 
 const mainstore = MainStore()
@@ -29,11 +28,26 @@ const mainstore = MainStore()
             if( struct ){
                 if(struct.type === "parameter" ){
                     return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                }else if(struct.type === "title" ){
+                    return axisOptions.find(d=>d.type === struct.type &&  (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }
                 const connectedPrim = primitive.primitives.axis[axis].allIds[0]
                 return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
             }
             return 0
+        }
+    }
+    const defaultRenderProps = {
+        "segment":{
+            hideDetails: true
+        },
+        "result": {
+            fixedSize: "8rem"
+        },
+        "entity": {
+            hideCover: true,
+            urlShort: true,
+            fixedSize: "16rem"
         }
     }
 
@@ -43,24 +57,54 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const [selectedCategoryIds, setSelectedCategoryIds] = React.useState( props.allowedCategoryIds )
     const [layerSelection, setLayerSelection] = React.useState(primitive?.referenceParameters?.explore?.layer ?? 0)//axisOptions.length > 1 ? 1 : 0)
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
-    const [colSelection, setColSelection] = React.useState(0)
-    const [rowSelection, setRowSelection] = React.useState(props.compare ? 1 : 0)//axisOptions.length > 1 ? 1 : 0)
+    const [updateRel, forceUpdateRel] = useReducer( (x)=>x+1, 0)
+    const [updateNested, forceUpdateNested] = useReducer( (x)=>x+1, 0)
+    const [colSelection, setColSelection] = React.useState(undefined)
+    const [rowSelection, setRowSelection] = React.useState(undefined)
     const [activeView, setActiveView] = React.useState(primitive?.referenceParameters?.explore?.view ?? 0)
     const layerNestPreventionList = React.useRef()
     const [hideNull, setHideNull]= React.useState(primitive?.referenceParameters?.explore?.hideNull)
     const [showCategoryPane, setshowCategoryPane] = React.useState(false)
-    const [showSearchPane, setShowSearchPane] = React.useState(false)
+    const [showPane, setShowPane] = React.useState(false)
     const [importantOnly, setImportantOnly] = React.useState(true)
     const [colFilter, setColFilter] = React.useState(undefined)
     const [rowFilter, setRowFilter] = React.useState(undefined)
+    const targetRef = useRef()
+    const gridRef = useRef()
+    const myState = useRef({})
 
+    let cancelRender = false
 
+    const restoreState = ()=>{
+        const [translateX = 0, translateY = 0] = gridRef.current.style.transform.match(/translate\((.*?)\)/)?.[1]?.split(',') || [];
+        const [scale = 1] = gridRef.current.style.transform.match(/scale\((.*?)\)/)?.[1]?.split(',') || [];
+        return [parseFloat(translateX),parseFloat(translateY),parseFloat(scale)]
+    }
+    const storeCurrentOffset = ()=>{
+        if( gridRef.current){
+            const [lx,ly,ls] = restoreState()
+            const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
+            const tbb = targetRef.current.getBoundingClientRect()
+
+            const x =  -(gbb.width / 2) + (tbb.width / 2 )
+            const y =  -(gbb.height /2) + (tbb.height / 2 )
+            const rx = lx - x
+            const ry  = ly - y
+            myState.current.offset = {x: rx, y: ry, scale: ls}
+        }
+
+    }
     const updateExpand = (state, item)=>{
         const current = state[item] ?? false
-        return {
-            ...state,
-            [item]: !current
+        if( current ){
+            delete state[item]
+        }else{
+            state[item] = true
         }
+        console.log(state)
+        storeCurrentOffset()
+        forceUpdateNested()
+        return state || {}
     }
 
     const [expandState, setExpandState] = React.useReducer(updateExpand, {})
@@ -80,13 +124,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     const filters = React.useMemo(()=>{
         forceUpdate()
+        forceUpdateNested()
         return updateFilters()
     }, [selectedCategoryIds])
 
-
-
     
     let baseItems = React.useMemo(()=>{
+        //console.log(`REDO BASE`)
         let list
         if( props.list ){
             list = props.list
@@ -120,8 +164,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
         nextLayer( [primitive] )
         layers.push({id: layers.length, title: "All items", items: true})
     }
+    const viewAsSegments = asSegment && layers && !layers[layerSelection]?.items
 
     let items = React.useMemo(()=>{
+        //console.log(`REDO ITEMS`)
+
         if( props.compare ){
             console.log(`HARD CODE HYPOTHESIS COMPARE ${primitive.plainId}`)
             return mainstore.primitives().filter(d=>d.type === "evidence" && d.origin?.type === "result")
@@ -171,13 +218,19 @@ export default function PrimitiveExplorer({primitive, ...props}){
         setLayerSelection( primitive?.referenceParameters?.explore?.layer ?? 0 )
         setHideNull( primitive?.referenceParameters?.explore?.hideNull )
         setActiveView( primitive?.referenceParameters?.explore?.view  ?? 0)
+        console.log(`RESET COL AND ROW`)
 
         return [out,keep].flat()
     },[primitive.id, update, layerSelection])
+
     
-    useDataEvent("relationship_update", [primitive.id, items.map((d)=>d.id)].flat(), forceUpdate)
+    useDataEvent("relationship_update", [primitive.id, items.map((d)=>d.id)].flat(), ()=>{
+        storeCurrentOffset()
+        forceUpdateRel()
+    })
 
     const axisOptions = useMemo(()=>{
+        //console.log(`REDO AXIS`)
         if( props.compare ){
             let h_list = primitive.primitives.allUniqueHypothesis
             if( importantOnly ){
@@ -270,8 +323,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
             catIds.forEach((id)=>{
                 const category = MainStore().category(id)
+                if( category.primitiveType === "entity" || category.primitiveType === "result" ){
+                    out.push( {type: 'title', title: `${category.title} Title`, access: access})
+                }
                 if( category ){
-
                     process(category.parameters, category.title) //
                 }
             })
@@ -281,7 +336,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
             })
 
             return out.filter((filter)=>{
-                return p.filter((d)=>["number","string"].includes(typeof(d.referenceParameters[filter.parameter])) || Array.isArray(d.referenceParameters[filter.parameter])).filter((d)=>d !== undefined).length > 0
+                if( filter.type === "parameter" ){
+                    return  (p.filter((d)=>["number","string"].includes(typeof(d.referenceParameters[filter.parameter])) || Array.isArray(d.referenceParameters[filter.parameter])).filter((d)=>d !== undefined).length > 0)
+                }
+                if( filter.type === "title" ){
+                    return  (p.filter((d)=>["number","string"].includes(typeof(d.title))).filter((d)=>d !== undefined).length > 0)
+                }
+                return false
             })
         }
 
@@ -313,16 +374,35 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
         const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access)) === idx))
         const labelled = final.map((d,idx)=>{return {id:idx, ...d}})
-
+        
         if( props.compare ){
             setColSelection(1)
             setRowSelection(0)
         }else{
-            setColSelection( findAxisItem(primitive, "column", labelled ))
-            setRowSelection( findAxisItem(primitive, "row", labelled))
+            const colSelect = findAxisItem(primitive, "column", labelled )
+            const rowSelect =  findAxisItem(primitive, "row", labelled)
+            console.log(colSelect, rowSelect)
+            if( colSelect !== colSelection ){
+                setColSelection(colSelect )
+
+                const filter = primitive.referenceParameters?.explore?.filter?.column?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
+                
+            console.log("Load col", filter)
+
+                setColFilter(filter)
+                cancelRender = true
+            }
+            if( rowSelect !== rowSelection ){
+                setRowSelection(rowSelect)
+
+                const filter = primitive.referenceParameters?.explore?.filter?.row?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
+                
+                setRowFilter(filter)
+                cancelRender = true
+            }
         }
         return labelled
-    }, [primitive.id, update, layerSelection, importantOnly])
+    }, [primitive.id, /*update*/, layerSelection, importantOnly])
 
 
 
@@ -339,6 +419,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
             }else if( option.type === "interviewee"){
                 return (d)=>d.origin.referenceParameters?.contactName
+            }else if( option.type === "title"){
+                return (p)=>{
+                    let item = p
+                    for(let idx = 0; idx < option.access; idx++){
+                        item = item.origin
+                    }
+                    return item.title
+                }
             }else if( option.type === "parameter"){
                 if( option.parameterType === "options"){
                     return (p)=>{
@@ -376,14 +464,16 @@ export default function PrimitiveExplorer({primitive, ...props}){
             if( option.type === "category"){
                 console.log(`Moving for ${option.category.title}`)
                 
-                if( from ){
-                    const prim = option.category.primitives.allUniqueCategory.find((d)=>d.title === from)
+                const fromId = option.order[from]
+                if( fromId ){
+                    const prim = mainstore.primitive(fromId)
                     if( prim ){
                         await prim.removeRelationship( primitive, 'ref')
                     }
                 }
-                if( to ){
-                    const prim = option.category.primitives.allUniqueCategory.find((d)=>d.title === to)
+                const toId = option.order[to]
+                if( toId ){
+                    const prim = mainstore.primitive(toId)
                     if( prim ){
                         await prim.addRelationship( primitive, 'ref')
                     }
@@ -396,6 +486,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const group = (d)=>d.referenceParameters?.category
 
     let list = React.useMemo(()=>{
+        //console.log(`REDO LIST`)
         const bucket = {
             "funding": (field)=>{
                 const brackets = [0,100000,500000,1000000,5000000,15000000,50000000,100000000,200000000,500000000,1000000000]
@@ -417,7 +508,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 const minValue = interim.reduce((a,c)=>c[field] < a ? c[field] : a, 0)
                 const maxValue = interim.reduce((a,c)=>c[field] > a ? c[field] : a, 0)
                 const bucket = (maxValue - minValue) / 5
-                console.log(minValue, maxValue, bucket)
                 interim.forEach((d)=>{
                     d[field] = Math.round((d[field]- minValue) / bucket)
                 })
@@ -425,6 +515,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
 
 
+        
         const interim = items.map((p)=>{
             return {
                 column: column(p),
@@ -442,31 +533,28 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
 
         return interim
-        },[colSelection, rowSelection, update, items])
+    },[colSelection, rowSelection, update, updateRel, items ])
+
 
     let fields = ["title", props.fields].flat()
     let originFields = [{contact: "contactName"}]
 
 
-    const targetRef = useRef()
-    const gridRef = useRef()
-    const myState = useRef({})
 
-    const restoreState = ()=>{
-        const [translateX = 0, translateY = 0] = gridRef.current.style.transform.match(/translate\((.*?)\)/)?.[1]?.split(',') || [];
-        const [scale = 1] = gridRef.current.style.transform.match(/scale\((.*?)\)/)?.[1]?.split(',') || [];
-        return [parseFloat(translateX),parseFloat(translateY),parseFloat(scale)]
-    }
 
     const [scale, setScale] = useState(1)
     useLayoutEffect(()=>{
+        //console.log(`REDO MAIN ZOOM`)
         const cHeaderWidth = props.compare ? 300 : 100
         if( gridRef.current){
                 const fontSize = 14
+                myState.current.fontSize = `14px`
+                myState.current.padding = `${2}px` 
+                myState.current.minWidth = `${cHeaderWidth}px` 
                 for(const node of gridRef.current.querySelectorAll('.vfbgtitle')){
-                    node.style.fontSize = `${fontSize}px`
-                    node.style.padding = `2px`
-                    node.style.minWidth = `${cHeaderWidth}px`
+                    node.style.fontSize = myState.current.fontSize
+                    node.style.padding = myState.current.padding
+                    node.style.minWidth = myState.current.minWidth
                 }
             setTimeout(()=>{
                 gridRef.current.style.transform = `scale(1)`
@@ -475,11 +563,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 //const fontScale = Math.max(1 / 1600  *  gridRef.current.offsetWidth, 1 / 2000  *  gridRef.current.offsetHeight)
                 const fontScale = props.compare ? 1 : Math.max(1, gridRef.current.offsetWidth / 1600 )
                 const fontSize = 14 * fontScale
+                myState.current.fontSize = `${fontSize}px`
+                myState.current.padding = `${2 * fontScale}px` 
+                myState.current.minWidth = `${cHeaderWidth * fontScale }px` 
                 
                 for(const node of gridRef.current.querySelectorAll('.vfbgtitle')){
-                    node.style.fontSize = `${fontSize}px`
-                    node.style.padding = `${2 * fontScale}px`
-                    node.style.minWidth = `${cHeaderWidth * fontScale }px`
+                    node.style.fontSize = myState.current.fontSize
+                    node.style.padding = myState.current.padding
+                    node.style.minWidth = myState.current.minWidth
                 }
                 const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
 
@@ -498,7 +589,31 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }, primitive.type === "segment" ? 150 : 150)
         }
         
-    }, [gridRef.current, primitive.id, colSelection, rowSelection, selectedCategoryIds, /*update,*/ layerSelection, activeView, hideNull, importantOnly, Object.keys(expandState).join(",")])
+    }, [gridRef.current, primitive.id, /*colSelection, rowSelection*/, selectedCategoryIds, layerSelection, activeView, hideNull, importantOnly])
+
+    useLayoutEffect(()=>{
+        //console.log(`REDO ADJUST ZOOM`)
+        const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
+        const tbb = targetRef.current.getBoundingClientRect()
+
+        let x, y, scale
+
+        if( myState.current.offset ){
+
+            
+            scale = myState.current.offset.scale 
+            x =  myState.current.offset.x -(gbb.width / 2) + (tbb.width / 2 )
+            y =  myState.current.offset.y -(gbb.height /2) + (tbb.height / 2 )
+        }else{
+                const border = 20
+                const toolbarHeight = 56
+            scale = Math.min(Math.min( (tbb.width - border) / gbb.width, (tbb.height - border - toolbarHeight) / gbb.height),1) 
+            x =  -(gbb.width / 2) + (tbb.width / 2 )
+            y =  -(gbb.height /2) + (tbb.height / 2 )
+        }
+        
+        gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
+    }, [colSelection, rowSelection, updateRel,Object.keys(expandState).join(",")])
 
 
     function rebuildPrimitivePosition(){
@@ -538,9 +653,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
     function dropZoneToAxis(id){
         const [ec,er] = id.split('-')
+
         const rFilterIdx = rowFilter === undefined ? er : rowRemap[er]
         const cFilterIdx = colFilter === undefined ? ec : colRemap[ec]
-        console.log(`${ec} -> ${cFilterIdx} / ${er} -> ${rFilterIdx}`)
         return [cFilterIdx, rFilterIdx]
 
     }
@@ -575,9 +690,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
         if( primitive ){
             if(dropOnGrid){
 
-                const [sc,sr] = dropZoneToAxis( startZone )//.split('-')
-                const [ec,er] = dropZoneToAxis( endZone ) //.split('-')
                 if( props.compare ){
+                    const [sc,sr] = dropZoneToAxis( startZone )
+                    const [ec,er] = dropZoneToAxis( endZone ) 
                     const oldH = axisOptions[colSelection].type === "parent" ? axisOptions[colSelection].order[sc] : axisOptions[rowSelection].type === "parent" ? axisOptions[rowSelection].order[sr] : undefined
                     const newH = axisOptions[colSelection].type === "parent" ? axisOptions[colSelection].order[ec] : axisOptions[rowSelection].type === "parent" ? axisOptions[rowSelection].order[er] : undefined
                     const oldR = axisOptions[colSelection].type === "relationship" ? axisOptions[colSelection].order[sc] : axisOptions[rowSelection].type === "relationship" ? axisOptions[rowSelection].order[sr] : undefined
@@ -592,11 +707,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     }
 
                 }else{
+                    const [sc,sr] = dropZoneToAxis( startZone)
+                    const [ec,er] = dropZoneToAxis( endZone )
                     if( sc !== ec){
-                        await updateProcess(primitive, colSelection, columnExtents[sc], columnExtents[ec])
+                        await updateProcess(primitive, colSelection, sc, ec)
                     }
                     if( sr !== er){
-                        await updateProcess(primitive, rowSelection, rowExtents[sr], rowExtents[er])
+                        await updateProcess(primitive, rowSelection, sr, er)
                     }
                 }
             }else{
@@ -629,7 +746,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
 
     async function copyToClipboard(){
-        let htmlData = list.map((p)=>[p.primitive.plainId,p.primitive.title, p.primitive.origin?.referenceParameters?.contactName || p.primitive.origin.title, p.column, p.row].map((f)=>`<td>${f}</td>`).join("")).map((r)=>`<tr>${r}</tr>`).join("")
+        //let htmlData = list.map((p)=>[p.primitive.plainId,p.primitive.title, p.primitive.origin?.referenceParameters?.contactName || p.primitive.origin.title, p.column, p.row].map((f)=>`<td>${f}</td>`).join("")).map((r)=>`<tr>${r}</tr>`).join("")
+        const fList = list.filter(d=>d.row !== "None" && d.column !== "None")
+        let htmlData = fList.map((p)=>[p.primitive.plainId,p.primitive.referenceParameters?.text,p.primitive?.referenceParameters?.url, p.primitive.origin?.referenceParameters?.contactName || p.primitive.origin.title, p.primitive.origin?.referenceParameters?.role,p.primitive.origin?.referenceParameters?.profile, p.column, p.row, p.primitive.origin?.linkedInData?.country].map((f)=>`<td>${f}</td>`).join("")).map((r)=>`<tr>${r}</tr>`).join("")
         htmlData = '<table><tbody>' + htmlData + '</tbody></text>'
 
         const textarea = document.createElement('template');
@@ -692,7 +811,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         if(id){
                             myState.current.dragging.startZone = start[0]
                             if( dropOnGrid ){
-                                const [c,r] = dropZoneToAxis(id)//.split('-')
+                                const [c,r] = dropZoneToAxis(id)
                                 if( axisOptions[rowSelection].allowMove !== true || axisOptions[colSelection].allowMove !== true){
                                     myState.current.dragging.constrain = {
                                         col: axisOptions[rowSelection].allowMove ? c : undefined, 
@@ -742,7 +861,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                             let cancelForConstraints = false
                             
                             if( dropOnGrid){
-                                const [c,r] = dropZoneToAxis(id)//.split('-')
+                                const [c,r] = dropZoneToAxis(id)
                                 cancelForConstraints = true
                                 if( !myState.current.dragging.constrain ||
                                     ((myState.current.dragging.constrain.col !== undefined && myState.current.dragging.constrain.col === c) ||
@@ -862,42 +981,33 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     
     const axisExtents = (fieldName, field)=>{
-        if( props.compare ){
-            const filter = fieldName === "column" ? colFilter : rowFilter
-            return axisOptions[field].values.filter((_,idx)=>!filter || !filter[idx]) ?? []
-        }
         if( !axisOptions || !axisOptions[field]){return []}
-        if( axisOptions[field].type === "category" ){
-            let base = axisOptions[field].values
-            if( hideNull ){
-                if( base.length > 1) {
-                    return base.filter(d=>d!=="None")
-                }
-            }
-            return base
+        const filter = fieldName === "column" ? colFilter : rowFilter
+        let out
+
+        if( props.compare || axisOptions[field].type === "category" ){
+        }else if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number" ){
+            axisOptions[field].values = axisOptions[field].labels
+            out = axisOptions[field].labels
+        }else{ 
+            
+            let values = list.map((d)=>d[fieldName]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
+            axisOptions[field].values = values
+            axisOptions[field].order = values
         }
-        if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number" ){
-            return axisOptions[field].labels
-        }
-        let values = list.map((d)=>d[fieldName]).filter((v,idx,a)=>a.indexOf(v)===idx)
-        if( hideNull && values.length > 1) {
-            values = values.filter(d=>d!=="" && d)
-        }
-        return values.sort()
+        out = axisOptions[field].values.filter((_,idx)=>!((filter && filter[axisOptions[field].order[idx]]) || (hideNull && myState.current?.[fieldName + "Empty"]?.[axisOptions[field].order[idx]]))) ?? []
+
+        return out
     }
 
 
-  let columnExtents = React.useMemo(()=>{
-        return axisExtents("column", colSelection)
-    },[primitive.id, colSelection, rowSelection, update, hideNull])
+  let [columnExtents, rowExtents] = React.useMemo(()=>{
+        return [
+            axisExtents("column", colSelection),
+            axisExtents("row", rowSelection)
+        ]
+    },[primitive.id, colSelection, rowSelection, update, hideNull, colFilter ? Object.values(colFilter).join("-") : "", rowFilter ? Object.values(rowFilter).join("-") : ""])
   
-   let rowExtents = React.useMemo(()=>{
-        return axisExtents("row", rowSelection)
-    },[primitive.id, colSelection, rowSelection, update, hideNull])
-
-
-
-  const colors = ["ccgreen","rose","ccpurple","amber","cyan","fuchsia", "ccblue", "orange","lime","cyan","indigo"] 
 
 
 
@@ -930,12 +1040,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
   }
 
-  const columnColumns = columnExtents.map((col)=>{
-      return Math.max(...Object.values(list.filter((d)=>d.column == (col?.idx ?? col)).reduce((o, d)=>{
-                                                o[d.row?.idx ?? d.row] = (o[d.row?.idx ?? d.row] || 0) + ((hideNull && d.row === "None") ? 0 : 1)
-                                                return o
-                                            },{})))
-    })
+
 
     const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
 
@@ -944,22 +1049,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const hasRowHeaders = props.compare || (rowExtents.length > 1)
 
 
-    const defaultRenderProps = {
-        "segment":{
-            hideDetails: true
-        },
-        "result": {
-            fixedSize: "8rem"
-        },
-        "entity": {
-            hideCover: true,
-            urlShort: true,
-            fixedSize: "16rem"
-        }
-    }
     
     const renderType = layers?.[layerSelection]?.items ? list?.[0]?.primitive?.type :  (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default"
-    const viewAsSegments = asSegment && layers && !layers[layerSelection]?.items
     const viewConfigs = list?.[0]?.primitive?.metadata?.renderConfig?.explore?.configs
     const viewConfig = viewConfigs?.[activeView]
     const renderProps = viewConfig?.props ?? defaultRenderProps[renderType ]
@@ -967,6 +1058,60 @@ export default function PrimitiveExplorer({primitive, ...props}){
     if( myState.current ){
         myState.current.needsScaleState = renderProps?.scales
     }
+
+    const columnColumns = useMemo(()=>{
+        return columnExtents.map((col, cIdx)=>{
+            const inColumn = list.filter(d=>d.column === (col?.idx ?? col))
+            let spanColumns = undefined
+            let spanRows = undefined
+            let nestedCount
+            if( viewAsSegments ){
+                const cc = []
+                for(const item of inColumn){
+                    const p = item.primitive
+                    if( p ){
+                        
+                        nestedCount = layerNestPreventionList.current[p.id] ? p.primitives.ref.allItems.length : p.nestedItems.length
+                        if(renderProps?.columns){
+                            if( typeof(renderProps.columns) === "number" ){
+                            }else{
+                                let defaultColumns = renderProps.columns.default ?? 1
+                                let defaultRows = renderProps.rows?.default ?? defaultColumns 
+                                let innerColumns = defaultColumns
+                                let collapseCount = 10
+                                let visibleCount = nestedCount
+                                if(renderProps.itemLimit){
+                                    if( typeof( renderProps.itemLimit) === "number"){
+                                        collapseCount = renderProps.itemLimit
+                                    }
+                                    visibleCount = expandState[p.id] ? nestedCount : Math.min( nestedCount, collapseCount)
+                                }
+                                for(const min of Object.keys(renderProps.columns) ){
+                                    if( parseInt(min) < visibleCount ){
+                                        innerColumns = renderProps.columns[min]
+                                    }
+                                }
+                                spanColumns = Math.ceil( innerColumns / defaultColumns )
+                                spanRows = Math.ceil( visibleCount / innerColumns / defaultRows)
+                                console.log(p.plainId, defaultColumns, innerColumns, visibleCount, nestedCount, expandState[p.id], spanColumns, spanRows)
+                                cc.push(spanColumns)
+                            }
+                        }
+                    }
+                    item.spanColumns = spanColumns      
+                    item.spanRows = spanRows
+                }
+                return Math.max(...cc)
+            }else{
+                const byRows = inColumn.reduce((a,c)=>{
+                    a[c.row] = (a[c.row] ?? 0) + 1
+                    return a
+                },{} )
+                return Math.max(...Object.values(byRows))
+            }
+        })
+
+    }, [primitive?.id, updateNested, colSelection, rowSelection])
 
     useMemo(()=>{
 
@@ -995,23 +1140,25 @@ export default function PrimitiveExplorer({primitive, ...props}){
             primitive.setField(`referenceParameters.explore.view`, value)
         }
         setActiveView(value)
+        forceUpdateNested()
     }
     const updateLayer = (value)=>{
         if( primitive.referenceParameters ){
             primitive.setField(`referenceParameters.explore.layer`, value)
         }
         setLayerSelection( value )
+        forceUpdateNested()
     }
     const updateHideNull = (value)=>{
         if( primitive.referenceParameters ){
             primitive.setField(`referenceParameters.explore.hideNull`, value)
         }
         setHideNull( value )
+        forceUpdateNested()
     }
 
     const updateAxis = async ( axis, idx )=>{
         const item = axisOptions[idx]
-        console.log(axis, item)
         if( item.type === "none"){
             primitive.setField(`referenceParameters.explore.axis.${axis}`, null)
         }else if( item.type === "category"){
@@ -1039,6 +1186,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     await primitive.addRelationship( item.category, `axis.${axis}`)
                 }
             }
+        }else if( item.type === "title"){
+            if( primitive.referenceParameters ){
+                const fullState = {
+                    type: "title",
+                    access: item.access
+                }
+                primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
+            }
         }else if( item.type === "parameter"){
             if( primitive.referenceParameters ){
                 const fullState = {
@@ -1049,9 +1204,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
             }
         }
+        primitive.setField(`referenceParameters.explore.filter.${axis}`, [])
         if( axis === "column"){
+            storeCurrentOffset()
             setColSelection( idx )
             setColFilter( undefined )
+
         }
         if( axis === "row"){
             setRowSelection( idx )
@@ -1066,16 +1224,65 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const selectedRowIdx = props.compare ? 0 : findAxisItem(primitive, "row", axisOptions)
     const columnOverride = props.compare ? 3 : undefined
 
-    const updateAxisFilter = (item, axis, filter, setter)=>{
-        filter = filter || (new Array(axis.values.length).fill(false))
-        if(item === 0){
+    const updateAxisFilter = (item, mode, setAll)=>{
+        let axis, filter, setter,altAxis, altFilter, altSetter, tester, altEmpty
+        console.log(mode)
+
+        if( mode === "row" ){
+            axis = axisOptions[rowSelection]
+            filter = rowFilter  
+            setter = setRowFilter
+            altAxis = axisOptions[colSelection]
+            altFilter = colFilter
+            altSetter = setColFilter
+            tester = (item, alt, c) => item.column === alt && !c[item.row]
+            altEmpty = "columnEmpty"
+
+        }else if(mode === "column"){
+            axis = axisOptions[colSelection]
+            filter = colFilter  
+            setter = setColFilter
+            altAxis = axisOptions[rowSelection]
+            altFilter = rowFilter
+            altSetter = setRowFilter
+            tester = (item, alt, c) => item.row === alt && c.includes(item.column)
+            altEmpty = "rowEmpty"
+
+        }else{
+            throw "HUH"
+        }
+
+
+        storeCurrentOffset()
+        filter = filter || {}
+        if(setAll){
             filter = new Array(axis.values.length).fill(true)
         }else{
-            item--
             filter[item] = !filter[item]
         }
         setter( filter )
-        forceUpdate()
+
+
+        if( primitive.referenceParameters ){
+            const keys = Object.keys(filter).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : d).filter(d=>filter[d])
+            primitive.setField(`referenceParameters.explore.filter.${mode}`, keys)
+        }
+        
+
+        myState.current[ altEmpty ] = {}
+        if( altAxis ){
+            const allowedValues = axis.order.map((d, idx)=> filter[ d ] ? undefined : axis.values[idx] ).filter(d=>d)
+            altAxis.order.forEach((alt,idx)=>{
+                if( !altFilter || !altFilter[alt]){
+                    const altPresent = list.filter(d=>tester(d, altAxis.values[idx], allowedValues))
+                    myState.current[ altEmpty ][alt] = altPresent.length === 0
+                }
+            })
+        }
+
+        forceUpdateRel()
+        forceUpdateNested()
+
     }
 
     const axisFilterOptions = (axis, filter)=>{
@@ -1087,20 +1294,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 selected: filter === undefined || !filter[idx]
         }}))
     }
-    const rowRemap =  rowFilter ? new Array( axisOptions[rowSelection].values.length ).fill(0).map((_,idx)=>rowFilter[idx] ? undefined : idx).filter(d=>d!==undefined) : undefined
-    const colRemap =  colFilter ? new Array( axisOptions[colSelection].values.length ).fill(0).map((_,idx)=>colFilter[idx] ? undefined : idx).filter(d=>d!==undefined) : undefined
-
-    if( rowExtents.length > 50 ){
-        rowExtents = []
-        setRowSelection(0)
-
-    }
-    if( columnExtents.length > 50 ){
-        columnExtents = []
-        setColSelection(0)
-    }
 
 
+    const rowRemap =  axisOptions[rowSelection]?.order?.map((d,idx)=>((rowFilter && rowFilter[d]) || (hideNull && myState.current?.rowEmpty?.[d])) ? undefined : idx).filter(d=>d!==undefined)
+    const colRemap =  axisOptions[colSelection]?.order?.map((d,idx)=>((colFilter && colFilter[d]) || (hideNull && myState.current?.columnEmpty?.[d])) ? undefined : idx).filter(d=>d!==undefined)
 
     const exploreView = 
     <>
@@ -1112,16 +1309,17 @@ export default function PrimitiveExplorer({primitive, ...props}){
             </div>
         }
                 <div ref={targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain relative'>
+        {props.closeButton ?? ""}
                     <div key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 top-32 p-1.5 flex flex-col place-items-start space-y-2'>
                         {!props.compare && axisOptions && <DropdownButton noBorder icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={axisOptions} flat placement='left-start' portal showTick selectedItemIdx={selectedColIdx} setSelectedItem={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && axisOptions && <DropdownButton noBorder icon={<HeroIcon icon='Rows' className='w-5 h-5'/>} items={axisOptions} flat placement='left-start' portal showTick selectedItemIdx={selectedRowIdx} setSelectedItem={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && layers && layers.length > 1 && <DropdownButton noBorder icon={<HeroIcon icon='Layers' className='w-5 h-5'/>} items={layers} flat placement='left-start' portal showTick selectedItemIdx={layers[layerSelection] ? layerSelection :  0} setSelectedItem={updateLayer} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${layerSelection > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && viewConfigs && <DropdownButton noBorder icon={<HeroIcon icon='Eye' className='w-5 h-5'/>} items={viewConfigs} flat placement='left-start' portal showTick selectedItemIdx={activeView} setSelectedItem={updateViewMode} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${activeView > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {!props.compare && <DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>updateHideNull(!hideNull)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${hideNull ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {props.compare && <DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>updateImportantOnly(!importantOnly)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${importantOnly ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {props.compare && <DropdownButton noBorder title='CF' showTick hideArrow flat items={axisFilterOptions(axisOptions[colSelection], colFilter)} placement='left-start' setSelectedItem={(d)=>updateAxisFilter(d, axisOptions[colSelection], colFilter, setColFilter )} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${axisOptions[colSelection].exclude && axisOptions[colSelection].exclude.reduce((a,c)=>a||c,false) ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {props.compare && <DropdownButton noBorder title='RF' showTick hideArrow flat items={axisFilterOptions(axisOptions[rowSelection], rowFilter)} placement='left-start' setSelectedItem={(d)=>updateAxisFilter(d, axisOptions[rowSelection], rowFilter, setRowFilter )} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${axisOptions[colSelection].exclude && axisOptions[colSelection].exclude.reduce((a,c)=>a||c,false) ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {(viewConfig?.config?.searchPane || primitive.type === "assessment") && <DropdownButton noBorder icon={<MagnifyingGlassIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>setShowSearchPane(!showSearchPane)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${hideNull ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {<DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "filter" ? setShowPane(false) : setShowPane("filter")} className={`hover:text-ccgreen-800 hover:shadow-md ${rowFilter || colFilter ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {props.compare && <DropdownButton noBorder title="IMP" items={undefined} flat placement='left-start' onClick={()=>updateImportantOnly(!importantOnly)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${importantOnly ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {props.compare && <DropdownButton noBorder title='CF' showTick hideArrow flat items={axisFilterOptions(axisOptions[colSelection], colFilter)} placement='left-start' setSelectedItem={(d)=>updateAxisFilter(d, "column")} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${axisOptions[colSelection].exclude && axisOptions[colSelection].exclude.reduce((a,c)=>a||c,false) ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {props.compare && <DropdownButton noBorder title='RF' showTick hideArrow flat items={axisFilterOptions(axisOptions[rowSelection], rowFilter)} placement='left-start' setSelectedItem={(d)=>updateAxisFilter(d, "row" )} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${axisOptions[colSelection].exclude && axisOptions[colSelection].exclude.reduce((a,c)=>a||c,false) ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {(viewConfig?.config?.searchPane || primitive.type === "assessment") && <DropdownButton noBorder icon={<MagnifyingGlassIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "search" ? setShowPane(false) : setShowPane("search")} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${hideNull ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                     </div>
                     <div key='export' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 bottom-4 p-0.5 flex flex-col place-items-start space-y-2'>
                         <DropdownButton noBorder icon={<ArrowUpTrayIcon className='w-5 h-5 '/>} 
@@ -1136,7 +1334,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         <DropdownButton noBorder icon={showCategoryPane ? <ArrowDownLeftIcon className='w-5 h-5'/> : <HeroIcon icon='Puzzle' className='w-5 h-5 '/>} onClick={()=>setshowCategoryPane(!showCategoryPane)} flat className={`hover:text-ccgreen-800 hover:shadow-md`}/>
                     </div>
                 <div 
-                    key='grid'
+                    key={`grid`}
                     ref={gridRef}
                     style = {{
 //                        transformOrigin: "top left",
@@ -1144,13 +1342,18 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         gridTemplateRows: `${hasColumnHeaders ? "min-content" : ""} repeat(${rowExtents.length}, min-content)`
                     }}
                     //className={`vfExplorer touch-none grid relative gap-4 w-fit h-fit [&>*]:bg-gray-50 ${hasMultipleUnit ? "[&>*]:p-8" : ""}`}>
-                    className={`vfExplorer touch-none grid relative gap-4 w-fit h-fit  ${hasMultipleUnit ? "[&>*]:p-8" : ""}`}>
-                    {hasColumnHeaders && <>
+                    className={`vfExplorer touch-none grid relative gap-4 w-fit h-fit  ${hasMultipleUnit ? "[&>.vfcell]:p-8" : ""}`}>
+                    {!cancelRender && hasColumnHeaders && <>
                         {hasRowHeaders && <p className='!bg-gray-100'></p>}
                         {columnExtents.map((col,idx)=>{
                             const cFilterIdx = colFilter === undefined ? idx : colRemap[idx]
                             return(
-                            <p key={`rt${idx}-${update}`}
+                            <p key={`rt${idx}-${update}-${updateNested}-${updateRel}-${colSelection}-${rowSelection}`}
+                                style={{
+                                    fontSize: myState.current.fontSize ?? '14px',    
+                                    minWidth: myState.current.minWidth ?? "100px",    
+                                    minWidth: myState.current.padding ?? "2px",    
+                                }}
                                 className='touch-none vfbgtitle z-[2] self-stretch w-full h-full flex justify-center place-items-center text-center !bg-gray-100'>
                                     {
                                         props.compare  && axisOptions[colSelection].type === "parent"
@@ -1160,17 +1363,17 @@ export default function PrimitiveExplorer({primitive, ...props}){
                             </p>
                         )})}
                     </>}
-                    { rowExtents.map((row, rIdx)=>{
+                    { !cancelRender && rowExtents.map((row, rIdx)=>{
                         const rFilterIdx = rowFilter === undefined ? rIdx : rowRemap[rIdx]
                         let rowOption = axisOptions[rowSelection]
                         return <React.Fragment>
                             {hasRowHeaders && <p 
-                                key={`ct${rIdx}-${update}`} 
+                                key={`ct${rIdx}-${update}-${updateNested}-${updateRel}`} 
                                 className='touch-none vfbgtitle z-[2] p-2 self-stretch flex justify-center place-items-center text-center !bg-gray-100'>
                                     {
                                         props.compare  && rowOption.type === "parent"
                                         ? (rowOption.order[rFilterIdx] ?  <PrimitiveCard compact primitive={mainstore.primitive(rowOption.order[rFilterIdx])} onClick={()=>MainStore().sidebarSelect( mainstore.primitive(rowOption.order[rFilterIdx]) )}/> : "None")
-                                        : (props.row?.label ?? row ?? "None")
+                                        : (row?.label ?? row ?? "None")
                                     }
                             </p>}
                             {columnExtents.map((column, cIdx)=>{
@@ -1186,8 +1389,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                 }
                                 let spanning = ""
                                     if( viewAsSegments ){
-                                        subList.forEach((d)=>d.nestedCount = layerNestPreventionList.current[d.primitive.id] ? d.primitive.primitives.ref.allItems.length : d.primitive.nestedItems.length )
-                                        subList = subList.sort((a,b)=>b.nestedCount - a.nestedCount )
+                                        //subList = subList.sort((a,b)=>b.nestedCount - a.nestedCount )
                                     }else{
                                         subList = subList.sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
                                     }
@@ -1209,10 +1411,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                     })
                                                 : {columns: columnOverride ?? Math.max(1, Math.floor(Math.sqrt(columnColumns[cIdx])))}
                                         } 
-                                        id={`${cIdx}-${rIdx}`}                                        
-                                        key={`${cIdx}-${rIdx}-${update}`}                                        
+                                        id={`${cIdx}-${rIdx}-${update}-${updateNested}-${updateRel}`}                                        
+                                        key={`${cIdx}-${rIdx}-${update}-${updateNested}-${updateRel}`}                                        
                                         className={[
-                                            
+                                           'vfcell', 
                                             `${dropOnGrid && (colOption?.allowMove || rowOption?.allowMove) ? "dropzone" : ""} ${rowOption.colors ? `bg-${rowOption.colors?.filter((_,idx)=>!rowFilter || !rowFilter[idx])?.[rIdx]}-50` : "bg-gray-50"} z-[2] w-full  p-2 overflow-y-scroll max-h-[inherit] no-break-children touch-none `,
                                             renderProps?.showList || renderProps?.showGrid ? (Math.max(...columnColumns) > 8 ? "gap-12" : "gap-2") : "gap-0"    
                                         ].join(" ")
@@ -1222,7 +1424,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 let defaultRender = item.metadata?.defaultRenderProps?.card
                                                 let defaultFields = defaultRender?.fields
                                                 let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth:'16rem'}
-                                                let columns = undefined
                                                 let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
                                                 const staggerScale = scale  + (scale / 200 * (idx % 20))
                                                 let style = {}
@@ -1233,6 +1434,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 if( viewConfig?.parameters?.fixedSpan ){
                                                     spanning= 'w-full'
                                                 }
+                                                /*
                                                 let spanColumns = undefined
                                                 let spanRows = undefined
                                                 if(renderProps?.columns){
@@ -1257,6 +1459,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                         spanRows = Math.floor( visibleCount / innerColumns / defaultRows)
                                                     }
                                                 }
+                                                */
                                             return <PrimitiveCard 
                                                 fullId 
                                                 key={item.id} 
@@ -1267,8 +1470,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 fields={defaultFields ?? fields} 
                                                 showAll={expandState[item.id]}
                                                 setShowAll={()=>setExpandState(item.id)}
-                                                spanColumns={spanColumns}
-                                                spanRows={spanRows}
+                                                spanColumns={wrapped.spanColumns}
+                                                spanRows={wrapped.spanRows}
                                                 columns
                                                 {...size} 
                                                 className={`mr-2 mb-2 touch-none ${spanning} ${viewConfig?.config?.dropOnPrimitive ? "dropzone" : ""}`}
@@ -1296,10 +1499,57 @@ export default function PrimitiveExplorer({primitive, ...props}){
         </div>
         </>
 
-    if( viewConfig?.config?.searchPane || primitive.type === "assessment"){
+    let filterPane
+    if( showPane === "filter"){
+        filterPane = []
+        const sets = [
+            {selection: colSelection, mode: "column", title: "Columns", setter: setColFilter, list: colFilter},
+            {selection: rowSelection, mode: "row", title: "Rows", setter: setRowFilter, list: rowFilter},
+        ]
+        sets.forEach(set=>{
+            const axis = axisOptions[set.selection]
+            if(axis && axis.values){
+                filterPane.push(
+                    <Panel title={set.title} collapsable>
+                        <div className='space-y-2 divide-y divide-gray-200 flex flex-col bg-gray-50 border border-gray-200 rounded-lg text-sm p-2 mt-2'>
+                            {axis.values.map((d,idx)=>{
+                                const id = axis.order[idx]
+                                return (
+                                <label
+                                    className='flex place-items-center '>
+                                    <input
+                                    aria-describedby="comments-description"
+                                    name="comments"
+                                    type="checkbox"
+                                    checked={!(set.list && set.list[id])}
+                                    onChange={()=>updateAxisFilter(id, set.mode)}
+                                    className="accent-ccgreen-700"
+                                />
+                                    <p className={`p-2 ${set.list && set.list[id] ? "text-gray-500" : ""}`}>{d}</p>
+                                </label>
+                                )})}
+                        </div> 
+                    </Panel>
+                )
+            }
+        })
+    }
+
+
+    if( true || viewConfig?.config?.searchPane || primitive.type === "assessment"){
         return <div className='flex w-full h-0 grow'>
             {exploreView}
-            {showSearchPane && <SearchPane primitive={primitive} dropParent={targetRef} dropCallback={externalDrop}/>}
+            {showPane === "search" && <SearchPane primitive={primitive} dropParent={targetRef} dropCallback={externalDrop}/>}
+            {showPane === "filter" && 
+                <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
+                    <div className='w-full p-2 text-lg'>
+                        Filter
+                    </div>
+                    <div className='w-full p-2 text-lg overflow-y-scroll'>
+                        <TooggleButton title='Hide empty rows / columns' enabled={hideNull} setEnabled={updateHideNull}/>
+                        {filterPane}
+                    </div>
+                </div>}
         </div>
     }
     return exploreView

@@ -99,10 +99,27 @@ import { renderToString } from 'react-dom/server';
             }
         }
         if( root.formatter === "datetime"){
+            const mytime = (dateString) =>{
+                let out = new Date(dateString).getTime()
+                if( isNaN(out)){
+
+                    
+                    const year = parseInt(dateString.substr(0, 4), 10);
+                    const month = parseInt(dateString.substr(4, 2), 10) - 1;
+                    const day = parseInt(dateString.substr(6, 2), 10);
+                    const hours = parseInt(dateString.substr(9, 2), 10);
+                    const minutes = parseInt(dateString.substr(11, 2), 10);
+                    const seconds = parseInt(dateString.substr(13, 2), 10);
+                    out =  new Date(Date.UTC(year, month, day, hours, minutes, seconds)).getTime()
+                }
+                return out
+
+            }
+
             if( Array.isArray(out) ){
-                out = out.map((d)=>d && new Date(d).getTime())
+                out = out.map((d)=>d && mytime(d))
             }else{
-                out = out && new Date(out).getTime()
+                out = out && mytime(out)
             }
         }
         if( root.invert ){
@@ -127,9 +144,10 @@ export function itemsForGraph( pivot, items ){
     return items
 }
 function SegmentGraph({primitive, ...props}){
-    const items = useMemo(()=>{
+    /*const items = useMemo(()=>{
         return itemsForGraph(props.pivot, props.items)
-    }, [primitive, props["x-axis"],props["y-axis"], props["z-axis"], props.log])
+    }, [primitive, props["x-axis"],props["y-axis"], props["z-axis"], props.log])*/
+    const items = props.items
 
     const imgSize = props.mode === "xy" ? 30 : 20
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
@@ -211,18 +229,23 @@ function SegmentGraph({primitive, ...props}){
         if( props.mode === "timeline" ){
             const data = list.map((d)=>{
                 let x = projectData( d, props["x-axis"], props.log, roundStats)
-                if( Array.isArray(x)){
-                    x = x.sort((a,b)=>a-b)
-                }
-                return {
+                let y = projectData( d, props["y-axis"], props.log, roundStats)
+                const point = {
                     d: d,
                     x: x,
-                    y: projectData( d, props["y-axis"], props.log, roundStats)
+                    y: y
                 }
+                if( Array.isArray(point.x) && Array.isArray(point.y) ){
+                    const temp = point.x.map((v,i)=>[v,point.y[i]]).sort((a,b)=>a[0]-b[0])
+                    point.x = temp.map(d=>d[0])
+                    point.y = temp.map(d=>d[1])
+                }
+                return point
             })
+            console.log(data)
 
             const fullTimeStamps = data.map((d)=>d.x).flat().map((d)=>parseInt(d)).filter((c,i,a)=>a.indexOf(c)===i).sort((a,b)=>a-b)
-            const ys = data.map((d)=>{
+          /*  const ys = data.map((d)=>{
                 const out = fullTimeStamps.map((target)=>{
                     if( Array.isArray(d.x)){
 
@@ -242,8 +265,30 @@ function SegmentGraph({primitive, ...props}){
                 const value = ys.map((d)=>d[i]).reduce((a,c)=>a+c,0)
                 const items = data.filter((d2)=>Array.isArray(d2.x) ? d2.x.includes(d) : d2.x === d).map((d2)=>d2.d.id)
                 return {x: d, y: value, items: items}
+            })*/
+            let last =0 
+            const agg = fullTimeStamps.map((d,i)=>{
+                const values = data.map((d2)=>{
+                    if( d2.x === d){
+                        console.log(d2.y)
+                        return d2.y
+                    }
+                    else if( Array.isArray(d2.x) ){
+                        const idx = d2.x.indexOf(d)
+                        if( idx > -1 ){
+                            console.log('idx', idx, d2.y[idx])
+                            return d2.y[idx] ?? 0
+                        }
+                    }
+                    return 0
+                })
+                const value = values.flat().reduce((a,c)=>a+c) + last
+                const items = data.filter((d2)=>Array.isArray(d2.x) ? d2.x.includes(d) : d2.x === d).map((d2)=>d2.d.id)
+                last = value
+                return {x: d, y: value, items: items}
             })
 
+            
 
             return {
                 dataset:{
@@ -767,7 +812,7 @@ export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
             </div>}
             
             
-            <p key='footer' className='text-xs text-gray-400'>#{primitive.plainId}</p>
+            <p key='footer' className='text-xs text-gray-400 grow flex place-items-end'>#{primitive.plainId}</p>
         </div>
     </>
     )

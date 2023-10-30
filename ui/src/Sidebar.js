@@ -53,22 +53,30 @@ export function Sidebar({primitive, ...props}) {
 
 
 
-    const promptDelete = ()=>{
+    const promptDelete = ( deleteNested )=>{
+        let nestedPrompt = deleteNested ? `, and ${nestedCount} nested items.\nWARNING: This will removed nested items entirely, not just from this itemt` : ""
         if( isMulti ){
-            setShowDeletePrompt( `Are you sure you want to remove ${primitive.length} items` )
+            setShowDeletePrompt( {prompt: `Are you sure you want to remove ${primitive.length} items${nestedPrompt}`, deleteNested: deleteNested} )
         }else{
 
-            setShowDeletePrompt( `Are you sure you want to remove ${primitive.displayType} #${primitive.plainId}` )
+            setShowDeletePrompt( {prompt: `Are you sure you want to remove ${primitive.displayType} #${primitive.plainId}${nestedPrompt}`, deleteNested: deleteNested} )
         }
      // setPrimitive(null)
     }
 
     const handleDelete = async ()=>{
+        
         if( isMulti ){
             for( const p of primitive ){
+                if( showDeletePrompt.deleteNested ){
+                    await p.removeChildren(true)
+                }
                 await MainStore().removePrimitive( p )
             }
         }else{
+            if( showDeletePrompt.deleteNested ){
+                await primitive.removeChildren(true)
+            }
             MainStore().removePrimitive( primitive )
         }
       setShowDeletePrompt( null )
@@ -139,12 +147,14 @@ export function Sidebar({primitive, ...props}) {
         setShowUnlinkPrompt(false)
     }
 
+    const nestedCount = props.allowRemoveChildren ? [primitive].flat().map(d=>d.primitives.allIds.length)?.reduce((a,c)=>a+c,0) : undefined
+
 
     return (
         <>
     {showLink && <PrimitivePicker target={isMulti ? primitive : [primitive]} root={isMulti ? primitive[0].task : primitive.task} path='results' callback={linkTo} setOpen={setShowLink} referenceId={resultIds} />}
     {showUnlinkPrompt && <ConfirmationPopup title="Confirm unlink" message={showUnlinkPrompt} confirmColor='indigo' confirmText='Unlink' confirm={unlinkFromScope} cancel={()=>setShowUnlinkPrompt(false)}/>}
-    {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" message={showDeletePrompt} confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
+    {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" message={showDeletePrompt.prompt} confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
     <Transition.Root 
             show={props.open}
             appear={true}
@@ -258,10 +268,17 @@ export function Sidebar({primitive, ...props}) {
                     >
                         Create sub segment
                 </button>}
+                {nestedCount > 0 && props.allowRemoveChildren && <button
+                    type="button"
+                    className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 "
+                    onClick={()=>promptDelete(true)}
+                >
+                    {(isMulti ? `Delete ${primitive.length} items` : 'Delete this') + ` and ${nestedCount} nested items`}
+                </button>}
                 <button
                     type="button"
                     className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 "
-                    onClick={promptDelete}
+                    onClick={()=>promptDelete()}
                 >
                     {isMulti ? `Delete ${primitive.length} items` : 'Delete'}
                 </button>
