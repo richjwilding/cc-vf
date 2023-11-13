@@ -84,6 +84,7 @@ export default function ViewBase({primitive, ...props}){
 
     const segmentOptions = useMemo(()=>{
         const segemnts = primitive.primitives.allSegment
+        const segmentCategory = primitive.metadata?.resultCategories?.find(d=>MainStore().category(d.resultCategoryId)?.primitiveType === "segment")?.resultCategoryId 
 
         return [
             {title: "Create new hierarhcy", icon: <PlusCircleIcon className="w-5 h-5"/>, action: ()=>buildSegment()},
@@ -92,7 +93,7 @@ export default function ViewBase({primitive, ...props}){
                     const parentSegment = await MainStore().createPrimitive({
                         title: "New Segment",
                         type: "segment",
-                        categoryId: 36,
+                        categoryId: segmentCategory,
                         parent: primitive
                     })
                     console.log('CREATED PARENT ' + parentSegment.plainId )

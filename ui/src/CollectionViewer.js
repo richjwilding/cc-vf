@@ -5,7 +5,7 @@ import GoogleHelper from './GoogleHelper';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Panel from './Panel';
 import { useEffect, useState } from "react";
-import { ArrowLeftCircleIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, ListBulletIcon, RectangleGroupIcon, TableCellsIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftCircleIcon, ArrowPathIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, ListBulletIcon, PencilIcon, PlayIcon, RectangleGroupIcon, TableCellsIcon, TrashIcon } from '@heroicons/react/24/outline';
 import PrimitiveExplorer from "./PrimitiveExplorer";
 import HierarchyView from "./HierarchyView";
 import { HeroIcon } from "./HeroIcon";
@@ -18,6 +18,10 @@ import PrimitivePicker from "./PrimitivePicker";
 import { PrimitiveCard } from "./PrimitiveCard";
 import { InputPopup } from './InputPopup';
 import ViewBase from "./ViewBase";
+import AIProcessButton from "./AIProcessButton";
+import EditableTextField from "./EditableTextField";
+import { Menu } from "@headlessui/react";
+import { Float } from "@headlessui-float/react";
 
 const allViews = ["cards","cluster", "explore", "table","table_grid", "list", "proximity" ]
 const icons = {
@@ -36,9 +40,11 @@ export default function CollectionViewer({primitive, category, ...props}){
     const [page, setPage] = useState(0)
     const [showNew, setShowNew] = useState(false)
     const [showLink, setShowLink] = useState(false)
+    const [showSearch, setShowSearch] = useState(false)
     const [showViewerPick, setShowViewerPick] = useState(true)
     const [viewerPick, setViewerPick] = useState( props.viewSelf ? primitive : undefined )
     const [manualInputPrompt, setManualInputPrompt] = useState(false)
+    const [filters, setFilters] = useState(false)
     const asViewer = category?.views?.options?.viewer || props.viewSelf
     let showDescend = category?.views?.options?.descend
 
@@ -170,6 +176,15 @@ export default function CollectionViewer({primitive, category, ...props}){
                 list = primitive.primitives.results ? primitive.primitives.results[category.id].map((d)=>d) : []
             }
         }     
+        if( filters && filters.length > 0){
+            let postFilter = []
+            for(const filter of filters){
+                if( filter.type === "parent"){
+                    postFilter = postFilter.concat( list.filter(d=>d.parentPrimitiveIds.includes(filter.id)) )
+                }
+            }
+            list = postFilter
+        }
     }
     let clusters = props.viewSelf ? [primitive] : [] //primitive?.primitives.allView.filter((d)=>!props.nestedTypes || d.referenceParameters.target === props.nestedTypes) // list.filter((d)=>d.type === "view" )
     //let clusters = props.viewSelf ? [primitive] : list.filter((d)=>d.type === "view" )
@@ -285,9 +300,44 @@ export default function CollectionViewer({primitive, category, ...props}){
                 }
     }
 
+    const toggleFilter = (item)=>{
+        let found = false
+        const newFilters = (filters || []).filter(d=>{
+            if( d.type === item.type && d.id === item.id){
+                found = true
+                return false
+            }
+            return true
+        })
+        if( !found ){
+            newFilters.push( item )
+        }
+        setFilters(newFilters)
+    }
+
+    let actionMenu = false
+    if(resultCategory?.actions ){
+        const items = resultCategory.actions.filter(d=>d.menu)
+        if( items.length > 0){
+            actionMenu = <PrimitiveCard.CardMenu 
+                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
+                            custom={items.map(d=>{
+                                return {
+                                    ...d,
+                                    action: async ()=>await MainStore().doPrimitiveAction( primitive, "auto_cascade", {cascade_key: d.key, ids: list?.map(d=>d.id)})
+                                }
+                            })} 
+                            size={10}
+                        />
+
+        }
+
+    }
+
     const pageItems = view ==="table" && !props.defaultWide ? 25 : 100
     const pages = Math.ceil( list.length / pageItems)
     const showPagination = ["table", "list", "cards"].includes(view) && pages > 1
+    const showSearchButton = category?.searchCategoryIds
 
     const showBar = (showDescend || showPagination  || (allowed.length > 1 || props.closeButton)) //&& !["explore", "cluster"].includes(view)
     const buttons = <>
@@ -295,10 +345,16 @@ export default function CollectionViewer({primitive, category, ...props}){
                     return  allowed.includes(d) && viewCategory.views.options[d] ? <Panel.MenuButton title={icons[d] || d}  onClick={()=>pickView(d)} className={view === d ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}/> : undefined
                 })}
                 {showDescend && <TooggleButton enabled={descend} setEnabled={setDescend} title={`Include nested ${category ? category.plurals : "items"}`}/>}
-                {showPagination && <Panel.MenuButton narrow icon={<ChevronLeftIcon className='w-4 h-4 '/>} className='!ml-auto mr-1' action={()=>setPage(page > 0 ? page - 1 : page)}/>}
-                {showPagination && <p className="bg-white border border-gray-300 flex place-items-center px-2 rounded-md shadow-sm text-gray-600 text-sm">{page + 1} / {pages}</p>}
-                {showPagination && <Panel.MenuButton narrow icon={<ChevronRightIcon className='w-4 h-4'/>} className='mr-1' action={()=>setPage(page < (pages - 1) ? page + 1 : pages - 1)}/>}
-                {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>} className='!ml-auto' action={props.closeButton}/> }
+                <div className="grow"></div>
+                
+                {showPagination && <div className="flex w-fit space-x-1">
+                    <Panel.MenuButton narrow icon={<ChevronLeftIcon className='w-4 h-4 '/>} className='mr-1' action={()=>setPage(page > 0 ? page - 1 : page)}/>
+                    <p className="bg-white border border-gray-300 flex place-items-center px-2 rounded-md shadow-sm text-gray-600 text-sm mr-1">{page + 1} / {pages}</p>
+                    <Panel.MenuButton narrow icon={<ChevronRightIcon className='w-4 h-4'/>} className='mr-1' action={()=>setPage(page < (pages - 1) ? page + 1 : pages - 1)}/>
+                </div>}
+                {actionMenu && actionMenu}
+                {showSearchButton && <Panel.MenuButton icon={<MagnifyingGlassIcon className='w-4 h-4 -mx-1'/>}  action={()=>setShowSearch(!showSearch)}/> }
+                {props.closeButton && <Panel.MenuButton icon={<ArrowsPointingInIcon className='w-4 h-4 -mx-1'/>}  action={props.closeButton}/> }
             </>
 
             const previewFromList = (p)=>{
@@ -316,9 +372,89 @@ export default function CollectionViewer({primitive, category, ...props}){
     }
 
 
-    const buttonBar = showBar && <div className={`flex w-full p-2  space-x-2 w-full ${(props.defaultWide || asViewer) ? "bg-gray-50 sticky top-0 z-20 rounded-t-lg bg-gray-50 border-b border-gray-200 " : ""}`}>
+    const buttonBar = showBar && <div className={`flex w-full p-2  space-x-4 w-full ${(props.defaultWide || asViewer) ? "bg-gray-50 sticky top-0 z-20 rounded-t-lg bg-gray-50 border-b border-gray-200 " : ""}`}>
                 {buttons}
             </div>
+    let searchPane = <></>
+    if( showSearch && category){
+        const searches = primitive.primitives.search?.[category.id] 
+        const searchCategoryId = [category?.searchCategoryIds].flat()?.[0] 
+
+        const createSearch = async ()=>{
+            const path = `search.${category.id}`
+            console.log(`Will add to ${path}`)
+            const newPrim = await MainStore().createPrimitive({type: 'search', parent: primitive, categoryId: searchCategoryId, parentPath: path})
+    }
+        searchPane = <div className="py-2 bg-slate-50 border m-2 rounded-lg divide-y divide-gray-200 border-b border-gray-300">
+                {(!searches || searches.length === 0) && <button
+                type="button"
+                onClick={createSearch}
+                className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                >
+                    <span className="mt-2 block text-sm font-semibold text-gray-900">{'Create a new query'}</span>
+                </button>}
+                {searches && searches.length > 0 && <>
+                    {searches.map(d=>{
+                    let action = false, active = false, error = false
+                    let title = <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
+                    return (
+                    <div className="group w-full py-2 px-4 space-y-1  hover:bg-gray-50 hover:subtle-shadow-bottom">
+                        <div className="w-full flex space-x-2 min-h-16">
+                            <div className="flex place-items-center w-full mb-1 text-slate-500">
+                                <MagnifyingGlassIcon className="w-5 h-5 mr-1"/>
+                                <PrimitiveCard primitive={d} compact titleAtBase hideTitle showEdit disableHover editing className='w-full place-items-center !bg-transparent'/>
+                            </div>
+                            <div className="flex w-fit shrink-0 ">
+                                <div
+                                    type="button"
+                                    onClick={()=>toggleFilter({type: "parent", id: d.id})}
+                                    className={[
+                                    'text-xs ml-2 py-0.5 px-1.5 shrink-0 grow-0 self-center rounded-full  font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                                        filters && filters.find(d2=>d2.type === "parent" && d2.id === d.id) ? "bg-ccgreen-100 border-ccgreen-600 text-ccgreen-800 border" : "bg-white text-gray-400"
+                                    ].join(" ")}
+                                    >
+                                    {d.primitives.uniqueAllIds.length} items
+                                </div>
+                                <div
+                                    type="button"
+                                    className={[
+                                    'text-xs ml-2 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full  font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                                        active ? "bg-ccgreen-100 border-ccgreen-600 text-ccgreen-800 border" : 
+                                        error ? "bg-red-100 border-red-600 text-red-800 border" : "bg-white text-gray-400"
+                                    ].join(" ")}
+                                    onClick={()=>mainstore.doPrimitiveAction(d, "query")}>
+                                {title}</div>
+                                <div
+                                    type="button"
+                                    className={[
+                                        'text-xs ml-0.5 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full  font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                                        "bg-white text-gray-400"
+                                    ].join(" ")}
+                                    onClick={()=>mainstore.promptDelete({prompt: "Remove search and all results?", handleDelete: ()=>mainstore.removePrimitive(d)})}>
+                                    {<TrashIcon className="h-4 w-4" aria-hidden="true" />}</div>
+                            </div>
+                        </div>
+                        <Panel collapsable open={false}>
+                            <div className="w-full flex-col text-xs my-2 space-y-1">
+                                <PrimitiveCard.Parameters primitive={d} editing leftAlign compactList className="text-xs text-slate-500" fullList fields={Object.keys(d.metadata.parameters ?? {}).filter(d=>d !== "sources")}/>
+                                {false && <div className="w-full space-x-1 flex-wrap">
+                                    <span className="text-slate-500">Keywords:</span>{
+                                    (d.referenceParameters?.keywords?.split(",") || []).map(d=>(
+                                        <span className="inline-flex items-center rounded-full bg-green-50 px-1.5 py-0.5 text-xs text-green-700 ring-1 ring-inset ring-green-600/20">{d}</span>
+                                    ))
+                                }</div>}
+                            </div>
+                            <span className="text-gray-400 text-xs">#{d.plainId}  {d.metadata.title ?? "Search"}</span>
+                        </Panel>
+                    </div>
+                )}) }
+                <div className="px-4 pt-2">
+                    <Panel.MenuButton small title={<><MagnifyingGlassIcon className="h-4 mr-1"/>New Search</>} action={createSearch} className='flex place-items-center'/>
+                </div>
+                </>
+                }
+            </div>
+    }
 
     const content = ()=><>
             {(list === undefined || list.length === 0)  
@@ -482,6 +618,7 @@ export default function CollectionViewer({primitive, category, ...props}){
     }else{
         mainContent = ()=><>
             {buttonBar}
+            {searchPane}
             {content()}
         </>
     }
@@ -492,7 +629,16 @@ export default function CollectionViewer({primitive, category, ...props}){
         {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
         {props.hidePanel 
         ? <div className={`@container  ${props.className} flex flex-col relative`}>{mainContent()}</div>
-        : <Panel panelClassName={`@container ${maxHeight}`} expandButton={props.onExpand} key={category.title} count={list.length} title={title} titleButton={createButtons} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' open={props.open} collapsable={true}>
+        : <Panel 
+            panelClassName={`@container ${maxHeight} bg-gray-50 border`} 
+            expandButton={props.onExpand} 
+            key={category.title} 
+            count={list.length} 
+            title={title} 
+            titleButton={createButtons} 
+            titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' 
+            open={props.open} 
+            collapsable={true}>
             {()=>mainContent()}
         </Panel>}
      </>

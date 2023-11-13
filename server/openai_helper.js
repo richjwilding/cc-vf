@@ -138,7 +138,7 @@ export async function summarizeMultipleAsList(list, options = {} ){
                 {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
                 {"role": "user", "content": `Provide the result as a json object with a single field called 'summary' with conatins an array of results with each entry being an object with  two fields - 1) a field called 'summary' with your summary and 2) a separate field called 'ids' containing an array with the numbers of the original problem statements contritbuting to the summary. Do not put anything other than the raw json object in the response .`},
             ],
-            {field: "summary"})
+            {field: "summary", ...options})
 
 
     if( Object.hasOwn(interim, "success")){
@@ -508,7 +508,18 @@ async function processInChunk( list, pre, post, options = {} ){
     const field = options.field ?? "answer"
     let pass = 0
 
-    let maxTokens = options.maxTokens || (options.engine === "gpt4" ? 5000 : 12000)
+    //let maxTokens = options.maxTokens || (options.engine === "gpt4" ? 5000 : 12000)
+
+
+    let defaultTokens = 12000
+    if( options.engine === "gpt4" ){
+        defaultTokens = 5000
+    }
+    if( options.engine === "gpt4p" ){
+        defaultTokens = 80000
+    }
+
+    let maxTokens = options.maxTokens || defaultTokens
     const fullContent = list.map((d, idx)=>{
         const start = options.no_num ? "" : (options.prefix ?  `${options.prefix} ${idx}: ` :`${idx}). `)
         return `${start}${(d instanceof Object ? d.content : d).replaceAll(/\n|\r/g,". ")}`
@@ -611,14 +622,24 @@ async function executeAI(messages, options = {}){
     const openai = new OpenAIApi(configuration)
     let response
     let err
+    let model = "gpt-3.5-turbo-16k"
+    let sleepBase = 2000
 //    console.log(`open_ai_helper: Sending OpenAi request`)
     if( options.engine === "gpt4" ){
         console.log(`--- GPT 4`)
+        model = "gpt-4-0613"
+        sleepBase = 20000
+    }
+    if( options.engine === "gpt4p" ){
+        console.log(`--- GPT 4 PREVIEW`)
+        model = "gpt-4-1106-preview"
+        sleepBase = 20000
     }
     const request = async ()=>{
         try{
             response = await openai.createChatCompletion({
-                model: options.engine === "gpt4" ? "gpt-4-0613" : "gpt-3.5-turbo-16k",
+                //model: options.engine === "gpt4" ?  : "gpt4" ? "gpt-4-1106-preview" "gpt-3.5-turbo-16k",                
+                model: model,
                 temperature: options.temperature || 0.7,
                 messages: messages
             });
@@ -641,7 +662,7 @@ async function executeAI(messages, options = {}){
             count++
             if( count < maxCount ){
                 console.log(`open_ai_helper: got error - sleep and will retry`)
-                await new Promise(r => setTimeout(r, options.engine === "gpt4" ? 20000 * count: 2000));                    
+                await new Promise(r => setTimeout(r, sleepBase * count ));                    
             }else{
                 console.log(`++++++ FAILED ++++++`)
             }

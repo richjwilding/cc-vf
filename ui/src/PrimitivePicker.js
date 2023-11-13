@@ -40,6 +40,12 @@ const SearchPanel = (props)=>{
       action: (p)=>p.type === props.type || (props.root && props.root.id === p.id)
     })
   }
+  if( props.resultCategoryId ){
+    filterSet.push({
+      name: "resultCategoryId",
+      action: (p)=>p.referenceId === props.resultCategoryId
+    })
+  }
   if( props.referenceId ){
     const ids = [props.referenceId].flat()
     filterSet.push({

@@ -69,8 +69,12 @@ const PrimitiveConfig = {
             needParent:true,
             needCategory:true,
         },
+        "search": {
+            needParent:true,
+            needCategory:true,
+        },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view"],
+    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search"],
     pageview:{
         "segment":{
             evidence: false,

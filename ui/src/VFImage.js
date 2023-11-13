@@ -22,7 +22,7 @@ export function VFImage({src, ...props}){
                 draggable="false" 
                 src={count ? `${src}?${count}` : src}
                 {...props}
-                className={props.className + (loaded ? '' : ' invisible max-w-[0] !mr-0')}
+                className={props.className + (loaded ? ` ${props.rounded ? "rounded-full" : ""} ${props.shadow ? "shadow-md" : ""}` : ' invisible max-w-[0] !mr-0')}
                 onLoad={()=>setLoaded(true)}
                 onError={error}
                 />

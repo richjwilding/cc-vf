@@ -28,6 +28,8 @@ const mainstore = MainStore()
             if( struct ){
                 if(struct.type === "parameter" ){
                     return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                }else if(struct.type === "question" ){
+                    return axisOptions.find(d=>d.type === struct.type &&  (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
                 }else if(struct.type === "title" ){
                     return axisOptions.find(d=>d.type === struct.type &&  (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }
@@ -59,8 +61,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [updateRel, forceUpdateRel] = useReducer( (x)=>x+1, 0)
     const [updateNested, forceUpdateNested] = useReducer( (x)=>x+1, 0)
+    const [updateExtent, forceUpdateExtent] = useReducer( (x)=>x+1, 0)
     const [colSelection, setColSelection] = React.useState(undefined)
     const [rowSelection, setRowSelection] = React.useState(undefined)
+    const [selectedBox, setSelectedBox] = React.useState(undefined)
     const [activeView, setActiveView] = React.useState(primitive?.referenceParameters?.explore?.view ?? 0)
     const layerNestPreventionList = React.useRef()
     const [hideNull, setHideNull]= React.useState(primitive?.referenceParameters?.explore?.hideNull)
@@ -83,13 +87,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const storeCurrentOffset = ()=>{
         if( gridRef.current){
             const [lx,ly,ls] = restoreState()
-            const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
             const tbb = targetRef.current.getBoundingClientRect()
-
-            const x =  -(gbb.width / 2) + (tbb.width / 2 )
-            const y =  -(gbb.height /2) + (tbb.height / 2 )
-            const rx = lx - x
-            const ry  = ly - y
+            const gbb = gridRef.current.getBoundingClientRect()
+            
+            const rx = gbb.x - tbb.x
+            const ry  = gbb.y - tbb.y
             myState.current.offset = {x: rx, y: ry, scale: ls}
         }
 
@@ -307,14 +309,16 @@ export default function PrimitiveExplorer({primitive, ...props}){
                             return
                         }else if( type === "url" ){
                             return
+                        }else if( type === "long_string" ){
+                            return
                         }else if( type === "options" ){
-                        out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, clamp: true})
+                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, clamp: true, twoPass: true, passType: "raw"})
                         }else  if( type === "currency" ||  type === "number"){
                             out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, twoPass: true, passType: parameter === "funding" ? "funding" : type})
                         }else if(  type === "contact"){
-                            out.push( {type: 'parameter', parameter: "contactName", parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access})
+                            out.push( {type: 'parameter', parameter: "contactId", parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, twoPass: true, passType: "contact"})
                         }else{
-                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access})
+                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, twoPass: true, passType: "raw"})
                         }
                     })
                 }
@@ -324,7 +328,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             catIds.forEach((id)=>{
                 const category = MainStore().category(id)
                 if( category.primitiveType === "entity" || category.primitiveType === "result" ){
-                    out.push( {type: 'title', title: `${category.title} Title`, access: access})
+                    out.push( {type: 'title', title: `${category.title} Title`, access: access, twoPass: true, passType: "raw"})
                 }
                 if( category ){
                     process(category.parameters, category.title) //
@@ -346,7 +350,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             })
         }
 
-        let out = [{type: "none", title: "None"}]
+        let out = [{type: "none", title: "None", values: [""], order:[""], labels: ["None"]}]
 
         const baseCategories = primitive.primitives.allUniqueCategory
         out = out.concat( findCategories( baseCategories ) )
@@ -361,9 +365,27 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     const origins = nodes.map((d)=>!d.isTask && d.origin).filter((d)=>d)
                     if( origins.length > 0){
                         out = out.concat( txParameters( origins, count + 1 ) )
-//                        out = out.concat( findCategories( origins, count + 1 ))
                         out = out.concat( expandOrigin(origins, count + 1) )
                     }
+                    const questions = mainstore.uniquePrimitives(mainstore.uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "prompt").map(d => d.origin))
+                    if( questions.length > 0 ){
+
+                        const labels = questions.map(d=>d.title)
+                        const values = questions.map(d=>d.id)
+                        const mapped = questions.map(d=>d.primitives.allPrompt.map(d2=>[d2.id, d.id])).flat()
+                        
+                        out.push( {type: 'question', subtype:"question", map:mapped, title: `Source question`, access: count, values: values, order: values, labels: labels})
+                    }
+                    const search = mainstore.uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "search")
+                    if( search.length > 0 ){
+
+                        const labels = search.map(d=>d.title)
+                        const values = search.map(d=>d.id)
+                        const mapped = search.map(d=>[d.id, d.id])
+                        
+                        out.push( {type: 'question', subtype:"search", map:mapped, title: `Source search`, access: count, values: values, order: values, labels: labels})
+                    }
+
                     return out
             }
             if( !props.excludeOrigin ){
@@ -417,8 +439,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     }
                     return option.values[Math.max(0,...item.parentPrimitiveIds.map((d)=>option.order?.indexOf(d)).filter((d)=>d !== -1 ))]
                 }
-            }else if( option.type === "interviewee"){
-                return (d)=>d.origin.referenceParameters?.contactName
+            }else if( option.type === "contact"){
+                return (d)=>d.origin.referenceParameters?.contactId
             }else if( option.type === "title"){
                 return (p)=>{
                     let item = p
@@ -426,6 +448,15 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         item = item.origin
                     }
                     return item.title
+                }
+            }else if( option.type === "question"){
+                return (d)=> {
+                    let item = d
+                    for(let idx = 0; idx < option.access; idx++){
+                        item = item.origin
+                    }
+                    const hits = option.map.filter(d2=>d.parentPrimitiveIds.includes(d2[0]))
+                    return hits.map(d=>d[1]).filter((d,i,a)=>a.indexOf(d)===i)[0]
                 }
             }else if( option.type === "parameter"){
                 if( option.parameterType === "options"){
@@ -448,7 +479,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     for(let idx = 0; idx < option.access; idx++){
                         item = item.origin
                     }
-                    return item?.referenceParameters[option.parameter]
+                    let value = item?.referenceParameters[option.parameter]
+                    if( option.parameterType === "number" && typeof(value) === "string"){
+                        value = parseFloat(value)
+                    }
+                    return value
                 }
             }else if( option.type === "specificity"){
                 fields = fields.filter((d)=>d!=="specificity")
@@ -488,29 +523,70 @@ export default function PrimitiveExplorer({primitive, ...props}){
     let list = React.useMemo(()=>{
         //console.log(`REDO LIST`)
         const bucket = {
+            "raw":(field)=>{
+                return {labels: interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()}
+            },
+            "contact":(field)=>{
+                const contacts = interim.map(d=>d.primitive.origin?.referenceParameters?.contact).filter((d,i,a)=>d && a.findIndex(d2=>d2.id === d.id) === i)
+                const labels = contacts.map(d=>d.name)
+                const ids = contacts.map(d=>d.id)
+
+                return {labels: labels, order: ids, values: ids}
+            },
             "funding": (field)=>{
                 const brackets = [0,100000,500000,1000000,5000000,15000000,50000000,100000000,200000000,500000000,1000000000]
-                interim.forEach((d)=>{
-                    d[field] =  brackets.filter((d2)=>d2 < d[field]).length
-                })
                 const format = brackets.map((d)=>roundCurrency(d))
-                return format.map((d,i,a)=>{return {idx: i, label: i === 0 ? "Unknown" : `${a[i-1]} - ${d}` }})
+                const labels = format.map((d,i,a)=>i === 0 ? "Unknown" : `${a[i-1]} - ${d}`)
+                const mins = format.map((d,i,a)=>i === 0 ? undefined : a[i-1])
+                const max = format.map((d,i,a)=>d)
+                interim.forEach((d)=>{
+                    d[field] = labels[ brackets.filter((d2)=>d2 < d[field]).length ]
+                })
+                return {labels: labels, bucket_min: mins, bucket_max: max}
             },
             "currency": (field)=>{
                 const brackets = [0,100000,500000,1000000,5000000,15000000,50000000,100000000,200000000,500000000,1000000000]
-                interim.forEach((d)=>{
-                    d[field]=brackets.filter((d2)=>d2 < d[field]).length
-                })
                 const format = brackets.map((d)=>roundCurrency(d))
-                return format.map((d,i,a)=>{return {idx: i, label: `${i > 0 ? a[i-1] : 0} - ${d}` }})
+                const labels = format.map((d,i,a)=>`${i > 0 ? a[i-1] : 0} - ${d}`)
+
+                const mins = format.map((d,i,a)=>i === 0 ? 0 : a[i-1])
+                const max = format.map((d,i,a)=>d)
+
+                interim.forEach((d)=>{
+                    d[field] = labels[brackets.filter((d2)=>d2 < d[field]).length]
+                })
+                return {labels: labels, bucket_min: mins, bucket_max: max}
             },
             "number": (field)=>{
-                const minValue = interim.reduce((a,c)=>c[field] < a ? c[field] : a, 0)
-                const maxValue = interim.reduce((a,c)=>c[field] > a ? c[field] : a, 0)
-                const bucket = (maxValue - minValue) / 5
+                const bucketCount = 5
+                const hasValues = interim.filter(d=>d[field])
+                const maxValue = hasValues.reduce((a,c)=>c[field] > a ? c[field] : a, 0)
+                const minValue = hasValues.reduce((a,c)=>c[field] < a ? c[field] : a, Infinity)
+                const bucket = (maxValue - minValue) / bucketCount
+                const mins = []
+                const max = []
+                let labels
+
+                if( minValue === maxValue ){
+                    mins[0] = minValue
+                    max[0] = minValue
+                    labels = [minValue]
+                }else{
+                    labels = new Array(bucketCount).fill(0).map((_,i)=>{
+                        const start = minValue + (bucket * i)
+                        mins[i] = start
+                        max[i] = start + bucket - 1
+                        return `${Math.floor(start)} - ${Math.floor(start + bucket) - 1}`
+                    }) 
+                }
                 interim.forEach((d)=>{
-                    d[field] = Math.round((d[field]- minValue) / bucket)
+                    d.old = d[field]
+                    d[field] = isNaN(d[field]) ? undefined : labels.find((_,i)=>{
+                        const v = d[field]
+                        return v>= mins[i] && v <= max[i]
+                    })
                 })
+                return {labels: labels, bucket_min: mins, bucket_max: max}
             }
         }
 
@@ -526,84 +602,104 @@ export default function PrimitiveExplorer({primitive, ...props}){
         })
 
         if( axisOptions[colSelection]?.twoPass ){
-            axisOptions[colSelection].labels = bucket[axisOptions[colSelection].passType]("column") 
+            const parsed = bucket[axisOptions[colSelection].passType]("column") 
+            axisOptions[colSelection].labels = parsed.labels
+            axisOptions[colSelection].values = parsed.values ?? axisOptions[colSelection].labels
+            axisOptions[colSelection].order = parsed.order ?? axisOptions[colSelection].values
+            if( parsed.bucket_min){
+                axisOptions[colSelection].bucket_min = parsed.bucket_min
+                axisOptions[colSelection].bucket_max = parsed.bucket_max
+            }
+            
         }
         if( axisOptions[rowSelection]?.twoPass ){
-            axisOptions[rowSelection].labels = bucket[axisOptions[rowSelection].passType]("row") 
+            const parsed = bucket[axisOptions[rowSelection].passType]("row") 
+            axisOptions[rowSelection].labels = parsed.labels
+            axisOptions[rowSelection].values = parsed.values ?? axisOptions[rowSelection].labels
+            axisOptions[rowSelection].order = parsed.order ?? axisOptions[rowSelection].values
+            if( parsed.bucket_min){
+                axisOptions[rowSelection].bucket_min = parsed.bucket_min
+                axisOptions[rowSelection].bucket_max = parsed.bucket_max
+            }
         }
 
         return interim
     },[colSelection, rowSelection, update, updateRel, items ])
 
 
-    let fields = ["title", props.fields].flat()
+    let fields = list?.[0]?.primitive?.metadata?.defaultRenderProps?.card?.fields ?? ["title", props.fields].flat()
     let originFields = [{contact: "contactName"}]
 
 
-
+    function rescaleFonts( scale = true){
+        const cHeaderWidth = props.compare ? 300 : 100
+        
+        const fontScale = scale ? (props.compare ? 1 : Math.max(1, gridRef.current.offsetWidth / 1600 )) : 1
+        const fontSize = 14 * fontScale
+        myState.current.fontSize = `${fontSize}px`
+        myState.current.padding = `${2 * fontScale}px` 
+        myState.current.minWidth = `${cHeaderWidth * fontScale }px` 
+        
+        for(const node of gridRef.current.querySelectorAll('.vfbgtitle')){
+            node.style.fontSize = myState.current.fontSize
+            node.style.padding = myState.current.padding
+            node.style.minWidth = myState.current.minWidth
+        }
+    }
 
     const [scale, setScale] = useState(1)
     useLayoutEffect(()=>{
-        //console.log(`REDO MAIN ZOOM`)
+        console.log(`REDO MAIN ZOOM`)
+        const lerpSteps = 10
         const cHeaderWidth = props.compare ? 300 : 100
         if( gridRef.current){
-                const fontSize = 14
-                myState.current.fontSize = `14px`
-                myState.current.padding = `${2}px` 
-                myState.current.minWidth = `${cHeaderWidth}px` 
-                for(const node of gridRef.current.querySelectorAll('.vfbgtitle')){
-                    node.style.fontSize = myState.current.fontSize
-                    node.style.padding = myState.current.padding
-                    node.style.minWidth = myState.current.minWidth
-                }
+            rescaleFonts( false )
             setTimeout(()=>{
-                gridRef.current.style.transform = `scale(1)`
-                const toolbarHeight = 56
-                
-                //const fontScale = Math.max(1 / 1600  *  gridRef.current.offsetWidth, 1 / 2000  *  gridRef.current.offsetHeight)
-                const fontScale = props.compare ? 1 : Math.max(1, gridRef.current.offsetWidth / 1600 )
-                const fontSize = 14 * fontScale
-                myState.current.fontSize = `${fontSize}px`
-                myState.current.padding = `${2 * fontScale}px` 
-                myState.current.minWidth = `${cHeaderWidth * fontScale }px` 
-                
-                for(const node of gridRef.current.querySelectorAll('.vfbgtitle')){
-                    node.style.fontSize = myState.current.fontSize
-                    node.style.padding = myState.current.padding
-                    node.style.minWidth = myState.current.minWidth
-                }
+                rescaleFonts()
                 const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
 
                 const tbb = targetRef.current.getBoundingClientRect()
                 
                 const border = 20
-                const tw = tbb.width
-                const th = tbb.height 
                 
-                const scale = Math.min(Math.min( (tbb.width - border) / gbb.width, (tbb.height - border - toolbarHeight) / gbb.height),1) 
+                const scale = Math.min(Math.min( (tbb.width - border) / gbb.width, (tbb.height - border) / gbb.height),1) 
                 const x =  -(gbb.width / 2) + (tbb.width / 2 )
                 const y =  -(gbb.height /2) + (tbb.height / 2 )
-                
-                gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
-                setScale(scale)
+                if(lerpSteps > 0 ){
+                    const [lx,ly,ls] = restoreState()
+                    let dx = ( x - lx) / lerpSteps
+                    let dy = ( y - ly) / lerpSteps
+                    let ds = ( scale - ls) / lerpSteps
+                    const doStep = (i = 0)=>{
+                        gridRef.current.style.transform = `translate(${lx + (dx * i)}px,${ly + (dy * i)}px) scale(${ls + (ds * i)})`
+                        if( i < lerpSteps ){
+                            i++
+                            requestAnimationFrame(()=>{ doStep(i) })
+                        }else{
+                            setScale(scale)
+                        }
+                    }
+                    doStep()
+                }else{
+                    gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
+                    setScale(scale)
+                }
             }, primitive.type === "segment" ? 150 : 150)
         }
         
     }, [gridRef.current, primitive.id, /*colSelection, rowSelection*/, selectedCategoryIds, layerSelection, activeView, hideNull, importantOnly])
 
     useLayoutEffect(()=>{
-        //console.log(`REDO ADJUST ZOOM`)
+        rescaleFonts()
         const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
         const tbb = targetRef.current.getBoundingClientRect()
 
         let x, y, scale
 
         if( myState.current.offset ){
-
-            
             scale = myState.current.offset.scale 
-            x =  myState.current.offset.x -(gbb.width / 2) + (tbb.width / 2 )
-            y =  myState.current.offset.y -(gbb.height /2) + (tbb.height / 2 )
+            x =  (gbb.width / 2) * ( scale - 1) + (myState.current.offset.x )
+            y =  (gbb.height / 2) * ( scale - 1) + (myState.current.offset.y )
         }else{
                 const border = 20
                 const toolbarHeight = 56
@@ -613,7 +709,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
         
         gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
-    }, [colSelection, rowSelection, updateRel,Object.keys(expandState).join(",")])
+    }, [colSelection, rowSelection, updateRel,Object.keys(expandState).join(","), updateExtent])
 
 
     function rebuildPrimitivePosition(){
@@ -874,6 +970,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                     myState.current.dragging.dropzone.el.style.background = null
                                 }
                                 target.el.style.background = "#6ee7b7"
+                                target.el.classList.remove("!bg-ccgreen-50")
                                 myState.current.dragging.dropzone = target
                             }
                         }
@@ -986,81 +1083,53 @@ export default function PrimitiveExplorer({primitive, ...props}){
         let out
 
         if( props.compare || axisOptions[field].type === "category" ){
+            out = axisOptions[field].values
         }else if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number" ){
-            axisOptions[field].values = axisOptions[field].labels
             out = axisOptions[field].labels
+        }else if( axisOptions[field].parameterType === "contact" ){
+            out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].values[i], label: d}))
+        }else if( axisOptions[field].type === "question" ){
+            out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].values[i], label: d}))
         }else{ 
-            
-            let values = list.map((d)=>d[fieldName]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
-            axisOptions[field].values = values
-            axisOptions[field].order = values
+            out = axisOptions[field].values
         }
-        out = axisOptions[field].values.filter((_,idx)=>!((filter && filter[axisOptions[field].order[idx]]) || (hideNull && myState.current?.[fieldName + "Empty"]?.[axisOptions[field].order[idx]]))) ?? []
+        out = out.filter((_,idx)=>!((filter && filter[axisOptions[field].order[idx]]) || (hideNull && myState.current?.[fieldName + "Empty"]?.[axisOptions[field].order[idx]]))) ?? []
 
         return out
     }
 
-
-  let [columnExtents, rowExtents] = React.useMemo(()=>{
-        return [
-            axisExtents("column", colSelection),
-            axisExtents("row", rowSelection)
-        ]
-    },[primitive.id, colSelection, rowSelection, update, hideNull, colFilter ? Object.values(colFilter).join("-") : "", rowFilter ? Object.values(rowFilter).join("-") : ""])
-  
-
-
-
-  const filterForCompare = ( subList, axis, idx, other, otherIdx)=>{
-    if( axis.type === "parent" ){
-        if(  axis.order[idx] ){
-            subList = subList.filter((item)=>item.primitive.parentPrimitiveIds?.includes(  axis.order[idx] ))
-        }else{
-            for( const exclude of axis.order ){
-                if( exclude ){
-                    subList = subList.filter((item)=>!item.primitive.parentPrimitiveIds?.includes( exclude ))
-                }
-            }
-        }
-    }
-    if( axis.type === "relationship" && other.type === "parent" ){
-        subList = subList.filter(item=>{
-            if( item.primitive.parentPrimitiveIds?.includes(  other.order[otherIdx] ) ){
-                const relationship = item.primitive.parentRelationship(  other.order[otherIdx] )
-                if( relationship.includes(axis.order[idx]) ){
-                   return true 
-                }else{
-                    return false
-                }
-            }
-        })
-
-    }
-    return subList
-
-  }
-
-
-
-    const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
-
-
-    const hasColumnHeaders = props.compare || (columnExtents.length > 1)
-    const hasRowHeaders = props.compare || (rowExtents.length > 1)
-
-
-    
     const renderType = layers?.[layerSelection]?.items ? list?.[0]?.primitive?.type :  (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default"
     const viewConfigs = list?.[0]?.primitive?.metadata?.renderConfig?.explore?.configs
     const viewConfig = viewConfigs?.[activeView]
     const renderProps = viewConfig?.props ?? defaultRenderProps[renderType ]
 
-    if( myState.current ){
-        myState.current.needsScaleState = renderProps?.scales
-    }
+    let [columnExtents, rowExtents, columnColumns] = React.useMemo(()=>{
+        
+        myState.current[ "rowEmpty" ] = {}
+        myState.current[ "columnEmpty" ] = {}
+        if( hideNull ){
+            for(const [axis, altAxis, altEmpty, filter, altFilter, tester] of [
+                [axisOptions[colSelection], axisOptions[rowSelection], "rowEmpty", colFilter, rowFilter, (item, alt, c) => item.row === alt && c.includes(item.column)], 
+                [axisOptions[rowSelection], axisOptions[colSelection], "columnEmpty", rowFilter, colFilter,(item, alt, c) => item.column === alt && !c[item.row]]
+            ] ){
+                if( axis?.order && altAxis?.order ){
+                    const allowedValues = filter ? axis.order.map((d, idx)=> filter[ d ] ? undefined : axis.values[idx] ).filter(d=>d) : axis.values
+                    altAxis.order.forEach((alt,idx)=>{
+                        if( !altFilter || !altFilter[alt]){
+                            const altPresent = list.filter(d=>tester(d, altAxis.values[idx], allowedValues))
+                            myState.current[ altEmpty ][alt] = altPresent.length === 0
+                        }
+                    })
+                }
+            }
+        }
 
-    const columnColumns = useMemo(()=>{
-        return columnExtents.map((col, cIdx)=>{
+        const columns = axisExtents("column", colSelection)
+        const rows = axisExtents("row", rowSelection)
+
+        
+
+        const columSizing = columns.map((col, cIdx)=>{
             const inColumn = list.filter(d=>d.column === (col?.idx ?? col))
             let spanColumns = undefined
             let spanRows = undefined
@@ -1103,15 +1172,77 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
                 return Math.max(...cc)
             }else{
+                const rowLabels = Object.values(rows).reduce((a,c)=>{a[c.idx ?? c]=true;return a},{})
                 const byRows = inColumn.reduce((a,c)=>{
-                    a[c.row] = (a[c.row] ?? 0) + 1
+                    if( rowLabels[c.row ]){
+                        a[c.row] = (a[c.row] ?? 0) + 1
+                    }
                     return a
                 },{} )
+                console.log(byRows)
                 return Math.max(...Object.values(byRows))
             }
         })
 
-    }, [primitive?.id, updateNested, colSelection, rowSelection])
+        console.log(`REDO EXTENTS`)
+        storeCurrentOffset()
+        forceUpdateExtent()
+
+
+        return [
+            columns,
+            rows,
+            columSizing
+        ]
+    },[primitive.id, colSelection, rowSelection, update, hideNull, colFilter ? Object.keys(colFilter).filter(d=>colFilter[d]).join("-") : "", rowFilter ? Object.keys(rowFilter).filter(d=>rowFilter[d]).join("-") : ""])
+  
+
+
+
+  const filterForCompare = ( subList, axis, idx, other, otherIdx)=>{
+    if( axis.type === "parent" ){
+        if(  axis.order[idx] ){
+            subList = subList.filter((item)=>item.primitive.parentPrimitiveIds?.includes(  axis.order[idx] ))
+        }else{
+            for( const exclude of axis.order ){
+                if( exclude ){
+                    subList = subList.filter((item)=>!item.primitive.parentPrimitiveIds?.includes( exclude ))
+                }
+            }
+        }
+    }
+    if( axis.type === "relationship" && other.type === "parent" ){
+        subList = subList.filter(item=>{
+            if( item.primitive.parentPrimitiveIds?.includes(  other.order[otherIdx] ) ){
+                const relationship = item.primitive.parentRelationship(  other.order[otherIdx] )
+                if( relationship.includes(axis.order[idx]) ){
+                   return true 
+                }else{
+                    return false
+                }
+            }
+        })
+
+    }
+    return subList
+
+  }
+
+
+
+    const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
+
+
+    const hasColumnHeaders = props.compare || axisOptions[colSelection]?.type !== "none"
+    const hasRowHeaders = props.compare || axisOptions[rowSelection]?.type !== "none"
+
+
+    
+
+    
+    if( myState.current ){
+        myState.current.needsScaleState = renderProps?.scales
+    }
 
     useMemo(()=>{
 
@@ -1194,6 +1325,15 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
                 primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
             }
+        }else if( item.type === "question"){
+            if( primitive.referenceParameters ){
+                const fullState = {
+                    type: item.type,
+                    subtype:  item.subtype,
+                    access: item.access
+                }
+                primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
+            }
         }else if( item.type === "parameter"){
             if( primitive.referenceParameters ){
                 const fullState = {
@@ -1262,13 +1402,16 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
         setter( filter )
 
+        console.log( mode, filter ? Object.keys(filter).filter(d=>filter[d]).join("-") : "" )
+
 
         if( primitive.referenceParameters ){
             const keys = Object.keys(filter).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : d).filter(d=>filter[d])
             primitive.setField(`referenceParameters.explore.filter.${mode}`, keys)
         }
+        forceUpdateExtent()
         
-
+/*
         myState.current[ altEmpty ] = {}
         if( altAxis ){
             const allowedValues = axis.order.map((d, idx)=> filter[ d ] ? undefined : axis.values[idx] ).filter(d=>d)
@@ -1279,9 +1422,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
             })
         }
-
-        forceUpdateRel()
-        forceUpdateNested()
+*/
+        //forceUpdateRel()
+        //forceUpdateNested()
 
     }
 
@@ -1348,11 +1491,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         {columnExtents.map((col,idx)=>{
                             const cFilterIdx = colFilter === undefined ? idx : colRemap[idx]
                             return(
-                            <p key={`rt${idx}-${update}-${updateNested}-${updateRel}-${colSelection}-${rowSelection}`}
+                            <p key={`rt${col.idx ?? col}-${update}-${updateNested}-${updateRel}-${updateExtent}`}
                                 style={{
                                     fontSize: myState.current.fontSize ?? '14px',    
                                     minWidth: myState.current.minWidth ?? "100px",    
-                                    minWidth: myState.current.padding ?? "2px",    
+                                    padding: myState.current.padding ?? "2px",    
                                 }}
                                 className='touch-none vfbgtitle z-[2] self-stretch w-full h-full flex justify-center place-items-center text-center !bg-gray-100'>
                                     {
@@ -1368,7 +1511,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         let rowOption = axisOptions[rowSelection]
                         return <React.Fragment>
                             {hasRowHeaders && <p 
-                                key={`ct${rIdx}-${update}-${updateNested}-${updateRel}`} 
+                                key={`ct${row.idx ?? row}-${update}-${updateNested}-${updateRel}-${updateExtent}`} 
                                 className='touch-none vfbgtitle z-[2] p-2 self-stretch flex justify-center place-items-center text-center !bg-gray-100'>
                                     {
                                         props.compare  && rowOption.type === "parent"
@@ -1387,15 +1530,40 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                 }else{
                                     subList = list.filter((item)=>item.column === (column?.idx ?? column) && item.row === (row?.idx ?? row))
                                 }
-                                let spanning = ""
-                                    if( viewAsSegments ){
-                                        //subList = subList.sort((a,b)=>b.nestedCount - a.nestedCount )
-                                    }else{
-                                        subList = subList.sort((a,b)=>a.primitive.referenceParameters.scale - b.primitive.referenceParameters.scale).reverse()
-                                    }
                                 if( viewConfig?.config?.searchPane ){
                                     subList = subList.sort((a,b)=>a.plainId - b.plainId)
                                 }
+                                
+                                const cVal = colOption.order?.[colRemap[cIdx]]
+                                const rVal = rowOption.order?.[rowRemap[rIdx]]
+
+                                const encodeFilter = (option, idx)=>{
+                                    const val = option.order?.[idx]
+
+                                    if( option?.type === "category"){
+                                        if( val === undefined ){
+                                            return {type: "not_category_level1", value: option.primitiveId, pivot: option.access}
+                                        }
+                                        return {type: "parent", value: val, pivot: option.access}
+                                    }else if( option?.type === "question"){
+                                        return {type: option.type, subtype: option.subtype, map: [val], pivot: option.access}
+                                    }else if( option.type === "parameter"){
+                                        if( option.bucket_min ){
+                                            return  {type: "parameter", param: option.parameter, min_value: option.bucket_min[idx], max_value: option.bucket_max[idx], pivot: option.access}
+                                        }else{
+                                            return  {type: "parameter", param: option.parameter, value: val, pivot: option.access}
+                                        }
+                                    } 
+                                    return undefined
+                                }
+
+                                let infoPane = {
+                                    filters: [
+                                        encodeFilter( colOption, colRemap[cIdx] ),
+                                        encodeFilter( rowOption, rowRemap[rIdx] )
+                                    ].filter(d=>d)
+                                }
+                                
                                 return <div 
                                         style={
                                             viewAsSegments
@@ -1411,10 +1579,18 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                     })
                                                 : {columns: columnOverride ?? Math.max(1, Math.floor(Math.sqrt(columnColumns[cIdx])))}
                                         } 
-                                        id={`${cIdx}-${rIdx}-${update}-${updateNested}-${updateRel}`}                                        
-                                        key={`${cIdx}-${rIdx}-${update}-${updateNested}-${updateRel}`}                                        
+                                        id={`${cIdx}-${rIdx}`}
+                                        key={`${column.idx ?? column}-${row.idx ?? row}-${update}-${updateNested}-${updateRel}-${updateExtent}`}
+                                        onClick={()=>{
+                                            console.log( infoPane )
+                                            setSelectedBox({column: cVal,row: rVal })
+                                            MainStore().sidebarSelect( primitive, {
+                                                infoPane: infoPane
+                                            })}
+                                        }
                                         className={[
                                            'vfcell', 
+                                           selectedBox?.column === cVal && selectedBox?.row === rVal ? "ring-2 ring-ccgreen-200 !bg-ccgreen-50" : "",
                                             `${dropOnGrid && (colOption?.allowMove || rowOption?.allowMove) ? "dropzone" : ""} ${rowOption.colors ? `bg-${rowOption.colors?.filter((_,idx)=>!rowFilter || !rowFilter[idx])?.[rIdx]}-50` : "bg-gray-50"} z-[2] w-full  p-2 overflow-y-scroll max-h-[inherit] no-break-children touch-none `,
                                             renderProps?.showList || renderProps?.showGrid ? (Math.max(...columnColumns) > 8 ? "gap-12" : "gap-2") : "gap-0"    
                                         ].join(" ")
@@ -1423,10 +1599,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 let item = wrapped.primitive
                                                 let defaultRender = item.metadata?.defaultRenderProps?.card
                                                 let defaultFields = defaultRender?.fields
-                                                let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth:'16rem'}
-                                                let sz = Math.floor((parseInt(item.referenceParameters.scale ** 2) / 81) * 6) + 0.5
+                                                let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth: defaultRender?.width ?? '16rem'}
                                                 const staggerScale = scale  + (scale / 200 * (idx % 20))
-                                                let style = {}
                                                 if( props.render ){
                                                     return props.render( item, staggerScale)
                                                 }
@@ -1434,32 +1608,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 if( viewConfig?.parameters?.fixedSpan ){
                                                     spanning= 'w-full'
                                                 }
-                                                /*
-                                                let spanColumns = undefined
-                                                let spanRows = undefined
-                                                if(renderProps?.columns){
-                                                    if( typeof(renderProps.columns) === "number" ){
-                                                    }else{
-                                                        let defaultColumns = renderProps.columns.default ?? 1
-                                                        let defaultRows = renderProps.rows?.default ?? defaultColumns 
-                                                        let innerColumns = defaultColumns
-                                                        let collapseCount = 10
-                                                        if(renderProps.itemLimit){
-                                                            if( typeof( renderProps.itemLimit) === "number"){
-                                                                collapseCount = renderProps.itemLimit
-                                                            }
-                                                        }
-                                                        const visibleCount = expandState[item.id] ? wrapped.nestedCount : Math.min( wrapped.nestedCount, collapseCount)
-                                                        for(const min of Object.keys(renderProps.columns) ){
-                                                            if( parseInt(min) < visibleCount ){
-                                                                innerColumns = renderProps.columns[min]
-                                                            }
-                                                        }
-                                                        spanColumns = Math.ceil( innerColumns / defaultColumns )
-                                                        spanRows = Math.floor( visibleCount / innerColumns / defaultRows)
-                                                    }
-                                                }
-                                                */
                                             return <PrimitiveCard 
                                                 fullId 
                                                 key={item.id} 
@@ -1475,12 +1623,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 columns
                                                 {...size} 
                                                 className={`mr-2 mb-2 touch-none ${spanning} ${viewConfig?.config?.dropOnPrimitive ? "dropzone" : ""}`}
+                                                {...defaultRender || {}}
                                                 {...(props.renderProps || renderProps || {})} 
                                                 onInnerCardClick={ (e, p)=>{
                                                     if( myState.current?.cancelClick ){
                                                         myState.current.cancelClick = false
                                                         return
                                                     }
+                                                    e.stopPropagation()
                                                     MainStore().sidebarSelect( p, {scope: item} )
                                                 }}
                                                 onClick={ enableClick ? (e, p)=>{
@@ -1488,6 +1638,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                         myState.current.cancelClick = false
                                                         return
                                                     }
+                                                    e.stopPropagation()
                                                     MainStore().sidebarSelect( p, {scope: primitive, context: {column: column?.label ?? column ?? "None", row: row?.label ?? row ?? "None"}} )
                                                 } : undefined}/>
                                             })}
@@ -1525,7 +1676,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                     onChange={()=>updateAxisFilter(id, set.mode)}
                                     className="accent-ccgreen-700"
                                 />
-                                    <p className={`p-2 ${set.list && set.list[id] ? "text-gray-500" : ""}`}>{d}</p>
+                                    <p className={`p-2 ${set.list && set.list[id] ? "text-gray-500" : ""}`}>{axis.labels?.[idx] ?? d}</p>
                                 </label>
                                 )})}
                         </div> 

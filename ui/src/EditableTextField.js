@@ -84,6 +84,7 @@
     }
 
     const showAsEmpty = props.value === undefined || props.value === null || props.value === ""
+    const showPlaceholder = !(props.editable && editing) && props.value === undefined && props.placeholder
 
     return (
         <>
@@ -103,13 +104,14 @@
             props.fieldClassName || '',
             props.compact ? "" : "px-1 py-1",
             props.fieldClassName && props.fieldClassName.search("text-") > -1 ? "" :props.secondary ? "text-gray-400" : "text-gray-800",
+            showPlaceholder ? "italic" : "",
             showAsEmpty ? "italic text-gray-600" : "",
             !editing ? props.clamp : "",
             editing && !errors ? "px-1 bg-gray-50 focus:outline-none focus:ring-1  focus:ring-blue-500" : "",
             editing && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
           ].join(" ")}
           >
-          {props.value || ((props.editable && editing) ? undefined : props.default)   }
+          {props.value || ((props.editable && editing) ? undefined : props.default) || props.placeholder  }
           </div>
           {props.icon && <div className='grow-0 place-items-center ml-1'>
             {props.icon}

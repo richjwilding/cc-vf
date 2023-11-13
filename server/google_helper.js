@@ -612,8 +612,63 @@ export async function replicateURLtoStorage(url, id, bucketName){
 
 }
 
+export async function fetchLinksFromWebQuery(query, options , attempts = 3){
+    try{
+        
+        const page = options.page ?? 1
 
-export async function fetchLinksFromWebQuery(query, withNextPage = false, attempt = 3){
+        const params = { 
+            "api_key": process.env.SCALESERP_KEY,
+            time_period: "last_month",
+            page: page,
+            "q": query,
+            "output":"json",
+            "include_fields": "pagination,request_info,organic_results,search_information"
+        }
+        if( options.timeFrame ){
+            params.time_period = options.timeFrame
+        }
+        
+        const url = `https://api.scaleserp.com/search?${new URLSearchParams(params).toString() }`
+        console.log(url)
+        
+        const response = await fetch(url,{
+            method: 'GET',
+        });
+        
+        if( response.status !== 200){
+            console.log(`Error from GNews`)
+            console.log(response)
+            return {error: response}
+        }
+        const data = await response.json();
+        if( data?.request_info?.success ){
+            const mapped = data?.organic_results.map(d=>{
+                return {
+                    title: d.title,
+                    url: d.link,
+                    snippet: d.snippet
+                }
+            })
+            return {
+                links: mapped,
+                nextPage: page + 1
+            }
+
+        }
+    }catch(error){
+        console.log(`Error in fetchLinksFromWebQuery`)
+        console.log(error)
+        if( attempts > 0){
+            await new Promise(r => setTimeout(r, 2000));                    
+            console.log(`retry....${attempts}`)
+            await fetchLinksFromWebQuery(query, options, attempts - 1)
+        }
+    }
+    
+}
+
+export async function fetchLinksFromWebDDGQuery(query, withNextPage = false, attempt = 3){
     console.log(`go`)
     try{
         let qp = `q=${query}`

@@ -252,6 +252,25 @@ router.get('/categories', async function(req, res, next) {
       }
 
 })
+/*
+    router.post('/primitive/:id/addImport', async function(req, res, next) {
+        try {
+            const primitiveId = req.params.id
+            const target = req.body.target
+            const filters = req.body.filters
+
+            console.log(`GOT ADD IMPORT`)
+            await addImport( primitiveId, target, filters)
+
+
+
+            res.json({success: true})
+        }catch(err){
+            console.log(err)
+            res.json({error: err})
+        }
+
+    })*/
     router.post('/primitive/:id/getDistances', async function(req, res, next) {
     const primitiveId = req.params.id
     const field = 'param.capabilities'
@@ -632,17 +651,18 @@ router.post('/set_relationship', async function(req, res, next) {
     }
 
 })
-router.get('/primitive/:id/action/:action', async function(req, res, next) {
+router.post('/primitive/:id/action/:action', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id
     const action = req.params.action
-    console.log( primitiveId, action, req.query)
+    const options = req.body
+    console.log( primitiveId, action, options)
     try{
         let result
         const primitive = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
 
         if( primitive){
-            result = await doPrimitiveAction(primitive, action, req.query, req)
+            result = await doPrimitiveAction(primitive, action, options, req)
         }
         if( result && result.error ){
             res.json({success: false, error: result.error})

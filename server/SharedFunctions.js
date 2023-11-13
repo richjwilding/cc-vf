@@ -15,6 +15,7 @@ import QueueDocument from './document_queue';
 //import silhouetteScore from '@robzzson/silhouette';
 import { localeData } from 'moment';
 import Parser from '@postlight/parser';
+import QueryQueue from './query_queue';
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -134,7 +135,7 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
         }
         if( removed.primitives ){
             const pp = new Proxy(removed.primitives, parser)
-            const cascadeIds = [pp.origin.uniqueAllIds, pp.auto.uniqueAllIds].flat()
+            const cascadeIds = [pp.origin.uniqueAllIds, pp.auto.uniqueAllIds].flat().filter((d, i, a)=>a.indexOf(d)===i)
             const childPrimitiveIds = pp.uniqueAllIds
 
             for( const childId of childPrimitiveIds ){
@@ -210,6 +211,46 @@ export async function removeRelationship(receiver, target, path){
         throw new Error("Couldn't find target")
     }
 }
+/*export async function addImport(receiver, target, filters){
+    try{
+        const path = `referenceParameters.importConfig`
+        const finalFilters = {id: target, filters: filters}
+        const query = {
+                "_id": new ObjectId(receiver),
+                [path]: {
+                    $elemMatch: {
+                    "id": target,
+                    "filters": {
+                        $all: filters.map(filter => ({
+                            $elemMatch: {$or: [
+                                {type: filter.type, value: filter.value, pivot: filter.pivot},
+                                filter.pivot == 0 ? {type: filter.type, value: filter.value, pivot: {$exists: false}} : undefined
+                            ].filter(d=>d)}
+                        }))
+                    }
+                }
+
+            }
+        }
+
+        console.log(finalFilters )
+        console.log(query )
+
+        const test = await Primitive.findOne(query)
+        if( test ){
+            console.log("FOUND - NOT IN LIS")
+        }else{
+
+            console.log("NOT FOUND")
+        }
+        console.log(test)
+    }
+    catch(error){
+        console.log( "Error on addImport" )
+        console.log(error)
+    }
+}*/
+
 export async function addRelationship(receiver, target, path){
     try{
         if( path.slice(0, 11 ) != "primitives."){
@@ -325,7 +366,7 @@ export async function primitiveDescendents(primitive, types, options={}){
         : (p)=> getAllIds( p.primitives)
 
 
-    let ids = getIds(primitive)
+    let ids = [primitive].flat().map(d=>getIds(d)).flat()
     let checked = {}
 
     do{
@@ -397,6 +438,18 @@ export function primitiveWithRelationship(primitive, relationship){
         return primitive.parentPrimitives[parentId].includes(match)
     })[0]
 }
+export async function primitiveParentsOfType(primitive, types = [] ){
+    const out = []
+    types = [types].flat()
+    const parentIds = Object.keys(primitive.parentPrimitives)
+    for( const pId of parentIds){
+        const parent = await Primitive.findOne({_id:  pId })
+        if( types.includes( parent.type) ){
+            out.push( parent )
+        }
+    }
+    return out
+}
 export function primitiveParentPath(primitive, relationship, parentId, getId ){
     const match = `primitives.${relationship}`
     let list = primitive.parentPrimitives[parentId].filter((d)=>d.slice(0,match.length) === match)
@@ -408,6 +461,193 @@ export function primitiveParentPath(primitive, relationship, parentId, getId ){
     }
     return list
 }
+
+async function getDataForImport( source ){
+    let fullList = []
+    console.log(`Importing from other sources of ${source.plainId} / ${source.id}`)
+    const sources = await primitivePrimitives(source, 'primitives.imports')
+    console.log(`GOT ${sources.map(d=>d.plainId)}`)
+    for( const imp of sources){
+        let list = []
+        if( Object.keys(imp.primitives).includes("imports")  ){
+            console.log(`has nested imports`)
+            list = list.concat( await getDataForImport( imp ))
+        }else{
+            let node = new Proxy(imp.primitives, parser)
+            if( source.referenceParameters?.path ){
+                console.log(`---- ${source.referenceParameters?.path}`)
+                node = node.fromPath(source.referenceParameters?.path)
+            }
+            let ids = node.allIds
+            let items = await Primitive.find({
+                $and:[
+                    {_id: {$in: ids}},
+                    { deleted: {$exists: false}}
+                ]
+            })
+            if( source.referenceParameters?.descend ){
+                console.log(`NEED TO DESCEND`)
+                items = await primitiveDescendents( items )
+                console.log( "After descend ", items.length)
+                
+                console.log( list.length)
+            }
+            if( source.referenceParameters?.referenceId ){
+                items = items.filter(d=>d.referenceId === source.referenceParameters.referenceId) 
+                console.log( "After ref filter ", items.length)
+            }
+            if( source.referenceParameters?.type ){
+                items = items.filter(d=>d.referenceId === source.referenceParameters.type) 
+                console.log( "After type filter ", items.length)
+            }
+            list = list.concat(items)
+        }
+        const config = source.referenceParameters?.importConfig?.filter(d=>d.id === imp.id)
+        if( config && config.length > 0){
+            let filterOut = []
+            console.log(`GOT ${config.length} configs to scan`)
+            for(const set of config ){
+                let thisSet = undefined
+                for(const filter of set.filters ){
+                    if( filter.type === "parameter"){
+                        if( filter.value !== undefined){
+                            const temp = []
+                            for(const d of (thisSet || list)){
+                                if( (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] === filter.value) {
+                                    temp.push(d)
+                                }
+                            }
+                            thisSet = temp
+                        }
+                        if( filter.min_value !== undefined ){
+                            const temp = []
+                            for(const d of (thisSet || list)){
+                                if( (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] >= filter.value) {
+                                    temp.push(d)
+                                }
+                            }
+                            thisSet = temp
+                        }
+                        if( filter.max_value !== undefined ){
+                            const temp = []
+                            for(const d of (thisSet || list)){
+                                if( (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] <= filter.value) {
+                                    temp.push(d)
+                                }
+                            }
+                            thisSet = temp
+                        }
+                    }
+                    if( filter.type === "parent" ){
+                        const temp = []
+                        const hitList = [filter.value]
+                        for(const d of (thisSet || list)){
+                            if( Object.keys((await primitiveOriginAtLevel(d, filter.pivot)).parentPrimitives ?? {}).filter(d=>hitList.includes(d)).length > 0){
+                                temp.push(d)
+                            }
+                        }
+                        thisSet = temp
+                    }
+                    if( filter.type === "not_category_level1"){
+                        const hits = [filter.value].flat()
+                        const temp = []
+                        for(const d of (thisSet || list)){
+                            let item = d
+                            if( filter.pivot > 0 ){
+                                item = await Primitive.findOne({_id:  primitiveOriginAtLevel(d, filter.pivot)})
+                            }
+                            if( item ){
+                                let found = false
+                                console.log(`Checking ${item.plainId}`)
+                                const l0s = (await primitiveParentsOfType(item, "category"))
+                                for(const l0 of l0s){
+                                    const l1s = (await primitiveParentsOfType(l0, "category"))
+                                    for(const l1 of l1s){
+                                        console.log(`check ${l1.id} vs ${hits.join(", ")}`)
+                                        if( hits.includes( l1.id) ){
+                                            found = true
+                                        }
+                                    }
+                                }
+                                if( !found ){
+                                    temp.push(d)
+                                }
+                            }
+                        }
+                        thisSet = temp
+                    }
+                    if( filter.type === "question"){
+                        const temp = []
+                        for(const d of (thisSet || list)){
+                            let item = d
+                            if( filter.pivot > 0 ){
+                                item = await Primitive.findOne({_id:  primitiveOriginAtLevel(d, filter.pivot)})
+                            }
+                            if( item ){
+
+                                const prompt = (await primitiveParentsOfType(item, "prompt"))?.[0]
+                                if( prompt ){
+                                    const question = (await primitiveParentsOfType(prompt, "question"))?.[0]
+                                    if( question ){
+                                        if( filter.map.includes( question.id)){
+                                            temp.push(d)
+                                        }
+                                    }
+                                    
+                                }
+                            }
+                        }
+                        thisSet = temp
+                    }
+                    console.log(`-- This set has ${thisSet.length} for ${filter.type}`)
+                }
+                if( thisSet ){
+                    filterOut = filterOut.concat( thisSet )
+                }
+            }
+            list = filterOut
+        }
+        fullList = fullList.concat(list)
+    }
+    console.log(`Import pivot = ` + source.referenceParameters.pivot )
+    if( source.referenceParameters?.pivot && source.referenceParameters.pivot > 0){            
+        fullList = await primitiveListOrigin( fullList, source.referenceParameters.pivot, ["result", "entity"])
+    }
+    return uniquePrimitives(fullList)
+}
+export async function primitiveOriginAtLevel( primitive, pivot ){
+    let node = primitive
+
+    for( let idx = 0; idx < pivot ; idx++){
+        const oId = primitiveOrigin( node )
+        node = await Primitive.findOne({_id: oId}) 
+    }
+    return node
+}
+export async function primitiveListOrigin( list, pivot, parentTypes = undefined ){
+    for( let idx = 0; idx < pivot; idx++ ){
+        const originIds = list.map(d=> Object.keys(d.parentPrimitives).filter((k)=>d.parentPrimitives[k].includes(`primitives.origin`))[0]).filter((d,i,a)=>a.indexOf(d)===i)
+        console.log(`ids = ${originIds.length}`)
+
+        const query = {$and:[
+            {
+                _id:  {$in: originIds}
+            },
+            { deleted: {$exists: false}}
+        ]}
+        list = await Primitive.find(query )
+        
+        console.log( `unique = `, list.length)
+
+        if( parentTypes ){
+
+            list = list.filter(d=>parentTypes.includes(d.type))
+            console.log( `filtered = `, list.length)
+        }
+    }
+    return list
+}
+
 export async function getDataForProcessing(primitive, action, source, options = {}){
     let startList = options.list 
     let list = []
@@ -419,7 +659,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
     let type = primitive.referenceParameters?.type || action.type
     const target = primitive.referenceParameters?.target || action.target || "children"
     const referenceId = primitive.referenceParameters?.referenceId || action.referenceId
-    const field = primitive.referenceParameters?.field || action.field
+    const field = primitive.referenceParameters?.field || action.field || "title"
 
     if(target === "descend"){
         if( startList ){
@@ -447,73 +687,12 @@ export async function getDataForProcessing(primitive, action, source, options = 
         list = await primitivePrimitives(source, 'ref')
         console.log(`GOT ${list.length}`)
     }else if( target === "items"){
-        console.log(`Importing from other sources of ${source.plainId} / ${source.id} vs ${primitive.id}`)
-        const sources = await primitivePrimitives(source, 'primitives.imports')
-        console.log(`GOT ${sources.map(d=>d.plainId)}`)
-        for( const imp of sources){
-            let node = new Proxy(imp.primitives, parser)
-            if( source.referenceParameters?.path ){
-                console.log(`---- ${source.referenceParameters?.path}`)
-                node = node.fromPath(source.referenceParameters?.path)
-            }
-            let ids = node.allIds
-            let items = await Primitive.find({
-                                            $and:[
-                                                {_id: {$in: ids}},
-                                                { deleted: {$exists: false}}
-                                            ]
-                                        })
-            if( source.referenceParameters?.descend ){
-                console.log(`NEED TO DESCEND`)
-                let newList = []
-                for( const child of items ){
-                    newList = newList.concat( await primitiveDescendents(child))
-                }
-                items = newList
-                console.log( "After descend ", items.length)
-
-                console.log( list.length)
-            }
-            if( source.referenceParameters?.referenceId ){
-                items = items.filter(d=>d.referenceId === source.referenceParameters.referenceId) 
-                console.log( "After ref filter ", items.length)
-            }
-            if( source.referenceParameters?.type ){
-                items = items.filter(d=>d.referenceId === source.referenceParameters.type) 
-                console.log( "After type filter ", items.length)
-            }
-            list = list.concat(items)
-        }
-        list = uniquePrimitives(list)
-        console.log( list.length)
-
-        
-        console.log(primitive.referenceParameters.pivot )
-        if( primitive.referenceParameters?.pivot && primitive.referenceParameters.pivot > 0){            
-            const parentTypes = ["result", "entity"]
-            for( let idx = 0; idx < primitive.referenceParameters.pivot; idx++ ){
-                const originIds = list.map(d=> Object.keys(d.parentPrimitives).filter((k)=>d.parentPrimitives[k].includes(`primitives.origin`))[0]).filter((d,i,a)=>a.indexOf(d)===i)
-               // const originIds = list.map(d=> Object.keys(d.parentPrimitives)).flat().filter((d,i,a)=>d && d !== "undefined" && a.indexOf(d)===i)
-                console.log(`ids = ${originIds.length}`)
-
-                const query = {$and:[
-                    {
-                        _id:  {$in: originIds}
-                    },
-                    { deleted: {$exists: false}}
-                ]}
-                list = await Primitive.find(query )
-
-
-                console.log( `unique = `, list.length)
-                const reject = list.filter(d=>!parentTypes.includes(d.type))
-                
-                list = list.filter(d=>parentTypes.includes(d.type))
-                console.log( `filtered = `, list.length)
-                
-            }
-        }
-
+        list = await getDataForImport( source )
+        console.log(`TOTAL IMPORT = ${list.length}`)
+    }
+    console.log(`Primitive pivot = ` + primitive.referenceParameters.pivot )
+    if( primitive.referenceParameters?.pivot && primitive.referenceParameters.pivot > 0){            
+        list = await primitiveListOrigin( list, primitive.referenceParameters.pivot, ["result", "entity"])
     }
     if( action.constrainId ){
         console.log(`Filtering ${list.length} for constraint ${action.constrainId} -- QUESTION OVERRIDE`)
@@ -678,6 +857,17 @@ export async function primitiveParents(primitive, path){
 
 export async function doPrimitiveAction(primitive, actionKey, options, req){
 
+    if( primitive.type === "search" ){
+        return await QueryQueue().doQuery(primitive, options)
+    }
+    if( actionKey === "auto_cascade" && options.ids && options.cascade_key){
+        for(const id of options.ids ){
+            const p = await  Primitive.findOne({_id:  new ObjectId(id)})
+
+            await doPrimitiveAction(p, options.cascade_key)
+        }
+        return
+    }
 
     try{
         if( actionKey == "quick_query" ){
@@ -761,9 +951,19 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
                 done = true
             }
-                if( command === "site_discovery"){
-                    await EnrichPrimitive().siteDiscovery(primitive, undefined, req)
+            if( command === "site_discovery"){
+                await EnrichPrimitive().siteDiscovery(primitive, undefined, req)
+            }
+            if( command === "summarize"){
+                const category = await Category.findOne({id: action.referenceCategoryId})
+                const [items, toSummarize] = await getDataForProcessing(primitive, {...action, ...(category?.openai?.summarize?.source || {})} )
+                
+                const summary = await summarizeMultiple( toSummarize, {...(category?.openai?.summarize?.execute || {}), debug: true})
+                console.log(summary)
+                if( summary && summary.summary ){
+                    dispatchControlUpdate( primitive.id, `referenceParameters.${action.targetParameter ?? "description"}`, summary.summary)
                 }
+            }
             if( primitive.type === "result" ){
                 if( command === "questions"){
                     const qIds = req.query.questionIds ? [req.query.questionIds].flat() : undefined
@@ -960,7 +1160,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     if(command === "build_view" ){
                         const path = options.path || action.path
                         const types = options.types || action.types
-                        const referenceId = (options.referenceId !== undefined ? parseInt( options.referenceId ) : undefined )|| action.referenceId
+                        const referenceId = (options.referenceId === "undefined") ? undefined : ((options.referenceId !== undefined ? parseInt( options.referenceId ) : undefined )|| action.referenceId)
                         const referenceCategoryId = (options.referenceCategoryId !== undefined ? parseInt( options.referenceCategoryId ) : undefined )|| action.referenceCategoryId
                         const baseId = primitive.referenceParameters?.baseCategory || action.baseCategory || PrimitiveConfig.typeConfig["view"].defaultReferenceBaseId || referenceCategory
                         const self = true
@@ -1247,6 +1447,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                             }
                         }
                         if( existing ){
+                            const oId = primitiveOrigin( primitive )
+                            if( oId ){
+                                await removeRelationship( oId, primitive.id, `origin` )
+                            }
+                            await addRelationship( existing.id, primitive.id, `origin` )
                             const resultSet = await findResultSetForCategoryId( existing, primitive.referenceId)
                             console.log(`-- Will link existing post at results.${resultSet}`)
                             if( resultSet !== undefined ){
@@ -1502,6 +1707,11 @@ export async function createPrimitive( data, req ){
             if( config.defaultReferenceId ){
                 if( data.data.referenceId === undefined){
                     data.data.referenceId = config.defaultReferenceId
+                }
+            }
+            if( config.needParent ){
+                if( data.data.referenceId === undefined){
+                    throw new Error(`Cant create '${type}' without a category`)
                 }
             }
 

@@ -83,6 +83,88 @@ export async function fetchLIPost(url){
 }
 
 
+export async function queryPosts(keywords, options = {}){
+
+    let totalCount = 0
+    let count = 0
+    let target = options.count ?? 20
+    let results = []
+    let timeFrame = "last_year"
+
+    const doLookup = async (term, nextPage )=>{
+        try{
+            if( nextPage === undefined){
+                count = 0
+            }
+            let hasResults = false
+            let query = "site:linkedin.com/posts " + term 
+
+            let lookup = await fetchLinksFromWebQuery(query, nextPage ? nextPage : true)
+            if( lookup && lookup.links ){
+                let out = lookup.links
+                    if( out ){
+                        for(const item of out){
+                            hasResults = true
+                            if( count < target ){
+
+                                if( options.filterPre && !(await options.filterPre({text: item.snippet, term: term})) ){
+                                    continue
+                                }
+                                
+                                if( options.existingCheck  ){
+                                    const exists = await options.existingCheck(item)
+                                    console.log(exists)
+                                    if( exists ){
+                                        continue
+                                    }
+                                }
+                                const postText = await fetchLIPost( item.url )
+                                if( options.filterPost && !(await options.filterPost({text: postText, term: term})) ){
+                                    continue
+                                }
+                                if( postText ){
+                                    const r = {
+                                        title: item.title,
+                                        referenceParameters:{
+                                            url: item.url,
+                                            snippet: item.snippet,
+                                            text: postText,
+                                        }
+                                    }
+                                    if( options.createResult ){
+                                        await options.createResult( r )
+                                    }else{
+                                        results.push(r)
+                                    }
+                                    count++
+                                    totalCount++
+                                }
+                            }
+                        }
+                    }
+            }
+            console.log(hasResults, count, target)
+            if( hasResults && count < target ){
+                if( lookup.nextPage){
+                    console.log(lookup.nextPage)
+                    await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame})
+                }else{
+                }
+            }
+        }
+        catch(error){
+            console.log("Error in searchPosts")
+            console.log(error)
+        }
+    }
+
+    for( const d of keywords.split(",")){
+        const thisSearch = '"' + d.trim() + '"'
+        await doLookup( thisSearch )
+    }
+    return options.createResult ? totalCount : results
+
+}
 export async function searchPosts(primitive, options = {}, action = {}){
 
     let totalCount = 0

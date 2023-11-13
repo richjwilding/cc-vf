@@ -69,7 +69,6 @@ let mainstore = MainStore()
       }else if( item.type === "primitive"){
         let base
         const pick = ()=>{
-          console.log(item,props)
           mainstore.globalPicker({
             root: undefined,
             callback:(pick)=>{
@@ -464,7 +463,7 @@ let mainstore = MainStore()
 
       }
 
-      const align = item.type === "long_string" ? "" : "text-end"
+      const align = (props.leftAlign || item.type === "long_string") ? "" : "text-end"
       const clamp = item.type === "long_string" && !props.disableClamp ? "line-clamp-[10]" : ""
       
       return <EditableTextField
@@ -472,6 +471,7 @@ let mainstore = MainStore()
         submitOnEnter={true} 
         value={item.value} 
         default={item.default} 
+        placeholder={item.placeholder} 
         icon={icon} 
         fieldClassName={`${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
         clamp={clamp}
@@ -489,41 +489,45 @@ let mainstore = MainStore()
     const navigate = useNavigate();
     const buttonClass = `${props.size > 6 ? 'p-1' : 'p-0.5'} shrink-0 grow-0 self-center rounded-md border ${props.bg === "transparent" ? "border-transparent hover:border-gray-300 hover:bg-white hover:shadow-sm" : `border-gray-300 ${props.bg || "bg-white"} shadow-sm`} font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
 
+    const buttonIcon = props.icon ?? <Bars3Icon className='w-full h-full'/> 
+
     const handleDelete = ()=>{
       mainstore.removePrimitive( primitive )
       setShowDeletePrompt( null )
     }
 
-    
-    const items = (props.custom || []).concat([
-      {
-        title: 'Open page',
-        action: ()=>navigate(`item/${primitive.id}`),
-        icon: ArrowTopRightOnSquareIcon,
-        skip: props.showVisitPage === undefined ? false : !props.showVisitPage
-      },
-      {
-        title: 'Open details',
-        action: ()=>mainstore.sidebarSelect(primitive),
-        icon: ArrowTopRightOnSquareIcon,
-        skip: props.showInSidebar === undefined ? true : !props.showInSidebar
-      },
-      {
-        title: 'Delete',
-        action: ()=>setShowDeletePrompt(true),
-        icon: TrashIcon,
-        skip: (props.relatedTo && !((props.relatedTo && props.showDelete === 'origin' && primitive.origin.id === props.relatedTo.id)) || (props.showDelete === undefined ? false : (props.showDelete === true)))
-      },
-      {
-        title: `Unlink from ${props.relatedTo?.displayType}`,
-        action: ()=>props.relatedTo.removeRelationship(primitive, props.relatedTo.metadata.isAggregation ? "" : "outcomes"),
-        icon: TrashIcon,
-        skip: (props.showUnlink === false || props.showUnlink === undefined) ? true : (props.relatedTo === undefined ) || (props.relatedTo && props.relatedTo.id === primitive.origin.id) || !(props.relatedTo && props.relatedTo?.primitives.includes(primitive))
-      },
-      
-    ]).concat(
-      primitive.metadata?.actions
-      ? primitive.metadata.actions.filter((d)=>d.menu).map((d)=>{
+    let items = (props.custom || [])
+    if( primitive ){
+
+      items = items.concat([
+        {
+          title: 'Open page',
+          action: ()=>navigate(`item/${primitive.id}`),
+          icon: ArrowTopRightOnSquareIcon,
+          skip: props.showVisitPage === undefined ? false : !props.showVisitPage
+        },
+        {
+          title: 'Open details',
+          action: ()=>mainstore.sidebarSelect(primitive),
+          icon: ArrowTopRightOnSquareIcon,
+          skip: props.showInSidebar === undefined ? true : !props.showInSidebar
+        },
+        {
+          title: 'Delete',
+          action: ()=>setShowDeletePrompt(true),
+          icon: TrashIcon,
+          skip: (props.relatedTo && !((props.relatedTo && props.showDelete === 'origin' && primitive.origin.id === props.relatedTo.id)) || (props.showDelete === undefined ? false : (props.showDelete === true)))
+        },
+        {
+          title: `Unlink from ${props.relatedTo?.displayType}`,
+          action: ()=>props.relatedTo.removeRelationship(primitive, props.relatedTo.metadata.isAggregation ? "" : "outcomes"),
+          icon: TrashIcon,
+          skip: (props.showUnlink === false || props.showUnlink === undefined) ? true : (props.relatedTo === undefined ) || (props.relatedTo && props.relatedTo.id === primitive.origin.id) || !(props.relatedTo && props.relatedTo?.primitives.includes(primitive))
+        },
+        
+      ]).concat(
+        primitive.metadata?.actions
+        ? primitive.metadata.actions.filter((d)=>d.menu).map((d)=>{
           return {
             title: d.title, 
             icon: d.icon || "PlayIcon", 
@@ -543,20 +547,21 @@ let mainstore = MainStore()
                 const res = await MainStore().doPrimitiveAction(primitive, d.key)
               }
             }}})
-      : [] 
-    ).filter((d)=>!d.skip)
-    const baseColor = props.color || "gray"
-
-
-    return(<>
+            : [] 
+            ).filter((d)=>!d.skip)
+          }
+            const baseColor = props.color || "gray"
+            
+            
+            return(<>
       {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
       {showDeletePrompt && <ConfirmationPopup message={`This will also delete all items that belong to this ${primitive.displayType}`} title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
       <div className={[`h-${props.size || 8} w-${props.size || 8}`, 'shrink-0', props.className].join(" ")}>
         <Menu>
           {({open})=>(<>
-          {!open && <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}><Bars3Icon className='w-full h-full'/></Menu.Button>}
+          {!open && <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}>{buttonIcon}</Menu.Button>}
           {open && <Float portal placement='bottom-end'>
-              <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}><Bars3Icon className='w-full h-full'/></Menu.Button>
+              <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}>{buttonIcon}</Menu.Button>
               <Menu.Items className={`absolute z-10 p-1 mt-2  origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none right-0 w-min`}>
                 <div className="py-1">
                   {items.map((item,idx) => (
@@ -877,7 +882,8 @@ const Parameters = function({primitive, ...props}){
         onClick={listEditable ? ()=>setEditing(idx) : undefined}
         onKeyDown={listEditable ? (e)=>listKeyHandler(e,idx) : undefined}
         className={[
-          "flex text-sm place-items-start py-2",
+          "flex text-sm place-items-start",
+          props.compactList ? "" : "py-2",
           listEditable ? "hover:bg-gray-50 hover:outline-indigo-500" : "",
           props.className || ""
         ].join(" ")}
@@ -885,7 +891,7 @@ const Parameters = function({primitive, ...props}){
         {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
         {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
           ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
-          : <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+          : <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
         }
         {props.inline && (idx < (details.length - 1)) && <p className='pl-1 text-slate-400'>•</p> }
       </div>
@@ -918,6 +924,60 @@ const fieldsBeingProcessed = function(primitive){
   }
 }
 
+const ImportList = function({primitive, ...props}){
+  useDataEvent('relationship_update', primitive.id)
+  return <div className='flex flex-col mt-1 overflow-y-scroll max-h-[inherit] rounded-lg bg-gray-50 text-sm border-gray-200'>
+    {primitive.primitives.imports.map((d)=>{
+      let items = primitive.itemsForProcessingFromImport(d, {pivot: false})
+      let itemMetadata = items?.[0]?.metadata
+      let filteredSource = d
+      let filterForImport = primitive.referenceParameters.importConfig?.filter(d2=>d2.id === d.id) ?? []
+      if( filterForImport.length === 0){
+        filterForImport = d.referenceParameters.importConfig
+        filteredSource = d.primitives?.imports?.allItems[0]
+      }
+      if( !filteredSource){
+        return <></>
+      }
+      const filterExplanation = (filterForImport ?? []).map(d=>{
+        return d.filters.map(d=>{
+          let source, value
+          if( d.type === "parent"){
+            source = "Assigned to "
+            value = mainstore.primitive(d.value).title
+          }else if( d.type === "parameter"){
+            source = (itemMetadata?.parameters[ d.param ].title ?? d.param) + " is "
+            value = "'" + d.value + "'"
+          }
+          return  <span className="inline-flex items-center rounded-full bg-green-50 px-1.5 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
+            {source + value}
+        </span>
+        }).flatMap((d, i, a)=> i < (a.length - 1) ? [d, <span className='mx-0.5 text-xs text-gray-600'>and</span>] : d)
+      }).flatMap((d, i, a)=> i < (a.length - 1) ? [d, <p className='mx-0.5 text-xs text-gray-600'>or</p>] : d)
+      return <div className='px-2 hover:bg-gray-100 py-4 border-b border-b-gray-200 group'>
+        <div className='flex w-full place-items-center'>
+          <p className='grow'>{items.length} from {filteredSource?.metadata?.title ?? filteredSource.type} #{filteredSource.plainId} : {filteredSource.title}</p>
+            <button
+              key='delete'
+                type="button"
+                onClick={()=>mainstore.promptDelete({
+                  prompt: `Remove segment from view?`,
+                  handleDelete: ()=>{
+                    mainstore.removePrimitive( d )
+                    return true
+                  }
+                })}
+                className="shink-0 grow-0 flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-ccgreen-500 invisible group-hover:visible"
+            >
+                <TrashIcon className="h-5 w-5" aria-hidden="true" />
+            </button>
+        </div>
+        {filterExplanation}
+       </div>
+    })}
+  </div>
+
+}
 const EvidenceList = function({primitive, ...props}){
   let evidence = props.evidenceList || primitive?.primitives.allUniqueEvidence
   useDataEvent('relationship_update', evidence.map((d)=>d.id))
@@ -1133,7 +1193,7 @@ const Hero = function({primitive, ...props}){
           props.bg ? props.bg : 'bg-white',
           'w-96 min-h-[12em]',
           'rounded-lg',
-          `focus:ring-2 ring-offset-4 focus:outline-none hover:ring-2 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}`,
+          `focus:ring-2 ring-offset-4 focus:outline-none hover:ring-2 hover:ring-ccgreen-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}`,
           "shadow border-[1px]",
           props.className].filter((d)=>d).join(' ')
         }>
@@ -1302,7 +1362,7 @@ const Entity=({primitive, ...props})=>{
           className={
           [
             "pcard group relative flex rounded-lg p-2",
-            ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
+            ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-ccgreen-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
             'place-items-center',
             props.className].filter((d)=>d).join(' ')
           }>
@@ -1442,7 +1502,7 @@ const Entity=({primitive, ...props})=>{
           props.hideCover !== true ? "min-h-[12rem]" : "", 
           props.bg ? props.bg : 'bg-white',
           props.flatBorder ? '' : 'rounded-lg',
-          ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
+          ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-ccgreen-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
           props.border ? "shadow border-[1px]" : '',
           props.inline ? "flex space-x-2" : "",
           props.dragShadow ? "shadow-xl rotate-[-5deg]" : "",
@@ -1692,6 +1752,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           value = {primitive.title}
           className='w-full'
           compact={true}
+          placeholder={primitive.metadata?.placeholder ?? "Empty"}
           fieldClassName={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-${mainTextSize} ${withHero ? "px-2 self-end text-slate-50 font-bold" : "text-slate-700"}`}>
         </EditableTextField>
         {props.showMenu &&
@@ -1784,7 +1845,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           props.bg ? props.bg : 'bg-white',
           margin,
           props.flatBorder ? '' : 'rounded-lg',
-          ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
+          ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-ccgreen-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
           props.border ? "shadow border-[1px]" : '',
           props.inline ? "flex space-x-2" : "",
           props.dragShadow ? "shadow-xl rotate-[-5deg]" : "",
@@ -1800,13 +1861,20 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
             />
           </div>}
           {
-            primitive.type === "result" && primitive.referenceParameters?.hasImg && 
+            (primitive.type === "result" && primitive.referenceParameters?.hasImg)   && 
               <>
                 <div className="bg-gray-200 h-[8.25rem] mb-2 w-full rounded-t-lg"/>
                 <VFImage className="absolute top-0 left-0 object-cover h-36 w-full rounded-t-lg" src={`/api/image/${primitive.id}`}/>
               </>
           }
-        {header}
+          {props.showImg 
+            ?  
+              <div className='w-full flex mb-2 text-lg'>
+                <VFImage rounded shadow className="object-cover h-12 w-12 mr-2" src={`/api/image/${primitive.id}`}/>
+                {header}
+              </div>
+            : header
+          }
       {fields && (packedFields === undefined || fields.length > 0) &&
         <div className={[
           props.inline ? `flex items-start justify-between space-x-1 w-max` : ``,
@@ -1919,3 +1987,4 @@ PrimitiveCard.EvidenceList = EvidenceList
 PrimitiveCard.RenderItem = RenderItem
 PrimitiveCard.CardMenu = CardMenu
 PrimitiveCard.SmallMeta = SmallMeta
+PrimitiveCard.ImportList = ImportList

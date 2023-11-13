@@ -8,6 +8,29 @@ import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 
 
+function areArraysEqualIgnoreOrder(arr1, arr2) {
+    // Check if both arrays have the same length
+    if( !arr1 || !arr2 ){
+        return false
+    }
+    if (arr1.length !== arr2.length) {
+        return false;
+    }
+
+    // Sort the arrays
+    const sortedArr1 = arr1.slice().sort();
+    const sortedArr2 = arr2.slice().sort();
+
+    // Compare the sorted arrays element by element
+    for (let i = 0; i < sortedArr1.length; i++) {
+        if (sortedArr1[i] !== sortedArr2[i]) {
+            return false;
+        }
+    }
+
+    // If all elements are equal, the arrays are equal
+    return true;
+}
 
 let instance = undefined
 function MainStore (prims){
@@ -382,6 +405,29 @@ function MainStore (prims){
                 )
 
             },
+            /*addImport( primitive, target, filters ){
+                const data = {
+                    target: target.id,
+                    filters: filters
+                }
+                let url = `/api/primitive/${primitive.id}/addImport`
+                fetch(url,{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(res => res.json())
+                    .then(
+                    (result) => {
+                        obj.ajaxResponseHandler( result )
+                    },
+                    (error) => {
+                        console.warn(error)
+                    }
+                    )
+            },*/
             moveRelationship( receiver, target, from, to ){
                 const data = {
                     receiver: receiver.id,
@@ -808,14 +854,12 @@ function MainStore (prims){
         doPrimitiveAction:async function (primitive, action, params){
             let url = `/api/primitive/${primitive.id}/action/${action}`
 
-            if(params){
-                url += '?' + new URLSearchParams(params)
-            }
-
-            let out
-
             const result = await fetch(url,{
-                method: "GET",
+                method: "POST",
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(params)
             })
             const response = await result.json()
             console.log(response)
@@ -1396,6 +1440,17 @@ function MainStore (prims){
                     return d.type === "activity" || d.type === "experiment"
                 }
 
+                if( prop === "originAtLevel"){
+                    return function(level){
+                        let node = receiver
+                        while(level--){
+                            if( node ){
+                                node = node.origin
+                            }
+                        }
+                        return node
+                    }                    
+                }
                 if( prop === "metadata"){
                     let category = obj.categories().find((p)=>p.id === d.referenceId )
                     if( category === undefined){
@@ -1408,32 +1463,144 @@ function MainStore (prims){
                     return receiver.primitives[type]
                 }
                 if( type === "primitive"){
-                    if( prop === "itemsForProcessing"){
-                        if( Object.keys(receiver.primitives).includes("imports")){
-                            console.log(`Importing from other sources`)
-                            let list = []
-                            for( const source of receiver.primitives.imports.allItems){
-                                let node = source.primitives
-                                if( receiver.referenceParameters?.path ){
-                                    node = node.fromPath(receiver.referenceParameters?.path)
-                                }
-                                let items = node.allItems
-                                if( receiver.referenceParameters?.descend ){
-                                    items = items.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
-                                }
-                                if( receiver.referenceParameters?.referenceId ){
-                                    items = items.filter(d=>d.referenceId === receiver.referenceParameters.referenceId) 
-                                }
-                                if( receiver.referenceParameters?.type ){
-                                    items = items.filter(d=>d.referenceId === receiver.referenceParameters.type) 
-                                }
-                                list = list.concat(items)
-                                
+                    /*
+                    if( prop === "addImport"){
+                        return (target, filters)=>{
+                            if( receiver.doesImport(target.id, filters)){
+                                return 
                             }
-                            return uniquePrimitives(list)
-                        }else{
-                            return receiver.primitives.uniqueAllItems
-                        }                        
+                            console.log(`NEED TO ADD IMPORT`)
+                            obj.controller.addImport( receiver, target, filters)
+                        }
+                    }*/
+                    if( prop === "doesImport"){
+                        return (id, filters)=>{
+                            if( receiver?.referenceParameters?.target === "items" && receiver.referenceParameters.importConfig){
+                                const candidates = receiver.referenceParameters.importConfig.filter(d=>d.id === id)
+                                const match = candidates.filter(d=> d.filters.filter(d2 => {
+                                    return filters.find(ip=> Object.keys(d2).filter(k=>k !== "id").reduce((a,c)=>{
+                                        let res = false
+                                        if( Array.isArray(d2[c]) ){
+                                            res = areArraysEqualIgnoreOrder( d2[c], ip[c])
+                                            
+                                        }else{
+                                            res = (d2[c] === ip[c]) 
+                                        }
+                                        return res && a}, true))
+                                }).length === filters.length)
+
+                                if( match.length === 1){
+                                    return true
+                                }
+                            }
+                            return false
+                        }
+                    }
+                    if( prop === "filterItems"){
+                        return (list, filters)=>{
+                            let thisSet
+                            for( const filter of filters){
+
+                                console.log(filter)
+                                
+                                if( filter.type === "parent"){
+                                    thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).parentPrimitiveIds.includes(filter.value)) 
+                                }else if( filter.type === "not_category_level1"){
+                                    const hits = [filter.value].flat()
+                                    thisSet = (thisSet || list).filter(d=>{
+                                        const level1 = d.findParentPrimitives({type: "category"}).map(d=>d.findParentPrimitives({type: "category"}).map(d=>d.id)).flat(2)
+                                        return !hits.filter(d=>level1.includes(d)).length > 0
+                                    })
+                                }else if( filter.type === "question"){
+                                    thisSet = (thisSet || list).filter(d=>filter.map.includes( d.findParentPrimitives({type: "question"})?.[0]?.id))
+                                }else if( filter.type === "parameter"){
+                                    if( filter.value !== undefined){
+                                        thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] === filter.value)
+                                    }
+                                    if( filter.min_value !== undefined ){
+                                        thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] >= filter.min_value)
+                                    }
+                                    if( filter.max_value !== undefined ){
+                                        thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] <= filter.max_value)
+                                    }
+                                }
+                            }
+                            return thisSet || []
+                        }
+                    }
+                    if( prop === "itemsForProcessing"){
+                        return receiver.itemsForProcessingWithOptions()
+                    }
+                    if( prop === "itemsForProcessingWithFilter"){
+                        return (f)=>{
+                            let items = receiver.itemsForProcessingWithOptions()
+                            if( f && f.length > 0){ 
+                                return receiver.filterItems( items, f)
+                            }else{
+                                return items
+                            }
+                        }
+                    }
+                    if( prop === "itemsForProcessingFromImport"){
+                        return (p, o)=>receiver.itemsForProcessingWithOptions(p.id, o)
+                    }
+                    if( prop === "itemsForProcessingWithOptions"){
+                        return (id, options)=>{
+
+                            if( Object.keys(receiver.primitives).includes("imports")){
+                                console.log(`Importing from other sources`)
+                                let fullList = []
+                                for( const source of receiver.primitives.imports.allItems){
+                                    if( id && source.id !== id){
+                                        continue
+                                    }
+                                    let list = []
+                                    let node = source.primitives
+                                    if( Object.keys(node).includes("imports")  ){
+                                        list = list.concat(source.itemsForProcessing )
+                                        console.log(`has nested imports - got ${list.length}`)
+                                    }else{
+                                        if( receiver.referenceParameters?.path ){
+                                            node = node.fromPath(receiver.referenceParameters?.path)
+                                        }
+                                        let items = node.allItems
+                                        if( receiver.referenceParameters?.descend ){
+                                            items = items.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
+                                        }
+                                        if( receiver.referenceParameters?.referenceId ){
+                                            items = items.filter(d=>d.referenceId === receiver.referenceParameters.referenceId) 
+                                        }
+                                        if( receiver.referenceParameters?.type ){
+                                            items = items.filter(d=>d.referenceId === receiver.referenceParameters.type) 
+                                        }
+                                        list = list.concat(items)
+                                    }
+                                    let config
+                                    
+                                    config = receiver.referenceParameters?.importConfig?.filter(d=>d.id === source.id)
+                                    console.log(`GOT ${config?.length} configs to scan`)
+
+                                    if( config && config.length > 0){
+                                        let filterOut = []
+                                        for(const set of config ){
+                                            let thisSet = receiver.filterItems(list, set.filters)
+                                            if( thisSet ){
+                                                filterOut = filterOut.concat( thisSet )
+                                            }
+                                        }
+                                        list = filterOut
+                                    }
+                                    const old = fullList.length
+                                    fullList = fullList.concat(list)
+                                }
+                                if( (options?.pivot !== false) && receiver.referenceParameters?.pivot){
+                                    fullList = fullList.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot))
+                                }
+                                return uniquePrimitives(fullList)
+                            }else{
+                                return receiver.primitives.uniqueAllItems
+                            }                        
+                        }
                     }
                     if( prop === "nestedItems"){
                         if( d.type === "view"){
@@ -1511,10 +1678,7 @@ function MainStore (prims){
                         return d.parentPrimitives
                     }
                     if( prop === "parentPrimitives"){
-                        //const old = obj.primitives().filter((t)=>t.primitives.includes(d.id)).map((d)=>d.plainId).sort()
                         const parents = receiver.parentPrimitiveIds.map((d)=>obj.primitive(d)).filter((d)=>d)
-                        //const check = parents.map((d)=>d.plainId).sort()
-                        //console.assert( check.length === old.length )
                         return parents
                     }
                     if( prop === "parentPrimitiveIds"){

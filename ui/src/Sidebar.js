@@ -13,6 +13,7 @@ import PrimitiveConfig from './PrimitiveConfig'
 import PrimitivePicker from './PrimitivePicker'
 import { VFImage } from './VFImage'
 import useDataEvent from './CustomHook'
+import CardGrid from './CardGrid'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -23,8 +24,9 @@ export function Sidebar({primitive, ...props}) {
     const [showUnlinkPrompt, setShowUnlinkPrompt] = useState(false)
     const [showLink, setShowLink] = useState(false)
     
-    useDataEvent('set_field', Array.isArray(primitive) ?  primitive.map(d=>d?.id) : primitive?.id )
+    useDataEvent('set_field relationship_update', Array.isArray(primitive) ?  primitive.map(d=>d?.id) : primitive?.id )
 
+    let infoPane = props.infoPane
     let isMulti = false
     let commonMultiType 
     if( primitive === undefined ){
@@ -149,10 +151,104 @@ export function Sidebar({primitive, ...props}) {
 
     const nestedCount = props.allowRemoveChildren ? [primitive].flat().map(d=>d.primitives.allIds.length)?.reduce((a,c)=>a+c,0) : undefined
 
+    let infoPaneContent 
+    if( infoPane ){
+        const segment = primitive.primitives.allSegment.find(d=>d.doesImport( primitive.id, infoPane.filters))
+        if( segment ){
+            console.log(`FOUND SEGEMNT `, segment.plainId, segment.itemsForProcessing.length)
+        }
+        let segmentCategory = primitive.metadata?.resultCategories?.find(d=>MainStore().category(d.resultCategoryId)?.primitiveType === "segment")?.resultCategoryId 
+
+        const items = segment ? segment.itemsForProcessing : primitive.itemsForProcessingWithFilter(infoPane.filters)
+        const categories = items.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
+        if( categories.length === 1){
+            console.log(`Single category of items selected ${categories[0]}`)
+            const candidates = MainStore().categories().filter(d=>d.primitiveType === 'segment' && d.holds?.includes(categories[0]))
+            if( candidates.length > 0){
+                if( candidates.length > 1){
+                    console.log(`Found ${candidates.length} candidate segments for items, picking first = ${candidates[0].id}`)
+                }
+                segmentCategory = candidates[0].id
+            }
+        }
+        console.log(` Will created as ${segmentCategory}`)
+
+        console.log(items.map(d=>d.plainId))
+        const addSegment = async ()=>{
+            const newPrim = await MainStore().createPrimitive({
+                title: "New Segment",
+                type: "segment",
+                categoryId: segmentCategory,
+                parent: primitive,
+                referenceParameters:{
+                    "target": "items",
+                    "importConfig": [{filters: infoPane.filters,id: primitive.id}]
+                }
+            })
+            console.log(newPrim)
+            if( newPrim ){
+                await newPrim.addRelationship(primitive, "imports")
+            }
+            return newPrim
+        }
+
+
+        infoPaneContent = <div className='p-4 space-y-2'>
+            <p className='text-lg'>{items.length} items</p>
+            {segment && <>
+                    {primitive.metadata?.actions && <div className='w-full flex'>
+                        <PrimitiveCard.CardMenu primitive={segment} className='ml-auto m-2'/>
+                    </div>}
+                    <PrimitiveCard primitive={segment} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
+                </> 
+            }
+            {!segment && <button
+                type="button"
+                className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                onClick={addSegment}
+                >
+                Create as segment
+            </button>}
+            {!segment && <button
+                type="button"
+                className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                onClick={async ()=>{
+                    setShowLink({
+                        root: primitive.task,
+                        exclude: [primitive],
+                        resultCategoryId: primitive.referenceId,
+                        callback: async (d)=>{
+                            const newSegment = await addSegment()
+                            await d.addRelationship( newSegment, "imports" )
+                        }
+                    })
+                }}
+                >
+                    Create as segment and add to a different View
+                </button>}
+            {segment && <button
+                type="button"
+                className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                onClick={async ()=>{
+                    setShowLink({
+                        root: primitive.task,
+                        exclude: [primitive],
+                        resultCategoryId: primitive.referenceId,
+                        callback: (d)=>{
+                            d.addRelationship( segment, "imports" )
+                        }
+                    })
+                }}
+                >
+                    Add segment to a different View
+                </button>}
+        </div>
+    }
 
     return (
         <>
-    {showLink && <PrimitivePicker target={isMulti ? primitive : [primitive]} root={isMulti ? primitive[0].task : primitive.task} path='results' callback={linkTo} setOpen={setShowLink} referenceId={resultIds} />}
+    {!infoPane && showLink && <PrimitivePicker target={isMulti ? primitive : [primitive]} root={isMulti ? primitive[0].task : primitive.task} path='results' callback={linkTo} setOpen={setShowLink} referenceId={resultIds} />}
+    {infoPane && showLink && <PrimitivePicker setOpen={setShowLink} {...showLink} />}
     {showUnlinkPrompt && <ConfirmationPopup title="Confirm unlink" message={showUnlinkPrompt} confirmColor='indigo' confirmText='Unlink' confirm={unlinkFromScope} cancel={()=>setShowUnlinkPrompt(false)}/>}
     {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" message={showDeletePrompt.prompt} confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
     <Transition.Root 
@@ -190,13 +286,14 @@ export function Sidebar({primitive, ...props}) {
                     </div>
                 </div>
             </div>
-            {isMulti && !commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">Cant inspect selection</div> }            
-            {isMulti && commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">{primitive.length} items selected</div> }
-            {!isMulti && (primitive.referenceParameters?.hasImg || primitive.metadata?.actions) && <div className='w-full flex'>
+            {infoPane && infoPaneContent}
+            {!infoPane && isMulti && !commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">Cant inspect selection</div> }            
+            {!infoPane && isMulti && commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">{primitive.length} items selected</div> }
+            {!infoPane && !isMulti && (primitive.referenceParameters?.hasImg || primitive.metadata?.actions) && <div className='w-full flex'>
                 {primitive.referenceParameters?.hasImg  &&  <VFImage className="w-8 h-8 mx-2 object-contain my-auto" src={`/api/image/${primitive.id}`} />}
                 {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} className='ml-auto m-2'/> }            
             </div>}
-            {!isMulti && <div className="pb-2 pl-4 pr-4 pt-4">
+            {!infoPane && !isMulti && <div className="pb-2 pl-4 pr-4 pt-4">
                 <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
                 {primitive.type === "result" && primitive.referenceParameters?.url && <Panel.MenuButton title='View text' onClick={async ()=>alert(await primitive.getDocumentAsText())}/>}
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
@@ -204,9 +301,31 @@ export function Sidebar({primitive, ...props}) {
                         <PrimitiveCard.EvidenceHypothesisRelationship primitive={primitive} title={false} />
                     </Panel>
                 }
+                {Object.keys(primitive.primitives || {}).includes("imports") &&
+                    <Panel title="Input segments" collapsable={true} open={false} major>
+                        <PrimitiveCard.ImportList primitive={primitive}/>
+                    </Panel>
+                }
                 {primitive.primitives.allUniqueEvidence.length > 0 && 
                     <Panel title="Evidence" collapsable={true} open={true} major>
                         <PrimitiveCard.EvidenceList primitive={primitive} hideTitle relationshipMode="none"/>
+                    </Panel>
+                }
+                {primitive.primitives.results?.[0].allIds.length > 0 && 
+                    <Panel title={primitive.metadata?.resultCategories?.find(d=>d.id === 0)?.title ?? "Items"} collapsable={true} open={true} major>
+                        <CardGrid   
+                            list={primitive.primitives.results[0].allItems} 
+                            className='p-2'
+                            columnConfig={{"sm":1}}
+                            cardProps={{
+                                showDetails:"panel",
+                                compact: true,
+                                border:false,
+                                showExpand: false,
+                                titleAtBase: true, 
+                                showMenu: true
+                            }}
+                        />
                     </Panel>
                 }
                 {origin && showSource &&
@@ -220,19 +339,7 @@ export function Sidebar({primitive, ...props}) {
                     <PrimitiveCard primitive={task}  showState={true} showDetails="panel" showUsers="panel" showLink={true}/>
                 </div>}
             </div>}
-            {showButtons && <div className="flex-shrink-0 justify-between space-y-2 p-4 mt-1">
-                {false && props.context?.row !== undefined && props.context?.column !== undefined &&
-                    <button
-                        type="button"
-                        className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                        onClick={async ()=>{
-                            const result = await MainStore().doPrimitiveAction( primitive.origin, "quick_query", {lookup: [props.context.column,props.context.row].filter(d=>d && d.length >0).join(" and ")})
-                            //alert(result)
-                        }}
-                    >
-                        Extract context ({props.context.column} {props.context.row})
-                    </button>
-                    }
+            {!infoPane && showButtons && <div className="flex-shrink-0 justify-between space-y-2 p-4 mt-1">
                 {showUnlinkFromScope && <button
                     type="button"
                     className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"

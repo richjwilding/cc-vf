@@ -11,6 +11,7 @@ import http from 'http';
 import QueueDocument from '../document_queue';
 import QueueAI from '../ai_queue';
 import EnrichPrimitive from '../enrich_queue';
+import QueryQueue from '../query_queue';
 const debug = debugLib('your-project-name:server');
 
 /**
@@ -35,6 +36,7 @@ SIO.init( server )
 QueueDocument().myInit()
 QueueAI().myInit()
 EnrichPrimitive().myInit()
+QueryQueue().myInit()
 
 server.listen(port);
 server.on('error', onError);
