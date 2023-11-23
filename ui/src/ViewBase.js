@@ -18,19 +18,21 @@ const views = [
 ]
 
 export default function ViewBase({primitive, ...props}){
-    const loadSegmentView = (view, skip = false)=>{
+    const loadSegmentView = (view, overload)=>{
         if( view=== "cards"){
-            if( skip ){
-                return undefined
-            }
-            setSegmentView(undefined)
+            return undefined
         }else{
-            const list = primitive.primitives.allSegment
-            const picked = list.find(d=>d.id === primitive.referenceParameters.segmentView) ?? list[0]
-            if( skip ){
-                return picked 
+            if( (overload ?? primitive.referenceParameters?.segmentView) === "imports" ){
+                const importedSegments = primitive.primitives.imports.allSegment
+                if( importedSegments.length > 0){
+                    return {picked: primitive, list: importedSegments }
+                }
+                return undefined
+            }else{
+                const list = primitive.primitives.allSegment
+                const picked = list.find(d=>d.id === (overload ?? primitive.referenceParameters.segmentView)) ?? list[0]
+                return {picked: picked } 
             }
-            setSegmentView(picked )
         }
 
     }
@@ -40,16 +42,19 @@ export default function ViewBase({primitive, ...props}){
 
     const [showViewPane, setShowViewPane] = useState(false)
     const [view, setView] = useState( primitive?.referenceParameters?.viewMode ?? "cards")
-    const [segmentView, setSegmentView] = useState(loadSegmentView(primitive?.referenceParameters?.viewMode ?? "cards", true) )
+    const [segmentView, setSegmentView] = useState(loadSegmentView(primitive?.referenceParameters?.viewMode ?? "cards") )
     const [manualInputPrompt, setManualInputPrompt] = useState(false)
 
     useEffect(()=>{
-        loadSegmentView( view )
+        setSegmentView( loadSegmentView( view ) )
     },[primitive?.id])
 
     const content = useMemo(()=>{
-        console.log(`REDO CONTENT ${view} ${primitive?.plainId} ${segmentView?.plainId}`)
+        console.log(`REDO CONTENT ${view} ${primitive?.plainId}`)
+        console.log(segmentView)
         setView( primitive?.referenceParameters?.viewMode ?? "cards" )
+
+
         return <>
                 {view === "cards" &&
                     <PrimitiveExplorer
@@ -58,32 +63,45 @@ export default function ViewBase({primitive, ...props}){
                         primitive={primitive}
                     />
                 }
-                {view === "explore" && segmentView &&
+                {view === "explore" && segmentView?.picked &&
                     <PrimitiveExplorer
                         key='explore'
                         closeButton={closeButton}
-                        primitive={segmentView}
+                        list={segmentView.list}
+                        primitive={segmentView.picked}
+                        asSegment={segmentView.list !== undefined}
                     />
                 }
-                {view === "cluster" && segmentView && 
+                {view === "cluster" && segmentView?.picked && 
                     <HierarchyView
                         key='cluster'
-                        primitive={segmentView}
+                        list={segmentView.list}
+                        primitive={segmentView.picked}
                 />}
-                {view === "proximity" && segmentView && 
+                {view === "proximity" && segmentView?.picked && 
                     <ProximityView
                         key='priximity'
-                        primitive={segmentView}
+                        list={segmentView.list}
+                        primitive={segmentView.picked}
                 />}
         </>
 
-    }, [view, primitive?.id, segmentView?.id])
+    }, [view, primitive?.id, segmentView?.picked, segmentView?.list])
 
 
 
 
     const segmentOptions = useMemo(()=>{
-        const segemnts = primitive.primitives.allSegment
+        const segemnts = primitive.primitives.origin.allSegment
+
+        const importedSegments = primitive.primitives.imports.allSegment
+        if( importedSegments.length > 0){
+            segemnts.unshift({
+                title: "Imported segments",
+                id:"imports"
+            })
+        }
+
         const segmentCategory = primitive.metadata?.resultCategories?.find(d=>MainStore().category(d.resultCategoryId)?.primitiveType === "segment")?.resultCategoryId 
 
         return [
@@ -97,7 +115,8 @@ export default function ViewBase({primitive, ...props}){
                         parent: primitive
                     })
                     console.log('CREATED PARENT ' + parentSegment.plainId )
-                    setSegmentView( parentSegment )
+//                    setSegmentView( parentSegment )
+                    setSegmentView( loadSegmentView( view, parentSegment.id ) )
             }},
             ...segemnts.map((d,idx)=>{
                 return {
@@ -109,7 +128,7 @@ export default function ViewBase({primitive, ...props}){
     }, [view, primitive?.id, segmentView?.id ])
 
     const selectSegmentView = (d)=>{
-        setSegmentView(d)
+        setSegmentView( loadSegmentView( view, d.id ) )
         primitive.setField(`referenceParameters.segmentView`, d.id)
     }
 

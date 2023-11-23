@@ -6,7 +6,7 @@ import { dispatchControlUpdate, primitiveOrigin, primitiveParentPath, primitiveR
 import { enrichCompanyFromLinkedIn } from "./linkedin_helper";
 import { findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
 import Category from "./model/Category";
-import { fetchArticlesFromGNews } from "./gnews_helper";
+//import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import Parser from "@postlight/parser";
 
@@ -117,7 +117,8 @@ export default function EnrichPrimitive(){
             }
             if( job.data.mode === "find_articles" ){
                 console.log(`find_articles ${primitive.id} ${primitive.referenceParameters?.topics}`)
-                await fetchArticlesFromGNews( primitive, job.data.options )
+                throw "DEPRECATED!!"
+  //              await fetchArticlesFromGNews( primitive, job.data.options )
                 dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
             }
             if( job.data.mode === "find_posts" ){

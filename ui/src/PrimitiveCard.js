@@ -193,7 +193,7 @@ let mainstore = MainStore()
           }else{
             if( source.target ){
               props.primitive.setParameter("referenceId", source.categoryId  )
-              props.primitive.setParameter("pivot", source.pivot, false, true  )
+              props.primitive.setParameter("pivot", source.pivot ?? 0, false, true  )
               props.primitive.setParameter(item.key, source.target )
             }else{
               props.primitive.setParameter(item.key, source.key )
@@ -1743,18 +1743,26 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
 
   let content = (fields && !fields.includes('title')) ? undefined : 
       <>
-        <EditableTextField 
-          callback={updateTitle}
-          editable={props.showEdit ? ()=> setEditing( true ) : undefined}
-          doubleClickToEdit={props.doubleClickToEdit}
-          stopEditing={()=>setEditing(false)}
-          editing={editing}
-          value = {primitive.title}
-          className='w-full'
-          compact={true}
-          placeholder={primitive.metadata?.placeholder ?? "Empty"}
-          fieldClassName={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-${mainTextSize} ${withHero ? "px-2 self-end text-slate-50 font-bold" : "text-slate-700"}`}>
-        </EditableTextField>
+        {props.editable === false 
+          ? 
+            <p
+              className={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-${mainTextSize} ${withHero ? "px-2 self-end text-slate-50 font-bold w-full" : "text-slate-700"}`}
+            >
+              {primitive.title}
+            </p>
+          : <EditableTextField 
+            callback={updateTitle}
+            editable={props.showEdit ? ()=> setEditing( true ) : undefined}
+            doubleClickToEdit={props.doubleClickToEdit}
+            stopEditing={()=>setEditing(false)}
+            editing={editing}
+            value = {primitive.title}
+            className='w-full'
+            compact={true}
+            placeholder={primitive.metadata?.placeholder ?? "Empty"}
+            fieldClassName={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-${mainTextSize} ${withHero ? "px-2 self-end text-slate-50 font-bold" : "text-slate-700"}`}>
+          </EditableTextField>
+        }
         {props.showMenu &&
           <CardMenu primitive={primitive} relatedTo={props.relatedTo} {...props.menuProps} size='6' bg='transparent' className='invisible group-hover:visible'/>
         }
@@ -1911,7 +1919,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
         {(props.showEvidence  === true) && <PrimitiveCard.Evidence primitive={primitive}/>}
         {(props.showEvidence  === "compact") && <PrimitiveCard.Evidence primitive={primitive} hideTitle={true} compact={true} aggregate={true}/>}
         {props.children}
-        {titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} className={props.inline ? 'grow-0' : 'grow-0 mt-1'}/>}
+        {props.editable !== false && titleAtBase && !props.hideTitle && <Title primitive={primitive} {...props} className={props.inline ? 'grow-0' : 'grow-0 mt-1'}/>}
         {smallMeta && props.showMeta !== "small-top" && smallMeta}
         {primitive._doingDiscovery && !primitive.discoveryDone && <div className='w-2 h-2 absolute bg-amber-500 rounded-lg right-1 top-1'/>}
         {primitive.openai_error && <div className='w-2 h-2 absolute bg-red-500 rounded-lg right-1 top-1'/>}

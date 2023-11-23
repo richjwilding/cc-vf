@@ -173,12 +173,11 @@ export function Sidebar({primitive, ...props}) {
         }
         console.log(` Will created as ${segmentCategory}`)
 
-        console.log(items.map(d=>d.plainId))
         const addSegment = async ()=>{
             const newPrim = await MainStore().createPrimitive({
                 title: "New Segment",
                 type: "segment",
-                categoryId: segmentCategory,
+                categoryId: 36,//segmentCategory,
                 parent: primitive,
                 referenceParameters:{
                     "target": "items",
@@ -191,13 +190,23 @@ export function Sidebar({primitive, ...props}) {
             }
             return newPrim
         }
+        
+        const categoryType = items.map(d=>d.metadata).filter((d,i,a)=>d&& a.findIndex(d2=>d2.id==d.id) ===i)
+        const nestedActions = categoryType.map(d=>d.actions?.filter(d=>d.menu)).flat() ?? []
 
 
         infoPaneContent = <div className='p-4 space-y-2'>
             <p className='text-lg'>{items.length} items</p>
             {segment && <>
                     {primitive.metadata?.actions && <div className='w-full flex'>
-                        <PrimitiveCard.CardMenu primitive={segment} className='ml-auto m-2'/>
+                        <PrimitiveCard.CardMenu primitive={segment} 
+                            custom={nestedActions.map(d=>{
+                                return {
+                                    ...d,
+                                    action: async ()=>await MainStore().doPrimitiveAction( primitive, "auto_cascade", {cascade_key: d.key, ids: items?.map(d=>d.id)})
+                                }
+                            })} 
+                        className='ml-auto m-2'/>
                     </div>}
                     <PrimitiveCard primitive={segment} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
                 </> 
@@ -226,6 +235,18 @@ export function Sidebar({primitive, ...props}) {
                 >
                     Create as segment and add to a different View
                 </button>}
+            {!segment && <button
+                    type="button"
+                    className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 "
+                    onClick={()=>MainStore().promptDelete({
+                        prompt: "Remove items from this segment?",
+                        handleDelete: ()=>{
+                            alert(`WILL DELETE  ${items.map(d=>d.plainId)}`)
+                        }
+                    })}
+                >
+                    Delete items
+            </button>}
             {segment && <button
                 type="button"
                 className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"

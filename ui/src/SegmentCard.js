@@ -245,27 +245,6 @@ function SegmentGraph({primitive, ...props}){
             console.log(data)
 
             const fullTimeStamps = data.map((d)=>d.x).flat().map((d)=>parseInt(d)).filter((c,i,a)=>a.indexOf(c)===i).sort((a,b)=>a-b)
-          /*  const ys = data.map((d)=>{
-                const out = fullTimeStamps.map((target)=>{
-                    if( Array.isArray(d.x)){
-
-                        const closestIdx = d.x?.findIndex((d2) => d2 === target) 
-                        if( closestIdx === undefined || closestIdx === -1 ){
-                            return 0
-                        }else{
-                            return d.y[closestIdx] ?? 0
-                        }
-                    }else{
-                        return target === d.x ? d.y : 0
-                    }
-                })
-                return out.map((d,i,a)=>a.reduce((c,a,i2)=>i2 > i ? c : c + a,0))
-            })
-            const agg = fullTimeStamps.map((d,i)=>{
-                const value = ys.map((d)=>d[i]).reduce((a,c)=>a+c,0)
-                const items = data.filter((d2)=>Array.isArray(d2.x) ? d2.x.includes(d) : d2.x === d).map((d2)=>d2.d.id)
-                return {x: d, y: value, items: items}
-            })*/
             let last =0 
             const agg = fullTimeStamps.map((d,i)=>{
                 const values = data.map((d2)=>{
@@ -751,12 +730,14 @@ export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
         </>
 
     let width = wide ? "48rem" : '24rem' 
-    if( props.cardView ){
-        width = (columns * (props.minWidth || 16)) + "rem"
+    if( props.cardView || props.minWidth){
+        width = (2 + (columns * (1 + (parseInt(props.minWidth) ?? 16)))) + "rem"
     }
     if( props.graph ){
         width = '36rem'
     }
+
+    const detailsAlloc = props.details ? props.details.length * 20 : 0
 
     return (
         <>
@@ -772,17 +753,15 @@ export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
             className={
                 ["relative py-3 pl-3 pr-4 group bg-white p-1 rounded-lg",
                 "flex flex-col",
-                    props.overlay ? "@container" : "",
                     props.flatBorder ? '' : 'rounded-lg',
-                    ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-${props.ringColor || 'slate'}-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
+                    ring ? `focus:ring-2 focus:outline-none hover:ring-1 hover:ring-ccgreen-300 ${props.dragShadow ? "" : "hover:subtle-shadow-bottom"}` : '',
                     "shadow ",
-                    width,
                     props.className
                 ].join(" ")}
             >
             {mainContent}
-            {props.overlay && <div className="absolute top-0 left-0 w-full h-full backdrop-blur-sm bg-gray-50/90 rounded-lg  ">
-                <p style={{fontSize: "min(24cqh, 6cqw)"}} className="px-2 py-1 font-semi text-gray-500">{nestedItems.length} {nestedTypes}</p>
+            {props.overlay && <div className="absolute top-0 left-0 w-full h-full backdrop-blur-sm bg-gray-50/90 rounded-lg" style={{containerType:"size"}}>
+                <p style={{fontSize: `min(${(100 - detailsAlloc) * 0.6}, 6cqw)`}} className="px-2 py-1 font-semi text-gray-500">{nestedItems.length} {nestedTypes}</p>
                 {
                     props.details && props.details.map((d)=>{
                         const items = nestedItems.map((d2)=>d.parameter ? d2.referenceParameters?.[d.parameter] : d2[d.field])
@@ -795,12 +774,12 @@ export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
                             if( d.formatter === "currency"){
                                 formatted = roundCurrency( value )
                             }
-                            return <p style={{fontSize: "min(30cqh, 10cqw)"}} className="px-2 py-1 font-bold">{formatted}</p>
+                            return <p style={{fontSize: `min(20cqh, 10cqw)`}} className="px-2 py-1 font-bold">{formatted}</p>
                         }
                         return <></>
                     })
                 }
-                <p style={{fontSize: "min(12cqh, 4cqw)"}} className="px-2 py-1 font-light text-gray-500">{primitive.title}</p>
+                <p style={{fontSize: `min(${(100 - detailsAlloc) * 0.4}cqh, 5cqw)`}} className="px-2 py-1 font-light text-gray-500">{primitive.title}</p>
 
             </div> }
             {props.graph && <div className="grow">

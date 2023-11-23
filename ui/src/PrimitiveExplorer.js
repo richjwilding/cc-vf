@@ -20,11 +20,42 @@ import { SearchPane } from './SearchPane';
 
 const mainstore = MainStore()
 
+const encodeFilter = (option, idx, value)=>{
+    const val = value ?? option.order?.[idx]
+    const invert = value ? true : undefined
+    const sourcePrimId = (idx === undefined || value) ? option.primitiveId : undefined
 
+    if( option?.type === "category"){
+        if( idx !== undefined && val === undefined ){
+            return {type: "not_category_level1", value: option.primitiveId, pivot: option.access, invert, sourcePrimId}
+        }
+        return {type: "parent", value: val, pivot: option.access, invert, sourcePrimId}
+    }else if( option?.type === "question"){
+        return {type: option.type, subtype: option.subtype, map: [val], pivot: option.access, invert}
+    }else if( option.type === "parameter"){
+        if( option.bucket_min ){
+            return  {type: "parameter", param: option.parameter, min_value: option.bucket_min[idx], max_value: option.bucket_max[idx], pivot: option.access, invert}
+        }else{
+            return  {type: "parameter", param: option.parameter, value: val, pivot: option.access, invert}
+        }
+    } 
+    return undefined
+}
+
+    const getExploreFilters = (primitive, axisOptions)=>{
+        const filters = primitive.referenceParameters?.explore?.filters
+        return filters ? filters.map((filter,idx)=>({
+            option: findAxisItem(primitive, idx, axisOptions), 
+            id: idx, 
+            track: filter.track,
+            filter: filter?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) ?? {}
+        })) : []
+
+    }
     const findAxisItem = (primitive, axis, axisOptions)=>{
         
         if( primitive ){
-            const struct = primitive.referenceParameters?.explore?.axis?.[axis]
+            const struct =  isNaN(axis) ?  primitive.referenceParameters?.explore?.axis?.[axis] : primitive.referenceParameters?.explore?.filters?.[axis]
             if( struct ){
                 if(struct.type === "parameter" ){
                     return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
@@ -33,13 +64,16 @@ const mainstore = MainStore()
                 }else if(struct.type === "title" ){
                     return axisOptions.find(d=>d.type === struct.type &&  (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }
-                const connectedPrim = primitive.primitives.axis[axis].allIds[0]
+                const connectedPrim = isNaN(axis) ? primitive.primitives.axis[axis].allIds[0] : primitive.referenceParameters.explore.filters[axis].sourcePrimId
                 return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
             }
             return 0
         }
     }
     const defaultRenderProps = {
+        "default": {
+            simpleRender: true
+        },
         "segment":{
             hideDetails: true
         },
@@ -125,30 +159,38 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
 
     const filters = React.useMemo(()=>{
+        console.log(`REDO CATEGORY IDS`)
         forceUpdate()
         forceUpdateNested()
         return updateFilters()
     }, [selectedCategoryIds])
 
+    const asSegment = props.asSegment || primitive.type === "segment" || (props.category && mainstore.category(props.category.resultCategoryId).primitiveType === "segment")
     
     let baseItems = React.useMemo(()=>{
-        //console.log(`REDO BASE`)
+        console.log(`REDO BASE`)
         let list
         if( props.list ){
             list = props.list
+            console.log(`GOT LIST OF ${list.length}`)
         }else{
-            if( props.types ){
-                const types = [props.types].flat()
-                list = primitive.itemsForProcessing.filter((d)=>types.includes(d.type) )
-            }else{
-                list = primitive.itemsForProcessing
+            if( asSegment ){
+                list = primitive.primitives.allSegment
+            }
+            if( !list || list.length === 0){
+
+                if( props.types ){
+                    const types = [props.types].flat()
+                    list = primitive.itemsForProcessing.filter((d)=>types.includes(d.type) )
+                }else{
+                    list = primitive.itemsForProcessing
+                }
             }
         }
         return list.filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true))
     },[primitive.id, update])
 
     let layers
-    const asSegment = primitive.type === "segment" || (props.category && mainstore.category(props.category.resultCategoryId).primitiveType === "segment")
     const skipFirstLayer =  asSegment && primitive.type !== "segment"
     if( asSegment){
         
@@ -169,7 +211,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const viewAsSegments = asSegment && layers && !layers[layerSelection]?.items
 
     let items = React.useMemo(()=>{
-        //console.log(`REDO ITEMS`)
+        console.log(`REDO ITEMS`)
 
         if( props.compare ){
             console.log(`HARD CODE HYPOTHESIS COMPARE ${primitive.plainId}`)
@@ -226,13 +268,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
     },[primitive.id, update, layerSelection])
 
     
-    useDataEvent("relationship_update", [primitive.id, items.map((d)=>d.id)].flat(), ()=>{
-        storeCurrentOffset()
-        forceUpdateRel()
-    })
 
-    const axisOptions = useMemo(()=>{
-        //console.log(`REDO AXIS`)
+    const [axisOptions, viewFilters] = useMemo(()=>{
+        console.log(`REDO AXIS`)
         if( props.compare ){
             let h_list = primitive.primitives.allUniqueHypothesis
             if( importantOnly ){
@@ -287,7 +325,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     category: d,
                     order: [undefined,options.map((d)=>d.id)].flat(),
                     values:["None", options.map((d)=>d.title)].flat(),
-                    title: `By ${d.title}`,// (${list.map(d=>d.metadata.title ?? d.type).filter((d,i,a)=>a.indexOf(d)===i).join(", ")})`,
+                    title: `Category: ${d.title}`,// (${list.map(d=>d.metadata.title ?? d.type).filter((d,i,a)=>a.indexOf(d)===i).join(", ")})`,
                     allowMove: access === 0,
                     access: d.referenceParameters?.pivot ?? access
                 }
@@ -403,28 +441,24 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }else{
             const colSelect = findAxisItem(primitive, "column", labelled )
             const rowSelect =  findAxisItem(primitive, "row", labelled)
-            console.log(colSelect, rowSelect)
-            if( colSelect !== colSelection ){
+            {
                 setColSelection(colSelect )
-
-                const filter = primitive.referenceParameters?.explore?.filter?.column?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
-                
-            console.log("Load col", filter)
-
+                const filter = primitive.referenceParameters?.explore?.axis?.column?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
                 setColFilter(filter)
-                cancelRender = true
             }
-            if( rowSelect !== rowSelection ){
+            {
                 setRowSelection(rowSelect)
-
-                const filter = primitive.referenceParameters?.explore?.filter?.row?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
-                
+                const filter = primitive.referenceParameters?.explore?.axis?.row?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
                 setRowFilter(filter)
-                cancelRender = true
             }
+            cancelRender = true
         }
-        return labelled
-    }, [primitive.id, /*update*/, layerSelection, importantOnly])
+        const filters = getExploreFilters( primitive, labelled )
+        console.log(filters)
+
+
+        return [labelled, filters]
+    }, [primitive.id,  update, layerSelection, importantOnly])
 
 
 
@@ -518,10 +552,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
     const column = pickProcess( colSelection )
     const row = pickProcess( rowSelection )
-    const group = (d)=>d.referenceParameters?.category
 
-    let list = React.useMemo(()=>{
-        //console.log(`REDO LIST`)
+    let [list, baseFilters] = React.useMemo(()=>{
+        console.log(`REDO LIST`)
         const bucket = {
             "raw":(field)=>{
                 return {labels: interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()}
@@ -591,17 +624,64 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }
 
 
+        const forFilter = viewFilters.map(d=>pickProcess( d.option ))
+
+
         
-        const interim = items.map((p)=>{
+        let interim = items.map((p)=>{
             return {
                 column: column(p),
                 row: row(p),
-                group: group(p),
-                primitive: p
+                primitive: p,
+                ...forFilter.reduce((a,d,idx)=>{a[`filterGroup${idx}` ]=d(p); return a},{})
             }
         })
 
-        if( axisOptions[colSelection]?.twoPass ){
+
+        for( const [selection, accessor] of [
+            [colSelection, "column"],
+            [rowSelection, "row"],
+            ...viewFilters.map((d,idx)=>[d.option, `filterGroup${idx}`])
+        ]){
+            if( axisOptions[selection]?.twoPass ){
+                const parsed = bucket[axisOptions[selection].passType](accessor)
+                axisOptions[selection].labels = parsed.labels
+                axisOptions[selection].values = parsed.values ?? axisOptions[selection].labels
+                axisOptions[selection].order = parsed.order ?? axisOptions[selection].values
+                if( parsed.bucket_min){
+                    axisOptions[selection].bucket_min = parsed.bucket_min
+                    axisOptions[selection].bucket_max = parsed.bucket_max
+                }
+                
+            }
+        }
+        let baseFilters = []
+        if( viewFilters && viewFilters.length > 0){
+            let temp = interim.map(d=>d.primitive) 
+            for(const d of viewFilters){
+                if(axisOptions[d.option].bucket_min){
+                    const ids = Object.keys(d.filter ?? {}).map(d2=>axisOptions[d.option]?.order?.indexOf(d2) ).filter(d=>d !== -1)
+                    console.log(ids)
+                    for( const id of ids){
+                        const thisFilter = encodeFilter( axisOptions[d.option], id, true)
+                        const old = temp.length
+                        temp = primitive.filterItems( temp, [thisFilter] )
+                        console.log(`fitler for bucket - ${old} -> ${temp.length}`)
+                        baseFilters.push( thisFilter )
+                    }
+
+                }else{
+                    const thisFilter = encodeFilter( axisOptions[d.option], undefined, Object.keys(d.filter).map(k=>k === "undefined" && d.filter[undefined] ? undefined : k ))
+                    temp = primitive.filterItems( temp, [thisFilter] )
+                    baseFilters.push( thisFilter )
+                }
+            }
+            const ids = temp.map(d=>d.id)
+            interim = interim.filter(d=>ids.includes(d.primitive.id ) )
+
+        }
+
+        /*if( axisOptions[colSelection]?.twoPass ){
             const parsed = bucket[axisOptions[colSelection].passType]("column") 
             axisOptions[colSelection].labels = parsed.labels
             axisOptions[colSelection].values = parsed.values ?? axisOptions[colSelection].labels
@@ -621,10 +701,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 axisOptions[rowSelection].bucket_min = parsed.bucket_min
                 axisOptions[rowSelection].bucket_max = parsed.bucket_max
             }
-        }
+        }*/
 
-        return interim
-    },[colSelection, rowSelection, update, updateRel, items ])
+        return [interim, baseFilters]
+    },[colSelection, rowSelection, update, updateRel, primitive.id, layerSelection ])
 
 
     let fields = list?.[0]?.primitive?.metadata?.defaultRenderProps?.card?.fields ?? ["title", props.fields].flat()
@@ -684,7 +764,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
                     setScale(scale)
                 }
-            }, primitive.type === "segment" ? 150 : 150)
+            }, primitive.type === "segment" ? 150 : 0)
         }
         
     }, [gridRef.current, primitive.id, /*colSelection, rowSelection*/, selectedCategoryIds, layerSelection, activeView, hideNull, importantOnly])
@@ -869,6 +949,23 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
   
     useGesture({
+        onClick:(state)=>{
+            const clicked = state.event.target.closest('.pcard')
+            if( clicked ){
+                const id = clicked.getAttribute('id')
+                if( id ){
+                    state.event.preventDefault()
+                    state.event.stopPropagation()
+                    if( myState.current.cancelClick ){
+                        myState.current.cancelClick = false
+                        return
+                    }
+                    console.log(id)
+                    MainStore().sidebarSelect( MainStore().primitive(id), {scope: primitive} )
+                    //MainStore().sidebarSelect( MainStore().primitive(id), {scope: primitive, context: {column: column?.label ?? column ?? "None", row: row?.label ?? row ?? "None"}} )
+                }
+            }
+        },
         onDrag:(state)=>{
             state.event.preventDefault()
             let memo = state.memo
@@ -931,6 +1028,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     
                     myState.current.dragging.helper = clone
                     myState.current.dragging.el.style.opacity = 0.5
+                    myState.current.cancelClick = true
 
                     myState.current.dragOffset = {
                         x: inGridX - myState.current.dragging.x1,
@@ -1005,7 +1103,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     myState.current.dragging.dropzone = undefined
                     myState.current.dragging.el.style.opacity = null
                     myState.current.dragging = undefined
-                    myState.current.cancelClick = true
                 }
             }
 
@@ -1101,9 +1198,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const renderType = layers?.[layerSelection]?.items ? list?.[0]?.primitive?.type :  (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default"
     const viewConfigs = list?.[0]?.primitive?.metadata?.renderConfig?.explore?.configs
     const viewConfig = viewConfigs?.[activeView]
-    const renderProps = viewConfig?.props ?? defaultRenderProps[renderType ]
+    const renderProps = viewConfig?.props ?? list?.[0]?.primitive?.metadata?.defaultRenderProps ?? defaultRenderProps[renderType ]
 
     let [columnExtents, rowExtents, columnColumns] = React.useMemo(()=>{
+        console.log("redo extents")
         
         myState.current[ "rowEmpty" ] = {}
         myState.current[ "columnEmpty" ] = {}
@@ -1172,14 +1270,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
                 return Math.max(...cc)
             }else{
-                const rowLabels = Object.values(rows).reduce((a,c)=>{a[c.idx ?? c]=true;return a},{})
+                const rowLabels = Object.values(rows).reduce((a,c)=>{a[c?.idx ?? c]=true;return a},{})
                 const byRows = inColumn.reduce((a,c)=>{
-                    if( rowLabels[c.row ]){
+                    if( rowLabels[c?.row ]){
                         a[c.row] = (a[c.row] ?? 0) + 1
                     }
                     return a
                 },{} )
-                console.log(byRows)
                 return Math.max(...Object.values(byRows))
             }
         })
@@ -1194,7 +1291,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             rows,
             columSizing
         ]
-    },[primitive.id, colSelection, rowSelection, update, hideNull, colFilter ? Object.keys(colFilter).filter(d=>colFilter[d]).join("-") : "", rowFilter ? Object.keys(rowFilter).filter(d=>rowFilter[d]).join("-") : ""])
+    },[primitive.id, colSelection, rowSelection, update, updateNested, hideNull, colFilter ? Object.keys(colFilter).filter(d=>colFilter[d]).join("-") : "", rowFilter ? Object.keys(rowFilter).filter(d=>rowFilter[d]).join("-") : "", Object.keys(expandState).join(",")])
   
 
 
@@ -1245,6 +1342,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
 
     useMemo(()=>{
+        console.log(`REDO SYNC GRAPH`)
 
         if(renderProps?.details?.sync){
             renderProps.details["x-axis"].minimum = list.map((d)=>{
@@ -1344,7 +1442,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
             }
         }
-        primitive.setField(`referenceParameters.explore.filter.${axis}`, [])
+       // primitive.setField(`referenceParameters.explore.filter.${axis}`, [])
         if( axis === "column"){
             storeCurrentOffset()
             setColSelection( idx )
@@ -1364,29 +1462,45 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const selectedRowIdx = props.compare ? 0 : findAxisItem(primitive, "row", axisOptions)
     const columnOverride = props.compare ? 3 : undefined
 
+
     const updateAxisFilter = (item, mode, setAll)=>{
-        let axis, filter, setter,altAxis, altFilter, altSetter, tester, altEmpty
+        let axis, filter, setter
         console.log(mode)
+
+        const axisSetter = (filter, path)=>{
+            if( primitive.referenceParameters ){
+                const keys = Object.keys(filter).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : d).filter(d=>filter[d])
+                console.log(keys)
+                primitive.setField(path, keys)
+            }
+            forceUpdateExtent()
+        }
 
         if( mode === "row" ){
             axis = axisOptions[rowSelection]
             filter = rowFilter  
-            setter = setRowFilter
-            altAxis = axisOptions[colSelection]
-            altFilter = colFilter
-            altSetter = setColFilter
-            tester = (item, alt, c) => item.column === alt && !c[item.row]
-            altEmpty = "columnEmpty"
-
+            setter = (filter)=>{
+                setRowFilter(filter)
+                axisSetter(filter, `referenceParameters.explore.axis.${mode}.filter`)
+            }
         }else if(mode === "column"){
             axis = axisOptions[colSelection]
             filter = colFilter  
-            setter = setColFilter
-            altAxis = axisOptions[rowSelection]
-            altFilter = rowFilter
-            altSetter = setRowFilter
-            tester = (item, alt, c) => item.row === alt && c.includes(item.column)
-            altEmpty = "rowEmpty"
+            //setter = setColFilter
+            setter = (filter)=>{
+                setColFilter(filter)
+                axisSetter(filter, `referenceParameters.explore.axis.${mode}.filter`)
+            }
+        }else if(mode instanceof Object){
+            axis = axisOptions[viewFilters[mode.id].option]
+            if( axis ){
+                filter = primitive.referenceParameters?.explore?.filters?.[ mode.id ]?.filter?.reduce((a,c)=>{a[c === null ? undefined : c]=true;return a},{}) || {}
+                setter = ( filter )=>{
+                    console.log(`WILL UPDATE ${mode.id}`, filter) 
+                    axisSetter(filter, `referenceParameters.explore.filters.${mode.id}.filter`)
+                    forceUpdate()
+                }
+            }
 
         }else{
             throw "HUH"
@@ -1396,7 +1510,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
         storeCurrentOffset()
         filter = filter || {}
         if(setAll){
-            filter = new Array(axis.values.length).fill(true)
+            if( item ){
+                filter = axis.order?.reduce((a,c)=>{a[c] = true;return a},{})
+            }else{
+                filter = {}
+            }
         }else{
             filter[item] = !filter[item]
         }
@@ -1405,27 +1523,34 @@ export default function PrimitiveExplorer({primitive, ...props}){
         console.log( mode, filter ? Object.keys(filter).filter(d=>filter[d]).join("-") : "" )
 
 
-        if( primitive.referenceParameters ){
-            const keys = Object.keys(filter).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : d).filter(d=>filter[d])
-            primitive.setField(`referenceParameters.explore.filter.${mode}`, keys)
-        }
-        forceUpdateExtent()
         
-/*
-        myState.current[ altEmpty ] = {}
-        if( altAxis ){
-            const allowedValues = axis.order.map((d, idx)=> filter[ d ] ? undefined : axis.values[idx] ).filter(d=>d)
-            altAxis.order.forEach((alt,idx)=>{
-                if( !altFilter || !altFilter[alt]){
-                    const altPresent = list.filter(d=>tester(d, altAxis.values[idx], allowedValues))
-                    myState.current[ altEmpty ][alt] = altPresent.length === 0
-                }
-            })
+    }
+    const deleteViewFilter = (idx)=>{
+        const filter = viewFilters[idx]
+        let filters = primitive.referenceParameters?.explore?.filters
+        filters = filters.filter(d=>d.track !== filter.track )
+        
+        primitive.setField("referenceParameters.explore.filters", filters)
+        forceUpdate()
+    }
+    const addViewFilter = (item)=>{
+        const axis = axisOptions[item]
+        if( axis ){
+            const filters = primitive.referenceParameters?.explore?.filters ?? []
+            const track = (primitive.referenceParameters?.explore?.filterTrack ?? 0) +1
+            const newFilter = {
+                track: track,
+                sourcePrimId: axis.primitiveId,
+                type: axis.type,
+                parameter: axis.parameter,
+                access: axis.access,
+                value: undefined
+            }
+            filters.push(newFilter)
+            primitive.setField("referenceParameters.explore.filters", filters)
+            primitive.setField("referenceParameters.explore.filterTrack", track)
+            forceUpdate()
         }
-*/
-        //forceUpdateRel()
-        //forceUpdateNested()
-
     }
 
     const axisFilterOptions = (axis, filter)=>{
@@ -1441,6 +1566,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     const rowRemap =  axisOptions[rowSelection]?.order?.map((d,idx)=>((rowFilter && rowFilter[d]) || (hideNull && myState.current?.rowEmpty?.[d])) ? undefined : idx).filter(d=>d!==undefined)
     const colRemap =  axisOptions[colSelection]?.order?.map((d,idx)=>((colFilter && colFilter[d]) || (hideNull && myState.current?.columnEmpty?.[d])) ? undefined : idx).filter(d=>d!==undefined)
+
+    useDataEvent("relationship_update", [primitive.id, items.map((d)=>d.id)].flat(), (data)=>{
+        storeCurrentOffset()
+        forceUpdateRel()
+    })
+
+    console.log(renderProps)
 
     const exploreView = 
     <>
@@ -1480,18 +1612,17 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     key={`grid`}
                     ref={gridRef}
                     style = {{
-//                        transformOrigin: "top left",
                         gridTemplateColumns: `${hasRowHeaders ? "min-content" : ""} repeat(${columnExtents.length}, min-content)`,
                         gridTemplateRows: `${hasColumnHeaders ? "min-content" : ""} repeat(${rowExtents.length}, min-content)`
                     }}
-                    //className={`vfExplorer touch-none grid relative gap-4 w-fit h-fit [&>*]:bg-gray-50 ${hasMultipleUnit ? "[&>*]:p-8" : ""}`}>
                     className={`vfExplorer touch-none grid relative gap-4 w-fit h-fit  ${hasMultipleUnit ? "[&>.vfcell]:p-8" : ""}`}>
                     {!cancelRender && hasColumnHeaders && <>
                         {hasRowHeaders && <p className='!bg-gray-100'></p>}
                         {columnExtents.map((col,idx)=>{
                             const cFilterIdx = colFilter === undefined ? idx : colRemap[idx]
+                            //console.log(`SETTING HEADER `, myState.current.fontSize )
                             return(
-                            <p key={`rt${col.idx ?? col}-${update}-${updateNested}-${updateRel}-${updateExtent}`}
+                            <p key={`rt${col?.idx ?? col}-${update}-${updateNested}-${updateRel}-${updateExtent}`}
                                 style={{
                                     fontSize: myState.current.fontSize ?? '14px',    
                                     minWidth: myState.current.minWidth ?? "100px",    
@@ -1500,7 +1631,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                 className='touch-none vfbgtitle z-[2] self-stretch w-full h-full flex justify-center place-items-center text-center !bg-gray-100'>
                                     {
                                         props.compare  && axisOptions[colSelection].type === "parent"
-                                        ? (axisOptions[colSelection].order[cFilterIdx] ?  <PrimitiveCard textSize='lg' compact primitive={mainstore.primitive(axisOptions[colSelection].order[cFilterIdx])} onClick={()=>MainStore().sidebarSelect( mainstore.primitive(axisOptions[colSelection].order[cFilterIdx]) )}/> : "None")
+                                        ? (axisOptions[colSelection].order?.[cFilterIdx] ?  <PrimitiveCard textSize='lg' compact primitive={mainstore.primitive(axisOptions[colSelection].order[cFilterIdx])} onClick={()=>MainStore().sidebarSelect( mainstore.primitive(axisOptions[colSelection].order[cFilterIdx]) )}/> : "None")
                                         : (col?.label ?? col ?? "None")
                                     }
                             </p>
@@ -1511,11 +1642,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         let rowOption = axisOptions[rowSelection]
                         return <React.Fragment>
                             {hasRowHeaders && <p 
-                                key={`ct${row.idx ?? row}-${update}-${updateNested}-${updateRel}-${updateExtent}`} 
+                                key={`ct${row?.idx ?? row}-${update}-${updateNested}-${updateRel}-${updateExtent}`} 
                                 className='touch-none vfbgtitle z-[2] p-2 self-stretch flex justify-center place-items-center text-center !bg-gray-100'>
                                     {
                                         props.compare  && rowOption.type === "parent"
-                                        ? (rowOption.order[rFilterIdx] ?  <PrimitiveCard compact primitive={mainstore.primitive(rowOption.order[rFilterIdx])} onClick={()=>MainStore().sidebarSelect( mainstore.primitive(rowOption.order[rFilterIdx]) )}/> : "None")
+                                        ? (rowOption.order?.[rFilterIdx] ?  <PrimitiveCard compact primitive={mainstore.primitive(rowOption.order[rFilterIdx])} onClick={()=>MainStore().sidebarSelect( mainstore.primitive(rowOption.order[rFilterIdx]) )}/> : "None")
                                         : (row?.label ?? row ?? "None")
                                     }
                             </p>}
@@ -1537,33 +1668,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                 const cVal = colOption.order?.[colRemap[cIdx]]
                                 const rVal = rowOption.order?.[rowRemap[rIdx]]
 
-                                const encodeFilter = (option, idx)=>{
-                                    const val = option.order?.[idx]
-
-                                    if( option?.type === "category"){
-                                        if( val === undefined ){
-                                            return {type: "not_category_level1", value: option.primitiveId, pivot: option.access}
-                                        }
-                                        return {type: "parent", value: val, pivot: option.access}
-                                    }else if( option?.type === "question"){
-                                        return {type: option.type, subtype: option.subtype, map: [val], pivot: option.access}
-                                    }else if( option.type === "parameter"){
-                                        if( option.bucket_min ){
-                                            return  {type: "parameter", param: option.parameter, min_value: option.bucket_min[idx], max_value: option.bucket_max[idx], pivot: option.access}
-                                        }else{
-                                            return  {type: "parameter", param: option.parameter, value: val, pivot: option.access}
-                                        }
-                                    } 
-                                    return undefined
-                                }
 
                                 let infoPane = {
                                     filters: [
                                         encodeFilter( colOption, colRemap[cIdx] ),
-                                        encodeFilter( rowOption, rowRemap[rIdx] )
+                                        encodeFilter( rowOption, rowRemap[rIdx] ),
+                                        ...baseFilters
                                     ].filter(d=>d)
                                 }
-                                
                                 return <div 
                                         style={
                                             viewAsSegments
@@ -1580,7 +1692,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 : {columns: columnOverride ?? Math.max(1, Math.floor(Math.sqrt(columnColumns[cIdx])))}
                                         } 
                                         id={`${cIdx}-${rIdx}`}
-                                        key={`${column.idx ?? column}-${row.idx ?? row}-${update}-${updateNested}-${updateRel}-${updateExtent}`}
+                                        data-MYID={`${column?.idx ?? column}-${row?.idx ?? row}-${update}-${updateNested}-${updateExtent}`}
+                                        key={`${column?.idx ?? column}-${row?.idx ?? row}-${update}-${updateNested}-${updateExtent}`}
                                         onClick={()=>{
                                             console.log( infoPane )
                                             setSelectedBox({column: cVal,row: rVal })
@@ -1608,10 +1721,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 if( viewConfig?.parameters?.fixedSpan ){
                                                     spanning= 'w-full'
                                                 }
-                                            return <PrimitiveCard 
+                                            return renderProps?.simpleRender
+                                            ? <div key={item.id} id={item.id} style={{maxWidth:"16rem",minWidth:"16rem"}} className='pcard hover:ring-2 hover:ring-ccgreen-300 text-md px-2 pt-6 mb-3 bg-white mr-2 mb-2 rounded-lg text-slate-700'><p>{item.title}</p><p className='text-slate-400 text-sm mt-1'>{item.displayType} #{item.plainId}</p></div> 
+                                            : <PrimitiveCard 
                                                 fullId 
                                                 key={item.id} 
-                                                border={false} 
+                                                border={false}
+                                                editable={false}
+                                                noEvents
                                                 directOnly={layerNestPreventionList?.current ? layerNestPreventionList.current[item.id] : false}
                                                 primitive={item} 
                                                 scale={staggerScale} 
@@ -1625,7 +1742,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 className={`mr-2 mb-2 touch-none ${spanning} ${viewConfig?.config?.dropOnPrimitive ? "dropzone" : ""}`}
                                                 {...defaultRender || {}}
                                                 {...(props.renderProps || renderProps || {})} 
-                                                onInnerCardClick={ (e, p)=>{
+                                               /* onInnerCardClick={ (e, p)=>{
                                                     if( myState.current?.cancelClick ){
                                                         myState.current.cancelClick = false
                                                         return
@@ -1640,7 +1757,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                     }
                                                     e.stopPropagation()
                                                     MainStore().sidebarSelect( p, {scope: primitive, context: {column: column?.label ?? column ?? "None", row: row?.label ?? row ?? "None"}} )
-                                                } : undefined}/>
+                                                } : undefined}*/
+                                                />
                                             })}
                                         </div>
                         })}
@@ -1656,12 +1774,37 @@ export default function PrimitiveExplorer({primitive, ...props}){
         const sets = [
             {selection: colSelection, mode: "column", title: "Columns", setter: setColFilter, list: colFilter},
             {selection: rowSelection, mode: "row", title: "Rows", setter: setRowFilter, list: rowFilter},
+            ...viewFilters.map((d,idx)=>({selection: d.option, title: `Filter by ${axisOptions[d.option]?.title}`, deleteIdx: idx, mode: {mode: "view", id: d.id}, list: d.filter}))
         ]
+        console.log(sets)
         sets.forEach(set=>{
             const axis = axisOptions[set.selection]
             if(axis && axis.values){
                 filterPane.push(
-                    <Panel title={set.title} collapsable>
+                    <Panel title={set.title} 
+                            deleteButton={
+                                set.deleteIdx === undefined
+                                    ? undefined
+                                    : (e)=>{e.preventDefault();mainstore.promptDelete({message: "Remove filter?", handleDelete:()=>{deleteViewFilter(set.deleteIdx); return true}})}
+                            }
+                            collapsable>
+                        <>
+                        <div className='flex space-x-2 justify-end'>
+                            <button
+                                type="button"
+                                className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                                onClick={()=>updateAxisFilter(false, set.mode, true)}
+                            >
+                                Select all
+                            </button>
+                            <button
+                                type="button"
+                                className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                                onClick={()=>updateAxisFilter(true, set.mode, true)}
+                            >
+                                Clear all
+                            </button>
+                        </div>
                         <div className='space-y-2 divide-y divide-gray-200 flex flex-col bg-gray-50 border border-gray-200 rounded-lg text-sm p-2 mt-2'>
                             {axis.values.map((d,idx)=>{
                                 const id = axis.order[idx]
@@ -1680,6 +1823,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                 </label>
                                 )})}
                         </div> 
+                        </>
                     </Panel>
                 )
             }
@@ -1693,8 +1837,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
             {showPane === "search" && <SearchPane primitive={primitive} dropParent={targetRef} dropCallback={externalDrop}/>}
             {showPane === "filter" && 
                 <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
-                    <div className='w-full p-2 text-lg'>
+                    <div className='w-full p-2 text-lg flex place-items-center'>
                         Filter
+                        <DropdownButton items={axisOptions} setSelectedItem={addViewFilter} flat placement='left-start' icon={<HeroIcon icon='FunnelPlus' className='w-5 h-5'/>} flat placement='left-start' className={`ml-auto hover:text-ccgreen-800 hover:shadow-md`}/>
                     </div>
                     <div className='w-full p-2 text-lg overflow-y-scroll'>
                         <TooggleButton title='Hide empty rows / columns' enabled={hideNull} setEnabled={updateHideNull}/>

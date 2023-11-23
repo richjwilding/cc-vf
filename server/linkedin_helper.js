@@ -166,6 +166,11 @@ export async function queryPosts(keywords, options = {}){
 
 }
 export async function searchPosts(primitive, options = {}, action = {}){
+    console.log("DONT USE THIS searchPosts")
+    console.log("DONT USE THIS searchPosts")
+    console.log("DONT USE THIS searchPosts")
+    console.log("DONT USE THIS searchPosts")
+    console.log("DONT USE THIS searchPosts")
 
     let totalCount = 0
     let count = 0
@@ -601,9 +606,12 @@ export async function addPersonFromProxyCurlData( profile, url, resultCategoryId
 export async function fetchCompanyProfileFromLinkedIn( primitive ){
     try{
 
-        const targetProfile = primitive.referenceParameters.linkedIn
+        let targetProfile = primitive.referenceParameters.linkedIn.trim()
         if( targetProfile === undefined || targetProfile === ""){
             return {error: "no_profile"}
+        }
+        if( targetProfile.slice(0,8)!=="https://"){
+            targetProfile = "https://" + targetProfile
         }
         
         const query = new URLSearchParams({ 

@@ -48,7 +48,7 @@ export async function extractAxisFromDescriptionList( list, options = {}){
                 {"role": "user", "content": output}
 
             ],
-            {field: "axis", engine: "gpt4", markPass: true, ...options})
+            {field: "axis", engine: "gpt4p", markPass: true, ...options})
 
 
     return {success: true, output: interim}

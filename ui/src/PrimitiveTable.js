@@ -269,13 +269,23 @@ export function PrimitiveTable(props) {
                             minSize: width
                         })
 
+                }else if(d.field === 'id'){
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <p className={d.wrap ? "" :"truncate"}>{info.getValue()}</p>,
+                            header: () => d.name || d.title,
+                            sortingFn: "basic",
+                            startSize: d.width ?? (d.field === "id" ? 100 : undefined),
+                            startSize: width,
+                            minSize: width
+                        })
                 }else{
 
                     return columnHelper.accessor(d.field,
                         {
                             cell: info => <p className={d.wrap ? "" :"truncate"}>{info.getValue()}</p>,
                             header: () => d.name || d.title,
-                            sortingFn: "text",
+                            sortingFn: "alphanumeric",
                             startSize: d.width ?? (d.field === "id" ? 100 : undefined),
                             startSize: width,
                             minSize: width

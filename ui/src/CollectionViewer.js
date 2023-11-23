@@ -342,7 +342,7 @@ export default function CollectionViewer({primitive, category, ...props}){
     const showBar = (showDescend || showPagination  || (allowed.length > 1 || props.closeButton)) //&& !["explore", "cluster"].includes(view)
     const buttons = <>
                 {allowed.length > 1 && viewCategory.views?.options && Object.keys(viewCategory.views.options).map((d)=>{
-                    return  allowed.includes(d) && viewCategory.views.options[d] ? <Panel.MenuButton title={icons[d] || d}  onClick={()=>pickView(d)} className={view === d ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}/> : undefined
+                    return  allowed.includes(d) && viewCategory.views.options[d] ? <Panel.MenuButton key={d} title={icons[d] || d}  onClick={()=>pickView(d)} className={view === d ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}/> : undefined
                 })}
                 {showDescend && <TooggleButton enabled={descend} setEnabled={setDescend} title={`Include nested ${category ? category.plurals : "items"}`}/>}
                 <div className="grow"></div>
@@ -626,9 +626,9 @@ export default function CollectionViewer({primitive, category, ...props}){
     const maxHeight = !asViewer && !props.hidePanel && view === "explore" && list?.length > 0 ? "relative max-h-[80vh] flex-col flex bg-white" : ""
 
     return <>
-        {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
+        {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
         {props.hidePanel 
-        ? <div className={`@container  ${props.className} flex flex-col relative`}>{mainContent()}</div>
+        ? <div key='content' className={`@container  ${props.className} flex flex-col relative`}>{mainContent()}</div>
         : <Panel 
             panelClassName={`@container ${maxHeight} bg-gray-50 border`} 
             expandButton={props.onExpand} 

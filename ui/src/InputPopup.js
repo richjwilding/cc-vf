@@ -11,7 +11,14 @@ export function InputPopup(props){
     }
     function confirm(){
         if( props.confirm){
-            props.confirm( Object.keys(data).reduce((a,c,)=>{a[c] = data[c].value; return a}, {}) )
+            props.confirm( Object.keys(data).reduce((a,c,)=>{
+                let value = data[c].value
+                if( !value && props.fields?.[c].allowNull){
+                    value = "undefined"
+                }
+                a[c] = value
+                return a
+        }, {}) )
         }
         closeModal()
     }

@@ -235,7 +235,7 @@ async function rollup( primitive, target, action ){
             
             const tempList = list.slice(idx, idx+50).filter((d)=>d.referenceParameters?.[field] === undefined || d.referenceParameters?.[field] === null)
             if( tempList.length > 0){
-                const featureList = await extractFeautures( tempList.map((d)=>d.referenceParameters.description.replaceAll(/\n|\r/g,". ")), {engine:"gpt4", debug:true, debug_content: true})
+                const featureList = await extractFeautures( tempList.map((d)=>d.referenceParameters.description.replaceAll(/\n|\r/g,". ")), {engine:"gpt4p", debug:true, debug_content: true})
                 if( featureList.success && featureList.output.length === tempList.length ){
                     for(const result of featureList.output){
                         const p = tempList[ result.id ]
@@ -559,8 +559,6 @@ export default function QueueAI(){
             port: process.env.QUEUES_REDIS_PORT,
             maxStalledCount: 0,
             stalledInterval:300000
-
-
         },
     });
     instance.myInit = async ()=>{
@@ -806,7 +804,7 @@ export default function QueueAI(){
                                                 response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the Jobs to be done, a boolean 'internal' indicating if it applies to the company, a 'customer' field indicating if applies to the stated customers of the company, a 'neither' field indicating if it is applicable to neither, a 'solved' field indicating if the company solves the job to be done, and a 'reason' field explaining your rationale in 10 words or less.`,
                                                 postfix: "END OF LIST",
                                                 asScore: true,
-                                                // engine: 'gpt4',
+                                                engine: 'gpt4p',
                                                 debug: true, debug_content: true
                                             } )
                                             
@@ -852,7 +850,7 @@ export default function QueueAI(){
                                             prompt2: `Assess which Job to Done from the list is most directly addressed by the offering`,
                                             response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the selected Job to be Done,  a 'user' field set to the end user, a boolean 'direct' field set to true if the stated user of the selected Job to be Done is a direct end customer of the offering - or set to false if the offering would be most likely used by a third party to deliver value indirectly, and a 'reason' field with a explanation of your rationale in no more than 6 words`,
                                             asScore: true,
-                                             engine: 'gpt4',
+                                             engine: 'gpt4p',
                                             debug: true, debug_content: true
                                         } )
                                         console.log(result.output)
@@ -1175,7 +1173,7 @@ async function summarizeClusters( nodes, primitive ){
                     
                     let titles = list.map((d)=>mapP(d))
                     
-                    let summary = await summarizeMultiple( titles, {types: primitive.referenceParameters?.types ||  "problem statements", prompt: primitive.referenceParameters?.prompt ||  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4"})
+                    let summary = await summarizeMultiple( titles, {types: primitive.referenceParameters?.types ||  "problem statements", prompt: primitive.referenceParameters?.prompt ||  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4p"})
                     if( summary.success ){
                         node.summary = summary.summary
                     }
@@ -1186,7 +1184,7 @@ async function summarizeClusters( nodes, primitive ){
                     if( node.summary ){
                         summaries.push( node.summary )
                     }
-                    const overall = await summarizeMultiple( summaries, {types: primitive.referenceParameters?.types ||   "problem statements", prompt: primitive.referenceParameters?.combinePrompt ?? primitive.referenceParameters?.prompt ??  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4"})
+                    const overall = await summarizeMultiple( summaries, {types: primitive.referenceParameters?.types ||   "problem statements", prompt: primitive.referenceParameters?.combinePrompt ?? primitive.referenceParameters?.prompt ??  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4p"})
                     if( overall.success ){
                         console.log(`GOT BACK SUMMARY OF SUMMARY`)
                         node.summary = overall.summary
@@ -1212,7 +1210,7 @@ async function summarizeClusters( nodes, primitive ){
             console.log(`----- depth = ${thisPath.length}`)
             console.log( thisPath )
             console.log(childLabels)
-            const rewrites = await simplifyHierarchy( thisPath, childLabels, {engine: "gpt4"})
+            const rewrites = await simplifyHierarchy( thisPath, childLabels, {engine: "gpt4p"})
             console.log(rewrites)
             if( rewrites.success){
                 for(const r of rewrites.summaries){

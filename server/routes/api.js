@@ -273,7 +273,7 @@ router.get('/categories', async function(req, res, next) {
     })*/
     router.post('/primitive/:id/getDistances', async function(req, res, next) {
     const primitiveId = req.params.id
-    const field = 'param.capabilities'
+    const field = 'param.offerings'
     try {
         const list = req.body.ids
 

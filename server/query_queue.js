@@ -4,9 +4,9 @@ import { SIO } from './socket';
 import Primitive from "./model/Primitive";
 import { addRelationship, createPrimitive, dispatchControlUpdate, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { enrichCompanyFromLinkedIn, queryPosts, searchPosts } from "./linkedin_helper";
-import { findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
+import { findOrganizationsFromCB, pivotFromCrunchbase, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
-import { fetchArticlesFromGNews } from "./gnews_helper";
+import { fetchArticlesFromGNews, fetchArticlesFromGdelt } from "./gdelt_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import Parser from "@postlight/parser";
 import { analyzeTextAgainstTopics } from "./openai_helper";
@@ -98,20 +98,34 @@ export default function QueryQueue(){
                         console.log(`Query source ${source.id} ${source.platform} ${source.type}`)
                         const resultCategory = await Category.findOne({id: source.resultCategoryId})
 
+                        
                         const existingCheck = source.primaryField ? async (item)=>{
                             if( item ){
-                                const existing = await Primitive.findOne({
+                                let checks = {[source.importField ?? source.primaryField]:  item[source.primaryField]}
+                                if( source.additionalDuplicateCheck ){
+                                    checks = {$or: [
+                                            checks,
+                                            source.additionalDuplicateCheck.map(d=>({[d[0]]:item[d[1]]}))
+                                        ].flat()
+                                    }
+                                }
+                                const query = {
                                     "workspaceId": primitive.workspaceId,
-                                    [source.importField ?? source.primaryField]:  item[source.primaryField],
-                                    $or: [
+                                    $and:[{
+                                        ...checks,
+                                    },{
+
+                                        $or: [
                                             {[`parentPrimitives.${primitive.id}`]: {$in: ['primitives.origin']}},
                                             {[`parentPrimitives.${oId}`]: {$in: [resultPath]}},
                                         ]
-                                    ,
+                                    }],
                                     deleted: {$exists: false},
-                                })
+                                }
+                                
+                                const existing = await Primitive.findOne(query)
                                 const results = existing !== null
-                                console.log( `--- Existing = ${results}`)
+                                //console.log( `--- Existing = ${results}`)
                                 return results
                             }
                             return false
@@ -132,7 +146,7 @@ export default function QueryQueue(){
                             }
                             if( type === "topic" ){
                                 if( topic ){
-                                    const result = await analyzeTextAgainstTopics(data.text, topic, {type: resultCategory?.title, engine: primitive.referenceParameters?.engine ?? "gpt3"})
+                                    const result = await analyzeTextAgainstTopics(data.text, topic, {type: resultCategory?.title, engine: primitive.referenceParameters?.engine ?? "gpt4p"})
                                     const threshold = filter.threshold ?? 3
                                     if( result.output >= threshold){
                                         return true
@@ -160,11 +174,20 @@ export default function QueryQueue(){
                             if( newPrim ){
                                 await addRelationship( oId, newPrim.id, resultPath )
                             }
+                            return newPrim
                         }
 
                         if( source.platform === "linkedin" ){
                             if( source.type === "posts" ){
                                 await queryPosts( primitive.title, {count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterPost: mapFilter(source.filterPost), createResult: createResult} ) 
+                            }
+                        }
+                        if( source.platform === "gdelt" ){
+                            await fetchArticlesFromGdelt( primitive.title, {count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterPost: mapFilter(source.filterPost), createResult: createResult} ) 
+                        }
+                        if( source.platform === "crunchbase" ){
+                            if( source.type === "organization" ){
+                                await queryCrunchbaseOrganizations( primitive.title, {count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterPost: mapFilter(source.filterPost), createResult: createResult} ) 
                             }
                         }
                     }

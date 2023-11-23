@@ -57,23 +57,25 @@ export default function DropdownButton({...props}) {
                   props.className ?? ""
                 ].join(' ')
               }
+                key='button' 
                 onClick={props.onClick}
             >
-            {props.title}
-            {props.hideArrow ? "" : (props.icon ?? <ChevronDownIcon className="h-5 w-5 ml-1" aria-hidden="true" />)}
+            {props.title }
+            {props.hideArrow ? "" : (props.icon ?? <ChevronDownIcon key='arrow' className="h-5 w-5 ml-1" aria-hidden="true" />)}
           </Menu.Button>
 
           : <Menu.Button 
+            key='button' 
               onClick={props.onClick}
             className={[
               props.small ? "text-xs py-1 px-1" : `text-sm py-2 px-2`,
                 `h-full  relative inline-flex items-center rounded-r-md border font-medium focus:z-20 focus:outline-none  ${colors}`
               ].join(" ")}>
-          <span className="sr-only">Open options</span>
-          <ChevronDownIcon className="h-5 w-5" aria-hidden="true" />
+          <span key='title' className="sr-only">Open options</span>
+          <ChevronDownIcon key='arrow' className="h-5 w-5" aria-hidden="true" />
           </Menu.Button>
         ,
-          (items && items.length > 0) ? <Menu.Items className={[
+          (items && items.length > 0) ? <Menu.Items key='items' className={[
               'z-20 mt-2 -mr-1 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none',
               props.align === 'left' ? 'left-0' : 'right-0',
               props.portal ? "" : "absolute",
@@ -114,7 +116,7 @@ export default function DropdownButton({...props}) {
             </div>
           </Menu.Items> : undefined
     ].filter(d=>d)
-    
+
 
   return (
     <div className={`inline-flex rounded-md ${props.flat ? "hover:shadow-sm" : "shadow-sm"} ${props.className || ""}`}>

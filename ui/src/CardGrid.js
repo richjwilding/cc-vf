@@ -104,12 +104,12 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
         {
             columns.map((_, column)=>{
                 return (
-                    <div className="flex flex-grow flex-col gap-3">
+                    <div key={column} className="flex flex-grow flex-col gap-3">
                         {
                 columns[column].map((p,idx)=>{
                     return (
                         <div 
-                            key={p.plainId}
+                            key={p.id}
                             onDoubleClick={props.onDoubleClick ? (e)=>props.onDoubleClick(e,p,list,idx) : undefined}
                         >
                         <PrimitiveCard 

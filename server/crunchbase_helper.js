@@ -19,7 +19,7 @@ async function filterEntitiesByTopics( list, topics){
     console.log(`Now: ${list.length}`)
 
         if( list && list.length > 0){
-            const result = await analyzeListAgainstTopics(list.map((d)=>d.properties.description.replaceAll("\n",". ")), topics, {prefix: "Organization", type: "organization", maxTokens: 6000})
+            const result = await analyzeListAgainstTopics(list.map((d)=>d.properties.description.replaceAll("\n",". ")), topics, {prefix: "Organization", type: "organization", maxTokens: 60000, engine: "gpt4p"})
             if( !result.success){
                 return undefined
             }
@@ -36,7 +36,7 @@ async function filterEntitiesByTopics( list, topics){
         }
         return list
     }
-    return await process( await process( list ) )
+    return await process( list ) 
 }
 
 async function createPrimitiveFromCBData( entity, referenceId, parent, paths ){
@@ -153,6 +153,150 @@ async function createOrganizationByUUID( uuid, parent, options ){
         console.log(`Error on findOrganizationsFromCB`)
         console.log(error)
     }
+
+}
+export async function queryCrunchbaseOrganizations(keywords, options = {}){
+
+    let totalCount = 0
+    let count = 0
+    let target = options.count ?? 20
+    let results = []
+    let timeFrame = "last_year"
+
+    const doLookup = async (term, nextPage )=>{
+        try{
+            if( nextPage === undefined){
+                count = 0
+            }
+            let hasResults = false
+            const url = `https://api.crunchbase.com/api/v4/searches/organizations`
+
+            const params = JSON.stringify(
+                {
+                    "field_ids": [
+                    "identifier",
+                    "categories",
+                    "location_identifiers",
+                    "short_description",
+                    "website_url",
+                    "image_url",
+                    "name",
+                    "description",
+                    "rank_org"
+
+                    ],
+                    "order": [
+                    {
+                        "field_id": "rank_org",
+                        "sort": "asc"
+                    }
+                    ],
+                    "query": [
+                        {
+                            "type": "predicate",
+                            "field_id": "description",
+                            "operator_id": "contains",
+                            "values": [
+                                term
+                            ]
+                        }
+                    ],
+                    "limit": options.lookupCount || 500 
+            })
+            const response = await fetch(url,{
+                method: 'POST',
+                headers: {
+                    'X-cb-user-key': `${process.env.CRUNCHBASE_KEY}`
+                },
+                body:params
+            });
+            
+            if( response.status === 200){
+                const lookup = await response.json();
+                if( lookup && lookup.entities ){
+                    for(const item of lookup.entities){
+                        hasResults = true
+                        if( count < target ){
+                            let description = item.properties.description.replaceAll("\n", ". ")
+                            console.log(description)
+
+                            if( options.filterPre && !(await options.filterPre({text: description, term: term})) ){
+                                continue
+                            }
+                            // convert domain
+                            item.domain = item.properties.website_url.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2");
+                            
+                            if( options.existingCheck  ){
+                                const exists = await options.existingCheck(item)
+                                if( exists ){
+                                    continue
+                                }
+                            }
+                            if( options.filterPost && !(await options.filterPost({text: description, term: term})) ){
+                                continue
+                            }
+                            const r = {
+                                title: item.title,
+                                type: "entity",
+                                title: item.properties.name,
+                                referenceParameters:{
+                                    url: item.properties.website_url,
+                                    domain: item.domain,
+                                    hasImg: item.properties.image_url,
+                                    description: item.properties.description,
+                                    location: item.properties.location_identifiers?.find(d=>d.location_type === "country")?.value || item.properties.location_identifiers?.[0]?.value
+                                }
+                            }
+                            if( options.createResult ){
+                                const newPrim = await options.createResult( r )
+                                if( newPrim ){
+                                    const store = {
+                                        id: item.uuid,
+                                        name: item.properties.name,
+                                        description: item.properties.description,
+                                        short_description: item.properties.short_description,
+                                        image_url:item.properties.image_url,
+                                        website_url: item.properties.website_url,
+                                        categories: item.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}}),
+                                        locations: item.properties.location_identifiers
+                                        
+                                    }
+                                    newPrim.set("crunchbaseData", store)
+                                    newPrim.markModified("crunchbaseData")
+                                    await newPrim.save()
+                                    if( item.properties.image_url ){
+                                        replicateURLtoStorage(item.properties.image_url, newPrim._id.toString(), "cc_vf_images")
+                                    }
+                                }
+                            }else{
+                                results.push(r)
+                            }
+                            count++
+                            totalCount++
+                        }
+                    }
+                }
+            }
+            console.log(hasResults, count, target)
+            if( hasResults && count < target ){
+                if( lookup.nextPage){
+                    console.log(lookup.nextPage)
+                    await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame})
+                }else{
+                }
+            }
+        }
+        catch(error){
+            console.log("Error in searchPosts")
+            console.log(error)
+        }
+    }
+
+    for( const d of keywords.split(",")){
+        const thisSearch = '"' + d.trim() + '"'
+        await doLookup( thisSearch )
+    }
+    return options.createResult ? totalCount : results
 
 }
 

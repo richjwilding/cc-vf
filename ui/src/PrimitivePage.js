@@ -298,9 +298,6 @@ export function PrimitivePage({primitive, ...props}) {
                           }
                       <PrimitiveCard.EvidenceList onCardClick={(p)=>props.selectPrimitive(p)} showCategories={primitive.primitives.allCategory.length > 0} relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
                     </Panel>}
-              { false && PrimitiveConfig.pageview[primitive.type]?.viewer && 
-                  <CollectionViewer hideCreate primitive={primitive} viewSelf category={primitive.metadata.resultCategories[0]} />
-              }
               {primitive.type === "assessment" && primitive.framework &&
                     <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>
                       { Object.values(primitive.framework.components).map((c) => {
@@ -321,6 +318,7 @@ export function PrimitivePage({primitive, ...props}) {
                 const asViewer = PrimitiveConfig.pageview[primitive.type]?.viewer && idx === 0
                 return !(showWorkingPane instanceof Object && showWorkingPane.type === "result" && showWorkingPane.index === category.id) ?
                   <CollectionViewer 
+                    key={`pane_${category.id}`}
                     primitive={primitive} 
                     category={category} 
                     viewSelf={asViewer}

@@ -329,7 +329,10 @@ export async function primitiveDescendents(primitive, types, options={}){
     let list
     
     const fullDocument = options.fullDocument === undefined ? true : options.fullDocument
-    const paths = options.paths === undefined ? ["origin", "auto"] : options.paths
+    let paths = options.paths === undefined ? ["origin", "auto"] : options.paths
+    if( options.allPaths ){
+        paths = undefined
+    }
     const unique = options.unique === undefined ? true : options.unique
     const fields = fullDocument ? undefined :"_id primitives type" 
 
@@ -361,7 +364,7 @@ export async function primitiveDescendents(primitive, types, options={}){
         return ids.flat().filter((c,idx,a)=>a.indexOf(c)===idx);
     }
     
-    const getIds = paths.length > 0
+    const getIds = paths && paths.length > 0
         ? (p)=>paths.map((path)=>p && p.primitives && p.primitives[path]).flat().filter((d)=>d)
         : (p)=> getAllIds( p.primitives)
 
@@ -386,7 +389,7 @@ export async function primitiveDescendents(primitive, types, options={}){
             return undefined
         }).flat().filter((d)=>d && !checked[d])
         ids.forEach((d)=>checked[d]=true)
-    }while(list.length > 0)
+    }while(list.length > 0 && !options.first)
 
     if( types ){
         out = out.filter((d)=>a.includes(d.type))
@@ -461,8 +464,35 @@ export function primitiveParentPath(primitive, relationship, parentId, getId ){
     }
     return list
 }
+export async function nestedItems(primitive){
+    if( primitive.type === "view"){
+        const list = await primitiveDescendents(primitive, "segment", {allPaths: true, first: true} )
+        console.log(`view has ${list.length} segments`)
+        let out = []
+        for( const segment of list){
+            out = out.concat( await nestedItems( segment))
+        }
+        return uniquePrimitives( out )
+    }
+    if( primitive.type === "segment"){
+        const segmentItems = async (node)=>{
+            const list = await primitiveDescendents(node, undefined, {allPaths: true, first: true} )
+            let out = []
+            for( const item of list){
+                if( item.type === "segment" ){
+                    out = out.concat( await segmentItems( item ) )
+                }else{
+                    out = out.concat( item )
+                }
+            }
+            return out
+        } 
+        return uniquePrimitives( await segmentItems( primitive) ) 
+    }
+    return []
+}
 
-async function getDataForImport( source ){
+async function getDataForImport( source, cache = {} ){
     let fullList = []
     console.log(`Importing from other sources of ${source.plainId} / ${source.id}`)
     const sources = await primitivePrimitives(source, 'primitives.imports')
@@ -470,21 +500,31 @@ async function getDataForImport( source ){
     for( const imp of sources){
         let list = []
         if( Object.keys(imp.primitives).includes("imports")  ){
-            console.log(`has nested imports`)
-            list = list.concat( await getDataForImport( imp ))
+            if( cache[imp.id]){
+                list = cache[imp.id]
+            }else{
+                list = list.concat( await getDataForImport( imp, cache ))
+                cache[imp.id] = list
+            }
         }else{
             let node = new Proxy(imp.primitives, parser)
             if( source.referenceParameters?.path ){
                 console.log(`---- ${source.referenceParameters?.path}`)
                 node = node.fromPath(source.referenceParameters?.path)
             }
-            let ids = node.allIds
-            let items = await Primitive.find({
-                $and:[
-                    {_id: {$in: ids}},
-                    { deleted: {$exists: false}}
-                ]
-            })
+            let ids, items
+
+            if( !source.referenceParameters?.path && imp.type === "segment"){
+                items = await nestedItems( imp )
+            }else{
+                ids = node.allIds
+                items = await Primitive.find({
+                    $and:[
+                        {_id: {$in: ids}},
+                        { deleted: {$exists: false}}
+                    ]
+                })
+            }
             if( source.referenceParameters?.descend ){
                 console.log(`NEED TO DESCEND`)
                 items = await primitiveDescendents( items )
@@ -509,47 +549,77 @@ async function getDataForImport( source ){
             for(const set of config ){
                 let thisSet = undefined
                 for(const filter of set.filters ){
+                    const invert = filter.invert ?? false
+                    let doCat1Check = false
+                    
                     if( filter.type === "parameter"){
                         if( filter.value !== undefined){
                             const temp = []
+                            const isArray = Array.isArray( filter.value )
                             for(const d of (thisSet || list)){
-                                if( (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] === filter.value) {
-                                    temp.push(d)
+                                if( isArray ){
+                                    if( invert ^ filter.value.includes((await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param])) {
+                                        temp.push(d)
+                                    }
+                                }else{
+                                    if( invert ^ (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] === filter.value) {
+                                        temp.push(d)
+                                    }
                                 }
                             }
                             thisSet = temp
                         }
-                        if( filter.min_value !== undefined ){
-                            const temp = []
-                            for(const d of (thisSet || list)){
-                                if( (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] >= filter.value) {
-                                    temp.push(d)
+                        if( filter.min_value !== undefined && filter.max_value !== undefined){
+                                const temp = []
+                                for(const d of (thisSet || list)){
+                                    const value = (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param]
+                                    if( invert ^ (value >= filter.min_value && value <= filter.max_value)) {
+                                        temp.push(d)
+                                    }
                                 }
-                            }
-                            thisSet = temp
+                                thisSet = temp
                         }
-                        if( filter.max_value !== undefined ){
-                            const temp = []
-                            for(const d of (thisSet || list)){
-                                if( (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] <= filter.value) {
-                                    temp.push(d)
+                        else{
+                            if( filter.min_value !== undefined ){
+                                const temp = []
+                                for(const d of (thisSet || list)){
+                                    if( invert ^ (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] >= filter.min_value) {
+                                        temp.push(d)
+                                    }
                                 }
+                                thisSet = temp
                             }
-                            thisSet = temp
+                            if( filter.max_value !== undefined ){
+                                const temp = []
+                                for(const d of (thisSet || list)){
+                                    if( invert ^ (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] <= filter.max_value) {
+                                        temp.push(d)
+                                    }
+                                }
+                                thisSet = temp
+                            }
                         }
                     }
                     if( filter.type === "parent" ){
                         const temp = []
-                        const hitList = [filter.value]
+                        let hitList = [filter.value].flat()
+                        if( hitList.includes(undefined) || hitList.includes(null)){
+                            hitList = hitList.filter(d=>d !== undefined && d !== null )
+                            doCat1Check = true
+                        }
                         for(const d of (thisSet || list)){
-                            if( Object.keys((await primitiveOriginAtLevel(d, filter.pivot)).parentPrimitives ?? {}).filter(d=>hitList.includes(d)).length > 0){
+                            if( invert ^ Object.keys((await primitiveOriginAtLevel(d, filter.pivot)).parentPrimitives ?? {}).filter(d=>hitList.includes(d)).length > 0){
                                 temp.push(d)
                             }
                         }
                         thisSet = temp
                     }
-                    if( filter.type === "not_category_level1"){
-                        const hits = [filter.value].flat()
+                    if( filter.type === "not_category_level1" || doCat1Check){
+                        const hits = doCat1Check ? [filter.sourcePrimId] : [filter.value].flat()
+                        let l1Hits = []
+                        for( const d of hits){
+                            l1Hits = l1Hits.concat( (await primitiveChildren(await Primitive.findOne({_id: d}), "category") ).map(d=>d.id))
+                        }
                         const temp = []
                         for(const d of (thisSet || list)){
                             let item = d
@@ -557,19 +627,8 @@ async function getDataForImport( source ){
                                 item = await Primitive.findOne({_id:  primitiveOriginAtLevel(d, filter.pivot)})
                             }
                             if( item ){
-                                let found = false
-                                console.log(`Checking ${item.plainId}`)
-                                const l0s = (await primitiveParentsOfType(item, "category"))
-                                for(const l0 of l0s){
-                                    const l1s = (await primitiveParentsOfType(l0, "category"))
-                                    for(const l1 of l1s){
-                                        console.log(`check ${l1.id} vs ${hits.join(", ")}`)
-                                        if( hits.includes( l1.id) ){
-                                            found = true
-                                        }
-                                    }
-                                }
-                                if( !found ){
+                                let found = Object.keys(item.parentPrimitives ?? {}).filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0
+                                if( invert ^ !found ){
                                     temp.push(d)
                                 }
                             }
@@ -584,17 +643,31 @@ async function getDataForImport( source ){
                                 item = await Primitive.findOne({_id:  primitiveOriginAtLevel(d, filter.pivot)})
                             }
                             if( item ){
-
-                                const prompt = (await primitiveParentsOfType(item, "prompt"))?.[0]
-                                if( prompt ){
-                                    const question = (await primitiveParentsOfType(prompt, "question"))?.[0]
-                                    if( question ){
-                                        if( filter.map.includes( question.id)){
-                                            temp.push(d)
+                                let add = false
+                                if( filter.subtype == "question"){
+                                    const prompt = (await primitiveParentsOfType(item, "prompt"))?.[0]
+                                    if( prompt ){
+                                        const question = (await primitiveParentsOfType(prompt, "question"))?.[0]
+                                        if( question ){
+                                            if( filter.map.includes( question.id)){
+                                                add = true
+                                            }
+                                        }
+                                        
+                                    }
+                                }
+                                if( filter.subtype == "search"){
+                                    const search = (await primitiveParentsOfType(item, "search"))?.[0]
+                                    if( search ){
+                                        if( filter.map.includes( search.id)){
+                                            add = true
                                         }
                                     }
-                                    
                                 }
+                                if( invert ^ add ){
+                                    temp.push(d)
+                                }
+
                             }
                         }
                         thisSet = temp
@@ -603,6 +676,8 @@ async function getDataForImport( source ){
                 }
                 if( thisSet ){
                     filterOut = filterOut.concat( thisSet )
+                }else{
+                    filterOut = filterOut.concat( list )
                 }
             }
             list = filterOut
@@ -864,7 +939,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         for(const id of options.ids ){
             const p = await  Primitive.findOne({_id:  new ObjectId(id)})
 
-            await doPrimitiveAction(p, options.cascade_key)
+            await doPrimitiveAction(p, options.cascade_key, {})
         }
         return
     }
@@ -958,7 +1033,12 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 const category = await Category.findOne({id: action.referenceCategoryId})
                 const [items, toSummarize] = await getDataForProcessing(primitive, {...action, ...(category?.openai?.summarize?.source || {})} )
                 
-                const summary = await summarizeMultiple( toSummarize, {...(category?.openai?.summarize?.execute || {}), debug: true})
+                let summary
+                if( action.prompt ){
+                    summary = await summarizeMultiple( toSummarize, {type: action.dataTypes, prompt: action.prompt, engine: action.engine, debug:true})
+                }else{
+                    summary = await summarizeMultiple( toSummarize, {...(category?.openai?.summarize?.execute || {}), debug: true})
+                }
                 console.log(summary)
                 if( summary && summary.summary ){
                     dispatchControlUpdate( primitive.id, `referenceParameters.${action.targetParameter ?? "description"}`, summary.summary)
@@ -1629,23 +1709,26 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
                 if( command === "extract"){
                     const path = options.path || `results.${findResultPathFor(options.resultCategory  || action.resultCategory)}`
-                    if( actionKey === "find_articles_linked") {
-                        const output = await extractUpdatesFromLinkedIn(primitive, {path: path , type: options.type || action.type, referenceId: options.resultCategory || action.resultCategory})
-                        if( output.error === undefined){
-                            result = [{
-                                type: "new_primitives",
-                                data: output
-                            }]
-                            done = true
-                        }
-                    }else if( actionKey === "find_articles_crunchbase") {
-                        const output = await extractArticlesFromCrunchbase(primitive, {path: path, type: options.type || action.type, referenceId: options.resultCategory || action.resultCategory})
-                        if( output.error === undefined){
-                            result = [{
-                                type: "new_primitives",
-                                data: output
-                            }]
-                            done = true
+                    if( path ){
+
+                        if( actionKey === "find_articles_linked") {
+                            const output = await extractUpdatesFromLinkedIn(primitive, {path: path , type: options.type || action.type, referenceId: options.resultCategory || action.resultCategory})
+                            if( output.error === undefined){
+                                result = [{
+                                    type: "new_primitives",
+                                    data: output
+                                }]
+                                done = true
+                            }
+                        }else if( actionKey === "find_articles_crunchbase") {
+                            const output = await extractArticlesFromCrunchbase(primitive, {path: path, type: options.type || action.type, referenceId: options.resultCategory || action.resultCategory})
+                            if( output.error === undefined){
+                                result = [{
+                                    type: "new_primitives",
+                                    data: output
+                                }]
+                                done = true
+                            }
                         }
                     }
                 }

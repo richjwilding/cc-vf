@@ -23,6 +23,9 @@ function areArraysEqualIgnoreOrder(arr1, arr2) {
 
     // Compare the sorted arrays element by element
     for (let i = 0; i < sortedArr1.length; i++) {
+        if ((sortedArr1[i] === null || sortedArr1[i] === undefined) && (sortedArr2[i] === null || sortedArr2[i] === undefined)) {
+            continue;
+        }
         if (sortedArr1[i] !== sortedArr2[i]) {
             return false;
         }
@@ -1125,7 +1128,21 @@ function MainStore (prims){
     if( !prims ){
         instance = obj
     }
-    const uniquePrimitives = (list)=>{
+    const uniquePrimitives = (list) => {
+        const ids = new Set();
+        return list.filter((p) => {
+            /*if (p === undefined) {
+                console.warn(`undefined primitive`);
+                return false;
+            }*/
+            if (ids.has(p.id)) {
+                return false;
+            }
+            ids.add(p.id);
+            return true;
+        });
+    };
+    const __uniquePrimitives = (list)=>{
         let ids = {}
         return list.filter((p)=>{
             if(p=== undefined){console.warn(`undefined prim`)}
@@ -1151,8 +1168,14 @@ function MainStore (prims){
                 }
             },
             get(d, prop, receiver) {
+                if( prop === "id"){
+                    return d.id
+                }
                 if( prop === "primitives"){
                     return new Proxy( d.primitives , obj.structure )
+                }
+                if( prop === "_primitives"){
+                    return d.primitives
                 }
                 if( prop === "plainId"){
                     return d.plainId
@@ -1463,16 +1486,6 @@ function MainStore (prims){
                     return receiver.primitives[type]
                 }
                 if( type === "primitive"){
-                    /*
-                    if( prop === "addImport"){
-                        return (target, filters)=>{
-                            if( receiver.doesImport(target.id, filters)){
-                                return 
-                            }
-                            console.log(`NEED TO ADD IMPORT`)
-                            obj.controller.addImport( receiver, target, filters)
-                        }
-                    }*/
                     if( prop === "doesImport"){
                         return (id, filters)=>{
                             if( receiver?.referenceParameters?.target === "items" && receiver.referenceParameters.importConfig){
@@ -1480,9 +1493,12 @@ function MainStore (prims){
                                 const match = candidates.filter(d=> d.filters.filter(d2 => {
                                     return filters.find(ip=> Object.keys(d2).filter(k=>k !== "id").reduce((a,c)=>{
                                         let res = false
-                                        if( Array.isArray(d2[c]) ){
-                                            res = areArraysEqualIgnoreOrder( d2[c], ip[c])
-                                            
+                                        if( d2[c] instanceof Object){
+                                            if( Array.isArray(d2[c]) ){
+                                                res = areArraysEqualIgnoreOrder( d2[c], ip[c])
+                                            }else{
+                                                throw `Param ${c} not processed`
+                                            }
                                         }else{
                                             res = (d2[c] === ip[c]) 
                                         }
@@ -1499,33 +1515,57 @@ function MainStore (prims){
                     if( prop === "filterItems"){
                         return (list, filters)=>{
                             let thisSet
-                            for( const filter of filters){
 
-                                console.log(filter)
-                                
+
+                            const notCat1 = (list, hits, filter)=>{
+                                const invert = filter.invert ?? false
+                                const l1Hits = hits.map(d=>obj.primitive(d)?.primitives.allCategory).flat().map(d=>d.id)
+                                return list.filter(d=>invert ^ !d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0)
+                            }
+
+                            for( const filter of filters){
+                                if( filter === undefined){
+                                    continue
+                                }
+                                const invert = filter.invert ?? false
                                 if( filter.type === "parent"){
-                                    thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).parentPrimitiveIds.includes(filter.value)) 
+                                    let hitList = [filter.value].flat()
+                                    if( hitList.includes(undefined) || hitList.includes(null)){
+                                        hitList = hitList.filter(d=>d !== undefined && d !== null )
+                                        thisSet = notCat1( thisSet || list, [filter.sourcePrimId], filter)
+                                    }
+                                    thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>hitList.includes(d)).length > 0)
+                                    //thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).parentPrimitiveIds.includes(filter.value)) 
                                 }else if( filter.type === "not_category_level1"){
                                     const hits = [filter.value].flat()
-                                    thisSet = (thisSet || list).filter(d=>{
-                                        const level1 = d.findParentPrimitives({type: "category"}).map(d=>d.findParentPrimitives({type: "category"}).map(d=>d.id)).flat(2)
-                                        return !hits.filter(d=>level1.includes(d)).length > 0
-                                    })
+                                    thisSet = notCat1( thisSet || list, hits, filter)
                                 }else if( filter.type === "question"){
-                                    thisSet = (thisSet || list).filter(d=>filter.map.includes( d.findParentPrimitives({type: "question"})?.[0]?.id))
+                                    thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes( d.findParentPrimitives({type: filter.subtype})?.[0]?.id))
                                 }else if( filter.type === "parameter"){
                                     if( filter.value !== undefined){
-                                        thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] === filter.value)
+                                        if( Array.isArray(filter.value)){
+                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.originAtLevel(filter.pivot).referenceParameters?.[filter.param]))
+                                        }else{
+                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] === filter.value)
+                                        }
                                     }
-                                    if( filter.min_value !== undefined ){
-                                        thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] >= filter.min_value)
+                                    if( filter.min_value !== undefined && filter.max_value !== undefined){
+                                            thisSet = (thisSet || list).filter(d=>{
+                                                const value = d.originAtLevel(filter.pivot).referenceParameters?.[filter.param]
+                                                return invert ^ (value >= filter.min_value && value <= filter.max_value)
+                                            })
                                     }
-                                    if( filter.max_value !== undefined ){
-                                        thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] <= filter.max_value)
+                                    else{
+                                        if( filter.min_value !== undefined ){
+                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] >= filter.min_value)
+                                        }
+                                        if( filter.max_value !== undefined ){
+                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] <= filter.max_value)
+                                        }
                                     }
                                 }
                             }
-                            return thisSet || []
+                            return thisSet || list
                         }
                     }
                     if( prop === "itemsForProcessing"){
@@ -1545,10 +1585,13 @@ function MainStore (prims){
                         return (p, o)=>receiver.itemsForProcessingWithOptions(p.id, o)
                     }
                     if( prop === "itemsForProcessingWithOptions"){
-                        return (id, options)=>{
+                        return (id, options = {})=>{
+                            if( !options.cache ){
+                                options.cache = {}
+                            }
 
                             if( Object.keys(receiver.primitives).includes("imports")){
-                                console.log(`Importing from other sources`)
+                                //console.log(`Importing from other sources`)
                                 let fullList = []
                                 for( const source of receiver.primitives.imports.allItems){
                                     if( id && source.id !== id){
@@ -1557,28 +1600,39 @@ function MainStore (prims){
                                     let list = []
                                     let node = source.primitives
                                     if( Object.keys(node).includes("imports")  ){
-                                        list = list.concat(source.itemsForProcessing )
-                                        console.log(`has nested imports - got ${list.length}`)
+                                        const test = options.cache[source.id]
+                                        if( test ){
+                                            list = test
+                                        }else{
+                                            list = list.concat(source.itemsForProcessingWithOptions(undefined, {cache:options.cache}) )
+                                            options.cache[source.id] = list
+                                        }
                                     }else{
                                         if( receiver.referenceParameters?.path ){
                                             node = node.fromPath(receiver.referenceParameters?.path)
                                         }
-                                        let items = node.allItems
+                                        let items 
+                                        if( !receiver.referenceParameters?.path && source.type === "segment"){
+                                            items = source.nestedItems
+                                        }else{
+                                            items = node.allItems
+                                        }
                                         if( receiver.referenceParameters?.descend ){
                                             items = items.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
                                         }
                                         if( receiver.referenceParameters?.referenceId ){
-                                            items = items.filter(d=>d.referenceId === receiver.referenceParameters.referenceId) 
+                                            const match = receiver.referenceParameters.referenceId
+                                            items = items.filter(d=>d.referenceId === match) 
                                         }
                                         if( receiver.referenceParameters?.type ){
-                                            items = items.filter(d=>d.referenceId === receiver.referenceParameters.type) 
+                                            items = items.filter(d=>d.type === receiver.referenceParameters.type) 
                                         }
                                         list = list.concat(items)
                                     }
                                     let config
                                     
                                     config = receiver.referenceParameters?.importConfig?.filter(d=>d.id === source.id)
-                                    console.log(`GOT ${config?.length} configs to scan`)
+                                    //console.log(`For ${received.plainId} - ${list.length} and ${config?.length} configs to scan`)
 
                                     if( config && config.length > 0){
                                         let filterOut = []
@@ -1590,10 +1644,10 @@ function MainStore (prims){
                                         }
                                         list = filterOut
                                     }
-                                    const old = fullList.length
-                                    fullList = fullList.concat(list)
+                                    fullList = fullList.concat(list) 
                                 }
                                 if( (options?.pivot !== false) && receiver.referenceParameters?.pivot){
+                                    fullList = uniquePrimitives(fullList)
                                     fullList = fullList.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot))
                                 }
                                 return uniquePrimitives(fullList)
@@ -1628,10 +1682,10 @@ function MainStore (prims){
                         d.analyzer =  ()=>{
                             return AssessmentAnalyzer(receiver).init()
                         }
-                    }else if( receiver.isTask){
+                    /*}else if( receiver.isTask){
                         d.analyzer =  ()=>{
                             return ExperimentAnalyzer(receiver).init()
-                        }
+                        }*/
                     }
                     if( prop === "metrics"){
                         if(!d.metrics){ return undefined}
@@ -1655,14 +1709,25 @@ function MainStore (prims){
                         if( d._origin){
                            return d._origin 
                         }
-                        let origin = receiver.parentPrimitiveRelationships["origin"]
-                        if( origin ){
-                            d._origin = origin[0]
-                            return origin[0]
+                        //let origin = receiver.parentPrimitiveRelationships["origin"]
+                        let originId = receiver.originId
+                        if( originId ){
+                            const origin = obj.primitive(originId)
+                            d._origin = origin
+                            return origin
                         }
                     }
                     if( prop === "originId"){
-                            return receiver.origin?.id
+                        let id = undefined;
+                        if (receiver._parentPrimitives) {
+                            for (const key in receiver._parentPrimitives) {
+                                if (receiver._parentPrimitives[key].includes("primitives.origin")) {
+                                    id = key;
+                                    break;
+                                }
+                            }
+                        }
+                        return id
                     }
                     if( prop === "originTask"){
                         let origin = receiver.origin
@@ -1682,7 +1747,7 @@ function MainStore (prims){
                         return parents
                     }
                     if( prop === "parentPrimitiveIds"){
-                        return d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p] && d.parentPrimitives[p].length > 0 ) : []
+                        return d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 ) : []
                     }
                     if( prop === "parentPrimitiveRelationships"){
                         return receiver.parentPrimitives.reduce((o, p)=>{

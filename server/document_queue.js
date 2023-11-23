@@ -203,7 +203,8 @@ export default function QueueDocument(){
             port: process.env.QUEUES_REDIS_PORT,
             maxStalledCount: 0,
             stalledInterval:300000
-        },
+
+        }
     });
     instance.myInit = async ()=>{
         console.log("Document Queue")

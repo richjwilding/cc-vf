@@ -1,5 +1,6 @@
 export default function PrimitiveParser(obj){
     const uniqueArray = (a)=>{
+        return [...new Set(a)]
         return a.filter((v,i)=>a.indexOf(v) === i)
     }
     const structure = {
@@ -358,16 +359,44 @@ export default function PrimitiveParser(obj){
                         return receiver._buildDescendantIds( {}, true )
                     }
                     if(prop === "_buildDescendantIds"){
-                        return function(temp = {}, first = true, origin_only){
-                            const childrenIds = origin_only ? receiver.origin.uniqueAllIds : receiver.uniqueAllIds
-                            childrenIds.forEach((id)=>{
-                                if( id && temp[id] === undefined){
-                                    temp[id] = true
-                                    obj.primitive(id)?.primitives._buildDescendantIds( temp, false, origin_only)
-                                }
-                            })
+                        return function(temp , first = true, origin_only){
                             if( first ){
-                                return Object.keys( temp )
+                                temp = new Set()
+                            }
+                            //const childrenIds = origin_only ? receiver.origin.uniqueAllIds : receiver.uniqueAllIds
+                            let childrenIds 
+                            if( origin_only ){
+                                if( target.origin ){
+                                    childrenIds = Object.values(target.origin ) 
+                                }else{
+                                    if( first ){
+                                        return []
+                                    }
+                                    return
+                                }
+                            }else{
+                                childrenIds = receiver.uniqueAllIds
+                            }
+                            for(const id of childrenIds){
+                                if( id && !temp.has(id) ){
+                                    temp.add(id)
+                                    const p = obj.primitive(id)
+                                    if(p){
+                                        let hasProperties = false;
+                                        for (let key in p._primitives) {
+                                            if (p._primitives.hasOwnProperty(key)) {
+                                                hasProperties = true;
+                                                break;
+                                            }
+                                        }
+                                        if( hasProperties ){
+                                            p.primitives._buildDescendantIds( temp, false, origin_only)
+                                        }
+                                    }
+                                }
+                            }
+                            if( first ){
+                                return [...temp]
                             }
                         }
                     }

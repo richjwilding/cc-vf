@@ -76,12 +76,13 @@ export default function ProximityView({primitive, target,...props}){
                     },
                     body: JSON.stringify({ids: distanceIds })
                 }).then(response => response.json()).then((data)=>{
+                console.log('BACK')
+                console.log(data)
                 if( data.success ){
                     console.log(data.distances)
                     setDistances( data.distances.reduce((a,c)=>{a[c.id] = c.distance; return a}, {}) )
                 }
             })
-            console.log('BACK')
         }
     }, [distanceIds])
 
@@ -120,6 +121,7 @@ export default function ProximityView({primitive, target,...props}){
             setDistanceIds(nodes.map((d)=>d.primitive.id))
             return undefined
         }
+        if( !distances ){return }
 
 
         orbits.forEach((orbit)=>{
@@ -238,7 +240,7 @@ export default function ProximityView({primitive, target,...props}){
 
         return {orbits: orbits, nodes: nodes}
 
-    },[primitive.id, distances, focus?.id])
+    },[primitive.id, Object.keys(distances || {}).join("-"), focus?.id])
 
     useResizeObserver(targetRef, (data)=>{
         viewport.current = {

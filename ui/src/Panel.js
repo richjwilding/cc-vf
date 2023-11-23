@@ -3,7 +3,7 @@ import { Disclosure, Transition } from '@headlessui/react'
 import {
   ChevronRightIcon,
 } from '@heroicons/react/20/solid'
-import { PencilIcon } from "@heroicons/react/24/outline";
+import { PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
 import DropdownButton from './DropdownButton';
 import { ArrowsPointingOutIcon } from '@heroicons/react/24/outline';
 
@@ -17,6 +17,16 @@ const Title = (props)=>(
                     ? <div className='flex'>{props.title || "Details"}<span className="inline-flex items-center rounded-full bg-gray-200 ml-2 my-0.5 px-2 py-0.5 text-xs font-medium text-gray-400">{props.count}</span></div>
                     : <div className='flex'>{props.title || "Details"}</div>
                 }
+              {props.deleteButton &&
+                <div
+                    key='edit' 
+                    type="button"
+                    onClick={props.deleteButton}
+                    className="flex ml-auto h-6 w-6 -mt-0.5 invisible group-hover:visible flex-none items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                    <TrashIcon className="h-4 w-4" aria-hidden="true" />
+                </div>
+              }
               {props.editButton &&
                 <div
                     key='edit' 
@@ -90,18 +100,18 @@ export default function Panel({...props}){
     return (
       <Disclosure defaultOpen={props.open}>
       {({ open }) => (
-        <div className={`mt-6 ${props.className || ""}`}>
+        <div className={`group mt-6 ${props.className || ""}`}>
           <div className='flex w-full place-items-center space-x-2'>
-            <Disclosure.Button className='flex w-full' ref={toggleRef}>
+            <Disclosure.Button as='div' key="title" className='flex w-full' ref={toggleRef}>
               <Title {...props} open={open}/>
             </Disclosure.Button>
               {titleButton && (
                 titleButton instanceof Array
                 ? 
-                  <DropdownButton small={titleButton[0]?.small} portal items={titleButton.map((d)=>{return {...d, action:()=>{ensureOpen();d.action()}}})} className={`shrink-0 grow-0 ${titleButton[0]?.small ? "" :"h-10"}`} />
-                : <MenuButton title={titleButton.title} icon={titleButton.icon} action={()=>{ensureOpen();titleButton.action()}} small={titleButton.small}/>
+                  <DropdownButton key="action" small={titleButton[0]?.small} portal items={titleButton.map((d)=>{return {...d, action:()=>{ensureOpen();d.action()}}})} className={`shrink-0 grow-0 ${titleButton[0]?.small ? "" :"h-10"}`} />
+                : <MenuButton key="action" title={titleButton.title} icon={titleButton.icon} action={()=>{ensureOpen();titleButton.action()}} small={titleButton.small}/>
               )}
-              {props.expandButton && <MenuButton icon={<ArrowsPointingOutIcon className='w-4 h-4 -mx-1'/>} action={()=>{props.expandButton()}} />}
+              {props.expandButton && <MenuButton key="expand" icon={<ArrowsPointingOutIcon className='w-4 h-4 -mx-1'/>} action={()=>{props.expandButton()}} />}
           </div>
           <Transition
             enter="transition duration-100 ease-out"
