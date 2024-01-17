@@ -12,7 +12,7 @@ export function InputPopup(props){
     function confirm(){
         if( props.confirm){
             props.confirm( Object.keys(data).reduce((a,c,)=>{
-                let value = data[c].value
+                let value = data[c].value ?? data[c].default
                 if( !value && props.fields?.[c].allowNull){
                     value = "undefined"
                 }
@@ -30,6 +30,8 @@ export function InputPopup(props){
         setData( newItem )
         return true
     }
+
+    console.log( data )
 
     return (
         <Popup width='max-w-xl' setOpen={closeModal} title={`${props.title || "Input needed"}`}>

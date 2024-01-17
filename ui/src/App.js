@@ -15,6 +15,7 @@ import HomeScreen from './HomeScreen';
 import toast, { Toaster } from 'react-hot-toast';
 import ConfirmationPopup from './ConfirmationPopup';
 import PrimitivePicker from './PrimitivePicker';
+import { InputPopup } from './InputPopup';
 
 library.add(fas, faLinkedin)
 
@@ -38,6 +39,7 @@ function App() {
   const [workspaceView, setWorkspaceView] = React.useState(undefined)
   const [showDeletePrompt, setShowDeletePrompt] = React.useState()
   const [showPicker, setShowPicker] = React.useState()
+  const [manualInputPrompt, setManualInputPrompt] = React.useState(false)
 
 
   const checkPrimIsLoaded = ()=>{
@@ -83,6 +85,7 @@ function App() {
   mainstore.sidebarSelect = selectPrimitive
   mainstore.promptDelete = setShowDeletePrompt
   mainstore.globalPicker = setShowPicker
+  mainstore.globalInputPopup = setManualInputPrompt
 
   return (
     !loaded
@@ -123,6 +126,7 @@ function App() {
           <Sidebar open={open} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
           {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" message={showDeletePrompt.prompt} confirm={showDeletePrompt.handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
           {showPicker && <PrimitivePicker root={showPicker.root} callback={showPicker.callback} setOpen={setShowPicker} type={showPicker.type} referenceId={showPicker.referenceId}/>}
+          {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
           </BrowserRouter>
       </div>
   )

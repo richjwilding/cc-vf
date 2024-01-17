@@ -11,12 +11,13 @@ import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { buildEmbeddingsForPrimitives, getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
 import analyzeDocument, { buildEmbeddings } from '../openai_helper';
-import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin} from '../SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
 import { SIO } from '../socket';
 import QueueAI from '../ai_queue';
 import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
+import PrimitiveConfig from '../PrimitiveConfig';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -348,7 +349,7 @@ router.get('/primitives', async function(req, res, next) {
         }
       }
         
-        const results = await Primitive.find(query)
+      const results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0})
         res.json(results)
       } catch (err) {
         console.log(err)
@@ -478,6 +479,7 @@ router.post('/primitive/:id/set_user', async function(req, res, next) {
         res.json(400, {error: err.message})
     }
 })
+
 router.post('/set_field', async function(req, res, next) {
     let data = req.body
     console.log(`${data.receiver} - ${data.field} = ${data.value}`)
@@ -486,7 +488,7 @@ router.post('/set_field', async function(req, res, next) {
 
     try {
 
-        const prim = await Primitive.findOneAndUpdate(
+/*        const prim = await Primitive.findOneAndUpdate(
             {
                     "_id": new ObjectId(data.receiver),
             }, 
@@ -521,6 +523,12 @@ router.post('/set_field', async function(req, res, next) {
                 }
             }
         }
+        const config = PrimitiveConfig.typeConfig[prim.type]
+        if( config?.embed){
+            if( config.embed.includes(data.field)){
+                buildEmbeddingsForPrimitives([prim], data.field, true, true)
+            }
+        }
         
 
         SIO.notifyPrimitiveEvent(prim, [
@@ -529,7 +537,8 @@ router.post('/set_field', async function(req, res, next) {
                 primitiveId: data.receiver,
                 fields:{[data.field]:data.value}
             }
-        ])
+        ])*/
+        await updateFieldWithCallbacks( data.receiver, data.field, data.value )
 
         res.json({success: true, result: result})
       } catch (err) {
@@ -649,6 +658,16 @@ router.post('/set_relationship', async function(req, res, next) {
     } catch (err) {
         res.status(400).json( {error: err.message})
     }
+
+})
+router.get('/queue/reset', async function(req, res, next) {
+    const status = await queueReset()
+    res.json({success: true, result: status})
+
+})
+router.get('/queue/status', async function(req, res, next) {
+    const status = await queueStatus()
+    res.json({success: true, result: status})
 
 })
 router.post('/primitive/:id/action/:action', async function(req, res, next) {
@@ -793,6 +812,19 @@ router.get('/primitive/:id/getDocumentAsPlainText', async function(req, res, nex
         return
     }
 })
+router.post('/primitive/:id/findQuote', async function(req, res, next) {
+    const primitiveId = req.params.id
+    const quote = req.body.quote
+    console.log( primitiveId, quote )
+    try{
+        const extract = await getDocumentAsPlainText( primitiveId, req, undefined, true )
+        const highlights = extract.data ? locateQuote(quote, extract.data) : undefined
+        res.json({success: true, result: highlights})
+    }catch(err){
+        res.status(400).json( {error: err.message})
+        return
+    }
+})
 router.get('/primitive/:id/discover', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id
@@ -816,135 +848,13 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
     let out = []
     try{
         const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
-        await QueueDocument().processQuestions(prim, qIds, req)
+        await QueueDocument().processQuestions(prim, {qIds: qIds}, req)
         res.json({success: true})
     }catch(err){
         console.log(err)
         res.status(400).json( {error: err.message})
     }
     
-})
-router.get('/primitive/:id/_analyzeQuestions', async function(req, res, next) {
-    let data = req.body
-    const primitiveId = req.params.id
-    const qIds = req.query.questionIds
-    let out = []
-
-    try{
-        let success = false
-        let result 
-        const origin = await Primitive.findOne({["primitives.origin"]: {$in: [primitiveId]}})
-        const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
-        if( origin && prim ){
-            //const questions = new Proxy(origin.primitives, parser).allQuestion
-            const questions = await Primitive.find({[`parentPrimitives.${origin._id}.0`]: 'primitives.origin', type: 'question'})
-           
-            const groups = {}
-
-            for(const question of questions){
-                if( qIds && !qIds.includes( question.id ) ){
-                    console.log('skipping')
-                    continue
-                }
-                const cPrompts = await Primitive.find({[`parentPrimitives.${question._id}.0`]: 'primitives.origin', type: 'prompt'})
-                for( const prompt of cPrompts){
-                    const category = await Category.findOne({id: prompt.referenceId})
-                    groups[prompt.referenceId] = groups[prompt.referenceId] || {
-                        category: category,
-                        id: prompt.referenceId,
-                        prompts: [],
-                    }
-                    if( category ){
-                        let out
-                        const isEmpty = (prompt.allowInput === false) || prompt.title === undefined || prompt.title === null || prompt.title.trim() === "" 
-                        if( isEmpty ){
-                            out = category.empty
-                        }else{
-                            out = category.base.replace("${t}", prompt.title)
-                        }
-                        if( out ){
-                            out = out.replace("${n}", prompt.referenceParameters?.count || category.parameters?.count?.default) 
-                            groups[prompt.referenceId].prompts.push( {
-                                id: prompt.id,
-                                text: out
-                            } )
-                        }
-                    }
-                }
-            }
-
-
-            const extract = await getDocumentAsPlainText( primitiveId, req )
-
-            const text = extract.plain
-            for( const group of Object.values(groups)){
-                const resultField = group.category.openai.field || "problem"
-                result = await analyzeDocument( {
-                    opener: group.category.openai.opener,
-                    descriptor: group.category.openai.descriptor,
-                    responseInstructions: group.category.openai.responseInstructions,
-                    text: text, 
-                    prompts: group.prompts.map((p)=>p.text)
-                })
-
-
-                if( result ){
-                    success = true
-                    if( result.success ){
-                        if( group.prompts.length == 1 && Array.isArray(result.response) ){
-                            result.response = {
-                                "T1": Object.values( result.response )
-                            }
-                        }
-                        result = {
-                            result: Object.values(result.response).map((d, idx)=>{
-                                let results = Array.isArray(d) ? d : Object.values(d)
-                                console.log(results.length)
-                                if( results.length === 1 ){
-                                    console.log((results[0] instanceof Object) , Object.keys(results[0]).length === 1 , Array.isArray(Object.values(results[0])))
-                                    if( results.length === 1 && Array.isArray(results[0]) ){
-                                        console.log(`Aligning to nested array`)
-                                        console.log(results)
-                                        results = Object.values(results[0])
-                                    }
-                                }
-                                if( !results.forEach){
-                                    console.log(results)
-                                    throw new Error("UNEXPECT DATA TYPE FOR RESU")
-                                }
-                                results.forEach((p)=>{
-                                    if( p.quote ){
-                                        if( (p[resultField] == undefined) || (p[resultField] === "none") || (p.quote === 'none')){
-                                            return;
-                                        }
-                                        p.highlightAreas = locateQuote(p.quote, extract.data)
-                                    }
-                                })
-                                return group.prompts[idx]
-                                    ?    {
-                                            id: group.prompts[idx].id,
-                                            results: results
-                                        }
-                                    : {id: "error"}
-                            }),
-                            instructions: result.instructions,
-                            raw: result.raw,
-                            categoryId: group.id
-                        }
-                    }else{
-                        result = {raw: result.raw, instructions: result.instructions, categoryId: group.id, parseFail: true}
-                    }
-                    out.push(result)
-                }
-            }
-        }
-        res.json({success: success, result: out})
-    }catch(err){
-        console.log(err)
-        res.status(400).json( {error: err.message})
-        return
-    }
-
 })
 
 

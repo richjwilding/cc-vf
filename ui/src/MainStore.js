@@ -45,6 +45,19 @@ function MainStore (prims){
         id:  Math.floor(Math.random() * 99999),
         callbacks: {},
         types: PrimitiveConfig.types,
+        waitForPrimitive:async function(id, count = 1){
+            console.log(`checking for ${id}`)
+            const primitive = obj.primitive(id)
+            if( primitive === undefined){
+                console.log(`Primitive ${id} not present - sleeping`)
+                await new Promise(r => setTimeout(r, 100 * count ));
+                if( count < 10 ){
+                    console.log(`Try again`)
+                    return await this.waitForPrimitive(id, count + 1)
+                }
+            }
+            return primitive
+        },
         loadWorkspaceFor:async function(id){
             console.log(`will load`)
             return new Promise((resolve)=>{
@@ -151,7 +164,14 @@ function MainStore (prims){
 
                                 if( root === 'referenceParameters'){
                                     console.log(`setting reference ${frag.join(".")}`)
-                                    target.setParameter(frag.join("."), val, true, true)
+                                    if(frag.length === 0){
+                                        console.log(`SET FULL`)
+                                        for( const f in val){
+                                            target.setParameter(f, val[f], true, true)
+                                        }
+                                    }else{
+                                        target.setParameter(frag.join("."), val, true, true)
+                                    }
                                     obj.triggerCallback("set_parameter", [target] )
                                 }else{
                                     target.setField(field, val, undefined, true)
@@ -854,7 +874,7 @@ function MainStore (prims){
             return response
 
         },
-        doPrimitiveAction:async function (primitive, action, params){
+        doPrimitiveAction:async function (primitive, action, params, callback){
             let url = `/api/primitive/${primitive.id}/action/${action}`
 
             const result = await fetch(url,{
@@ -865,8 +885,12 @@ function MainStore (prims){
                 body: JSON.stringify(params)
             })
             const response = await result.json()
-            console.log(response)
-            return this.ajaxResponseHandler(response)
+            const success = this.ajaxResponseHandler(response)
+            if( response.success && callback && typeof(callback) === "function"){
+                console.log(`WILL CALL CALLBACK`)
+                await callback(response.result)
+            }
+            return success
 
         },
         doPrimitiveDocumentDiscovery:async function ( primitive){
@@ -879,21 +903,15 @@ function MainStore (prims){
                 const response = await result.json()
                 return response
         },
-        doPrimitiveDocumentQuestionsAnalysis:async function ( primitive, ids ){
-            console.log(ids)
-            
+        doPrimitiveDocumentQuestionsAnalysis:async function ( primitive, options ){
             let url = `/api/primitive/${primitive.id}/analyzeQuestions`
-            if( ids ){
-                url += '?' + new URLSearchParams({
-                    questionIds: ids
-                })
-            }
+            url += '?' + new URLSearchParams(options)
 
-                const result = await fetch(url,{
-                    method: "GET",
-                })
-                const response = await result.json()
-                return response
+            const result = await fetch(url,{
+                method: "GET",
+            })
+            const response = await result.json()
+            return response
         },
         getPrimitiveDocumentAsText:async function ( primitive ){
             let revision = ''
@@ -965,8 +983,9 @@ function MainStore (prims){
             }
         },
         createPrimitive:async function( options ){
+            let category = options.categoryId ? this.category( options.categoryId ) : undefined
             let {
-                title = "New item", 
+                title = category?.blankTitle ? undefined : "New item", 
                 type = "result", 
                 state = undefined, 
                 extraFields = {}, 
@@ -975,7 +994,6 @@ function MainStore (prims){
                 parentPath = undefined, 
                 categoryId = undefined, 
                 referenceParameters = {} } = options
-            let category = categoryId ? this.category( categoryId ) : undefined
 
             let paths = []
             if( parent ){
@@ -1463,6 +1481,22 @@ function MainStore (prims){
                     return d.type === "activity" || d.type === "experiment"
                 }
 
+                if( prop === "relationshipAtLevel"){
+                    return function(relationship, level){
+                        if(level === 0){
+                            return [receiver]
+                        }
+                        let out = []
+                        const parents = receiver.parentPrimitiveRelationships[relationship]
+                        if( parents ){
+                            out = uniquePrimitives(parents)
+                            if( level > 1){
+                                out = uniquePrimitives(parents.map(d=>d.relationshipAtLevel(relationship, level - 1, false)).flat(Infinity).filter(d=>d))
+                            }
+                        }
+                        return out
+                    }                    
+                }
                 if( prop === "originAtLevel"){
                     return function(level){
                         let node = receiver
@@ -1488,23 +1522,33 @@ function MainStore (prims){
                 if( type === "primitive"){
                     if( prop === "doesImport"){
                         return (id, filters)=>{
+                            console.log(`Check segment `, id, receiver.id)
                             if( receiver?.referenceParameters?.target === "items" && receiver.referenceParameters.importConfig){
                                 const candidates = receiver.referenceParameters.importConfig.filter(d=>d.id === id)
-                                const match = candidates.filter(d=> d.filters.filter(d2 => {
-                                    return filters.find(ip=> Object.keys(d2).filter(k=>k !== "id").reduce((a,c)=>{
-                                        let res = false
-                                        if( d2[c] instanceof Object){
-                                            if( Array.isArray(d2[c]) ){
-                                                res = areArraysEqualIgnoreOrder( d2[c], ip[c])
+                                const match = candidates.filter(d=> {
+                                    const thisMatch = d.filters.filter(d2 => {
+                                        console.log(`Checking`)
+                                        const thisSet = filters.find(ip=> Object.keys(d2).filter(k=>k !== "id").reduce((a,c)=>{
+                                            let res = false
+                                            if( d2[c] instanceof Object){
+                                                if( Array.isArray(d2[c]) ){
+                                                    res = areArraysEqualIgnoreOrder( d2[c], ip[c])
+                                                }else{
+                                                    throw `Param ${c} not processed`
+                                                }
                                             }else{
-                                                throw `Param ${c} not processed`
+                                                res = (d2[c] === ip[c]) 
                                             }
-                                        }else{
-                                            res = (d2[c] === ip[c]) 
-                                        }
-                                        return res && a}, true))
-                                }).length === filters.length)
+                                            console.log(" - ", res)
+                                            return res && a}, true))
+                                            console.log(`Result = `, thisSet)
+                                            return thisSet
+                                    })
+                                    console.log(thisMatch)
+                                    return thisMatch.length === filters.length && thisMatch.length === d.filters.length
+                                })
 
+                                console.log(match.length)
                                 if( match.length === 1){
                                     return true
                                 }
@@ -1519,7 +1563,7 @@ function MainStore (prims){
 
                             const notCat1 = (list, hits, filter)=>{
                                 const invert = filter.invert ?? false
-                                const l1Hits = hits.map(d=>obj.primitive(d)?.primitives.allCategory).flat().map(d=>d.id)
+                                const l1Hits = hits.map(d=>obj.primitive(d)?.primitives?.allCategory).flat().map(d=>d.id)
                                 return list.filter(d=>invert ^ !d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0)
                             }
 
@@ -1541,6 +1585,22 @@ function MainStore (prims){
                                     thisSet = notCat1( thisSet || list, hits, filter)
                                 }else if( filter.type === "question"){
                                     thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes( d.findParentPrimitives({type: filter.subtype})?.[0]?.id))
+                                }else if( filter.type === "type"){
+                                    if( filter.map !== undefined){
+                                        if( Array.isArray(filter.map)){
+                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes(d.originAtLevel(filter.pivot).referenceId))
+                                        }else{
+                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceId === filter.map)
+                                        }
+                                    }
+                                }else if( filter.type === "title"){
+                                    if( filter.value !== undefined){
+                                        if( Array.isArray(filter.value)){
+                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.originAtLevel(filter.pivot).title))
+                                        }else{
+                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value === d.originAtLevel(filter.pivot).title)
+                                        }
+                                    }
                                 }else if( filter.type === "parameter"){
                                     if( filter.value !== undefined){
                                         if( Array.isArray(filter.value)){
@@ -1967,7 +2027,7 @@ function MainStore (prims){
                     }
                     return d} )
                 obj.data.categories = categories
-                obj.data.primitives = primitives.reduce((o,d)=>{o[d.id || d._id] = primitive_access(d, "primitive"); return o}, {})
+                obj.data.primitives = primitives.reduce((o,d)=>{o[d._id] = primitive_access(d, "primitive"); return o}, {})
                 obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
                 obj.activeUser.id = obj.activeUser.info.id
                 obj.data.workspaces = workspaces.map((d)=>{d.id = d._id; return d})

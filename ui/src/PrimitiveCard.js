@@ -38,6 +38,7 @@ import PrimitiveConfig from './PrimitiveConfig';
 import MyCombo from './MyCombo';
 import { InputPopup } from './InputPopup';
 import TooggleButton from './ToggleButton';
+import CheckPill from './CheckPill';
 
 const ExpandArrow = function(props) {
   return (
@@ -53,8 +54,9 @@ let mainstore = MainStore()
   const RenderItem = ({item, ...props})=>{
     let icon = item.icon && typeof(item.icon) === "object" && item.icon.library === "fa" && <FontAwesomeIcon icon={item.icon.icon} className='mr-1 text-slate-500'/>
       if( item.type === "boolean"){
+        const thisVal = item.value !== undefined ? item.value : item.default
         if( props.editable || props.editing){
-          return <TooggleButton enabled={item.value} setEnabled={(v)=>{
+          return <TooggleButton small enabled={thisVal} setEnabled={(v)=>{
             if(props.callback){
               props.callback(v)
             }else{
@@ -63,9 +65,40 @@ let mainstore = MainStore()
           }}/>
         }
         return (
-          <dd className="text-gray-500 font-medium self-center">{item.value ? "Yes" : "No"}</dd>
+          <dd className="text-gray-500 font-medium self-center">{thisVal ? "Yes" : "No"}</dd>
         )
-
+      }else if( item.type === "list"){
+        const align = (props.leftAlign || item.type === "long_string") ? "" : "text-end"
+        const clamp = item.type === "long_string" && !props.disableClamp ? "line-clamp-[10]" : ""
+        return <EditableTextField
+          {...props} 
+          submitOnEnter={true} 
+          value={Array.isArray(item.value) ? item.value.join(", ") : undefined} 
+          default={item.default} 
+          placeholder={item.placeholder} 
+          icon={icon} 
+          fieldClassName={`${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
+          clamp={clamp}
+          callback={props.callback ? props.callback : (value)=>{
+            const asList = value.split(",").map(d=>d.trim())
+            return props.primitive.setParameter(item.key, asList)
+          }}
+          className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
+        />
+      }else if( item.type === "options"){
+          return <div className='flex flex-wrap space-x-2'>{item.options.map(d=><CheckPill title={d.title} enabled={item.value ? item.value.includes(d.id) : item.default?.includes(d.id)} setEnabled={(v)=>{
+            let newValue = item.value ?? item.default ?? []
+            if( newValue.includes(d.id)){
+              newValue = newValue.filter(d2=>d2 !== d.id)
+            }else{
+              newValue.push(d.id)
+            }
+            if(props.callback){
+              props.callback(newValue)
+            }else{
+              props.primitive.setParameter(item.key, newValue )
+            }
+          }}/>)}</div>
       }else if( item.type === "primitive"){
         let base
         const pick = ()=>{
@@ -87,6 +120,16 @@ let mainstore = MainStore()
           base = <PrimitiveCard primitive={pickedItem} compact onClick={pick}/>
         }else{
           base = <Panel.MenuButton small action={pick} title={<div className='flex place-items-center justify-center text-gray-600 w-full'><MagnifyingGlassCircleIcon className='w-5 h-5 mr-1'/>Select item</div>} className='w-full'/>
+        }
+        return <div className='w-full flex'>{base}</div>
+      }else if( item.type === "primitive_parent"){
+        let base
+        const pickedItem = props.primitive?.relationshipAtLevel(item.key,1)?.[0]
+        console.log(pickedItem)
+        if( pickedItem ){
+          base = <PrimitiveCard primitive={pickedItem} hideCover hideDescription hideTitle />
+        }else{
+          base = <p>None</p>
         }
         return <div className='w-full flex'>{base}</div>
       }else if( item.type === "category_source"){
@@ -153,10 +196,10 @@ let mainstore = MainStore()
           const evidenceCategories = [task.metadata.evidenceCategories, task.primitives.descendants.filter((d)=>d.type === "evidence").map((d)=>d.referenceId)].flat().filter((c,idx,a)=>c && a.indexOf(c)===idx)
           
           evidenceCategories.forEach((d)=>{
-            const title = (props.excludeResultCategories ? "" : "Evidence: ") + mainstore.category(d).title
+            const cat = mainstore.category(d)
+            const title = (props.excludeResultCategories ? "" : "Evidence: ") + cat.title
             if( !props.ensurePresent || task.primitives.descendants.filter((d2)=>d2.referenceId === d).length > 0 ){
-              const cat = mainstore.category(d)
-              list.push({key: d, isEvidence: true, target: "evidence", title: title, categoryId: cat.id, category: cat})
+              list.push({key: d, isEvidence: true, target: cat.primitiveType ?? "evidence", title: title, categoryId: cat.id, category: cat})
             }
           })
           if(task?.metadata?.resultCategories){
@@ -290,7 +333,7 @@ let mainstore = MainStore()
         if(_target === "evidence" || _target === "items"){
           sourceMeta =  mainstore.category(_refId) 
         }
-        else if(task && _target.slice(0,7) === "results"){
+        else if(task && _target?.slice(0,7) === "results"){
           sourceMeta = mainstore.category(task.metadata?.resultCategories[_target.slice(8)].resultCategoryId)
         }
 
@@ -357,16 +400,35 @@ let mainstore = MainStore()
                 className={`flex place-items-center ${props.inline ? "truncate" : ""} ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
               />
 
-      }else if( item.type === "scale" || item.type === "progress"){
-        if( props.editing || props.editable ){
+      }else if( item.type === "scale" || item.type === "progress" || item.type === "range"){
+        if( props.editing || props.editable || item.type === "range"){
+          let value = (item.value ?? item.minValue ?? 0)
+          if( item.asPercent ){
+            value = value * 100
+            if( item.invert){
+              value = 100 - value
+            }
+          }
           return (
                   <input type="range" 
-                    min="0" 
-                    max="9" 
-                    defaultValue={item.value || 0} step='1' className="range" 
-                    onChange={props.callback ? (e)=>props.callback(e.currentTarget.value) : (e)=>{
-                      const value = e.currentTarget.value
-                      props.primitive.setParameter(item.key, value)
+                    min={item.minValue ?? 0} 
+                    max={item.maxValue ?? 9}
+                    defaultValue={ value }
+                    step={item.stepValue ?? 1}
+                    className="range" 
+                    onChange={(e)=>{
+                      let value = e.currentTarget.value
+                      if( item.asPercent ){
+                        value = value / 100
+                        if( item.invert){
+                          value = 1 - value
+                        }
+                      } 
+                      if( props.callback ){
+                        props.callback(value)
+                      }else{
+                        props.primitive.setParameter(item.key, value)
+                      }
                     }}/>
           )
         }
@@ -384,7 +446,7 @@ let mainstore = MainStore()
               </svg>
               {item.type === "scale" && <p className='top-0 left-0 absolute text-center font-sm pt-0.5 w-full' style={{color: color}}>{item.value}</p>}
           </div>
-      }else if( item.type === "options"){
+      }else if( item.type === "option_list"){
         return (<MyCombo 
                   items={item.options.map((d)=>{return {id: d, title: d}})}
                   selectedItem={item.value}
@@ -534,17 +596,17 @@ let mainstore = MainStore()
             action: async ()=>{
               if( d.manualFields ){
                 setManualInputPrompt({
-                  confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs),
+                  confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs, props.callbackProcessor),
                 })
               }else if( d.actionFields ){
                 setManualInputPrompt({
                   primitive: primitive,
                   fields: d.actionFields,
-                  confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs),
+                  confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs, props.callbackProcessor),
                   //confirm: async (inputs)=>console.log(inputs),
                 })
               }else{
-                const res = await MainStore().doPrimitiveAction(primitive, d.key)
+                const res = await MainStore().doPrimitiveAction(primitive, d.key, undefined, props.callbackProcessor)
               }
             }}})
             : [] 
@@ -809,14 +871,12 @@ const Parameters = function({primitive, ...props}){
 
   React.useEffect(()=>{
     if( !props.noEvents ){
-      callbackId.current = mainstore.registerCallback(callbackId.current, "parameter_update", updateForEvent, primitive.id )
+      callbackId.current = mainstore.registerCallback(callbackId.current, "parameter_update set_parameter", updateForEvent, primitive.id )
       return ()=>{
         mainstore.deregisterCallback(callbackId.current )
       }
     }
   }, [])
-
-
 
   let parameters = props.showParents && primitive.origin ? (primitive.origin.childParameters || PrimitiveConfig.metadata[primitive.origin.type]?.parameters) : (primitive.metadata?.parameters || PrimitiveConfig.metadata[primitive.type]?.parameters)
   let source = primitive.referenceParameters 
@@ -838,13 +898,20 @@ const Parameters = function({primitive, ...props}){
     let keyNames = Object.keys(remap)
     fields = fields.filter((f)=>keyNames.includes(f))
   }
-  fields = fields.filter((d)=>!parameters[d].hidden)
+  if( primitive.metadata?.autoParam){
+    fields = fields.concat( Object.keys(primitive.referenceParameters) ).filter(d=>(d,i,a)=>a.indexOf(d) === i) 
+  }
+  fields = fields.filter((d)=>!parameters[d]?.hidden)
   let details = fields.map((k)=>{
-    return {...parameters[k], value: source[k], autoId: source[`${k}Id`], key: k}
+    let config = parameters[k]
+    if( !config ){
+      return {type: "string", title: "Auto", value: source[k].length + " items\n" + JSON.stringify(source[k]), key: k}
+    }
+    return {...config, value: source[k], autoId: source[`${k}Id`], key: k}
   })
 
   if( !props.fullList ){
-    details = details.filter((item)=>item.value !== undefined || item.default) 
+    details = details.filter((item)=>item.value !== undefined || item.default || item.type === "primitive_parent") 
   }else{
     details = details.filter((item)=>item.value || !item.extra) 
   }
@@ -1224,7 +1291,7 @@ const Categories = function({primitive, ...props}){
   }
     
   let button
-  const baseCategories = [53,55]
+  const baseCategories = [53,55,33]
 
   let createButtons = [
                           {title:"Create new", small:true, action: ()=>createCategory()},
@@ -1460,7 +1527,7 @@ const Entity=({primitive, ...props})=>{
             </p>
           </div>
           }
-          {props.hideCategories !== true && <div className='w-full px-4 flex flex-wrap'>
+          {(props.showCategories && props.hideCategories !== true) && <div className='w-full px-4 flex flex-wrap'>
             {primitive.categories.map((category)=>(
               <CategoryCardPill key={category.id} primitive={category}/>
             ))}
@@ -1511,6 +1578,7 @@ const Entity=({primitive, ...props})=>{
           {header}
           {!props.hideMenu && <CardMenu 
             primitive={primitive} 
+            callbackProcessor={props.callbackProcessor}
             bg='bg-white/50 group-hover:bg-white' 
             className='absolute right-1 top-1' 
             size={buttonSize}
@@ -1764,7 +1832,7 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           </EditableTextField>
         }
         {props.showMenu &&
-          <CardMenu primitive={primitive} relatedTo={props.relatedTo} {...props.menuProps} size='6' bg='transparent' className='invisible group-hover:visible'/>
+          <CardMenu primitive={primitive} callbackProcessor={props.callbackProcessor} relatedTo={props.relatedTo} {...props.menuProps} size='6' bg='transparent' className='invisible group-hover:visible'/>
         }
         {(!props.compact && props.showEdit) &&
           <button

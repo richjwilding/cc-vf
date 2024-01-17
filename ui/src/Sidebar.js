@@ -177,7 +177,7 @@ export function Sidebar({primitive, ...props}) {
             const newPrim = await MainStore().createPrimitive({
                 title: "New Segment",
                 type: "segment",
-                categoryId: 36,//segmentCategory,
+                categoryId: segmentCategory ?? 36,
                 parent: primitive,
                 referenceParameters:{
                     "target": "items",
@@ -239,9 +239,11 @@ export function Sidebar({primitive, ...props}) {
                     type="button"
                     className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 "
                     onClick={()=>MainStore().promptDelete({
-                        prompt: "Remove items from this segment?",
-                        handleDelete: ()=>{
-                            alert(`WILL DELETE  ${items.map(d=>d.plainId)}`)
+                        prompt: `Remove ${items.length} items from this segment?`,
+                        handleDelete: async ()=>{
+                            for(const d of items){
+                                await MainStore().removePrimitive( d )
+                            }
                         }
                     })}
                 >
@@ -332,6 +334,24 @@ export function Sidebar({primitive, ...props}) {
                         <PrimitiveCard.EvidenceList primitive={primitive} hideTitle relationshipMode="none"/>
                     </Panel>
                 }
+
+                {metadata?.sidebar?.showRefs && primitive.primitives.ref?.allIds.length > 0 && 
+                    <Panel title="References" collapsable={true} open={true} major>
+                        <CardGrid   
+                            list={primitive.primitives.ref.allItems} 
+                            className='p-2'
+                            columnConfig={{"sm":1}}
+                            cardProps={{
+                                showDetails:"panel",
+                                compact: true,
+                                border:false,
+                                showExpand: false,
+                                titleAtBase: true, 
+                                showMenu: true
+                            }}
+                        />
+                    </Panel>
+                }
                 {primitive.primitives.results?.[0].allIds.length > 0 && 
                     <Panel title={primitive.metadata?.resultCategories?.find(d=>d.id === 0)?.title ?? "Items"} collapsable={true} open={true} major>
                         <CardGrid   
@@ -352,7 +372,7 @@ export function Sidebar({primitive, ...props}) {
                 {origin && showSource &&
                     <div className='mt-6 mb-3 border-t'>
                         <h3 className="mb-2 text-md text-gray-400 pt-2">Source</h3>
-                        <PrimitiveCard primitive={origin} showState={true} showLink={true} showDetails="panel"/>
+                        <PrimitiveCard primitive={origin.type === "search" ? origin.origin : origin} showState={true} showLink={true} showDetails="panel"/>
                     </div>
                 }
                 {task && <div className='mt-6 mb-3 border-t'>

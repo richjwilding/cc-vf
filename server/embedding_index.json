@@ -1,0 +1,16 @@
+  {
+    "collectionName": "embeddings",
+    "database": "dev",
+    "mappings": {
+      "dynamic": true,
+    "fields": {
+
+        "embeddings":{
+            "dimensions": 1536,
+            "similarity": "cosine",
+            "type": "knnVector"
+        }
+    }
+    },
+    "name": "vector_index"
+  }

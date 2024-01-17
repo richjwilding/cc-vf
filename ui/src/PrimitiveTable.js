@@ -262,8 +262,8 @@ export function PrimitiveTable(props) {
                             cell: info => <PrimitiveCard.SmallMeta inline primitive={info.row.original.primitive} />,
                             header: () => d.name || d.title,
                             sortingFn: (a,b)=>{
-                                console.log(a.getValue(d.field));
-                                return (a.getValue(d.field) ? 1 : 0) - (b.getValue(d.field) ? 1 : 0) },
+                                return a.original.primitive?.metadata?.title.localeCompare(b.original.primitive?.metadata?.title)
+                            },
                             startSize: d.width ?? (d.field === "id" ? 100 : undefined),
                             startSize: width,
                             minSize: width

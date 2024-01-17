@@ -105,9 +105,9 @@ export default function ViewBase({primitive, ...props}){
         const segmentCategory = primitive.metadata?.resultCategories?.find(d=>MainStore().category(d.resultCategoryId)?.primitiveType === "segment")?.resultCategoryId 
 
         return [
-            {title: "Create new hierarhcy", icon: <PlusCircleIcon className="w-5 h-5"/>, action: ()=>buildSegment()},
+            {title: "Create new hierarchy", icon: <PlusCircleIcon className="w-5 h-5"/>, action: ()=>buildSegment()},
+            {title: "Create new hierarchy (alt)", icon: <PlusCircleIcon className="w-5 h-5"/>, action: ()=>buildSegment2()},
             {title: "Add new segment", icon: <PlusCircleIcon className="w-5 h-5"/>, action: async ()=>{
-                console.warn("HARD CODED TYPE - FIX!")
                     const parentSegment = await MainStore().createPrimitive({
                         title: "New Segment",
                         type: "segment",
@@ -138,6 +138,18 @@ export default function ViewBase({primitive, ...props}){
         loadSegmentView( views[view].id )
     }
 
+    const buildSegment2 = ()=>{
+        const action = primitive.metadata?.actions?.find(d=>d.key === "cluster2")
+        console.log(primitive)
+            setManualInputPrompt({
+                primitive: primitive,
+                fields: action.actionFields,
+                confirm: async (inputs)=>{
+                    console.log(action.key, inputs)
+                    await MainStore().doPrimitiveAction(primitive, action.key, inputs)
+                },
+            })
+    }
     const buildSegment = ()=>{
         const action = primitive.metadata?.actions?.find(d=>d.key === "build_segment")
             setManualInputPrompt({
@@ -162,9 +174,9 @@ export default function ViewBase({primitive, ...props}){
                             <DropdownButton noBorder icon={props.isExpanded ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>props.setExpanded(!props.isExpanded)} flat className={`!px-0.5 hover:text-ccgreen-800 hover:shadow-md`}/>
                         </div>
                     }
-                    <div key='view_select' className={`flex bg-white rounded-md shadow-lg border-gray-200 border p-0.5 place-items-start `}>
+                    {views && <div key='view_select' className={`flex bg-white rounded-md shadow-lg border-gray-200 border p-0.5 place-items-start `}>
                         <DropdownButton showTick placement='bottom-start' portal setSelectedItem={selectView} selectedItemIdx={selectedIdx} noBorder icon={views[selectedIdx]?.icon} items={views} flat className={`hover:text-ccgreen-800 hover:shadow-md`}/>
-                    </div>
+                    </div>}
                     {view !== "cards" && <div key='segment_menu' className={`flex bg-white rounded-md shadow-lg border-gray-200 border p-0.5 place-items-start max-w-[45cqw]`}>
                         <DropdownButton showTick placement='bottom-start' title={segmentOptions?.[segmentIdx === -1 ? 0 : segmentIdx].title} portal noBorder selectedItemIdx={segmentIdx > -1 ? segmentIdx : undefined} items={segmentOptions} flat className={`!px-1.5`}/>
                     </div>}

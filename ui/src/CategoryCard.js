@@ -94,7 +94,7 @@ export default function CategoryCard({primitive, ...props}){
                             active="mark_categories"
                             markOnProcess
                             primitive={primitive} 
-                            process={async ()=>await MainStore().doPrimitiveAction(primitive.origin, "mark_categories", {source: primitive.id})}
+                            process={async ()=>await MainStore().doPrimitiveAction(primitive.origin, "mark_categories", {source: primitive.id, scope: props.scope})}
                             />
                     }
                     </div>}>
@@ -103,41 +103,6 @@ export default function CategoryCard({primitive, ...props}){
                         <div className='py-2 flex flex-wrap'>
                             {primitive.primitives.allCategory.map((category)=>{
                                 return <CategoryCardPill key={category.plainId} primitive={category}/>
-
-                            })}
-                        </div>
-            }
-            {false && props.showDetails && 
-                primitive.primitives.allCategory.length > 0 && 
-                        <div className='py-2 flex flex-col grid' style={{gridTemplateColumns: '1fr 3fr'}}>
-                            {primitive.primitives.allCategory.map((category)=>{
-                                return <>
-                                        <p className="text-gray-700 text-sm p-2 border-t border-gray-200">{category.title}</p>
-                                        <div className="flex flex-col p-2 border-t border-gray-200">
-                                            <div className="flex">
-                                                <p className="grow text-gray-600 text-sm ">{category.referenceParameters.description || "None"}</p>
-
-                                            <AIProcessButton 
-                                                active="summarize"
-                                                markOnProcess
-                                                small
-                                                primitive={category} 
-                                                process={async ()=>MainStore().doPrimitiveAction(category, "summarize", {source: category.origin.id})}
-                                                />
-                                            </div>
-                                            <Panel 
-                                                key='panel'
-                                                collapsable={true} 
-                                                className='w-fit'
-                                                title={`${category.primitives.uniqueAllIds.length} items`}>
-                                                <div className="flex flex-wrap w-full p-2 ">
-                                                    {category.primitives.ref.uniqueAllItems.map((p)=>(
-                                                        <PrimitiveCard imageOnly hideMenu primitive={p} className='m-0.5' onClick={()=>MainStore().sidebarSelect(p)}/> 
-                                                    ))}
-                                                </div>
-                                            </Panel>
-                                        </div>
-                                     </>
 
                             })}
                         </div>

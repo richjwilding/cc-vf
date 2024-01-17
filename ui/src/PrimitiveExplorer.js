@@ -11,11 +11,12 @@ import useDataEvent from './CustomHook';
 import MyCombo from './MyCombo';
 import TooggleButton from './ToggleButton';
 import { roundCurrency } from './RenderHelpers';
-import { itemsForGraph, projectData } from './SegmentCard';
+import SegmentCard, { itemsForGraph, projectData } from './SegmentCard';
 import { exportViewToPdf } from './ExportHelper';
 import DropdownButton from './DropdownButton';
 import { HeroIcon } from './HeroIcon';
 import { SearchPane } from './SearchPane';
+import ListGraph from './ListGraph';
 
 
 const mainstore = MainStore()
@@ -26,17 +27,21 @@ const encodeFilter = (option, idx, value)=>{
     const sourcePrimId = (idx === undefined || value) ? option.primitiveId : undefined
 
     if( option?.type === "category"){
-        if( idx !== undefined && val === undefined ){
+        if( idx !== undefined && val === "_N_" ){
             return {type: "not_category_level1", value: option.primitiveId, pivot: option.access, invert, sourcePrimId}
         }
-        return {type: "parent", value: val, pivot: option.access, invert, sourcePrimId}
-    }else if( option?.type === "question"){
-        return {type: option.type, subtype: option.subtype, map: [val], pivot: option.access, invert}
+        return {type: "parent", value: val, pivot: option.access, relationship: option.relationship, invert, sourcePrimId}
+    }else if( option?.type === "question" ){
+        return {type: option.type, subtype: option.subtype, map: [val].flat(), pivot: option.access, relationship: option.relationship,  invert}
+    }else if( option?.type === "type"){
+        return {type: option.type, subtype: option.subtype, map: [val].flat().map(d=>parseInt(d)), pivot: option.access, relationship: option.relationship, invert}
+    }else if( option?.type === "title"){
+        return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
     }else if( option.type === "parameter"){
         if( option.bucket_min ){
-            return  {type: "parameter", param: option.parameter, min_value: option.bucket_min[idx], max_value: option.bucket_max[idx], pivot: option.access, invert}
+            return  {type: "parameter", param: option.parameter, min_value: option.bucket_min[idx], max_value: option.bucket_max[idx], pivot: option.access, relationship: option.relationship, invert}
         }else{
-            return  {type: "parameter", param: option.parameter, value: val, pivot: option.access, invert}
+            return  {type: "parameter", param: option.parameter, value: val, pivot: option.access, relationship: option.relationship, invert}
         }
     } 
     return undefined
@@ -58,14 +63,14 @@ const encodeFilter = (option, idx, value)=>{
             const struct =  isNaN(axis) ?  primitive.referenceParameters?.explore?.axis?.[axis] : primitive.referenceParameters?.explore?.filters?.[axis]
             if( struct ){
                 if(struct.type === "parameter" ){
-                    return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                    return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && d.relationship === struct.relationship && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }else if(struct.type === "question" ){
-                    return axisOptions.find(d=>d.type === struct.type &&  (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
-                }else if(struct.type === "title" ){
-                    return axisOptions.find(d=>d.type === struct.type &&  (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                    return axisOptions.find(d=>d.type === struct.type &&  d.relationship === struct.relationship && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
+                }else if(struct.type === "title"  || struct.type === "type" ){
+                    return axisOptions.find(d=>d.type === struct.type &&  d.relationship === struct.relationship && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }
                 const connectedPrim = isNaN(axis) ? primitive.primitives.axis[axis].allIds[0] : primitive.referenceParameters.explore.filters[axis].sourcePrimId
-                return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && d.relationship === struct.relationship && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
             }
             return 0
         }
@@ -107,6 +112,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const [importantOnly, setImportantOnly] = React.useState(true)
     const [colFilter, setColFilter] = React.useState(undefined)
     const [rowFilter, setRowFilter] = React.useState(undefined)
+    const [viewPivot, setViewPivot] = React.useState(primitive?.referenceParameters?.explore?.viewPivot )
     const targetRef = useRef()
     const gridRef = useRef()
     const myState = useRef({})
@@ -262,6 +268,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
         setLayerSelection( primitive?.referenceParameters?.explore?.layer ?? 0 )
         setHideNull( primitive?.referenceParameters?.explore?.hideNull )
         setActiveView( primitive?.referenceParameters?.explore?.view  ?? 0)
+        setViewPivot( primitive?.referenceParameters?.explore?.viewPivot)
         console.log(`RESET COL AND ROW`)
 
         return [out,keep].flat()
@@ -296,45 +303,42 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
             ]
         }
-        function findCategories( list, access = 0 ){
+        function findCategories( list, access = 0, relationship ){
             const catIds = {}
-           // let type
-            function topLevelCategory( item ){
-                const cats = item.categories
-                if( cats.length == 0 || item.referenceId === 54){
-                    if( item.type === "category" ){
-                        return [item]
-                    }                    
-                }else{
-                    return cats.map((d)=>topLevelCategory(d)).flat()
-                }
-                return []
+           for(const category of list){
+            if( category.referenceId === 53){
+                catIds[category.id] = category.primitives.params.source?.allUniqueCategory?.[0] ?? undefined
+            }else{
+                catIds[category.id] = category
             }
-            list.forEach((p)=>{
-                for(const d of topLevelCategory(p)){
-                    if( !catIds[d.id] ){
-                        catIds[d.id] = d
-                    }
-                }
-            })
+           }
             return Object.values(catIds).map((d)=>{
-                const options = d.primitives.allUniqueCategory
+                const options = d.primitives?.allUniqueCategory
+                if( !options ){
+                    return undefined
+                }
                 return {
                     type: "category",
                     primitiveId: d.id,
                     category: d,
-                    order: [undefined,options.map((d)=>d.id)].flat(),
-                    values:["None", options.map((d)=>d.title)].flat(),
+                    order: ["_N_",options.map((d)=>d.id)].flat(),
+                    values:["_N_",options.map((d)=>d.id)].flat(),
+                    labels:["None", options.map((d)=>d.title)].flat(),
                     title: `Category: ${d.title}`,// (${list.map(d=>d.metadata.title ?? d.type).filter((d,i,a)=>a.indexOf(d)===i).join(", ")})`,
-                    allowMove: access === 0,
+                    allowMove: !relationship && access === 0 && (!viewPivot || (viewPivot.depth === 0 || viewPivot === 0)),
+                    relationship: relationship,
                     access: d.referenceParameters?.pivot ?? access
                 }
-            })
+            }).filter(d=>d)
         }
 
-        function txParameters(p, access){
-            const out = []
+        function txParameters(p, access, relationship){
+            let out = []
             const catIds = p.map((d)=>d.referenceId).filter((v,idx,a)=>a.indexOf(v)=== idx)
+            if( access === 1){
+                out.push( {type: 'type', title: `Origin type`, relationship, access: access, values: catIds, order: catIds, labels: catIds.map(d=>mainstore.category(d)?.title ?? "Unknown")})
+
+            }
 
             function process(parameters, title){
                 if( parameters ){
@@ -350,13 +354,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         }else if( type === "long_string" ){
                             return
                         }else if( type === "options" ){
-                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, clamp: true, twoPass: true, passType: "raw"})
+                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, relationship, access: access, clamp: true, twoPass: true, passType: "raw"})
                         }else  if( type === "currency" ||  type === "number"){
-                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, twoPass: true, passType: parameter === "funding" ? "funding" : type})
+                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, relationship, access: access, twoPass: true, passType: parameter === "funding" ? "funding" : type})
                         }else if(  type === "contact"){
-                            out.push( {type: 'parameter', parameter: "contactId", parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, twoPass: true, passType: "contact"})
+                            out.push( {type: 'parameter', parameter: "contactId", parameterType: type, title: `${title} - ${parameters[parameter].title}`, relationship, access: access, twoPass: true, passType: "contact"})
                         }else{
-                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, access: access, twoPass: true, passType: "raw"})
+                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, relationship, access: access, twoPass: true, passType: "raw"})
                         }
                     })
                 }
@@ -366,7 +370,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             catIds.forEach((id)=>{
                 const category = MainStore().category(id)
                 if( category.primitiveType === "entity" || category.primitiveType === "result" ){
-                    out.push( {type: 'title', title: `${category.title} Title`, access: access, twoPass: true, passType: "raw"})
+                    out.push( {type: 'title', title: `${category.title} Title`, relationship, access: access, twoPass: true, passType: "raw"})
                 }
                 if( category ){
                     process(category.parameters, category.title) //
@@ -376,6 +380,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 const o = mainstore.primitive(d)
                 process(o.childParameters, o.metadata?.title)
             })
+            out = out.filter((d,i)=>out.findIndex(d2=>d2.type === d.type && d.title === d2.title && d.access === d2.access && d.relationship === d2.relationship ) === i)
 
             return out.filter((filter)=>{
                 if( filter.type === "parameter" ){
@@ -383,6 +388,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
                 if( filter.type === "title" ){
                     return  (p.filter((d)=>["number","string"].includes(typeof(d.title))).filter((d)=>d !== undefined).length > 0)
+                }
+                if( filter.type === "type" ){
+                    return true
                 }
                 return false
             })
@@ -392,18 +400,43 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
         const baseCategories = primitive.primitives.allUniqueCategory
         out = out.concat( findCategories( baseCategories ) )
+        if( primitive.referenceParameters?.explore?.importCategories){
+            let nodes = [primitive]
+            let updated = false
+            let added = 0
+            do{
+                updated = false
+                for(const node of nodes ){
+                    let thisSet = []
+                    const thisCat = findCategories( node.primitives.allUniqueCategory  ).filter(d=>d)
+                    added += thisCat.length
+                    out = out.concat( thisCat )
+                    if(Object.keys(node.primitives).includes("imports")){
+                        thisSet.push( node.primitives.imports.allItems )
+                        updated = true
+                    }
+                    nodes = thisSet.flat()
+                }
+            }while(updated)
+            console.log(`Got ${nodes.length} `)
+        }
 
 //        out = out.concat( findCategories( items ) )
 
         if( items ){
             out = out.concat( txParameters( items ) )
             
-            const expandOrigin = (nodes, count = 0)=>{
+            const expandOrigin = (nodes, count = 0, relationship)=>{
                 let out = []
-                    const origins = nodes.map((d)=>!d.isTask && d.origin).filter((d)=>d)
+                    const origins = relationship ? mainstore.uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel(relationship,1)).flat(Infinity).filter((d)=>d)) : nodes.map((d)=>!d.isTask && d.origin).filter((d)=>d)
+                    if( relationship ){
+                        console.log(origins)
+                    }
                     if( origins.length > 0){
-                        out = out.concat( txParameters( origins, count + 1 ) )
-                        out = out.concat( expandOrigin(origins, count + 1) )
+                        out = out.concat( txParameters( origins, count + 1, relationship ) )
+                        if( !relationship ){
+                            out = out.concat( expandOrigin(origins, count + 1) )
+                        }
                     }
                     const questions = mainstore.uniquePrimitives(mainstore.uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "prompt").map(d => d.origin))
                     if( questions.length > 0 ){
@@ -429,7 +462,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
             if( !props.excludeOrigin ){
                 //out = out.concat( txParameters( items.map((d)=>d.origin  === primitive ? undefined : d.origin).filter((d)=>d), "origin"  ) )
                 out = out.concat( expandOrigin(items) )
-                
+                if( items[0].referenceId === 84){
+                    out = out.concat( expandOrigin(items, 0, "partnership_a") )
+                    out = out.concat( expandOrigin(items, 0, "partnership_b") )
+
+                }
             }
         }
         const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access)) === idx))
@@ -468,41 +505,54 @@ export default function PrimitiveExplorer({primitive, ...props}){
             if( option.type === "category"){
                 return (p)=>{
                     let item = p
-                    for(let idx = 0; idx < option.access; idx++){
-                        item = item.origin
+                    item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                    if( !item ){return undefined}
+                    if( primitive.referenceParameters?.explore?.allowMulti){
+                        const matches = item.parentPrimitiveIds.map((d)=>option.order?.indexOf(d)).filter((d,i,a)=>d !== -1 && a.indexOf(d)===i).sort()
+                        if( matches.length === 0){
+                            return "_N_"
+                        }
+                        return matches.map(d=>option.order[d])
+                    }else{
+                        return option.order[Math.max(0,...item.parentPrimitiveIds.map((d)=>option.order?.indexOf(d)).filter((d)=>d !== -1 ))] ?? "_N_"
                     }
-                    return option.values[Math.max(0,...item.parentPrimitiveIds.map((d)=>option.order?.indexOf(d)).filter((d)=>d !== -1 ))]
                 }
             }else if( option.type === "contact"){
                 return (d)=>d.origin.referenceParameters?.contactId
+            }else if( option.type === "type"){
+                return (p)=>{
+                    let item = p
+                    item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                    return item?.referenceId
+                }
             }else if( option.type === "title"){
                 return (p)=>{
                     let item = p
-                    for(let idx = 0; idx < option.access; idx++){
-                        item = item.origin
-                    }
-                    return item.title
+                    item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                    return item?.title
                 }
             }else if( option.type === "question"){
                 return (d)=> {
                     let item = d
-                    for(let idx = 0; idx < option.access; idx++){
-                        item = item.origin
-                    }
+                    item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                    if( !item ){return undefined}
                     const hits = option.map.filter(d2=>d.parentPrimitiveIds.includes(d2[0]))
                     return hits.map(d=>d[1]).filter((d,i,a)=>a.indexOf(d)===i)[0]
                 }
             }else if( option.type === "parameter"){
                 if( option.parameterType === "options"){
-                    return (p)=>{
-                        const orderedOptions = p.metadata?.parameters[option.parameter]?.options
+                    return (d)=>{
+                        let item = d
+                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                        if( !item ){return undefined}
+                        const orderedOptions = item.metadata?.parameters[option.parameter]?.options
                         if( orderedOptions){
-                           const values =  [p.referenceParameters[option.parameter]].flat()
+                           const values =  [item.referenceParameters[option.parameter]].flat()
                            if( values && values.length > 0){
                                 const maxIdx = Math.max(...values.map((d2)=>orderedOptions.indexOf(d2)))
                                 return orderedOptions[maxIdx]
                            }else{
-                            return p.metadata.parameters[option.parameter].default ?? "None"
+                            return item.metadata.parameters[option.parameter].default ?? "None"
                            }
                         }
                         return ""
@@ -510,9 +560,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
                 return (d)=> {
                     let item = d
-                    for(let idx = 0; idx < option.access; idx++){
-                        item = item.origin
-                    }
+                    item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                    if( !item ){return undefined}
                     let value = item?.referenceParameters[option.parameter]
                     if( option.parameterType === "number" && typeof(value) === "string"){
                         value = parseFloat(value)
@@ -627,8 +676,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
         const forFilter = viewFilters.map(d=>pickProcess( d.option ))
 
 
-        
-        let interim = items.map((p)=>{
+        let interim= items.map((p)=>{
             return {
                 column: column(p),
                 row: row(p),
@@ -636,7 +684,37 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 ...forFilter.reduce((a,d,idx)=>{a[`filterGroup${idx}` ]=d(p); return a},{})
             }
         })
-
+        
+        if( primitive.referenceParameters?.explore?.allowMulti){
+            let unpacked = []
+            for( const entry of interim){
+                const constants = []
+                const expands = []
+                const base = {}
+                for(const key in entry){
+                    if( Array.isArray(entry[key]) ){
+                        expands.push(key)
+                    }else{
+                        base[key] = entry[key]
+                        constants.push(key)
+                    }        
+                }
+                let unpack = [ base ]
+                for(const key of expands){
+                    let thisOut = []
+                    for( const replicate of unpack){
+                        for( const perm of entry[key]){
+                            const thisEntry = {...replicate}
+                            thisEntry[key] = perm
+                            thisOut.push(thisEntry)
+                        }
+                    }
+                    unpack = thisOut
+                }                
+                unpacked = unpacked.concat(unpack)
+            }
+            interim = unpacked
+        }
 
         for( const [selection, accessor] of [
             [colSelection, "column"],
@@ -671,40 +749,49 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     }
 
                 }else{
-                    const thisFilter = encodeFilter( axisOptions[d.option], undefined, Object.keys(d.filter).map(k=>k === "undefined" && d.filter[undefined] ? undefined : k ))
+                    const thisFilter = encodeFilter( axisOptions[d.option], undefined, Object.keys(d.filter).map(k=>k === "_N_"  ? undefined : k ))
+                    console.log(thisFilter)
                     temp = primitive.filterItems( temp, [thisFilter] )
                     baseFilters.push( thisFilter )
                 }
             }
             const ids = temp.map(d=>d.id)
             interim = interim.filter(d=>ids.includes(d.primitive.id ) )
+            if( primitive.referenceParameters?.explore?.allowMulti ){
+                interim = interim.filter((d,i,a)=>a.findIndex(d2 => (d.primitive.id === d2.primitive.id) && ((d.column?.idx ?? d.column) === (d2.column?.idx ?? d2.column)) && ((d.row?.idx ?? d.row) === (d2.row?.idx ?? d2.row))) === i)
+            }
 
         }
+        if( viewPivot ){
+            const depth = viewPivot instanceof Object ? viewPivot.depth : viewPivot
+            const relationship = (viewPivot instanceof Object ? viewPivot.relationship : undefined) ?? "origin"
 
-        /*if( axisOptions[colSelection]?.twoPass ){
-            const parsed = bucket[axisOptions[colSelection].passType]("column") 
-            axisOptions[colSelection].labels = parsed.labels
-            axisOptions[colSelection].values = parsed.values ?? axisOptions[colSelection].labels
-            axisOptions[colSelection].order = parsed.order ?? axisOptions[colSelection].values
-            if( parsed.bucket_min){
-                axisOptions[colSelection].bucket_min = parsed.bucket_min
-                axisOptions[colSelection].bucket_max = parsed.bucket_max
+            if( relationship === "origin" ){
+                interim = interim.map(d=>{
+                    return {
+                        ...d,
+                        primitive_source: d.primitive,
+                        primitive:  d.primitive.originAtLevel( depth )
+                    }
+                })
+            }else{
+                interim = interim.map(d=>{
+                    const items = d.primitive.relationshipAtLevel( relationship, depth)
+                    return items.map(item=>{
+
+                        return {
+                            ...d,
+                            primitive_source: d.primitive,
+                            primitive:  item
+                        }
+                    })
+                }).flat()
             }
-            
+            interim = interim.filter((d,i,a)=>a.findIndex(d2=>((d2.column?.idx ?? d2.column) === (d.column?.idx ?? d.column) ) && ((d2.row?.idx ?? d2.row) === (d.row?.idx ?? d.row) ) && d.primitive.id === d2.primitive.id) === i)
         }
-        if( axisOptions[rowSelection]?.twoPass ){
-            const parsed = bucket[axisOptions[rowSelection].passType]("row") 
-            axisOptions[rowSelection].labels = parsed.labels
-            axisOptions[rowSelection].values = parsed.values ?? axisOptions[rowSelection].labels
-            axisOptions[rowSelection].order = parsed.order ?? axisOptions[rowSelection].values
-            if( parsed.bucket_min){
-                axisOptions[rowSelection].bucket_min = parsed.bucket_min
-                axisOptions[rowSelection].bucket_max = parsed.bucket_max
-            }
-        }*/
 
         return [interim, baseFilters]
-    },[colSelection, rowSelection, update, updateRel, primitive.id, layerSelection ])
+    },[colSelection, rowSelection, update, updateRel, primitive.id, layerSelection, viewPivot ])
 
 
     let fields = list?.[0]?.primitive?.metadata?.defaultRenderProps?.card?.fields ?? ["title", props.fields].flat()
@@ -767,7 +854,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }, primitive.type === "segment" ? 150 : 0)
         }
         
-    }, [gridRef.current, primitive.id, /*colSelection, rowSelection*/, selectedCategoryIds, layerSelection, activeView, hideNull, importantOnly])
+    }, [gridRef.current, primitive.id, /*colSelection, rowSelection*/, selectedCategoryIds, layerSelection, activeView, hideNull, importantOnly, viewPivot])
 
     useLayoutEffect(()=>{
         rescaleFonts()
@@ -923,8 +1010,39 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     async function copyToClipboard(){
         //let htmlData = list.map((p)=>[p.primitive.plainId,p.primitive.title, p.primitive.origin?.referenceParameters?.contactName || p.primitive.origin.title, p.column, p.row].map((f)=>`<td>${f}</td>`).join("")).map((r)=>`<tr>${r}</tr>`).join("")
-        const fList = list.filter(d=>d.row !== "None" && d.column !== "None")
-        let htmlData = fList.map((p)=>[p.primitive.plainId,p.primitive.referenceParameters?.text,p.primitive?.referenceParameters?.url, p.primitive.origin?.referenceParameters?.contactName || p.primitive.origin.title, p.primitive.origin?.referenceParameters?.role,p.primitive.origin?.referenceParameters?.profile, p.column, p.row, p.primitive.origin?.linkedInData?.country].map((f)=>`<td>${f}</td>`).join("")).map((r)=>`<tr>${r}</tr>`).join("")
+        //const fList = list.filter(d=>d.row !== "None" && d.column !== "None")
+        let fields = list?.[0]?.primitive?.metadata?.renderConfig?.explore?.exportFields ?? ["text","url", "title", "role","profile"]
+        //let htmlData = fList.map((p)=>[p.primitive.plainId,p.primitive.referenceParameters?.text,p.primitive?.referenceParameters?.url, p.primitive.origin?.referenceParameters?.contactName || p.primitive.origin.title, p.primitive.origin?.referenceParameters?.role,p.primitive.origin?.referenceParameters?.profile, p.column, p.row, p.primitive.origin?.linkedInData?.country].map((f)=>`<td>${f}</td>`).join("")).map((r)=>`<tr>${r}</tr>`).join("")
+        let htmlData = list.map((p)=>{
+            let colLabel = p.column?.idx ?? columnExtents.find(d=>d.idx == p.column)?.label
+            let rowLabel = p.row?.idx ?? rowExtents.find(d=>d.idx == p.row)?.label
+            return [
+                p.primitive.plainId,
+                fields.map(d=>{
+                    let source = p.primitive
+                    if( source ){
+                        if(d === "title"){
+                            return source.title
+                        }
+                        let parts = d.split(".")
+                        if( parts.length > 1){
+                            source = source.origin
+                            d = parts[1]
+                        }
+                        if(d === "title"){
+                            return source.title
+                        }
+                        source = source.referenceParameters
+                        if( source ){
+                            return source[d]
+                        }
+                    }
+                    return ""
+                }),
+                colLabel,
+                rowLabel
+            ].flat().map((f)=>`<td>${f}</td>`).join("")                
+        }).map((r)=>`<tr>${r}</tr>`).join("")
         htmlData = '<table><tbody>' + htmlData + '</tbody></text>'
 
         const textarea = document.createElement('template');
@@ -1180,24 +1298,64 @@ export default function PrimitiveExplorer({primitive, ...props}){
         let out
 
         if( props.compare || axisOptions[field].type === "category" ){
-            out = axisOptions[field].values
-        }else if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number" ){
+            //out = axisOptions[field].values
+            out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].order[i], label: d}))
+            console.log(out)
+        }else if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number"   ){
             out = axisOptions[field].labels
         }else if( axisOptions[field].parameterType === "contact" ){
             out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].values[i], label: d}))
-        }else if( axisOptions[field].type === "question" ){
+        }else if( axisOptions[field].type === "question" || axisOptions[field].type === "type"  ){
             out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].values[i], label: d}))
         }else{ 
             out = axisOptions[field].values
         }
+        console.log(fieldName,out)
         out = out.filter((_,idx)=>!((filter && filter[axisOptions[field].order[idx]]) || (hideNull && myState.current?.[fieldName + "Empty"]?.[axisOptions[field].order[idx]]))) ?? []
 
         return out
     }
 
+    const baseViewConfigs = [
+        {id:0, title:"Show items",parameters: {showAsCounts:false}},
+        {id:1, title:"Show counts",parameters: {
+            showAsCounts:true,
+            "props": {
+                "hideDetails": true,
+                "showGrid": false,
+                showSummary: true,
+                columns: 1,
+                fixedWidth: '60rem'
+            }
+        }},
+        {id:2, title:"Show segment overview", 
+                parameters: {
+                    showAsSegment: true,
+                    "props": {
+                        "hideDetails": true,
+                        "showGrid": false,
+                        showSummary: true,
+                        columns: 1,
+                        fixedWidth: '60rem'
+                      }
+
+                }
+            },
+        {id:3, title:"Show as graph", 
+                parameters: {
+                    showAsGraph: true,
+
+                },
+                "props": {
+                    columns: 1,
+                    fixedWidth: '80rem'
+                    }
+            }
+    ]
+
     const renderType = layers?.[layerSelection]?.items ? list?.[0]?.primitive?.type :  (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default"
-    const viewConfigs = list?.[0]?.primitive?.metadata?.renderConfig?.explore?.configs
-    const viewConfig = viewConfigs?.[activeView]
+    const viewConfigs = list?.[0]?.primitive?.metadata?.renderConfig?.explore?.configs ?? baseViewConfigs
+    const viewConfig = viewConfigs?.[activeView] 
     const renderProps = viewConfig?.props ?? list?.[0]?.primitive?.metadata?.defaultRenderProps ?? defaultRenderProps[renderType ]
 
     let [columnExtents, rowExtents, columnColumns] = React.useMemo(()=>{
@@ -1212,6 +1370,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             ] ){
                 if( axis?.order && altAxis?.order ){
                     const allowedValues = filter ? axis.order.map((d, idx)=> filter[ d ] ? undefined : axis.values[idx] ).filter(d=>d) : axis.values
+                    console.log(altEmpty, allowedValues)
                     altAxis.order.forEach((alt,idx)=>{
                         if( !altFilter || !altFilter[alt]){
                             const altPresent = list.filter(d=>tester(d, altAxis.values[idx], allowedValues))
@@ -1232,16 +1391,17 @@ export default function PrimitiveExplorer({primitive, ...props}){
             let spanColumns = undefined
             let spanRows = undefined
             let nestedCount
-            if( viewAsSegments ){
+            if( viewAsSegments || viewConfig?.parameters?.showAsGraph || viewConfig?.parameters?.showAsCounts || viewConfig?.parameters?.showAsSegment ){
                 const cc = []
                 for(const item of inColumn){
                     const p = item.primitive
                     if( p ){
                         
-                        nestedCount = layerNestPreventionList.current[p.id] ? p.primitives.ref.allItems.length : p.nestedItems.length
                         if(renderProps?.columns){
                             if( typeof(renderProps.columns) === "number" ){
+                                spanColumns = renderProps.columns
                             }else{
+                                nestedCount = layerNestPreventionList.current[p.id] ? p.primitives.ref.allItems.length : p.nestedItems.length
                                 let defaultColumns = renderProps.columns.default ?? 1
                                 let defaultRows = renderProps.rows?.default ?? defaultColumns 
                                 let innerColumns = defaultColumns
@@ -1292,9 +1452,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
             columSizing
         ]
     },[primitive.id, colSelection, rowSelection, update, updateNested, hideNull, colFilter ? Object.keys(colFilter).filter(d=>colFilter[d]).join("-") : "", rowFilter ? Object.keys(rowFilter).filter(d=>rowFilter[d]).join("-") : "", Object.keys(expandState).join(",")])
-  
-
-
 
   const filterForCompare = ( subList, axis, idx, other, otherIdx)=>{
     if( axis.type === "parent" ){
@@ -1330,8 +1487,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const options = axisOptions.map((d, idx)=>{return {id: idx, title:d.title}})
 
 
-    const hasColumnHeaders = props.compare || axisOptions[colSelection]?.type !== "none"
-    const hasRowHeaders = props.compare || axisOptions[rowSelection]?.type !== "none"
+    const hasColumnHeaders = !viewConfig?.parameters?.showAsGraph && (props.compare || axisOptions[colSelection]?.type !== "none")
+    const hasRowHeaders = !viewConfig?.parameters?.showAsGraph && (props.compare || axisOptions[rowSelection]?.type !== "none")
 
 
     
@@ -1363,6 +1520,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
         setImportantOnly( value )
         forceUpdate()
     }
+    const updateViewPivot = (value)=>{
+        const pivot = {depth: viewPivotOptions[value]?.id, relationship: viewPivotOptions[value].relationship}
+        if( primitive.referenceParameters ){
+            primitive.setField(`referenceParameters.explore.viewPivot`, pivot)
+        }
+        setViewPivot(pivot)
+        forceUpdateNested()
+    }
 
     const updateViewMode = (value)=>{
         if( primitive.referenceParameters ){
@@ -1388,14 +1553,15 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     const updateAxis = async ( axis, idx )=>{
         const item = axisOptions[idx]
+        const fullState = {
+            type: item.type,
+            access: item.access,
+            relationship: item.relationship
+        }
         if( item.type === "none"){
             primitive.setField(`referenceParameters.explore.axis.${axis}`, null)
         }else if( item.type === "category"){
             if( primitive.referenceParameters ){
-                const fullState = {
-                    type: "category",
-                    access: item.access
-                }
                 primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
                 let toRemove = primitive.primitives.axis[axis].allItems.filter(d=>d.id)
                 let already = false
@@ -1415,33 +1581,16 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     await primitive.addRelationship( item.category, `axis.${axis}`)
                 }
             }
-        }else if( item.type === "title"){
-            if( primitive.referenceParameters ){
-                const fullState = {
-                    type: "title",
-                    access: item.access
-                }
-                primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
-            }
         }else if( item.type === "question"){
             if( primitive.referenceParameters ){
-                const fullState = {
-                    type: item.type,
-                    subtype:  item.subtype,
-                    access: item.access
-                }
-                primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
+                fullState.subtype = item.subtype
             }
         }else if( item.type === "parameter"){
             if( primitive.referenceParameters ){
-                const fullState = {
-                    type: "parameter",
-                    parameter:  item.parameter,
-                    access: item.access
-                }
-                primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
+                fullState.parameter = item.parameter
             }
         }
+        primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
        // primitive.setField(`referenceParameters.explore.filter.${axis}`, [])
         if( axis === "column"){
             storeCurrentOffset()
@@ -1465,7 +1614,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     const updateAxisFilter = (item, mode, setAll)=>{
         let axis, filter, setter
-        console.log(mode)
+        console.log(item, mode, setAll)
 
         const axisSetter = (filter, path)=>{
             if( primitive.referenceParameters ){
@@ -1542,6 +1691,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 track: track,
                 sourcePrimId: axis.primitiveId,
                 type: axis.type,
+                subtype: axis.subtype,
                 parameter: axis.parameter,
                 access: axis.access,
                 value: undefined
@@ -1572,7 +1722,55 @@ export default function PrimitiveExplorer({primitive, ...props}){
         forceUpdateRel()
     })
 
-    console.log(renderProps)
+    //console.log(renderProps)
+
+    let layoutColumns = viewConfig?.parameters?.showAsGraph ? [0] : columnExtents
+    let layoutRows = viewConfig?.parameters?.showAsGraph ? [0] : rowExtents
+
+    let viewPivotOptions 
+    if( !asSegment && list && list.length > 0 && list[0]?.primitive){
+        viewPivotOptions = []
+        
+        const unpackPath = (relationship, prefix = "")=>{
+            let node = list[0].primitive_source ?? list[0].primitive
+            let depth = 0
+            let path = 0
+            do{
+                if( path > 0 || relationship === "origin"){
+
+                    if( ["result", "evidence", "entity"].includes(node.type) ){
+                        const title = prefix + " > ".repeat(path) + node.metadata?.title ?? node.type
+                        viewPivotOptions.push({
+                            id: depth,
+                            title: title,
+                            relationship: relationship
+                        })
+                        path++
+                    }
+                }else{
+                    path++
+                }
+                
+                node = relationship === "origin" ? node.origin : node.parentPrimitiveRelationships[relationship]?.[0]
+                if( node ){
+                    if( !["result", "evidence", "entity", "search"].includes(node.type) ){
+                        node = undefined
+                    }
+                }
+                depth++
+            }while( node )        
+        }
+        unpackPath('origin')
+        unpackPath('link')
+        unpackPath('partnership_a', "Partner A")
+        unpackPath('partnership_b', "Partner B")
+
+
+        if( viewPivotOptions.length === 0){
+            viewPivotOptions = undefined
+        }
+
+    }
 
     const exploreView = 
     <>
@@ -1590,6 +1788,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         {!props.compare && axisOptions && <DropdownButton noBorder icon={<HeroIcon icon='Rows' className='w-5 h-5'/>} items={axisOptions} flat placement='left-start' portal showTick selectedItemIdx={selectedRowIdx} setSelectedItem={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && layers && layers.length > 1 && <DropdownButton noBorder icon={<HeroIcon icon='Layers' className='w-5 h-5'/>} items={layers} flat placement='left-start' portal showTick selectedItemIdx={layers[layerSelection] ? layerSelection :  0} setSelectedItem={updateLayer} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${layerSelection > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && viewConfigs && <DropdownButton noBorder icon={<HeroIcon icon='Eye' className='w-5 h-5'/>} items={viewConfigs} flat placement='left-start' portal showTick selectedItemIdx={activeView} setSelectedItem={updateViewMode} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${activeView > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {!props.compare && viewPivotOptions && <DropdownButton noBorder icon={<HeroIcon icon='TreeStruct' className='w-5 h-5'/>} items={viewPivotOptions} flat placement='left-start' portal showTick selectedItemIdx={viewPivot} setSelectedItem={updateViewPivot} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${viewPivot > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {<DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "filter" ? setShowPane(false) : setShowPane("filter")} className={`hover:text-ccgreen-800 hover:shadow-md ${rowFilter || colFilter ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {props.compare && <DropdownButton noBorder title="IMP" items={undefined} flat placement='left-start' onClick={()=>updateImportantOnly(!importantOnly)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${importantOnly ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {props.compare && <DropdownButton noBorder title='CF' showTick hideArrow flat items={axisFilterOptions(axisOptions[colSelection], colFilter)} placement='left-start' setSelectedItem={(d)=>updateAxisFilter(d, "column")} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${axisOptions[colSelection].exclude && axisOptions[colSelection].exclude.reduce((a,c)=>a||c,false) ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
@@ -1605,20 +1804,20 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         flat placement='left-end' portal className={`hover:text-ccgreen-800 hover:shadow-md`}/>
                     </div>
                     <div key='category_toolbar' className={`bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 left-4 bottom-4 p-0.5 flex flex-col place-items-start space-y-2 ${showCategoryPane ? "w-[28rem]" :""}`}>
-                        {showCategoryPane && <PrimitiveCard.Categories primitive={primitive} directOnly hidePanel className='px-4 pt-4 pb-2 w-full h-fit'/>}
+                        {showCategoryPane && <PrimitiveCard.Categories primitive={primitive} scope={list.map(d=>d.primitive?.id).filter((d,i,a)=>a.indexOf(d)===i)} directOnly hidePanel className='px-4 pt-4 pb-2 w-full h-fit'/>}
                         <DropdownButton noBorder icon={showCategoryPane ? <ArrowDownLeftIcon className='w-5 h-5'/> : <HeroIcon icon='Puzzle' className='w-5 h-5 '/>} onClick={()=>setshowCategoryPane(!showCategoryPane)} flat className={`hover:text-ccgreen-800 hover:shadow-md`}/>
                     </div>
                 <div 
                     key={`grid`}
                     ref={gridRef}
                     style = {{
-                        gridTemplateColumns: `${hasRowHeaders ? "min-content" : ""} repeat(${columnExtents.length}, min-content)`,
-                        gridTemplateRows: `${hasColumnHeaders ? "min-content" : ""} repeat(${rowExtents.length}, min-content)`
+                        gridTemplateColumns: `${hasRowHeaders ? "min-content" : ""} repeat(${layoutColumns.length}, min-content)`,
+                        gridTemplateRows: `${hasColumnHeaders ? "min-content" : ""} repeat(${layoutRows.length}, min-content)`
                     }}
-                    className={`vfExplorer touch-none grid relative gap-4 w-fit h-fit  ${hasMultipleUnit ? "[&>.vfcell]:p-8" : ""}`}>
+                    className={`vfExplorer touch-none grid relative gap-4 w-fit h-fit  ${hasMultipleUnit ? (viewConfig?.parameters?.showAsCounts ? "[&>.vfcell]:p-2" : "[&>.vfcell]:p-8") : ""}`}>
                     {!cancelRender && hasColumnHeaders && <>
                         {hasRowHeaders && <p className='!bg-gray-100'></p>}
-                        {columnExtents.map((col,idx)=>{
+                        {layoutColumns.map((col,idx)=>{
                             const cFilterIdx = colFilter === undefined ? idx : colRemap[idx]
                             //console.log(`SETTING HEADER `, myState.current.fontSize )
                             return(
@@ -1637,7 +1836,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                             </p>
                         )})}
                     </>}
-                    { !cancelRender && rowExtents.map((row, rIdx)=>{
+                    { !cancelRender && layoutRows.map((row, rIdx)=>{
                         const rFilterIdx = rowFilter === undefined ? rIdx : rowRemap[rIdx]
                         let rowOption = axisOptions[rowSelection]
                         return <React.Fragment>
@@ -1650,7 +1849,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                         : (row?.label ?? row ?? "None")
                                     }
                             </p>}
-                            {columnExtents.map((column, cIdx)=>{
+                            {layoutColumns.map((column, cIdx)=>{
                                 let colOption = axisOptions[colSelection]
                                 let subList 
                                 if( props.compare ){
@@ -1676,6 +1875,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                         ...baseFilters
                                     ].filter(d=>d)
                                 }
+                                const thisKey = `${column?.idx ?? column}-${row?.idx ?? row}-${update}-${updateNested}-${updateExtent}`
                                 return <div 
                                         style={
                                             viewAsSegments
@@ -1692,8 +1892,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                                 : {columns: columnOverride ?? Math.max(1, Math.floor(Math.sqrt(columnColumns[cIdx])))}
                                         } 
                                         id={`${cIdx}-${rIdx}`}
-                                        data-MYID={`${column?.idx ?? column}-${row?.idx ?? row}-${update}-${updateNested}-${updateExtent}`}
-                                        key={`${column?.idx ?? column}-${row?.idx ?? row}-${update}-${updateNested}-${updateExtent}`}
+                                        data-MYID={thisKey}
+                                        key={thisKey}
                                         onClick={()=>{
                                             console.log( infoPane )
                                             setSelectedBox({column: cVal,row: rVal })
@@ -1708,58 +1908,71 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                             renderProps?.showList || renderProps?.showGrid ? (Math.max(...columnColumns) > 8 ? "gap-12" : "gap-2") : "gap-0"    
                                         ].join(" ")
                                             }>
-                                            {subList.map((wrapped, idx)=>{
-                                                let item = wrapped.primitive
-                                                let defaultRender = item.metadata?.defaultRenderProps?.card
-                                                let defaultFields = defaultRender?.fields
-                                                let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth: defaultRender?.width ?? '16rem'}
-                                                const staggerScale = scale  + (scale / 200 * (idx % 20))
-                                                if( props.render ){
-                                                    return props.render( item, staggerScale)
-                                                }
-                                                let spanning = ""
-                                                if( viewConfig?.parameters?.fixedSpan ){
-                                                    spanning= 'w-full'
-                                                }
-                                            return renderProps?.simpleRender
-                                            ? <div key={item.id} id={item.id} style={{maxWidth:"16rem",minWidth:"16rem"}} className='pcard hover:ring-2 hover:ring-ccgreen-300 text-md px-2 pt-6 mb-3 bg-white mr-2 mb-2 rounded-lg text-slate-700'><p>{item.title}</p><p className='text-slate-400 text-sm mt-1'>{item.displayType} #{item.plainId}</p></div> 
-                                            : <PrimitiveCard 
-                                                fullId 
-                                                key={item.id} 
-                                                border={false}
-                                                editable={false}
-                                                noEvents
-                                                directOnly={layerNestPreventionList?.current ? layerNestPreventionList.current[item.id] : false}
-                                                primitive={item} 
-                                                scale={staggerScale} 
-                                                fields={defaultFields ?? fields} 
-                                                showAll={expandState[item.id]}
-                                                setShowAll={()=>setExpandState(item.id)}
-                                                spanColumns={wrapped.spanColumns}
-                                                spanRows={wrapped.spanRows}
-                                                columns
-                                                {...size} 
-                                                className={`mr-2 mb-2 touch-none ${spanning} ${viewConfig?.config?.dropOnPrimitive ? "dropzone" : ""}`}
-                                                {...defaultRender || {}}
-                                                {...(props.renderProps || renderProps || {})} 
-                                               /* onInnerCardClick={ (e, p)=>{
-                                                    if( myState.current?.cancelClick ){
-                                                        myState.current.cancelClick = false
-                                                        return
-                                                    }
-                                                    e.stopPropagation()
-                                                    MainStore().sidebarSelect( p, {scope: item} )
-                                                }}
-                                                onClick={ enableClick ? (e, p)=>{
-                                                    if( myState.current?.cancelClick ){
-                                                        myState.current.cancelClick = false
-                                                        return
-                                                    }
-                                                    e.stopPropagation()
-                                                    MainStore().sidebarSelect( p, {scope: primitive, context: {column: column?.label ?? column ?? "None", row: row?.label ?? row ?? "None"}} )
-                                                } : undefined}*/
-                                                />
-                                            })}
+                                            {viewConfig?.parameters?.showAsCounts 
+                                            ? subList.length > 0 ? subList.length : ""
+                                            : viewConfig?.parameters?.showAsGraph 
+                                                ? <ListGraph data={columnExtents.map(d=>({name: (d?.label ?? d ?? "None"), value: list.filter(d2=>d2.column === (d?.idx ?? d)).length}))} width={renderProps.fixedWidth ?? "96rem"} height={renderProps.fixedHeight ?? renderProps.fixedWidth ?? "96rem"}/>
+                                                : viewConfig?.parameters?.showAsSegment
+                                                    ? [primitive.primitives.allSegment.find(d=>d.doesImport( primitive.id, infoPane.filters))].map(segment=>{
+
+                                                        if( segment ){
+                                                            return <SegmentCard primitive={segment} {...viewConfig.parameters.props}/>
+                                                        }
+                                                        return <></>
+                                                    })
+                                                    : subList.map((wrapped, idx)=>{
+                                                        let item = wrapped.primitive
+                                                        let defaultRender = item.metadata?.defaultRenderProps?.card
+                                                        let defaultFields = defaultRender?.fields
+                                                        let rProps = props.renderProps || renderProps || {}
+                                                        let size = props.asSquare ? {fixedSize: '16rem'} : {fixedWidth: defaultRender?.width ?? ((wrapped.spanColumns || wrapped.spanRows) ? undefined : '16rem')}
+                                                        const staggerScale = scale  + (scale / 200 * (idx % 20))
+                                                        if( props.render ){
+                                                            return props.render( item, staggerScale)
+                                                        }
+                                                        let spanning = ""
+                                                        if( viewConfig?.parameters?.fixedSpan ){
+                                                            spanning= 'w-full'
+                                                        }
+                                                    return renderProps?.simpleRender
+                                                        ? <div key={item.id} id={item.id} style={{maxWidth:"16rem",minWidth:"16rem"}} className='pcard hover:ring-2 hover:ring-ccgreen-300 text-md px-2 pt-6 mb-3 bg-white mr-2 mb-2 rounded-lg text-slate-700'><p>{item.title}</p><p className='text-slate-400 text-sm mt-1'>{item.displayType} #{item.plainId}</p></div> 
+                                                        : <PrimitiveCard 
+                                                            fullId 
+                                                            key={item.id} 
+                                                            border={false}
+                                                            editable={false}
+                                                            noEvents
+                                                            directOnly={layerNestPreventionList?.current ? layerNestPreventionList.current[item.id] : false}
+                                                            primitive={item} 
+                                                            scale={staggerScale} 
+                                                            fields={defaultFields ?? fields} 
+                                                            showAll={expandState[item.id]}
+                                                            setShowAll={()=>setExpandState(item.id)}
+                                                            spanColumns={wrapped.spanColumns}
+                                                            spanRows={wrapped.spanRows}
+                                                            columns
+                                                            {...size} 
+                                                            className={`mr-2 mb-2 touch-none ${spanning} ${viewConfig?.config?.dropOnPrimitive ? "dropzone" : ""}`}
+                                                            {...defaultRender || {}}
+                                                            {...rProps} 
+                                                        /* onInnerCardClick={ (e, p)=>{
+                                                                if( myState.current?.cancelClick ){
+                                                                    myState.current.cancelClick = false
+                                                                    return
+                                                                }
+                                                                e.stopPropagation()
+                                                                MainStore().sidebarSelect( p, {scope: item} )
+                                                            }}
+                                                            onClick={ enableClick ? (e, p)=>{
+                                                                if( myState.current?.cancelClick ){
+                                                                    myState.current.cancelClick = false
+                                                                    return
+                                                                }
+                                                                e.stopPropagation()
+                                                                MainStore().sidebarSelect( p, {scope: primitive, context: {column: column?.label ?? column ?? "None", row: row?.label ?? row ?? "None"}} )
+                                                            } : undefined}*/
+                                                            />
+                                                        })}
                                         </div>
                         })}
                         </React.Fragment>
@@ -1776,7 +1989,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
             {selection: rowSelection, mode: "row", title: "Rows", setter: setRowFilter, list: rowFilter},
             ...viewFilters.map((d,idx)=>({selection: d.option, title: `Filter by ${axisOptions[d.option]?.title}`, deleteIdx: idx, mode: {mode: "view", id: d.id}, list: d.filter}))
         ]
-        console.log(sets)
         sets.forEach(set=>{
             const axis = axisOptions[set.selection]
             if(axis && axis.values){

@@ -271,33 +271,33 @@ export default function CollectionViewer({primitive, category, ...props}){
                     </div>
                 : category.plurals || category.title
                 
-                if( !props.hideCreate ){
+        if( !props.hideCreate ){
 
-                    const defaultCreateOptions = category?.views?.create?.default
+            const defaultCreateOptions = category?.views?.create?.default
 
-                    createButtons = [{title:"Create new", action: ()=>createResult(defaultCreateOptions, true)}]
-                    if( category?.views?.options?.showLink ){
-                        createButtons.push( {title: "Link existing", action: ()=>setShowLink(true)} )
-                        
-                    }
-                    if( category?.views?.options?.createFromPaste ){
-                        category?.views?.options?.createFromPaste.forEach(p=>{
-                            createButtons.push( {title: `Create fom clipboard (${p.title})`, action: async ()=>await processFromClipboard(p.field)} )
-                        })
-                    }
-                    if( resultCategory){
-                        
-                        if( resultCategory.parameters.notes ){
-                            createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
-                        }
-                        
-                        (primitive.metadata.actions || []).forEach((d)=>{
-                            if( d.canCreate && d.resultCategory === resultCategory.id){
-                                createButtons.push( {title: d.title, action: async ()=>await mainstore.doPrimitiveAction(primitive, d.key, {path: `results.${category.id}`})})
-                            }
-                        })
-                    }
+            createButtons = [{title:"Create new", action: ()=>createResult(defaultCreateOptions, true)}]
+            if( category?.views?.options?.showLink ){
+                createButtons.push( {title: "Link existing", action: ()=>setShowLink(true)} )
+                
+            }
+            if( category?.views?.options?.createFromPaste ){
+                category?.views?.options?.createFromPaste.forEach(p=>{
+                    createButtons.push( {title: `Create fom clipboard (${p.title})`, action: async ()=>await processFromClipboard(p.field)} )
+                })
+            }
+            if( resultCategory){
+                
+                if( resultCategory.parameters.notes ||  category?.views?.options?.createFromUpload){
+                    createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
                 }
+                
+                (primitive.metadata.actions || []).forEach((d)=>{
+                    if( d.canCreate && d.resultCategory === resultCategory.id){
+                        createButtons.push( {title: d.title, action: async ()=>await mainstore.doPrimitiveAction(primitive, d.key, {path: `results.${category.id}`})})
+                    }
+                })
+            }
+        }
     }
 
     const toggleFilter = (item)=>{
@@ -315,16 +315,39 @@ export default function CollectionViewer({primitive, category, ...props}){
         setFilters(newFilters)
     }
 
+    const callbackProcessor = async (result)=>{
+        console.log(result)
+        if( result.command === "build_keywords"){
+            if( result.searchPrimitive ){
+                console.log(`waiting for search prim`)
+                const searchPrimitive = await MainStore().waitForPrimitive( result.searchPrimitive )
+                if( searchPrimitive ){
+                    setShowSearch(true)
+                }
+            }
+        }
+    }
+
     let actionMenu = false
     if(resultCategory?.actions ){
-        const items = resultCategory.actions.filter(d=>d.menu)
+
+
+
+        const items = resultCategory.actions.filter(d=>/*(d.menu && !d.hideInCollection) ||*/ d.collectionAction || d.showInCollection)
         if( items.length > 0){
             actionMenu = <PrimitiveCard.CardMenu 
                             icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
                             custom={items.map(d=>{
                                 return {
                                     ...d,
-                                    action: async ()=>await MainStore().doPrimitiveAction( primitive, "auto_cascade", {cascade_key: d.key, ids: list?.map(d=>d.id)})
+                                    action: async ()=>{
+                                        await MainStore().doPrimitiveAction( 
+                                            d.collectionAction ? list[0] : primitive, 
+                                            d.collectionAction ? d.key : "auto_cascade", 
+                                            {cascade_key: d.collectionAction ?  undefined : d.key, ids: list?.map(d=>d.id)},
+                                            callbackProcessor
+                                            )
+                                    }
                                 }
                             })} 
                             size={10}
@@ -339,7 +362,8 @@ export default function CollectionViewer({primitive, category, ...props}){
     const showPagination = ["table", "list", "cards"].includes(view) && pages > 1
     const showSearchButton = category?.searchCategoryIds
 
-    const showBar = (showDescend || showPagination  || (allowed.length > 1 || props.closeButton)) //&& !["explore", "cluster"].includes(view)
+    const showBar = (showSearchButton || showDescend || showPagination  || (allowed.length > 1 || props.closeButton)) //&& !["explore", "cluster"].includes(view)
+     
     const buttons = <>
                 {allowed.length > 1 && viewCategory.views?.options && Object.keys(viewCategory.views.options).map((d)=>{
                     return  allowed.includes(d) && viewCategory.views.options[d] ? <Panel.MenuButton key={d} title={icons[d] || d}  onClick={()=>pickView(d)} className={view === d ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}/> : undefined
@@ -377,16 +401,18 @@ export default function CollectionViewer({primitive, category, ...props}){
             </div>
     let searchPane = <></>
     if( showSearch && category){
+
         const searches = primitive.primitives.search?.[category.id] 
         const searchCategoryId = [category?.searchCategoryIds].flat()?.[0] 
+        const hasSearches = (searches && searches.length > 0)
 
         const createSearch = async ()=>{
             const path = `search.${category.id}`
             console.log(`Will add to ${path}`)
             const newPrim = await MainStore().createPrimitive({type: 'search', parent: primitive, categoryId: searchCategoryId, parentPath: path})
     }
-        searchPane = <div className="py-2 bg-slate-50 border m-2 rounded-lg divide-y divide-gray-200 border-b border-gray-300">
-                {(!searches || searches.length === 0) && <button
+        searchPane = <div className={`${hasSearches ? "py-2" : "p-2"} bg-slate-50 border m-2 rounded-lg divide-y divide-gray-200 border-b border-gray-300`}>
+                {!hasSearches && <button
                 type="button"
                 onClick={createSearch}
                 className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -436,13 +462,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                         </div>
                         <Panel collapsable open={false}>
                             <div className="w-full flex-col text-xs my-2 space-y-1">
-                                <PrimitiveCard.Parameters primitive={d} editing leftAlign compactList className="text-xs text-slate-500" fullList fields={Object.keys(d.metadata.parameters ?? {}).filter(d=>d !== "sources")}/>
-                                {false && <div className="w-full space-x-1 flex-wrap">
-                                    <span className="text-slate-500">Keywords:</span>{
-                                    (d.referenceParameters?.keywords?.split(",") || []).map(d=>(
-                                        <span className="inline-flex items-center rounded-full bg-green-50 px-1.5 py-0.5 text-xs text-green-700 ring-1 ring-inset ring-green-600/20">{d}</span>
-                                    ))
-                                }</div>}
+                                <PrimitiveCard.Parameters primitive={d} editing leftAlign compactList className="text-xs text-slate-500" fullList />
                             </div>
                             <span className="text-gray-400 text-xs">#{d.plainId}  {d.metadata.title ?? "Search"}</span>
                         </Panel>
@@ -499,6 +519,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                         onClick ={props.onShowInfo}
                         wide={props.defaultWide}
                         onInnerCardClick ={props.onInnerShowInfo}
+                        callbackProcessor={callbackProcessor}
                         primitives={list} className='w-full min-h-[24em] bg-white'/> 
                 }
                 {view === "table_grid" && 
@@ -510,6 +531,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                         pageItems={pageItems}
                         onClick ={props.onShowInfo}
                         wide={props.defaultWide}
+                        callbackProcessor={callbackProcessor}
                         onInnerCardClick ={props.onInnerShowInfo}
                         primitives={list} className='w-full min-h-[24em] bg-white'/> 
                 }
@@ -526,6 +548,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                     pageItems={pageItems}
                     list={asViewer ? undefined : list} 
                     showDetails={true}
+                    callbackProcessor={callbackProcessor}
                     className='p-2'
                     columnConfig={{"sm":1}}
                     />}
@@ -539,6 +562,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                     onEnter={previewFromList}
                     onDoubleClick={props.onNavigate}
                     page={page}
+                    callbackProcessor={callbackProcessor}
                     pageItems={pageItems}
                     list={asViewer ? undefined : list} 
                     className='p-2'
@@ -561,16 +585,19 @@ export default function CollectionViewer({primitive, category, ...props}){
                         }
                         fields={[cardConfig.fields, "top", "important","duplicate"].flat()}
                         onClick ={props.onShowInfo}
+                        callbackProcessor={callbackProcessor}
                         onInnerCardClick ={props.onInnerShowInfo}
                         allowedCategoryIds={asViewer ? undefined : list.map((d)=>d.referenceId).filter((d,idx,a)=>a.indexOf(d)===idx)} 
                     />
                 }
                 {view === "cluster" && 
                     <HierarchyView 
+                        callbackProcessor={callbackProcessor}
                         primitive={asViewer ? viewerPick : clusters[0]}
                 />}
                 {view === "proximity" && 
                     <ProximityView 
+                        callbackProcessor={callbackProcessor}
                         primitive={asViewer ? viewerPick : clusters[0]}
                 />}
             </>

@@ -1,8 +1,9 @@
 import Primitive from "./model/Primitive";
-import {createPrimitive, flattenPath, doPrimitiveAction, primitiveOrigin, primitiveChildren, dispatchControlUpdate} from './SharedFunctions'
-import { replicateURLtoStorage } from "./google_helper";
+import {createPrimitive, flattenPath, doPrimitiveAction, primitiveOrigin, primitiveChildren, dispatchControlUpdate, executeConcurrently, findResultSetForCategoryId, primitivePrimitives} from './SharedFunctions'
+import { replicateURLtoStorage, writeTextToFile } from "./google_helper";
 import { analyzeListAgainstTopics, analyzeText, analyzeTextAgainstTopics, buildKeywordsFromList } from "./openai_helper";
 import Category from "./model/Category";
+import Parser from '@postlight/parser';
 var ObjectId = require('mongoose').Types.ObjectId;
 
 const rejectWords = ["somewhat","hardly", "not at all"]
@@ -155,15 +156,130 @@ async function createOrganizationByUUID( uuid, parent, options ){
     }
 
 }
+export async function queryCrunchbaseOrganizationArticles(keywords, options = {}){
+    let count = 0
+    let totalCount = 0
+    let target = options.count ?? 20
+    let results = []
+    if( options.primitive === undefined){
+        return undefined
+    }
+
+    const doLookup = async (term, nextPage )=>{
+        try{
+            const primitive = options.primitive
+            let data = primitive.crunchbaseData
+            if(!data ){
+                data = await fetchCompanyDataFromCrunchbase(primitive)
+                if( data.error ){
+                    return {error: data.error}
+                }
+            }
+            let articles = data.articles
+
+            if( articles === undefined){
+                articles = await fetchCompanyArtcilesFromCrunchbase(primitive, data.id)
+                
+            }
+            if( articles === undefined ){
+                return {error: "no_data"}
+            }
+            if( data.error ){
+                return {error: data.error}
+            }
+
+
+            for(const update of articles){
+                if( count < target ){
+                    let description = update.title.replaceAll("\n", ". ")
+                    console.log(description)
+
+                    if( options.filterPre && !(await options.filterPre({text: description, term: term})) ){
+                        continue
+                    }
+                    // convert domain
+                    if( options.existingCheck  ){
+                        const exists = await options.existingCheck(update)
+                        if( exists ){
+                            continue
+                        }
+                    }
+
+                    let fullText
+                    const articleContent = await Parser.parse(update.url, {
+                        contentType: 'text',
+                    })
+                    if( articleContent && articleContent.content ){
+                        if( articleContent.word_count < 50 ){
+                            continue
+                        }
+                        fullText = articleContent.content
+                        update.image = articleContent.lead_image_url ?? articleContent.image 
+                        update.description = fullText.split(" ").slice(0,400).join(" ")
+                        update.posted_on = articleContent.date_published ?? update.posted_on
+                    }else{
+                        continue
+                    }
+
+                    if( options.filterPost && !(await options.filterPost({text: fullText, term: term})) ){
+                        continue
+                    }
+                    const r = {
+                        title: update.title,
+                        type: "result",
+                        referenceParameters:{
+                            url: update.url,
+                            posted: update.posted_on,
+                            source:"Crunchbase Profile",
+                            imageUrl: update.image,
+                            hasImg: update.image ? true : false,
+                            description: update.description
+                        }
+                    }
+                    if( options.createResult ){
+                        const newPrim = await options.createResult( r )
+                        if( newPrim ){
+                            await writeTextToFile(newPrim.id.toString(), fullText)
+                            if( update.image ){
+                                await replicateURLtoStorage(update.image, newPrim._id.toString(), "cc_vf_images")
+                            }
+                        }
+                    }else{
+                        results.push(r)
+                    }
+                    count++
+                    totalCount++
+                }
+            }
+        }
+        catch(error){
+            console.log("Error in searchPosts")
+            console.log(error)
+        }
+    }
+    if( keywords === undefined){
+        await doLookup( undefined )
+    }else{
+        for( const d of keywords.split(",")){
+            const thisSearch = '"' + d.trim() + '"'
+            await doLookup( thisSearch )
+        }
+    }
+
+    return options.createResult ? totalCount : results
+
+}
 export async function queryCrunchbaseOrganizations(keywords, options = {}){
 
     let totalCount = 0
     let count = 0
     let target = options.count ?? 20
     let results = []
+    let cancelled = false
     let timeFrame = "last_year"
 
     const doLookup = async (term, nextPage )=>{
+        console.log(`Looking up ${term}`)
         try{
             if( nextPage === undefined){
                 count = 0
@@ -214,26 +330,38 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
             if( response.status === 200){
                 const lookup = await response.json();
                 if( lookup && lookup.entities ){
-                    for(const item of lookup.entities){
-                        hasResults = true
+                    console.log(`Got ${lookup.entities.length} candidates`)
+
+                    const process = async function (item){
+                        if( !item ){
+                            console.log("IS NULL")
+                            return
+                        }
                         if( count < target ){
-                            let description = item.properties.description.replaceAll("\n", ". ")
+                            let description = item.properties.description?.replaceAll("\n", ". ")
+                            if( !description || description.length === 0){
+                                return
+                            }
                             console.log(description)
 
                             if( options.filterPre && !(await options.filterPre({text: description, term: term})) ){
-                                continue
+                                return
                             }
                             // convert domain
-                            item.domain = item.properties.website_url.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2");
+                            if( item.properties.website_url ){
+                                item.properties.website_url = item.properties.website_url.trim()
+                                item.website_url = item.properties.website_url
+                            }
+                            item.domain = item.properties.website_url?.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2");
                             
                             if( options.existingCheck  ){
                                 const exists = await options.existingCheck(item)
                                 if( exists ){
-                                    continue
+                                    return
                                 }
                             }
                             if( options.filterPost && !(await options.filterPost({text: description, term: term})) ){
-                                continue
+                                return
                             }
                             const r = {
                                 title: item.title,
@@ -257,6 +385,8 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
                                         short_description: item.properties.short_description,
                                         image_url:item.properties.image_url,
                                         website_url: item.properties.website_url,
+                                        domain: item.properties.website_url?.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2"),
+                                        source: "Crunchbase search " + term,
                                         categories: item.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}}),
                                         locations: item.properties.location_identifiers
                                         
@@ -275,15 +405,21 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
                             totalCount++
                         }
                     }
+                    hasResults = true
+                    let exec = await executeConcurrently( lookup.entities, process, options.cancelCheck)
+                    cancelled = exec?.cancelled
                 }
+            }else{
+                console.log(`Got error from CB`)
+                console.log(response)
             }
             console.log(hasResults, count, target)
             if( hasResults && count < target ){
-                if( lookup.nextPage){
+                /*if( lookup.nextPage){
                     console.log(lookup.nextPage)
                     await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame})
                 }else{
-                }
+                }*/
             }
         }
         catch(error){
@@ -294,7 +430,10 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
 
     for( const d of keywords.split(",")){
         const thisSearch = '"' + d.trim() + '"'
-        await doLookup( thisSearch )
+        let cancelled = await doLookup( thisSearch )
+        if( cancelled ){
+            break
+        }
     }
     return options.createResult ? totalCount : results
 
@@ -603,6 +742,40 @@ export async function pivotFromCrunchbaseDescription(primitive, options = {}){
     }
     return count
 }
+export async function enrichFromCrunchbase( primitive, options = {}){
+    try{
+
+        let data = primitive.crunchbaseData
+        let count = 0
+        
+        if(true || !data ){
+            data = await fetchCompanyDataFromCrunchbase(primitive)
+            if( data.error ){
+                return {error: data.error}
+            }
+        }
+        if( data ){
+            let properties = data
+            const newParams = {
+                ...primitive.referenceParameters,
+                url: properties.website_url,
+                hasImg: properties.image_url,
+                description: properties.description ?? properties.short_description,
+                domain: properties.website_url?.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2"),
+                location: properties.location_identifiers?.find(d=>d.location_type === "country")?.value || properties.location_identifiers?.[0]?.value
+            }
+            if( properties.image_url ){
+                replicateURLtoStorage(properties.image_url, primitive._id.toString(), "cc_vf_images")
+            }
+            dispatchControlUpdate( primitive.id, `title`, properties.name)
+            dispatchControlUpdate( primitive.id, `referenceParameters`, newParams)
+        }
+    }catch(error){
+        console.log(`Error in enrichFromCrunchbase`)
+        console.log(error)
+    }
+}
+
 export async function enrichCompanyFunding( primitive, options = {}){
     let data = primitive.crunchbaseData
     let count = 0
@@ -879,6 +1052,133 @@ export async function extractArticlesFromCrunchbase(primitive, options = {}, for
     console.log(`created ${out.length} articles`)
     return out
 }
+
+export async function resolveAndCreateCompaniesByName( list, target, resultCategoryId, defaultResultSet, createBlank = false){    
+    const resultSet = defaultResultSet ?? await findResultSetForCategoryId( target, resultCategoryId)
+    if( resultSet === undefined){
+        throw "Cant find result set for link_organizations"
+    }
+    const resultCategory = await Category.findOne({id: resultCategoryId})
+    const existingOrgs = await primitivePrimitives(target, `results.${resultSet}`)
+    const entityList = await resolveCompaniesByName( list, existingOrgs )
+
+    const final = []
+    console.log(`Need to create ${entityList.filter(d=>d.new).length} items`)
+    if( entityList.length == 0 && createBlank){
+        for(const name of list ){
+            entityList.push( {new: true, title: name, referenceParameters: {}} )
+            console.log(`-- Will create placeholder for ${name}`)
+        }
+    }
+    for( const item of entityList ){
+        if( item.new){
+            const newData = {
+                workspaceId: target.workspaceId,
+                paths: ['origin', `results.${resultSet}`],
+                parent: target.id,
+                data:{
+                    type: resultCategory.primitiveType,
+                    referenceId: resultCategoryId,
+                    title: item.title,
+                    referenceParameters:{
+                        url: item.referenceParameters?.url
+                    }
+                }
+            }
+            const newPrim = await createPrimitive( newData )
+            if( newPrim ){
+                final.push(newPrim)
+            }else{
+                console.log(`Couldnt create organization for ${item.name}`)
+            }
+        }else{
+            final.push(item)
+        }
+    }
+
+    return final
+}
+export async function resolveCompaniesByName( list, existingOrgs ){
+    console.log(`Got ${existingOrgs.length} existing organizations`)
+    const out = []
+    for(const name of list){
+        const nName = name.trim().toLowerCase()
+        let candidates = existingOrgs.filter(d=>(d.title)?.trim()?.toLowerCase() === nName)
+        console.log(name, candidates.length, "existing candidates")
+        if( candidates.length === 0){
+            let result = await lookupCompanyByName( name )
+            if( result ){
+                console.log(`Got ${result.length} companies from lookup ${result.map(d=>d.name).join(", ")}`)
+                const candidateURLs = result.map(d=>d.website_url)
+                const matchByURL = existingOrgs.find(d=> candidateURLs.includes(d.referenceParameters?.url))
+                if( matchByURL ){
+                    console.log(`Found existing by URL of candidate rather than name ${name} vs ${matchByURL.title}`)
+                    candidates = [matchByURL]
+                }else{
+                    candidates = result.map(d=>({new: true, title: d.name, referenceParameters: {url: d.website_url}}))
+                }
+            }
+        }
+        if( candidates.length > 0){
+            candidates = candidates.sort((a,b)=>Math.abs((a.title.length - nName.length) - (b.title.length - nName.length)) )
+            out.push( candidates?.[0] )
+        }
+    }
+    return out
+}
+
+export async function lookupCompanyByName( name ){
+    try{
+
+        const url = `https://api.crunchbase.com/api/v4/searches/organizations`
+        console.log(url)
+        
+        console.log(`Doing Crunchbase query`)
+        const response = await fetch(url,{
+            method: 'POST',
+            headers: {
+                'X-cb-user-key': `${process.env.CRUNCHBASE_KEY}`
+            },
+            body:JSON.stringify({
+                "field_ids": [
+                    "name",
+                    "website_url",
+                  ],
+                  "order": [
+                    {
+                      "field_id": "rank_org",
+                      "sort": "asc"
+                    }
+                  ],
+                  "query": [
+                    {
+                      "type": "predicate",
+                      "field_id": "identifier",
+                      "operator_id": "contains",
+                      "values": [
+                        name
+                      ]
+                    }
+                  ],
+                  "limit": 20
+            })
+        });
+        
+        if( response.status !== 200){
+            console.log(`Error from crunchbase`)
+            console.log(response)
+            return {error: response}
+        }
+        const data = await response.json();
+        if( data && data.entities){
+            return data.entities.map(d=>d.properties)
+
+        }
+    }catch(error){
+        console.log(`Error in `)
+        console.log(error)
+    }
+}
 export async function fetchCompanyDataFromCrunchbase( primitive ){
     try{
 
@@ -951,8 +1251,9 @@ export async function fetchCompanyDataFromCrunchbase( primitive ){
                 primitive.markModified("crunchbaseData")
                 await primitive.save()
                 return store
+                return data
             }
-            return data
+            return undefined
         }else{
             return {error: "no data"}
         }

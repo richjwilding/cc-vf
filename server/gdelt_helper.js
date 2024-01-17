@@ -37,6 +37,7 @@ export async function fetchArticlesFromGdelt(keywords, options = {}){
         let count = 0
         let lastEndDate
     const doLookup = async  (term, attempts = 3, endDateTime)=>{
+        let cancelled = false
         try{
 
             console.log(term)
@@ -63,36 +64,23 @@ export async function fetchArticlesFromGdelt(keywords, options = {}){
             const url = `https://api.gdeltproject.org/api/v2/doc/doc?${new URLSearchParams(query).toString() }`
             console.log(url)
 
-            
-            console.log(options)
-            const response = await fetch(url,{
-                method: 'GET',
-            });
-            
-            if( response.status !== 200){
-                console.log(`Error from gdelt`)
-                console.log(response)
-                return {error: response}
-            }
-            const data = await response.json();
-            if( data && Array.isArray(data.articles) ){
-                let pending = []
-                let articleFilter = []
-                for( const article of data.articles){
+
+            const processArticle = async (article)=>{
+
                     if( count >= options.count ){
-                        continue
+                        return
                     }
                     console.log(`check ${article.url}`)
                     if( excludeList.includes(article.domain) ){
-                        continue
+                        return
                     }
                     if( !article.url ){
-                        continue
+                        return
                     }
                     if( options.existingCheck  ){
                         const exists = await options.existingCheck(article)
                         if( exists ){
-                            continue
+                            return
                         }
                     }
 
@@ -107,10 +95,10 @@ export async function fetchArticlesFromGdelt(keywords, options = {}){
                             article.image = result.lead_image_url ?? article.image ?? result.socialimage 
                             article.posted_on = result.date_published ?? convertGdeltTime(article.seendate)
                         }else{
-                            continue
+                            return
                         }
                         if( result.word_count < 50 ){
-                            continue
+                            return
                         }
                         
                     }catch(error){
@@ -119,11 +107,11 @@ export async function fetchArticlesFromGdelt(keywords, options = {}){
                     }
                     
                     if( options.filterPre && !(await options.filterPre({text: article.content, term: term})) ){
-                        continue
+                        return
                     }
 
                     if( options.filterPost && !(await options.filterPost({text: article.content, term: term})) ){
-                        continue
+                        return
                     }
 
                     const newData = {
@@ -146,8 +134,45 @@ export async function fetchArticlesFromGdelt(keywords, options = {}){
                             await replicateURLtoStorage(article.image, newPrim._id.toString(), "cc_vf_images")
                         }
                     }
+            }
+
+            
+            console.log(options)
+            const response = await fetch(url,{
+                method: 'GET',
+            });
+            
+            if( response.status !== 200){
+                console.log(`Error from gdelt`)
+                console.log(response)
+                return {error: response}
+            }
+            const data = await response.json();
+            let currentIndex = 0;
+            let concurrencyLimit = 5
+            const activePromises = [];
+            
+            if( data && Array.isArray(data.articles) ){
+
+                const next = async () => {
+                    if (currentIndex < data.articles.length) {
+                        if(options.cancelCheck && (await options.cancelCheck())){
+                            console.log("Cancelled")
+                            cancelled = true
+                            return
+                        }
+                        const item = data.articles[currentIndex++];
+                        await processArticle(item);
+                        await next();
+                    }
+                };
+
+                for (let i = 0; i < concurrencyLimit && i < data.articles.length; i++) {
+                    activePromises.push(next());
                 }
-                if( count < options.count ){
+                await Promise.all(activePromises);
+
+                if( !cancelled && (count < options.count) ){
                     const dateOfLast = data.articles.slice(-1)[0]?.seendate
                     console.log(`HAVENT FOUND ENOUGH - DOING NEXT PAGE ENDING AT ${dateOfLast}`)
                     if( dateOfLast ){
@@ -167,6 +192,7 @@ export async function fetchArticlesFromGdelt(keywords, options = {}){
                 await doLookup(term, attempts--)
             }
         }
+        return cancelled
     }
 
 
@@ -178,7 +204,10 @@ export async function fetchArticlesFromGdelt(keywords, options = {}){
         const set = keywords.split(/,|\sor\s|\sand\s/)
         for(let keyword of set){
             let count = 0
-            await doLookup( '"' + keyword.trim() + '"', 0 )
+            let cancelled = await doLookup( '"' + keyword.trim() + '"', 0 )
+            if( cancelled ){
+                break
+            }
         }
     }
 }

@@ -1,16 +1,15 @@
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import { SIO } from './socket';
-import { addRelationship, createPrimitive, dispatchControlUpdate, findPrimitiveOriginParent, getDataForProcessing, primitiveChildren, primitiveDescendents, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship } from "./SharedFunctions";
+import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, executeConcurrently, findPrimitiveOriginParent, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
-import { analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processPromptOnText, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
+import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
 import { Cluster, agnes } from "ml-hclust";
 import DBSCAN from "@cdxoo/dbscan";
 import Category from "./model/Category";
 import PrimitiveParser from "./PrimitivesParser";
-import { buildDocumentEmbedding, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
-import DocumentSearch, { checkForIndex, indexDocument, searchFiles } from "./DocumentSearch";
+import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 import agglo from "agglo";
 import { distance } from "agglo/lib/metrics";
 
@@ -33,7 +32,7 @@ function calculateCentroid(vectors) {
       if (vector.length !== dimension) {
         throw new Error("All vectors must have the same dimension.");
       }
-  
+
       for (let i = 0; i < dimension; i++) {
         sumByDimension[i] += vector[i];
       }
@@ -46,24 +45,6 @@ function calculateCentroid(vectors) {
   }
 
 
-  function cosineSimilarity(vectorA, vectorB) {
-    // Calculate dot product
-    const dotProduct = vectorA.reduce((acc, val, index) => acc + val * vectorB[index], 0);
-  
-    // Calculate magnitudes
-    const magnitudeA = Math.sqrt(vectorA.reduce((acc, val) => acc + val * val, 0));
-    const magnitudeB = Math.sqrt(vectorB.reduce((acc, val) => acc + val * val, 0));
-  
-    // Avoid division by zero
-    if (magnitudeA === 0 || magnitudeB === 0) {
-      return 0;
-    }
-  
-    // Calculate cosine similarity
-    const similarity = dotProduct / (magnitudeA * magnitudeB);
-  
-    return similarity;
-  }
   
 
 function euclideanDistance(point1, point2) {
@@ -87,7 +68,7 @@ async function defineAxis( primitive, action ){
 
         console.log(`Fetching suggested axis`)
 
-        const result = await extractAxisFromDescriptionList( data, {type: action.type} )
+        const result = await extractAxisFromDescriptionList( data, {type: action.type, batch: 200} )
         //const result = {success: true, output: axis}
 
         if( result.success ){
@@ -220,6 +201,197 @@ async function aggregateDuplicatedInSegment( primitive, action ){
 
 }
 
+async function rollup2(primitive, target, action ){
+    try{
+
+        console.log(`Rollup version 2${primitive.id} starting`)
+        let [list, data] = await getDataForProcessing(primitive, {...action, referenceId: target.referenceParameters?.referenceId, constrainId: target.referenceParameters?.constrainId})
+        let embeddings = await buildEmbeddingsForPrimitives( list, action.field )
+        
+        const task = await primitiveTask( primitive)
+
+        let segmentTarget = target?.type === "segment" ? target : undefined
+        
+        const result = await analyzeForClusterPhrases( data, {theme: action?.theme ?? task?.referenceParameters?.topics, debug: true} )
+        console.log(result)
+
+const result2 = {
+    success: true,
+    output: []
+}
+        if( result.success){
+            const groups = result.output 
+            const assignments = await assignPrimitivesByPhrase( list, undefined, groups)
+            if( assignments ){
+                if( segmentTarget ){
+                    // need to remove existing links
+                }
+                const mappedGroups = {}
+                for(const primitiveId in assignments){
+                    const d = assignments[primitiveId]
+                    if( !mappedGroups[d.idx]){
+                        mappedGroups[d.idx] = {ids: [], fragments: [], title: groups[d.idx].cluster_title, phrases: [groups[d.idx].phrase].flat()}
+                    }
+                    const listIdx = list.findIndex(d=>d.id === primitiveId )
+                    const fragment = data[listIdx]
+                    if( fragment ){
+                        mappedGroups[d.idx].fragments.push( fragment )
+                    }else{
+                        throw "Couldnt fetch fragment"
+                    }
+                    mappedGroups[d.idx].ids.push( primitiveId )
+                }
+                if(Object.keys(mappedGroups).length > 0){
+                    if( !segmentTarget ){
+                        segmentTarget = await createPrimitive({
+                            workspaceId: primitive.workspaceId,
+                            parent: primitive.id,
+                            paths: ['origin'],
+                            data:{
+                                type: "segment",
+                                title: "New clustering",
+                                referenceId: action.resultCategory,
+                                referenceParameters:{
+                                    field: action.field,
+                                    resultCategory: action.resultCategory,
+                                    ...action.aiConfig?.[action.field]
+                                }
+                            }
+                        })
+                    } 
+                    if( !segmentTarget ){
+                        throw "Couldnt create segment target"
+                    }
+                    for( const idx in mappedGroups){
+                        const segmentObj = mappedGroups[idx]
+                        const types = primitive.referenceParameters?.types ?? action.aiConfig?.[action.field]?.types ??  "problem statements"
+                        const prompt = primitive.referenceParameters?.prompt ?? action.aiConfig?.[action.field]?.prompt ??  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'"
+                        let summary = await summarizeMultiple( segmentObj.fragments, {types, prompt, engine: "gpt4p", debug:true, debug_content: true})
+                        segmentObj.summary = summary?.success ? summary.summary : undefined
+                    }
+
+                    const rewrites = await simplifyAndReduceHierarchy( ["Problems in the market"], Object.values(mappedGroups).map(d=>d.summary), {engine: "gpt4p", debug: true, debug_content: true})
+                    if( rewrites.success){
+                        const merged = []
+                        const remap = Object.keys(mappedGroups)
+                        for(const r of rewrites.summaries){
+                            const id = remap[r.id]
+                            const target = mappedGroups[id]
+                            if( target ){
+                                target.title = r.label
+                                target.summary = r.description
+                                if( r.merge_with){
+                                    for( const _id of r.merge_with ){
+                                        const mergeId = remap[_id]
+                                        console.log(`Merging with ${mergeId}`)
+                                        const mergeTarget = mappedGroups[mergeId]
+                                        if( mergeTarget ){
+                                            target.ids = target.ids.concat( mergeTarget.ids)
+                                            delete mappedGroups[mergeId]
+                                            merged.push(mergeId)
+                                        }else{
+                                            console.log(`Couldnt find merge target`)
+                                        }
+                                    }
+                                }
+                            }else{
+                                if( !merged.includes(id) ){
+                                    console.log(`Couldn't find ${id} / ${r.id}`)
+                                }
+                            }
+                        }
+                    }
+
+                    for( const idx in mappedGroups){
+                        const segmentObj = mappedGroups[idx]
+
+                        segmentObj.segment = await createPrimitive({
+                            workspaceId: primitive.workspaceId,
+                            parent: segmentTarget.id,
+                            paths: ['origin'],
+                            data:{
+                                type: "segment",
+                                title: segmentObj.title,
+                                referenceId: action.resultCategory,
+                                referenceParameters:{
+                                    root: segmentTarget.id,
+                                    phrases: segmentObj.phrases,
+                                    overview: segmentObj.summary 
+                                }
+                            }
+                        })
+                        for( const primitiveId of segmentObj.ids){
+                            console.log(`setting ${primitiveId} to ${segmentObj.segment.id}`)
+                            await addRelationship( segmentObj.segment.id, primitiveId, "ref")
+                            
+                        }
+                    }
+                }
+            }
+        }
+        
+        console.log("fetch done")
+    }catch(error){
+        console.log('Error in rollup2')
+        console.log(error)
+    }
+}
+async function assignPrimitivesByPhrase( list, target, phraseGroups, options = {} ){
+
+    console.log(`Process by embeddings`)
+    const searchTerms = 500 
+    const scores = {}
+    const threshold = options.threshold ?? 0.9
+    const scopeIds = list.map(d=>d.id)
+    let candidateIdx  = 0
+    for( const candidate of phraseGroups ){
+        console.log(`Semantic query: ${candidate.cluster_title}`)
+        let phraseIdx = 0
+        for( const phrase of [candidate.phrase].flat() ){
+            const response = await buildEmbeddings(phrase)
+            if( response.success){
+                const matches = await Embedding.aggregate([
+                    {"$vectorSearch": {
+                        "queryVector": response.embeddings,
+                        "path": "embeddings",
+                        /* "filter": {$and: [
+                            {
+                                workspaceId: primitive.workspaceId
+                            },{
+                                type: field
+                            }
+                        ]},*/
+                        "numCandidates": searchTerms * 15,
+                        "limit": searchTerms,
+                        "index": "vector_index",
+                        }
+                    },
+                    {
+                        "$project": {
+                        "_id": 0,
+                        "foreignId": 1,
+                        "score": { $meta: "vectorSearchScore" }
+                        }
+                    }
+                ])
+                for(const result of matches){
+                    if( result.score > threshold){
+                        if( scopeIds.includes(result.foreignId) ){
+                          //  console.log(result.foreignId, result.score, scores[result.foreignId], candidate.cluster_title?.slice(0,20))
+                            if( (scores[result.foreignId] === undefined) || (result.score > scores[result.foreignId].score) ){
+                                scores[result.foreignId] = {score: result.score, idx: candidateIdx, phraseIdx: phraseIdx}
+                            }
+                        }
+                    }
+                }
+            }
+            phraseIdx++
+        }
+        candidateIdx++
+    }
+    return scores
+}
+
 async function rollup( primitive, target, action ){
     console.log(`Rollup ${primitive.id} starting`)
     let list, data
@@ -288,6 +460,7 @@ async function rollup( primitive, target, action ){
                 if( response.success){
                     const dbUpdate = await Embedding.findOneAndUpdate({
                         type: action.field,
+                        workspaceId: list[idx].workspaceId,
                         foreignId: list[idx].id
                     },{
                         embeddings: response.embeddings
@@ -548,6 +721,7 @@ async function rollup( primitive, target, action ){
 }
 
 export default function QueueAI(){
+    let active = false
 
     if( instance ){
         return instance
@@ -568,6 +742,7 @@ export default function QueueAI(){
         await instance.obliterate({ force: true });
         const newJobCount = await instance.count();
         console.log( newJobCount + " jobs in queue (AI)")
+        active = true
     }
     instance.defineAxis = (primitive, action, req)=>{
         //if( primitive.type === "segment" || primitive.type === "activity"){
@@ -588,7 +763,7 @@ export default function QueueAI(){
             }
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Building clusters"})
             dispatchControlUpdate(target.id, field , {status: "pending"})
-            instance.add(`rollup_${primitive.id}` , {id: primitive.id, action: action, targetId: target.id, mode: "rollup", field: field})
+            instance.add(`rollup_${primitive.id}` , {id: primitive.id, action: action, targetId: target.id, mode: action.alternate ? "rollup2" : "rollup", field: field})
     }
     instance.aggregateDuplicatedInSegment = (primitive, action, req)=>{
             const field = `processing.ai.aggregate_duplicated_in_segment`
@@ -629,6 +804,10 @@ export default function QueueAI(){
     new Worker('aiQueue', async job => {
 //"gpt4"
         console.log('AI QUEUE GOT JOB')
+        if( !active ){
+            console.log(`! QUEUE NOT ACTIVE - ignoring`)
+            return
+        }
         const action = job.data.action
         const primitive = await Primitive.findOne({_id: job.data.id})
         if( primitive){
@@ -651,6 +830,18 @@ export default function QueueAI(){
                 }
                 dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
             }
+            if( job.data.mode === "rollup2" ){
+                try{
+                    const target = await Primitive.findOne({_id: job.data.targetId})
+                    console.log(`----- STARTING ROLLUP -------`)
+                    await rollup2( primitive, target, action )
+                }catch(error){
+                    console.log(`Error in aiQueue.rollup `)
+                    console.log(error)
+                }
+                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+                dispatchControlUpdate(job.data.targetId, job.data.field , null)
+            }
             if( job.data.mode === "rollup" ){
                 try{
                     const target = await Primitive.findOne({_id: job.data.targetId})
@@ -667,14 +858,39 @@ export default function QueueAI(){
                 try{
                     
                     const source = await Primitive.findOne({_id: job.data.targetId})
-                    const [list, data] = await getDataForProcessing(primitive, job.data.action, source)
-                    
+                    let [list, data] = await getDataForProcessing(primitive, job.data.action, source)
                     console.log(`got ${list.length} / ${data.length} from ${source.id} - ${source.title}`)
+                    if( job.data.action.scope ){
+                        data = data.filter((d,i)=>job.data.action.scope.includes(list[i].id))
+                        list = list.filter((d,i)=>job.data.action.scope.includes(d.id))
+                        if( data.length !== list.length ){
+                            throw "MISMATCH ON FILTER FOR SCOPE"
+                        }
+                        console.log(`Filtered to ${list.length} for scope`)
+                    }
+
+                    
                     if( list !== undefined && data.length > 0){
                         if( job.data.mode === "categorize" ){
                             try{
-
-                                const catData = await buildCategories( data, {count: primitive.referenceParameters?.count || action.count || 8, types: primitive.referenceParameters?.dataTypes || action.dataTypes, themes: primitive.referenceParameters?.theme || action.theme, engine:  primitive.referenceParameters?.engine || action.engine} )
+                                let catData
+                                if( action.alternative){
+                                    const task = await primitiveTask( primitive)
+                                    const result = await analyzeForClusterPhrases( data, {theme: primitive.referenceParameters?.theme ?? action?.theme ?? task?.referenceParameters?.topics, debug: true} )
+                                    if( result.success ){
+                                        const categories =  result.output.map(d=>d.cluster_title)
+                                        catData = { 
+                                            success: true,
+                                            categories
+                                        }
+                                    }
+                                }else{                            
+                                    catData = await buildCategories( data, {
+                                        count: primitive.referenceParameters?.count || action.count || 8,
+                                        types: primitive.referenceParameters?.dataTypes || action.dataTypes, 
+                                        themes: primitive.referenceParameters?.theme || action.theme, 
+                                        engine:  primitive.referenceParameters?.engine || action.engine} )
+                                }
                                 if( catData.success && catData.categories){
                                     console.log(catData.categories)
                                     for( const title of catData.categories){
@@ -726,18 +942,31 @@ export default function QueueAI(){
                                 const categoryList = catOptions.map((d)=>d.title)
                                 const categoryIds = catOptions.map((d)=>d._id.toString())
                                 
+                                const removeUpdate = []
+                                console.log(`Removing existing mappings`)
                                 for( const item of list ){
                                     if( item.parentPrimitives ){
                                         const parents = Object.keys(item.parentPrimitives ).filter((d)=>categoryIds.includes(d) )
                                         if( parents.length > 0){
                                             for( const parent of parents){
                                                 for( const path of item.parentPrimitives[parent]){
-                                                    await removeRelationship( parent, item._id.toString(), path )
+                                                    await removeRelationship( parent, item._id.toString(), path, true )
+                                                    removeUpdate.push({
+                                                        type: "remove_relationship",
+                                                        id: parent, 
+                                                        target: item.id,
+                                                        path:  path
+                                                    })
                                                 }
                                             }
                                         }
                                     }
                                 }
+                                if( removeUpdate.length > 0){
+                                    SIO.notifyPrimitiveEvent( primitive.workspaceId, removeUpdate)
+                                    console.log(`Removing existing mappings - done`)
+                                }
+
                                 const scoreMap = {
                                     "strongly": 4, 
                                     "clearly": 3,
@@ -751,7 +980,6 @@ export default function QueueAI(){
                                     const toProcess = list//.slice(0,10)
 
                                     const missing = toProcess.filter(d=>!d.indexReady)
-//                                    const missing = await DocumentSearch().checkForIndex(ids, primitive.workspaceId)
                                     console.log(`${missing.length} to add to index first`)
                                     let left = missing.length
                                     for(const d of missing ){
@@ -760,7 +988,7 @@ export default function QueueAI(){
                                         console.log(`indexing ${left--}`)
                                         const text = (await getDocumentAsPlainText(id))?.plain
                                         if( text && text.length > 0){
-                                            mark = await DocumentSearch().indexDocument(id, text ?? "", primitive.workspaceId)
+                                            mark = await indexDocument(id, text ?? "", primitive.workspaceId)
                                         }
                                         if( mark ){
                                             await Primitive.updateOne({_id: id},{$set:{indexReady: true}})
@@ -768,7 +996,7 @@ export default function QueueAI(){
                                     }
 
                                     for(const category of catOptions){
-                                        const result = await DocumentSearch().searchFiles(category.title, primitive.workspaceId)
+                                        const result = await searchFiles(category.title, primitive.workspaceId)
                                         console.log(category.title, result)
                                         if( result ){
                                             for(const id of result){
@@ -778,43 +1006,227 @@ export default function QueueAI(){
                                     }
                                     categoryAlloc = false
 
+                                }else if( pCategory?.mapMode === "embedding" ){
+                                    categoryAlloc = false
+                                    console.log(`Process by embeddings`)
+                                    const ids = list.map(d=>d.id)
+                                    const catEmbeddings = await buildEmbeddingsForPrimitives( catOptions )
+                                    const scores = {}
+                                    let field = primitive.referenceParameters.field ?? "title" 
+                                    const threshold = primitive.referenceParameters?.threshold ?? 0.9
+                                    await buildEmbeddingsForPrimitives( list, field  )
+                                    let idx = 0, batch = 1000
+
+                                    let parts = field.split(".")
+                                    if( parts.length > 1 ){
+                                        field = parts[1]
+                                    }
+
+                                    do{
+                                        const scope = list.slice(idx, idx + batch).map(d=>d.id)
+                                        const searchTerms = Math.min(scope.length * 2, 10000) 
+                                        console.log(`Doing in batches of ${batch} from ${idx}`)
+                                        for( const candidate of catEmbeddings ){
+                                            const thisCategory = catOptions.find(d=>d.id === candidate.foreignId)
+                                            console.log(`Semantic query: ${thisCategory?.title} / ${searchTerms}`)
+                                            const matches = await Embedding.aggregate([
+                                                {"$vectorSearch": {
+                                                "queryVector": candidate.embeddings,
+                                                "path": "embeddings",
+                                                "filter": {$and: [
+                                                        {
+                                                            type: field
+                                                        },{
+                                                            foreignId: {$in: scope}
+                                                        }
+                                                ]},
+                                                "numCandidates": Math.min(searchTerms * 15, 10000),
+                                                "limit": searchTerms,
+                                                "index": "vector_index",
+                                                    }
+                                                },
+                                                {
+                                                "$project": {
+                                                    "_id": 0,
+                                                    "foreignId": 1,
+                                                    "score": { $meta: "vectorSearchScore" }
+                                                }
+                                                }
+                                            ])
+                                            console.log(`-- got ${matches.length} matches`)
+                                            for(const result of matches){
+                                                if( result.score > threshold ){
+                                                    console.log(result.foreignId, result.score, scores[result.foreignId], thisCategory.title?.slice(0,20))
+                                                    if( (scores[result.foreignId] === undefined) || (result.score > scores[result.foreignId].score) ){
+                                                        scores[result.foreignId] = {score: result.score, id: thisCategory.id}
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        idx += batch
+                                    }while(idx < list.length)
+
+                                    for(const d in scores){
+                                        console.log(`setting ${d} to ${scores[d].id}`)
+                                        if( d && scores[d].id){
+                                            await addRelationship( scores[d].id, d, "ref")
+                                        }
+                                    }
                                 }else if( pCategory?.mapMode === "children" ){
                                     categoryAlloc = []
                                     resultMap = {}
-                                    //const thisData = data//[data[71]]//.slice(-1)
-                                    const [list, thisData] = await getDataForProcessing(primitive, {...job.data.action, field: 'param.aggregateFeatures'}, source)
                                     console.log(`MAP BY CHILDREN`)
                                     let catId = 0
+                                    let summary = []
+                                    let isProblemStatement = false
+                                    const sourceType = (primitive.referenceParameters?.source_type ?? action.source_type)?.trim() ?? ""
+                                    const customerType = (primitive.referenceParameters?.customer_focus ?? action.customer_focus)?.trim()
+                                    if( sourceType.length === 0){
+                                        throw "Need a source type description to run"
+                                    }
+                                    if( customerType.length === 0){
+                                        throw "Need a customer type description to run"
+                                    }
+                                    
+                                    let mutableList = list.filter(d=>d.referenceParameters?.customers)//.slice(0,50)
+
+                                    // Pass 1 - remove entities that are not relevant for mapping
+                                    console.log(`Have ${mutableList.length} entities to process`)
+                                    const result = await analyzeListAgainstItems( mutableList.map(d=>d.referenceParameters.customers), undefined, {
+                                        opener:"I have a list of companies, here are the customers each serves",
+                                        engine:  primitive.referenceParameters?.engine || action.engine,
+                                        prompt: `For each item in the list determine if the associated company serves ${customerType} `,
+                                        response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the company, a boolean 's' indicating if the company serves ${customerType}, and a 'r' field explaining your rationale in 10 words or less.`,
+                                        asScore: true,
+                                        batch: 100,
+                                        temperature:1,
+                                        engine: 'gpt4p',
+                                        debug: true, debug_content: true
+                                    } )
+                                    console.log( result)
+                                    if( result.success && result.output){
+                                        mutableList = mutableList.filter((d,idx)=>result.output[idx].s)
+                                        console.log(`Now have ${mutableList.length} entities to process`)
+
+                                        for(const category of catOptions){
+                                            const title = categoryList[catId]
+                                            console.log(`Checking for ${category.plainId} - ${title}`)
+                                            const directs = (await primitivePrimitives(category, "ref", "evidence"))
+                                            const directLength = directs.length
+                                            console.log(`-- have ${directs.length} children`)
+
+                                            const process = async (entity, itemId)=>{
+                                                console.log(`Test ${itemId} [${entity.plainId}]`)
+                                                let d = ""
+                                                for(const field of ["description","offerings"]){
+                                                    if(entity.referenceParameters?.[field]){
+                                                        d += `\n${field}: ${entity.referenceParameters?.[field]}.`
+                                                    }
+
+                                                }
+                                                if( d.length === 0){
+                                                    return 
+                                                }
+
+                                                const result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
+                                                    opener: `Here are a list of ${sourceType} faced by ${customerType}`,
+                                                    engine:  primitive.referenceParameters?.engine || action.engine,
+                                                    descriptionType: " a company",
+                                                    prompt2: `For each problem in the list, assess if the problem is solved by the company based on what is stated in the overview.`,
+                                                    response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the problem statement, a boolean 's' indicating if it is clear that the problem is solved for customers of the company, and a 'r' field explaining your rationale in 10 words or less.`,
+                                                    postfix: "END OF LIST",
+                                                    asScore: true,
+                                                    temperature:1,
+                                                    engine: 'gpt4p',
+                                                    debug: true, debug_content: true
+                                                } )
+                                                if( result.success ){
+
+                                                    const filtered = result.output.filter(d=>d.s )
+                                                    const passed = filtered.length
+                                                    const alignment = primitive.referenceParameters?.alignment ?? 0.5
+                                                    
+                                                    const threshold = Math.floor(directLength * alignment)
+                                                    console.log(`met ${passed} vs ${directLength} (threshold = ${alignment} = ${threshold})`)
+                                                    if( passed >= threshold ){
+                                                        await addRelationship( category.id, entity.id, 'ref')
+                                                    }
+                                                }
+                                            }
+                                            await executeConcurrently( mutableList, process)
+                                        }
+                                    }
+                                    return
+                                }else if( pCategory?.mapMode === "___children" ){
+                                    categoryAlloc = []
+                                    resultMap = {}
+                                    console.log(`MAP BY CHILDREN`)
+                                    let catId = 0
+                                    let summary = []
+                                    let isProblemStatement = false
                                     
                                     for(const category of catOptions){
                                         const title = categoryList[catId]
                                         console.log(`Checking for ${category.plainId} - ${title}`)
-                                        const directs = await primitivePrimitives(category, "ref", "evidence")
+                                        const directs = (await primitivePrimitives(category, "ref", "evidence"))
                                         const directLength = directs.length
                                         console.log(`-- have ${directs.length} children`)
                                         
-                                        let itemId = 0
-                                        for(const d of thisData){
-                                            console.log(`Test ${itemId} [${list[itemId].plainId}] - ${d.slice(0,12)}....`)
-                                            
-                                            let result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
-                                                type:"Jobs to be Done statement",
-                                                engine:  primitive.referenceParameters?.engine || action.engine,
-                                                prompt2: `For each Job to be done in the list, determine if it applies to the company in the overview, if it applies to customers of the company as stated in overview, or if it is not applicable to the company or the customers of the company as stated in the overview, and if the job to be done is solved by the company based on what is stated in the overview.`,
-                                                response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the Jobs to be done, a boolean 'internal' indicating if it applies to the company, a 'customer' field indicating if applies to the stated customers of the company, a 'neither' field indicating if it is applicable to neither, a 'solved' field indicating if the company solves the job to be done, and a 'reason' field explaining your rationale in 10 words or less.`,
-                                                postfix: "END OF LIST",
-                                                asScore: true,
-                                                engine: 'gpt4p',
-                                                debug: true, debug_content: true
-                                            } )
+                                        const process = async (entity, itemId)=>{
+                                            console.log(`Test ${itemId} [${list[itemId].plainId}]`)
+                                            let result
+                                            let d = ""
+                                            for(const field of ["offerings","customers"]){
+                                                if(entity.referenceParameters?.[field]){
+                                                    d += `\n${field}: ${entity.referenceParameters?.[field]}.`
+                                                }
+
+                                            }
+                                            summary[itemId] = d
+                                            if( d.length === 0){
+                                                return 
+                                            }
+
+                                            if( directs[0]?.referenceId === 10){
+                                                isProblemStatement = true
+                                                result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
+                                                    opener:"Here are a list of Problem statements faced by Small to medium sized businesses when securing financing",
+                                                    engine:  primitive.referenceParameters?.engine || action.engine,
+                                                    descriptionType: " a company",
+                                                    //prompt2: `For each problem in the list, determine if it addressed by the company in the overview, if it applies to customers of the company as stated in overview, or if it is not applicable to the company or the customers of the company as stated in the overview, and if the problem is solved by the company based on what is stated in the overview.`,
+                                                    prompt2: `For each problem in the list, assess if the problem is relevant for customers of the company as stated in overview, and if the problem is solved by the company based on what is stated in the overview.`,
+
+                                                    //response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the problem statement, a boolean 'internal' indicating if the problem is solved for the company, a 'customer' field indicating if the problem is sovled for customers of the company, a 'solved' field indicating if the company solves the job to be done, and a 'reason' field explaining your rationale in 10 words or less.`,
+                                                    response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the problem statement, a boolean 'c' indicating if the problem is relevant for customers of the company, a boolean 's' indicating if it is clear that the problem is solved for customers of the company, and a 'r' field explaining your rationale in 10 words or less.`,
+                                                    postfix: "END OF LIST",
+                                                    asScore: true,
+                                                    temperature:1,
+                                                    engine: 'gpt4p',
+                                                    debug: true, debug_content: true
+                                                } )
+                                            }else{
+                                                result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
+                                                    type:"Jobs to be Done statement",
+                                                    engine:  primitive.referenceParameters?.engine || action.engine,
+                                                    prompt2: `For each Job to be done in the list, determine if it applies to the company in the overview, if it applies to customers of the company as stated in overview, or if it is not applicable to the company or the customers of the company as stated in the overview, and if the job to be done is solved by the company based on what is stated in the overview.`,
+                                                    response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the Jobs to be done, a boolean 'internal' indicating if it applies to the company, a 'customer' field indicating if applies to the stated customers of the company, a 'neither' field indicating if it is applicable to neither, a 'solved' field indicating if the company solves the job to be done, and a 'reason' field explaining your rationale in 10 words or less.`,
+                                                    postfix: "END OF LIST",
+                                                    asScore: true,
+                                                    engine: 'gpt4p',
+                                                    debug: true, debug_content: true
+                                                } )
+                                            }
                                             
                                             if( result.success && result.output){
+                                                console.log(`results for ${itemId}\n======================`)
                                                 console.log(result.output)
-                                                const filtered = result.output.filter(d=>d.solved && d.customer && !d.internal)
-                                                const both = result.output.filter(d=>d.solved && d.customer && d.internal)
+                                                //const filtered = result.output.filter(d=>d.solved && d.customer && !d.internal)
+                                                const filtered = result.output.filter(d=>d.s && d.c)
+  //                                              const both = result.output.filter(d=>d.solved && d.customer && d.internal)
                                                 const passed = filtered.length
-                                                console.log(`met ${filtered.length} (vs ${both.length}) vs ${directLength}`)
-                                                const threshold = directLength > 3 ? directLength / 2 : 0
+//                                                console.log(`met ${filtered.length} (vs ${both.length}) vs ${directLength}`)
+                                                console.log(`met ${filtered.length} vs ${directLength}`)
+                                                const threshold = directLength > 4 ? directLength * 0.5 : 0
                                                 if( passed > threshold ){
                                                     resultMap[itemId] = resultMap[itemId] || {}
                                                     resultMap[itemId][catId] = resultMap[itemId][catId] || []
@@ -829,14 +1241,13 @@ export default function QueueAI(){
 
                                                 }
                                             }
-                                            itemId++
                                         }
+                                        await executeConcurrently( list, process)
                                         catId++
                                     }
                                     //resultMap = {}
                                     
                                     console.log(resultMap)
-                                    //throw "STOP"
                                     const remapped = {}
                                     for( const dataId of Object.keys(resultMap)){
                                         const remap = Object.keys(resultMap[dataId]).map((catId)=>{
@@ -844,31 +1255,72 @@ export default function QueueAI(){
                                         }).flat()
                                         
                                         
-                                        let result = await analyzeListAgainstItems( remap.map((d)=>d.title), thisData[dataId], {
-                                            type:"Jobs to be Done statement",
-                                            engine:  primitive.referenceParameters?.engine || action.engine,
-                                            prompt2: `Assess which Job to Done from the list is most directly addressed by the offering`,
-                                            response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the selected Job to be Done,  a 'user' field set to the end user, a boolean 'direct' field set to true if the stated user of the selected Job to be Done is a direct end customer of the offering - or set to false if the offering would be most likely used by a third party to deliver value indirectly, and a 'reason' field with a explanation of your rationale in no more than 6 words`,
-                                            asScore: true,
-                                             engine: 'gpt4p',
-                                            debug: true, debug_content: true
-                                        } )
-                                        console.log(result.output)
-                                        if(result.success && result.output){
-                                            const winner = result.output[0]
-                                            if(winner){
-                                                const category = remap[winner.i]
-                                                if( category ){
-                                                    console.log(`${dataId} - > ${winner.i} / ${category.catId} = ${winner.direct}`)
-                                                    if(winner.direct){
-                                                        remapped[dataId] = {[category.catId]: 5}
+                                        let result
+                                        let noDirect
+                                        
+                                        if( isProblemStatement){
+                                            result = await analyzeListAgainstItems( remap.map((d)=>d.title), summary[dataId], {
+                                                type:"Problem statement",
+                                                engine:  primitive.referenceParameters?.engine || action.engine,
+                                                descriptionType: " a company",
+                                                prompt2: `Assess which Problem Statements from the list are most directly addressed by the company`,
+                                                response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the selected problem statement, and a 'reason' field with a explanation of your rationale in no more than 6 words`,
+                                                asScore: true,
+                                                engine: 'gpt4p',
+                                                debug: true, debug_content: true
+                                            } )
+                                            console.log(result.output)
+                                            if(result.success && result.output){
+                                                const winner = result.output[0]
+                                                for(const winner of result.output){
+                                                    const category = remap[winner.i]
+                                                    if( category ){
+                                                        console.log(`${dataId} - > ${winner.i} / ${category.catId} = ${winner.direct}`)
+                                                        remapped[dataId] ||= {}
+                                                        remapped[dataId][category.catId] = 5
+                                                    }
+                                                }
+                                            }
+                                        }else{
+
+                                            result = await analyzeListAgainstItems( remap.map((d)=>d.title), data[dataId], {
+                                                type:"Jobs to be Done statement",
+                                                engine:  primitive.referenceParameters?.engine || action.engine,
+                                                prompt2: `Assess which Job to Done from the list is most directly addressed by the offering`,
+                                                response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the selected Job to be Done,  a 'user' field set to the end user, a boolean 'direct' field set to true if the stated user of the selected Job to be Done is a direct end customer of the offering - or set to false if the offering would be most likely used by a third party to deliver value indirectly, and a 'reason' field with a explanation of your rationale in no more than 6 words`,
+                                                asScore: true,
+                                                engine: 'gpt4p',
+                                                debug: true, debug_content: true
+                                            } )
+                                            console.log(result.output)
+                                            if(result.success && result.output){
+                                                const winner = result.output[0]
+                                                if(winner){
+                                                    const category = remap[winner.i]
+                                                    if( category ){
+                                                        console.log(`${dataId} - > ${winner.i} / ${category.catId} = ${winner.direct}`)
+                                                        if(winner.direct){
+                                                            remapped[dataId] = {[category.catId]: 5}
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
                                     }
-                                    resultMap = remapped
-                                    console.log(resultMap)
+                                    console.log(remapped)
+                                    Object.keys(remapped).forEach(i=>{
+//                                        const category = Object.keys(resultMap[i]).sort((a,b)=>resultMap[i][b] - resultMap[i][a])?.[0]
+                                        for(const category of Object.keys(remapped[i])){
+                                            if( remapped[i][category] > 0 ){
+                                                console.log(remapped[i],category)
+                                                categoryAlloc.push({
+                                                    id: i,
+                                                    category: category
+                                                })
+                                            }
+                                        }
+                                    })
+                                    console.log(`DONE`)
                                 }
                                 else if( primitive.referenceParameters?.categorizeByTopic ){
                                     categoryAlloc = []
@@ -897,13 +1349,22 @@ export default function QueueAI(){
                                         matchPrompt:primitive.referenceParameters?.matchPrompt, 
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
                                         engine:  primitive.referenceParameters?.engine || action.engine,
-                                        debug: true
+                                        rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
+                                        batch: primitive.referenceParameters?.batch ?? action.batch ?? 80,
+                                        temperature: 0.85,
+                                        debug: true,
+                                        debug_content: true
                                     })
+                                    for(const d of categoryAlloc){
+                                        if(d.alignment === 'potential'){
+                                            d.potentialCategory = d.category
+                                            d.category = -1
+                                            console.log(`Override ${d.id} ${d.potentialCategory} > ${d.category}`)
+                                        }
+                                    }
                                 }
 
                                 if( resultMap ){
-
-                                    console.log(resultMap)
                                     Object.keys(resultMap).forEach(i=>{
                                         const category = Object.keys(resultMap[i]).sort((a,b)=>resultMap[i][b] - resultMap[i][a])?.[0]
                                         if( resultMap[i][category] > 0 ){
@@ -921,9 +1382,11 @@ export default function QueueAI(){
                                     console.log("Error on mark_categories")
                                     console.log(categoryAlloc)
                                 }else if(categoryAlloc){
+                                    let promiseList = []
                                     for(const item of categoryAlloc){
+                                        console.log(item)
                                         let cat
-                                        if( typeof(item.category === "number")){
+                                        if( typeof(item.category) === "number" || !isNaN(item.category)){
                                             cat = catOptions[ item.category ]
                                         }else{
                                             const newId = categoryList.findIndex((d)=>d.title === item.category)
@@ -931,10 +1394,19 @@ export default function QueueAI(){
                                         }
                                         if( cat ){
                                          //   console.log(`${item.id} -> ${list[item.id].plainId} : ${cat.title}`)
-                                            await addRelationship( cat._id.toString(), list[item.id]._id.toString(), "ref")
+                                            promiseList.push( addRelationship( cat._id.toString(), list[item.id]._id.toString(), "ref") )
                                         }else{
                                             console.log(`Couldnt find category '${item.category}' for ${item.id})`)
                                         }
+                                        if( promiseList.length > 100 ){
+                                            console.log(`Syncing promiss`)
+                                            await Promise.all( promiseList )
+                                            promiseList = []
+                                        }
+                                    }
+                                    if( promiseList.length > 0 ){
+                                        console.log(`last sync`)
+                                        await Promise.all( promiseList )
                                     }
                                 }
                             }catch(error){

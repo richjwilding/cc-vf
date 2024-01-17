@@ -19,7 +19,7 @@ export function ReactECharts({
     // Initialize chart
     let chart;
     if (chartRef.current !== null) {
-      chart = init(chartRef.current, theme, {renderer: renderer ?? "svg"});
+      chart = init(chartRef.current, theme, {renderer: "svg" })//renderer ?? "svg"});
       chart.on('click', function (params) {
         clickCallback(params)
     });

@@ -79,6 +79,7 @@ export default function GoogleHelper(){
                     callback(undefined)
                   }
                   if( data.action === 'picked'){
+                    console.log(data)
                     callback(data.docs.map((item)=>{return {id: item.id, name: item.name, mimeType: item.mimeType }}))
                   }
                 }

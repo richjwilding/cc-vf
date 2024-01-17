@@ -22,7 +22,7 @@ const Title = (props)=>(
                     key='edit' 
                     type="button"
                     onClick={props.deleteButton}
-                    className="flex ml-auto h-6 w-6 -mt-0.5 invisible group-hover:visible flex-none items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="flex ml-auto h-6 w-6 -mt-0.5 invisible group-hover/panel:visible flex-none items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                     <TrashIcon className="h-4 w-4" aria-hidden="true" />
                 </div>
@@ -32,7 +32,7 @@ const Title = (props)=>(
                     key='edit' 
                     type="button"
                     onClick={props.editButton}
-                    className="flex ml-auto h-6 w-6 -mt-0.5 invisible group-hover:visible flex-none items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="flex ml-auto h-6 w-6 -mt-0.5 invisible group-hover/panel:visible flex-none items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                     <PencilIcon className="h-4 w-4" aria-hidden="true" />
                 </div>
@@ -45,7 +45,7 @@ const Title = (props)=>(
                   />
                   : <PencilIcon
                   onClick={()=>props.editToggle(true)}
-                  className="h-4 w-4 invisible text-slate-300 group-hover:visible hover:text-slate-500 " aria-hidden="true"
+                  className="h-4 w-4 invisible text-slate-300 group-hover/panel:visible hover:text-slate-500 " aria-hidden="true"
                   />)
               }
               {props.collapsable && <ChevronRightIcon strokeWidth={2} className={`ml-1 w-5 h-5 ${props.open ? '-rotate-90 transform' : ''}`}/>}
@@ -90,7 +90,7 @@ export default function Panel({...props}){
 
   if( !props.collapsable ){
     return (
-        <div className={`group ${props.hideTitle ? "" : "mt-6"} ${props.className || ""}`}>
+        <div className={`group/panel ${props.hideTitle ? "" : "mt-6"} ${props.className || ""}`}>
           {!props.hideTitle && <Title {...props}/> }
             {props.children}
         </div>
@@ -100,7 +100,7 @@ export default function Panel({...props}){
     return (
       <Disclosure defaultOpen={props.open}>
       {({ open }) => (
-        <div className={`group mt-6 ${props.className || ""}`}>
+        <div className={`group/panel mt-6 ${props.className || ""}`}>
           <div className='flex w-full place-items-center space-x-2'>
             <Disclosure.Button as='div' key="title" className='flex w-full' ref={toggleRef}>
               <Title {...props} open={open}/>

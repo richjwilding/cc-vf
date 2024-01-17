@@ -14,6 +14,11 @@ import Embedding from "./model/Embedding";
 import { encode } from "gpt-3-encoder";
 import { buildEmbeddings } from "./openai_helper";
 import Parser from '@postlight/parser';
+import csv from 'csv-parser';
+import { dispatchControlUpdate } from "./SharedFunctions";
+import { storeDocumentEmbeddings } from "./DocumentSearch";
+import * as cheerio from 'cheerio';
+
 
 
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -152,7 +157,7 @@ export async function buildDocumentEmbedding(id, req){
 
 }
 
-export async function getDocumentAsPlainText(id, req, override_url){
+export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
 
     const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
     const bucketName = 'cc_vf_document_plaintext'
@@ -170,15 +175,15 @@ export async function getDocumentAsPlainText(id, req, override_url){
         fecthFromPdf = true
     }
 
-    if( fecthFromPdf || !((await file.exists())[0]) ){
-        if( notes || fecthFromPdf ){
+    if( forcePDF || fecthFromPdf || !((await file.exists())[0]) ){
+        if( notes || fecthFromPdf || forcePDF){
             console.log(`----- EXTRACT FROM PDF`)
             return await extractPlainTextFromPdf( id, req )
         }
         if( url ){
             if( url.match(/^https?:\/\/(www\.)?facebook\.com\/[^\/]+\/posts\/[A-Za-z0-9_-]+/)){
                 console.log(`Fetch pdf of facebok post`)
-                await grabUrlAsPdf( url, id, req )
+                await grabUrlAsPdf( url, id )
                 console.log(`--- now text`)
                 const text = (await extractPlainTextFromPdf( id, req ))?.plain
                 await writeTextToFile(id, text, req)
@@ -226,7 +231,7 @@ export async function getDocumentAsPlainText(id, req, override_url){
             let text = htmlToText(html, extractOptions);
             if( text.match(/incapsula incident/i) ){
                 console.log(`Blocked - fallback to pdf`)
-                await grabUrlAsPdf( url, id, req )
+                await grabUrlAsPdf( url, id )
                 console.log(`--- now text`)
                 text = (await extractPlainTextFromPdf( id, req ))?.plain
             }
@@ -242,26 +247,30 @@ export async function getDocumentAsPlainText(id, req, override_url){
     const contents = (await file.download())[0]
     return {plain: contents.toString()}
 }
-export async function extractPlainTextFromPdf(id, req){
+export async function extractPlainTextFromPdf(id, req, inline){
     const pdfExtract = new PDFExtract();
-
-    const bucketName = 'cc_vf_documents'
-    const storage = new Storage({
-        projectId: process.env.GOOGLE_PROJECT_ID,
-      });
-
-    const bucket = storage.bucket(bucketName);
-    let file = bucket.file(id)
-
-    if( !((await file.exists())[0]) ){
-        console.log(`file doesnt exist - fetching pdf version`)
-        const fetched = await importDocument(id, req)
-        if( !fetched){
-            console.log(`Import failed for ${id}`)
-            return
+    let contents
+    if( inline ){
+        contents = inline
+    }else{
+        const bucketName = 'cc_vf_documents'
+        const storage = new Storage({
+            projectId: process.env.GOOGLE_PROJECT_ID,
+        });
+        
+        const bucket = storage.bucket(bucketName);
+        let file = bucket.file(id)
+        
+        if( !((await file.exists())[0]) ){
+            console.log(`file doesnt exist - fetching pdf version`)
+            const fetched = await importDocument(id, req)
+            if( !fetched){
+                console.log(`Import failed for ${id}`)
+                return
+            }
         }
+        contents = (await file.download())[0]
     }
-    const contents = (await file.download())[0]
 
 
     const options = {}; /* see below */
@@ -386,6 +395,30 @@ export async function getDocument(id, req){
         return undefined
     }
 }
+export async function readCSVFromGoogleDrive(fileId, req) {
+    let data = []
+
+    try {
+        const auth = new google.auth.OAuth2();
+        auth.setCredentials({ access_token: req.user.accessToken });
+        
+        const drive = google.drive({ version: 'v3', auth });
+  
+        const response = await drive.files.get({ fileId: fileId, alt: 'media' }, { responseType: 'stream' });
+  
+        await new Promise((resolve, reject) => {
+            response.data
+              .pipe(csv())
+              .on('data', (row) => data.push(row))
+              .on('end', resolve)
+              .on('error', reject);
+          });
+    
+    } catch (err) {
+        console.error('Error streaming file.', err);
+    }
+    return data
+  }
 export async function importDocument(id, req){
     const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
     let notes = primitive.referenceParameters?.notes
@@ -407,16 +440,20 @@ export async function importDocument(id, req){
             if( notes.type === "google_drive"){
                 let result
                 if( notes.mimeType === "application/pdf"){
-                    
                     result = await copyGoogleDriveFile(id, notes.id, req)
+                }else if( notes.mimeType === "text/csv"){
+                    result = await readCSVFromGoogleDrive( notes.id, req)
+                    if( result ){
+                        await writeTextToFile( id, JSON.stringify(result) )
+                    }
+
                 }else{
                     console.log("will attempt export to pdf and plaintext")
                     result = await importGoogleDoc(id, notes.id, req)
                 }
-                console.log(result)
                 if( result ){
-                    result = new Date()
-                    primitive.referenceParameters.notes.lastFetched = result
+                    const updateDate = new Date()
+                    primitive.referenceParameters.notes.lastFetched = updateDate
                     primitive.markModified('referenceParameters.notes.lastFetched')
                     await primitive.save()
                 }
@@ -426,7 +463,7 @@ export async function importDocument(id, req){
             try{
 
                 console.log(`Importing URL as PDF`)
-                await grabUrlAsPdf( url, id, req )
+                await grabUrlAsPdf( url, id )
                 return true
             }catch(error){
                 console.log(`Error extracting from ${url}`)
@@ -585,6 +622,40 @@ export async function importGoogleDoc(id, fileId, req, pdf = true){
       return true
 }
 
+export async function decodeBase64ImageToStorage(data, id, bucketName){
+    
+    try{
+
+        console.log(`decoding` ,id, bucketName )
+        if(!id || !bucketName){
+            return false
+        }
+        const storage = new Storage({
+            projectId: process.env.GOOGLE_PROJECT_ID,
+        });
+
+        const dataPrefix = 'data:image/jpeg;base64,';
+        const base64Data = data.replace(dataPrefix, '');
+
+        const buffer = Buffer.from(base64Data, 'base64');
+        
+        const bucket = storage.bucket(bucketName);
+        const file = bucket.file(id)
+        if( (await file.exists())[0] ){
+            await file.delete()
+        }
+        
+        await file.save(buffer, {
+            metadata: { contentType: 'image/jpeg' },
+        });
+        console.log('Upload successful');
+    }catch(error){
+        console.log(error)
+        console.log(`Error on decodeBase64ImageToStorage`, data.slice(0,100), id, bucketName)
+    }
+    return true
+
+}
 export async function replicateURLtoStorage(url, id, bucketName){
     try{
 
@@ -615,15 +686,19 @@ export async function replicateURLtoStorage(url, id, bucketName){
 export async function fetchLinksFromWebQuery(query, options , attempts = 3){
     try{
         
-        const page = options.page ?? 1
+        const page = options?.page ?? 1
 
         const params = { 
             "api_key": process.env.SCALESERP_KEY,
             time_period: "last_month",
             page: page,
+            "gl": options.country ?? "us",
             "q": query,
             "output":"json",
-            "include_fields": "pagination,request_info,organic_results,search_information"
+            "include_fields": "pagination,request_info,news_results,organic_results,video_results,search_information"
+        }
+        if( options.search_type ){
+            params.search_type = options.search_type
         }
         if( options.timeFrame ){
             params.time_period = options.timeFrame
@@ -643,13 +718,22 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
         }
         const data = await response.json();
         if( data?.request_info?.success ){
-            const mapped = data?.organic_results.map(d=>{
+            let source = data.organic_results
+            if( options.search_type === "news"){
+                source = data.news_results
+            }else if( options.search_type === "videos"){
+                source = data.video_results
+            }
+            
+            const mapped = source?.map(d=>{
                 return {
                     title: d.title,
                     url: d.link,
-                    snippet: d.snippet
+                    snippet: d.snippet,
+                    image: d.image
                 }
             })
+            console.log(mapped)
             return {
                 links: mapped,
                 nextPage: page + 1
@@ -741,7 +825,139 @@ export async function fetchLinksFromWebDDGQuery(query, withNextPage = false, att
     return undefined
 }
 
-export async function extractTranscriptFromVideo(url, id, req){
+export async function extractTextFromFacebookPost(url){
+    if( !url && !url.match(/^(https?:\/\/)?(www\.)?(facebook|fb)\.com\//)){
+        return undefined
+    }
+
+    const fetchFromFB = async (attempts = 0)=>{
+        console.log(`Awaiting  page`)
+        const browser = await puppeteer.connect({
+            browserWSEndpoint: `wss://chrome.browserless.io?token=${process.env.BROWSERLESS_KEY}&stealth`,
+        });
+        
+        const page = await browser.newPage()
+        let out = []
+        await page.goto(url);
+
+        const thread = await page.$('ul')
+        console.log(thread)
+        if( thread ){
+            console.log('Got conversation thread')
+            
+            const parent = await page.evaluateHandle(el => el.parentNode, thread);
+            const main = await page.evaluateHandle(el => el.parentNode?.parentNode?.parentNode?.previousSibling, parent);
+            if( main.toString() != "JSHandle:undefined"){
+                out.push( await main.evaluate(el => el?.textContent) )
+                const title = await page.evaluateHandle(el => el.previousSibling, main);
+                if( title.toString() != "JSHandle:undefined"){
+                    const date = await page.evaluateHandle(el => el.querySelector('[id=":rd:"]'), title);
+                    out.push( await date.evaluate(el => el?.textContent) )
+                }
+            }
+
+            const more = await parent.evaluateHandle(parent => {
+                const moreButton = Array.from(parent.querySelectorAll('span'))
+                    .find(el => el.textContent.includes('View ') && el.textContent.includes('more'));
+                
+                return moreButton 
+            });
+            const previous = await parent.evaluateHandle(parent => {
+                const prevButton = Array.from(parent.querySelectorAll('span'))
+                    .find(el => el.textContent.includes('View ') && el.textContent.includes('previous'));
+                
+                return prevButton || undefined; 
+            });
+
+
+            let doWait = false
+            if( more.toString() != "JSHandle:undefined"){
+                console.log(`found more - clicking`)
+                await more.evaluate(el => el.click())
+                doWait = true
+            }
+            if( previous.toString() != "JSHandle:undefined"){
+                console.log(`found previous - clicking`)
+                await previous.evaluate(el => el.click())
+                doWait = true
+            }
+            if( doWait ){
+                try{
+                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 2000 })
+                }catch(error){
+                    console.log(`TIimeout - assume done`)
+                }
+            }
+        
+            const text = await page.evaluate((ul) => {
+
+
+                const getTextWithPrefix = (element, stopAtElement) => {
+                    let count = 0;
+                    let currentElement = element;
+            
+                    // Traverse up the DOM tree and count 'ul' parents, stopping at 'stopAtElement'
+                    while (currentElement && currentElement !== stopAtElement) {
+                        if (currentElement.tagName === 'UL') {
+                            count++;
+                        }
+                        currentElement = currentElement.parentElement;
+                    }
+            
+                    // Create the prefix based on the count of 'ul' parents
+                    
+                    const prefix = count > 1 ? '-'.repeat(count - 1) : "";
+                    return `${prefix}${element.textContent.trim()}`;
+                };
+
+                const elements = Array.from(ul.querySelectorAll('span ~ div'));
+                //return elements.map(element => element.textContent.trim());
+                return elements.map(element => getTextWithPrefix(element, ul.parentNode));
+            }, thread);
+            out = out.concat(text)
+        
+            // elementsText is an array containing the text content of each element
+        
+/*            await expand.evaluate(el => el.click())
+            const button = await page.$('[slot="extra-content"] [aria-label="Show transcript"]')
+            if(button ){
+                console.log('Transcript clicked')
+                await button.evaluate(el => el.click())
+            }
+            
+            await new Promise(r => setTimeout(r, 1000));                    
+            
+            const func = `() => {
+                const elements = document.querySelectorAll('div[class="segment style-scope ytd-transcript-segment-renderer"] yt-formatted-string');
+                const textContentArray = [];
+                for (const element of elements) {
+                    textContentArray.push(element.textContent);
+                }
+                return textContentArray;
+            }`
+
+            console.log(`Start eval`)
+            out = (await page.evaluate(eval(func)))?.join(" ")
+            console.log(`Done eval - ${out.length}`)*/
+        }
+        if( !out || out.length === 0){
+            if( attempts > 0){
+                console.log(`Retry ${attempts}`)
+                await page.close();
+                await browser.close()
+                return await fetchFromFB( attempts - 1 )
+            }
+        }
+        await page.close();
+        await browser.close()
+        return out
+    }
+    const out = await fetchFromFB()
+
+    return out
+        
+}
+export async function extractTranscriptFromVideo(url){
     const isYoutube = url && url.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?([a-zA-Z0-9_-]+)/)
 
     if( isYoutube ){
@@ -754,7 +970,7 @@ export async function extractTranscriptFromVideo(url, id, req){
             const page = await browser.newPage()
             await page.goto(url);
             console.log(`back`)
-            await new Promise(r => setTimeout(r, 1000));                    
+            await new Promise(r => setTimeout(r, 500));                    
             console.log(`continue`)
 
             const expand = await page.$('[id="above-the-fold"] [id="expand"]')
@@ -768,35 +984,7 @@ export async function extractTranscriptFromVideo(url, id, req){
                 }
             }
             
-            /*
-            const menu = await page.$('[id="above-the-fold"] [id="menu"] button[aria-label="More actions"]')
-            if( menu ){
-                const text = await menu.evaluate(el=>el.textContent)
-                if( menu[0]){
-                    console.log('Menu clicked')
-                    await menu[0].evaluate(el => el.click())
-                }else{
-                    console.log('Menu clicked')
-                    await menu.evaluate(el => el.click())
-                }
-
-            }else{
-                console.log("couldnt find menu")
-            }
-
-            const elements = await page.$$('ytd-menu-service-item-renderer');
-        
-            for (const element of elements) {
-              const textContent = await element.evaluate(el => el.textContent);
-              if( textContent && textContent.match(/Show transcript/)){
-                console.log('Show transcript clicked')
-                await element.evaluate(el => el.click());
-              }
-            }
-            */
-
-            
-            await new Promise(r => setTimeout(r, 2000));                    
+            await new Promise(r => setTimeout(r, 1000));                    
             
             const func = `() => {
                 const elements = document.querySelectorAll('div[class="segment style-scope ytd-transcript-segment-renderer"] yt-formatted-string');
@@ -860,7 +1048,7 @@ const createAndUploadPDF = async (text, file) => {
   };
   
 
-export async function grabUrlAsPdf(url, id, req){
+export async function grabUrlAsPdf(url, id, text_only = false){
     const isYoutube = url && url.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?([a-zA-Z0-9_-]+)/)
     let pdfBuffer
     const storage = new Storage({
@@ -868,37 +1056,46 @@ export async function grabUrlAsPdf(url, id, req){
     });
     
     const bucketName = 'cc_vf_documents' 
-    const bucket = storage.bucket(bucketName);
-    const file = bucket.file(id)
-    if( (await file.exists())[0] ){
-        await file.delete()
+    let file
+    let bucket
+    if( id ){
+        bucket = storage.bucket(bucketName);
+        file =  bucket.file(id)
+        if( (await file.exists())[0] ){
+            await file.delete()
+        }
     }
     try{
 
         if( isYoutube ){
             const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
-            const transcript = await extractTranscriptFromVideo(url, id, req)
+            const transcript = await extractTranscriptFromVideo(url)
             const text = "#" + primitive.plainId + "\n\n" + primitive.title + "\n\n" + primitive.referenceParameters?.description + "\n\n" + transcript
             await createAndUploadPDF( text, file)
         }else{
-
-            const bUrl = `https://chrome.browserless.io/pdf?token=${process.env.BROWSERLESS_KEY}&stealth`
+            console.log(`Awaiting  page`)
+            const browserlessEndpoint = `https://chrome.browserless.io/function?token=${process.env.BROWSERLESS_KEY}&stealth`;
             
-            
-            const response = await fetch(bUrl,{
+            const response = await fetch(browserlessEndpoint, {
                 method: 'POST',
-                headers: { 
-                    'Cache-Control': 'no-cache' ,
-                    'Content-Type': 'application/json' 
-                },
-                body:JSON.stringify({
-                    "url": url,
-                })
-            })
-            
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  code: "module.exports=async({page:a,context:b})=>{const{url:c}=b;await a.goto(c);await a.evaluate(() => {document.querySelectorAll('a').forEach(a => {const text = document.createTextNode(a.textContent);a.replaceWith(text);});});const d=await a.pdf();return{data:d,type:\"application/pdf\"}};",
+                  "context": {
+                    "url": url
+                  }
+                
+                }),
+              });
+
             if (response.ok) {
+
                 const pdfData = await response.arrayBuffer();
                 pdfBuffer = Buffer.from(pdfData);
+                if( text_only ){
+                    const output = await extractPlainTextFromPdf(undefined,undefined, pdfBuffer)
+                    return output
+                }
                 
                 // Use Promisify to convert callback to Promise
                 const savePromise = promisify(file.save).bind(file);
@@ -1019,26 +1216,577 @@ export function locateQuote(oQuote, document){
     return out
 
 }
-export async function buildEmbeddingsForPrimitives( list, field = "title", fill_missing = true ){
-    let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: field})
-    const missingIdx = list.map((d, idx)=>embeddings.find((e)=>e.foreignId === d.id) ? undefined : idx).filter((d)=>d  !== undefined)
-    console.log(`Have ${embeddings.length} embeddings - ${missingIdx.length} missing`)
+export async function buildEmbeddingsForPrimitives( list, field = "title", fill_missing = true, skip_check = false ){
+    let missingIdx
+    let embeddings
+
+    let isParam = false
+    let parts = field.split(".")
+    if( parts.length > 1 ){
+        isParam = true
+        field = parts[1]
+    }
+    
+    if( skip_check ){
+        missingIdx = list.map((_,i)=>i)
+        fill_missing = true
+        embeddings = []
+    }else{
+        embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: field})
+        missingIdx = list.map((d, idx)=>embeddings.find((e)=>e.foreignId === d.id) ? undefined : idx).filter((d)=>d  !== undefined)
+        console.log(`Have ${embeddings.length} embeddings - ${missingIdx.length} missing`)
+    }
     if( fill_missing ){
-        console.log( `missingIdx = ${missingIdx.join(", ")}`)
+        console.log( `Embed ${field} / missingIdx = ${missingIdx.join(", ")}`)
         for(const idx of missingIdx){
-            let thisItem = list[idx][field]
-            console.log(`Embeddings for ${idx} - ${list[idx].id} ${thisItem}`)
-            const response = await buildEmbeddings(thisItem)
-            if( response.success){
-                const dbUpdate = await Embedding.findOneAndUpdate({
-                    type: field,
-                    foreignId: list[idx].id
-                },{
-                    embeddings: response.embeddings
-                },{upsert: true, new: true})
-                embeddings.push( dbUpdate )
+            let thisItem = isParam ? list[idx]?.referenceParameters?.[field] : list[idx][field]
+            if( thisItem ){
+                dispatchControlUpdate(list[idx].id, `embed_${field}`, new Date().toISOString())
+            }
+        }
+        for(const idx of missingIdx){
+            let thisItem = isParam ? list[idx]?.referenceParameters?.[field] : list[idx][field]
+            if( thisItem){
+                console.log(`Embeddings for ${idx} - ${list[idx].id} ${thisItem}`)
+                try{
+                    
+                    const response = await buildEmbeddings(thisItem)
+                    if( response.success){
+                        const dbUpdate = await Embedding.findOneAndUpdate({
+                            type: field,
+                            foreignId: list[idx].id,
+                            workspaceId: list[idx].workspaceId
+                        },{
+                            embeddings: response.embeddings
+                        },{upsert: true, new: true})
+                        embeddings.push( dbUpdate )
+                        console.log(`Embeddings done for ${list[idx].id} / ${field}`) 
+                        dispatchControlUpdate(list[idx].id, `embed_${field}`, undefined )
+                    }else{
+                        dispatchControlUpdate(list[idx].id, `embed_${field}`, "error")
+                    }
+                }catch(error){
+                    console.log(`Error in buildEmbeddingsForPrimitives`)
+                    console.log(error)
+                    dispatchControlUpdate(list[idx].id, `embed_${field}`, "error")
+                }
             }
         }
     }
     return embeddings
+}
+
+
+export async function queryFacebookGroup(keywords, options = {}){
+    return await queryGoogleSERP(keywords, {title: "Facebook group search", ...options, __override:{url:"https://www.facebook.com/groups/504659276407422/posts/2372112982995366/", snippet: "Fellow homeowners, I'm a new homeowner and have been in my house almost a year. Am I looking to get a decent amount of money back after writing off mortgage ..."}, prefix: ("site:facebook.com/groups/*/posts " + (options.prefix ?? "")).trim()})
+}
+export async function queryGoogleNews(keywords, options = {}){
+    return await queryGoogleSERP(keywords, {...options, search_type: "news", article: true})
+}
+export async function queryYoutube(keywords, options = {}){
+    return await queryGoogleSERP(keywords, {title: "Youtube search",...options, search_type: "videos", prefix: "site:youtube.com"})
+}
+export async function queryGoogleSERP(keywords, options = {}){
+    let cancelled = false
+    let totalCount = 0
+    let count = 0
+    let target = options.count ?? 20
+    let maxPage = options.maxPage ?? 20
+    let results = []
+    let timeFrame = "last_year"
+
+    const doLookup = async (term, lookupOptions )=>{
+        try{
+            if( lookupOptions === undefined){
+                count = 0
+            }
+            const searchOptions = {timeFrame: timeFrame, ...options, ...(lookupOptions ?? {})}
+            let hasResults = false
+            let nTerm = (options.titleOnly? "intitle:" : "") + term
+            let query = options.prefix ? options.prefix + " " + nTerm  : nTerm
+    
+            console.log(searchOptions, query)
+
+
+            let currentIndex = 0;
+            let concurrencyLimit = 5
+            const activePromises = [];
+
+            const processItem = async (item)=>{
+                if( count < target ){
+
+                    if( options.filterPre && !(await options.filterPre({text: item.snippet, term: term})) ){
+                        return
+                    }
+                    
+                    if( options.existingCheck  ){
+                        const exists = await options.existingCheck(item)
+                        if( exists ){
+                            return
+                        }
+                    }
+
+                    const pageContent = await fetchURLPlainText( item.url, options?.article )
+                    if( !pageContent ){
+                        return
+                    }
+                    let filterData = {text: pageContent.fullText, snippet: item.snippet, term: term}
+                    if( options.filterMid && !(await options.filterMid( filterData )) ){
+                        return
+                    }
+
+
+                    if( options.filterPost && !(await options.filterPost(filterData )) ){
+                        return
+                    }
+
+                    const r = {
+                        title: pageContent.title ?? item.title,
+                        referenceParameters:{
+                            snippet: item.snippet,
+                            url: item.url,
+                            posted: pageContent.posted_on,
+                            source:"Google News - " + term,
+                            imageUrl: pageContent.image,
+                            hasImg: (item.image || pageContent.image) ? true : false,
+                            description: pageContent.description
+                        }
+                    }
+                    if( options.createResult ){
+                        const newPrim = await options.createResult( r )
+                        if( newPrim ){
+                            await writeTextToFile(newPrim.id.toString(), pageContent.fullText)
+                            if( pageContent.image ){
+                                await replicateURLtoStorage(pageContent.image, newPrim._id.toString(), "cc_vf_images")
+                            }else if( item.image ){
+                                if( item.image.match(/https?:\/\// )){
+                                    await replicateURLtoStorage(item.image, newPrim._id.toString(), "cc_vf_images")
+                                }else{
+                                    await decodeBase64ImageToStorage(item.image, newPrim._id.toString(), "cc_vf_images")
+                                }
+                            }
+                            if( filterData.embeddedFragments){
+                                await storeDocumentEmbeddings( newPrim, filterData.embeddedFragments)
+                            }
+                        }
+                    }else{
+                        results.push(r)
+                    }
+                    count++
+                    totalCount++
+                }
+            }
+
+
+            let lookup = options.override ? {links: [{title:"test", snippet: options.override.snippet, url: options.override.url}]} : (await fetchLinksFromWebQuery(query, searchOptions))
+            if( lookup && lookup.links ){
+                let out = lookup.links
+                    if( out ){
+                        hasResults = true
+                        const next = async () => {
+                            if (currentIndex < out.length) {
+                                if(options.cancelCheck && (await options.cancelCheck())){
+                                    console.log("Cancelled")
+                                    cancelled = true
+                                    return
+                                }
+                                const item = out[currentIndex++];
+                                await processItem(item);
+                                await next();
+                            }
+                        };
+
+                        for (let i = 0; i < concurrencyLimit && i < out.length; i++) {
+                            activePromises.push(next());
+                        }
+                        await Promise.all(activePromises);
+                    }
+            }
+            console.log(hasResults, count, target)
+            if( !cancelled && (hasResults && count < target) ){
+                if( lookup.nextPage){
+                    console.log(lookup.nextPage)
+                    if( lookup.nextPage < maxPage){
+                        await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame})
+                    }
+                }
+            }
+        }
+        catch(error){
+            console.log("Error in searchPosts")
+            console.log(error)
+        }
+        return cancelled
+    }
+
+    if( !keywords && options.prefix ){
+        keywords = " "
+    }
+    if( keywords ){
+
+        for( const d of keywords.split(",")){
+            const thisSearch = options.quoteKeywords ? '"' + d.trim() + '"' : d.trim()
+            const cancelled = await doLookup( thisSearch )
+            if( cancelled ){
+                break
+            }
+        }
+    }
+    return options.createResult ? totalCount : results
+
+}
+function isRelativeUrl(url) {
+    return !/^[a-z][a-z0-9+.-]*:/.test(url);
+}
+
+export async function extractURLsFromPage( baseUrl, options = {} ){
+    try{
+        const bUrl = `https://chrome.browserless.io/scrape?token=${process.env.BROWSERLESS_KEY}&stealth`
+        const bOptions = {
+            "url": baseUrl,
+            "elements": [
+            {
+                "selector": "a",
+            }
+            ]
+        }
+        if( options.waitFor ){
+            bOptions.waitFor = options.waitFor 
+        }
+        const response = await fetch(bUrl,{
+            method: 'POST',
+            headers: { 
+                'Cache-Control': 'no-cache' ,
+                'Content-Type': 'application/json' 
+            },
+            body:JSON.stringify(bOptions)
+        })
+
+
+        
+        let domain
+        try{
+            domain = new URL(baseUrl).host
+        }catch(error)
+        {
+            domain = baseUrl
+        }
+        const fwd = baseUrl?.slice(-1) === "/" ? "" : "/"
+        const results = await response.json();
+        if( results && results.data?.[0]?.results){
+            const urlList = results.data?.[0]?.results.map(d=>{
+                let url = d.attributes.find(d=>d.name === "href")?.value
+                if( !url ){
+                    return undefined
+                }
+                url = url.trim()
+                if( url.length === 0){
+                    return undefined 
+                }
+                if(url === baseUrl || (url + "/") === baseUrl){
+                    return undefined 
+                }
+                if( isRelativeUrl(url)){
+                    if( (options.markers === false)){
+                        url = url.replace(/#.*$/, "")
+                    }
+                    if( url[0] === "/"){
+                        url = url?.slice(1)
+                    }
+                    url = fwd + url
+                }
+                if( url && options.otherDomains === false){
+                    if( url.indexOf(domain) === -1){
+                        return undefined 
+                    }
+                }
+                return {text: d.text?.trim()?.replaceAll(/[\n|\r|\t]+/g,". "), url: url}
+
+            })
+            const filtered = urlList.filter(d=>d && d.url)
+            if( filtered.length === 0){
+                console.log(`NO URLS found`)
+                if( !bOptions.waitFor ){
+                    console.log('try with wait')
+                    return await extractURLsFromPage( baseUrl, {...options, waitFor: 10000} )
+                }
+                console.log(results)
+                throw ""
+            }
+            return filtered
+        }
+        return []
+    }catch(error){
+        console.log(`Error in extractURLsFromPage`)
+        console.log(error)
+    }
+
+}
+
+export async function fetchURLAsText( baseUrl, options = {} ){
+    try{
+        const bUrl = `https://chrome.browserless.io/scrape?token=${process.env.BROWSERLESS_KEY}&stealth`
+        const bOptions = {
+            "url": baseUrl,
+            "elements": [
+                {
+                    "selector": "title",
+                },
+                {
+                    "selector": "html",
+                }
+            ],
+            "waitFor": 2000
+        }
+        const response = await fetch(bUrl,{
+            method: 'POST',
+            headers: { 
+                'Cache-Control': 'no-cache' ,
+                'Content-Type': 'application/json' 
+            },
+            body:JSON.stringify(bOptions)
+        })
+
+        const results = await response.json();
+        if( results && results.data?.[0]?.results){
+            const text = results.data?.[1]?.results.map(d=>d.text?.trim()?.replaceAll(/[\n|\r|\t]+/g,". ")).join(". ")
+            if( text.split(" ").length < (options.threshold ?? 50) ){
+                return undefined
+            }
+            return{
+                title: results.data?.[0]?.results.map(d=>d.text?.trim()).join(""),
+                fullText: text, 
+                description: text?.split(" ").slice(0,400).join(" ")
+            }
+        }
+    }catch(error){
+        console.log(`Error in fetchURLAsText`)
+        console.log(error)
+    }
+
+}
+export async function fetchURLAsArticle( url, threshold = 50){
+    try{
+
+        const item = {}
+        const articleContent = await Parser.parse(url, {
+            contentType: 'text',
+        })
+        console.log(articleContent)
+        if( articleContent && articleContent.content ){
+            if( articleContent.content.split(" ").length < threshold ){
+                return false
+            }
+            item.fullText = articleContent.content
+            item.title = articleContent.title
+            item.image = articleContent.lead_image_url ?? articleContent.image 
+            item.description = articleContent.content.split(" ").slice(0,400).join(" ")
+            item.posted_on = articleContent.date_published ?? item.posted_on
+            return item
+        }
+    }catch(error){
+        console.log(`Error in fetchURLAsArticle`)
+        console.log(error)
+        return undefined
+    }
+
+}
+export async function extractURLsFromPageAlternative( baseUrl, options = {}, fetch_options = {},  ){
+
+        const params = 
+            {
+                'url': baseUrl,
+                'apikey': process.env.ZENROWS_KEY,
+                ...fetch_options
+            }
+
+            console.log(`zenrow - `, baseUrl, fetch_options)
+        const cUrl = `https://api.zenrows.com/v1/?${new URLSearchParams(params).toString() }`
+        const response = await fetch(cUrl,{
+            method: 'GET'
+        })
+        try{
+            if(response.status !== 200){
+                return undefined
+            }
+            const html = await response.text();
+            if(!html || html.length === 0){
+                return undefined
+            }
+
+            const $ = cheerio.load(html);
+            let links = []
+
+            $('a').each((index, element) => {
+                const href = $(element).attr('href');
+                const text = $(element).text();
+                links.push( {text: text, url: href})
+            });
+            
+            const fwd = baseUrl?.slice(-1) === "/" ? "" : "/"
+            let domain
+            try{
+                domain = new URL(baseUrl).host
+            }catch(error)
+            {
+                domain = baseUrl
+            }
+            links = links.map(d=>{
+                let url = d.url
+                if( !url ){
+                    return undefined
+                }
+                url = url.trim()
+                if( url.length === 0){
+                    return undefined 
+                }
+                if( isRelativeUrl(url)){
+                    if( (options.markers === false)){
+                        url = url.replace(/#.*$/, "")
+                    }
+                    if( url[0] === "/"){
+                        url = url?.slice(1)
+                    }
+                    url = baseUrl + fwd + url
+                }
+                if(url === baseUrl || (url + "/") === baseUrl){
+                    return undefined 
+                }
+                if( url && options.otherDomains === false){
+                    if( url.indexOf(domain) === -1){
+                        return undefined 
+                    }
+                }
+                return {text: d.text?.trim()?.replaceAll(/[\n|\r|\t]+/g,". "), url: url}
+            }).filter(d=>d && d.url)
+            return links?.length > 0 ? links : undefined
+
+        }catch(error){
+            console.log(`Error in extractURLsFromPageAlternative`)
+            console.log(error)
+        }
+        return undefined
+    
+
+}
+export async function fetchURLAsTextAlternative( url, options = {} ){
+
+        const params = 
+            {
+                'url': url,
+                'apikey': process.env.ZENROWS_KEY,
+                ...options
+            }
+
+        const cUrl = `https://api.zenrows.com/v1/?${new URLSearchParams(params).toString() }`
+        const response = await fetch(cUrl,{
+            method: 'GET'
+        })
+        try{
+            if(response.status !== 200){
+                return undefined
+            }
+            const results = await response.text();
+            if( results){
+                const extractOptions = {
+                    baseElements:{
+                        selectors : ['title', 'body'],
+                        returnDomByDefault: false
+                    },
+                    selectors: [
+                      //  { selector: 'a', format: 'skip' },
+                        { selector: 'input', format: 'skip' },
+                        { selector: 'img', format: 'skip' },
+                        //{ selector: 'button', format: 'skip' },
+                        //{ selector: '[class*=nav]', format: 'skip' }
+                    ]
+                }
+                const text = htmlToText(results, extractOptions);
+                if( text ){
+                    let parts = text.split('\n').filter(d=>d && d.length > 0)
+                    let title = parts.shift()
+                    const fullText = parts.join("\n")
+                    if( fullText.length === 0){
+                        return undefined
+                    }
+                    return{
+                        title: title,
+                        fullText: fullText, 
+                        description: fullText?.split(" ").slice(0,400).join(" ")
+                    }
+                }
+            }
+
+        }catch(error){
+            console.log(`Error in fetchURLAsTextAlternative`)
+            console.log(error)
+        }
+        return undefined
+    
+
+}
+
+export async function fetchURLPlainText( url, asArticle = false ){
+    try{
+
+        console.log(url)
+        if( url && url.match(/^(https?:\/\/)?(www\.)?(facebook|fb)\.com\//)){
+            console.log(`Processes facebook url`)
+            
+            const text = await extractTextFromFacebookPost( url )
+            if( text){
+                const item = {}
+                item.fullText = text.join("\n")
+                item.description = item.fullText.split(" ").slice(0,400).join(" ")
+                console.log(item.description)
+                return item
+            }
+            return undefined
+        }
+        const isYoutube = url && url.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?([a-zA-Z0-9_-]+)/)
+        if( isYoutube ){
+            console.log(`Fetch YT transcript`)
+            const transcript = await extractTranscriptFromVideo(url)
+            if( transcript){
+                const item = {}
+                item.fullText = transcript
+                item.description = transcript.split(" ").slice(0,400).join(" ")
+                console.log(item.description)
+                return item
+            }
+            return undefined
+            
+        }
+        let text 
+
+        let result
+        const attempts = [
+            //{title: "Article", exec: asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
+            //{title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
+        //    {title: "zenRows 1", exec: async ()=>await fetchURLAsTextAlternative( url )},
+         /*   {title: "zenRows 2", exec: async ()=>await fetchURLAsTextAlternative( url,{
+                        'js_render': 'true',
+                    } )},*/
+            {title: "zenRows 3", exec: async ()=>await fetchURLAsTextAlternative( url,{
+                        'js_render': 'true',
+                        'premium_proxy': 'true',
+                        'proxy_country': 'us',
+                    } )},
+            {title: "Artcile", exec: !asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
+            {title: "PDF", exec: async ()=> await grabUrlAsPdf( url, undefined, true )}
+        ].filter(d=>d.exec)
+
+        for(const attempt of attempts){
+            console.log("Trying " + attempt.title)
+            result = await attempt.exec()
+            if( result ){
+                console.log(result)
+                return result
+            }
+        }
+
+    }catch(error){
+        console.log(`Error in fetchURLPlainText`)
+        console.log(error)
+    }
 }

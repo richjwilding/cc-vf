@@ -26,6 +26,34 @@ export default function QuestionCard({primitive, ...props}){
     }, [eventRelationships])*/
 
 
+    const goButton = (p)=>{
+        let action
+        const task = p.task
+        let exec
+
+        if( p.isTask ){
+            action = p.metadata?.actions?.filter(d=>(d.key === "cascade" || d.command === "cascade") && d.cascadeKey?.includes("questions"))
+            console.log(`Got ${action.length} candidate(s)`)
+            if( action ){
+                action = action[0]
+            }
+            exec = (options)=>MainStore().doPrimitiveAction(p, "process_questions_on_main", {...options, questionIds: [primitive.id]})
+        }else{
+            action = p.metadata?.actions?.filter(d=>(d.key === "questions" || d.command === "questions"))
+            exec = (options)=>MainStore().doPrimitiveDocumentQuestionsAnalysis(p, {...options, questionIds: [primitive.id]})
+        }
+        if( action.actionFields){
+                MainStore().globalInputPopup({
+                  primitive: primitive,
+                  fields: action.actionFields,
+                  confirm: async (inputs)=>exec(inputs),
+                })
+        }else{
+            exec({})
+        }
+        //process_questions_on_main
+    }
+
     
     return (
         <>
@@ -62,7 +90,8 @@ export default function QuestionCard({primitive, ...props}){
                     className='!mt-0'
                     title={<div key='ai_title' className="font-semibold flex place-items-center">
                             <FontAwesomeIcon icon="fa-solid fa-robot" className="mr-1"/>Question will be processed by AI
-                            {props.relatedTo && <AIProcessButton showDelete={primitive} small subset={primitive.id} active="document_questions" primitive={props.relatedTo} process={(p)=>p.isTask ? MainStore().doPrimitiveAction(p, "process_questions_on_main", {forceCascade: true, questionIds: [primitive.id]}) : MainStore().doPrimitiveDocumentQuestionsAnalysis(p,[primitive.id])}/>}
+                            {false && props.relatedTo && <AIProcessButton showDelete={primitive} small subset={primitive.id} active="document_questions" primitive={props.relatedTo} process={(p)=>p.isTask ? MainStore().doPrimitiveAction(p, "process_questions_on_main", {forceCascade: true, questionIds: [primitive.id]}) : MainStore().doPrimitiveDocumentQuestionsAnalysis(p,[primitive.id])}/>}
+                            {props.relatedTo && <AIProcessButton showDelete={primitive} small subset={primitive.id} active="document_questions" primitive={props.relatedTo} process={goButton}/>}
 
                             </div>}>
                 

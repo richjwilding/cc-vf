@@ -1,69 +1,63 @@
-import QueueManager from './base_queue'; 
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import Primitive from "./model/Primitive";
-import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { queryPosts } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
 import { fetchArticlesFromGdelt } from "./gdelt_helper";
-import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
+import { analyzeTextAgainstTopics } from "./openai_helper";
 import { queryFacebookGroup, queryGoogleNews, queryYoutube } from "./google_helper";
-import { buildDocumentTextEmbeddings } from './DocumentSearch';
 
 
 let instance
-let _queue
 
-/*
-async function main() {
-
-    // Example workspace and job identifiers
-    const workspaceId = 'workspace1';
-    const jobId = 'job1';
-
-    // Example job data
-    const jobData = { task: 'process data', payload: 'some payload data' };
-
-    // Add a job to the queue
-    try {
-        await queueManager.addJob(workspaceId, jobId, jobData);
-        console.log('Job added successfully');
-    } catch (error) {
-        console.error('Error adding job:', error);
+function queueJob( id, field, data ){
+    if( data.mode === undefined ){
+        console.log(`No mode on QueryQueue - queueJob`)
+        return
     }
-
-    // Periodically check the status of the queues
-    setInterval(async () => {
-        const status = await queueManager.status();
-        console.log('Queue Status:', status);
-    }, 10000); // Check status every 10 seconds
-
-    // Remove a job from the queue (can be triggered based on your application logic)
-    try {
-        await queueManager.removeJob(workspaceId, jobId);
-        console.log('Job removed successfully');
-    } catch (error) {
-        console.error('Error removing job:', error);
-    }
+    dispatchControlUpdate(id, field , {status: "pending"}, {...data, track: id})
+    instance.add(`query_${data.mode}_${id}` , {id: id, ...data, field})
 }
-*/
-
 
 export default function QueryQueue(){    
     if( instance ){
         return instance
     }
     
+    instance = new Queue("queryQueue", {
+        connection: { 
+            host: process.env.QUEUES_REDIS_HOST, 
+            port: process.env.QUEUES_REDIS_PORT,
+            maxStalledCount: 0,
+            stalledInterval:300000
+        },
+    });
+    instance.myInit = async ()=>{
+        console.log("Query Queue")
+        const jobCount = await instance.count();
+        console.log( jobCount + " jobs in queue (query)")
+       /* 
+        await instance.obliterate({ force: true });
+        const newJobCount = await instance.count();
+        console.log( newJobCount + " jobs in queue  (query)")
+        */
+    }
 
+    instance.doQuery = (primitive, options )=>{
+        queueJob( primitive.id, "processing.ai.query", {mode: "query", text:"Running query", ...options})
+    }
+    instance.pending = async ()=>{
+        return await instance.getJobs();
+    }
     
-    const processQueue = async (job, cancelCheck) => {
+    const processQueue = async job => {
         try{
 
             const primitive = await Primitive.findOne({_id: job.data.id})
             if( primitive){
                 if( job.data.mode === "query" ){
-                    let embeddedTopic
                     console.log(`GOT QUERY JOB`)
                     const category = await Category.findOne({id: primitive.referenceId})
                     if( category === undefined){
@@ -186,7 +180,6 @@ export default function QueryQueue(){
                                 }
                                 
                                 const existing = await Primitive.findOne(query, {_id: 1})
-                                console.log(existing)
                                 const results = existing !== null
                                 //console.log( `--- Existing = ${results}`)
                                 return results
@@ -208,10 +201,6 @@ export default function QueryQueue(){
                                 return true
                             }
                             if( type === "keyword" ){
-                                if( !config.exact){
-                                    console.log('skipping keyword check')
-                                    return true
-                                }
                                 const xTerm = data.term?.toLowerCase().trim().replace(/[^a-zA-Z0-9\s]/g, '');
                                 if( xTerm === undefined || xTerm.length === 0){
                                     return true
@@ -226,29 +215,9 @@ export default function QueryQueue(){
                                 }
                                 return true
                             }
-                            if( type === "topic_similarity" ){
-                                if( !data.text || data.text.length === 0){
-                                    return false
-                                }
-                                if( !topic ){
-                                    return false
-                                }
-                                if(!embeddedTopic){
-                                    embeddedTopic = (await buildEmbeddings( topic ))?.embeddings
-                                }
-                                const embeddedFragments = await buildDocumentTextEmbeddings( data.text )
-                                if( embeddedFragments ){
-                                    const scores  = embeddedFragments.map(d=>cosineSimilarity( d.embeddings, embeddedTopic ))
-                                    const threshold = config.threshold ?? 0.7
-                                    const match = scores.filter(d=>d>=threshold).length > 0
-                                    data.embeddedFragments = embeddedFragments
-                                    return match
-                                }
-                                return false
-                            }
                             if( type === "topic" ){
                                 if( topic ){
-                                    const result = await analyzeTextAgainstTopics(data.text, topic, {single:true, type: resultCategory?.title, engine: primitive.referenceParameters?.engine ?? "gpt4p"})
+                                    const result = await analyzeTextAgainstTopics(data.text, topic, {single:true, debug: true, type: resultCategory?.title, engine: primitive.referenceParameters?.engine ?? "gpt4p"})
                                     const threshold = filter.threshold ?? 3
                                     if( result.output >= threshold){
                                         return true
@@ -279,32 +248,29 @@ export default function QueryQueue(){
                             return newPrim
                         }
 
-                        const callopts = {quoteKeywords: config.phrase, count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix, cancelCheck: cancelCheck}
-
                         if( source.platform === "linkedin" ){
                             if( source.type === "posts" ){
-                                await queryPosts( terms,  callopts) 
+                                await queryPosts( terms, {count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix} ) 
                             }
                         }
                         if( source.platform === "gdelt" ){
-                            await fetchArticlesFromGdelt( terms, callopts) 
+                            await fetchArticlesFromGdelt( terms, {count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix} ) 
                         }
                         if( source.platform === "facebook_group" ){
-                            await queryFacebookGroup( terms, callopts) 
+                            await queryFacebookGroup( terms, {count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix} ) 
                         }
                         if( source.platform === "youtube" ){
-                            await queryYoutube( terms, callopts) 
+                            await queryYoutube( terms, {count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix} ) 
                         }
                         if( source.platform === "google_news" ){
-                            await queryGoogleNews( terms, callopts) 
+                            await queryGoogleNews( terms, {count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix} ) 
                         }
                         if( source.platform === "crunchbase" ){
                             if( source.type === "organization" ){
-                                await queryCrunchbaseOrganizations( terms, callopts ) 
+                                await queryCrunchbaseOrganizations( terms, {count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix} ) 
                             }
                             if( source.type === "article" ){
-                                callopts.primitive = await Primitive.findOne({_id: oId})
-                                await queryCrunchbaseOrganizationArticles( terms, callopts ) 
+                                await queryCrunchbaseOrganizationArticles( terms, {primitive: await Primitive.findOne({_id: oId}), count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix} ) 
                             }
                         }
                     }
@@ -319,36 +285,8 @@ export default function QueryQueue(){
         }
         
     }
-
-    instance = {} 
-    instance.doQuery = (primitive, options )=>{
-        const primitiveId = primitive.id
-        const workspaceId = primitive.workspaceId
-        const field = "processing.ai.query"
-        const data = {mode: "query", text:"Running query", ...options}
-
-        _queue.addJob(workspaceId, {id: primitiveId, ...data, field})
-        dispatchControlUpdate(primitiveId, field , {status: "pending"}, {...data, track: primitiveId})
-    }
-    instance.pending = async ()=>{
-        return await _queue.status();
-    }
-    instance.purge = async (workspaceId)=>{
-        if( workspaceId ){
-            return await _queue.purgeQueue(workspaceId);
-        }else{
-            return await _queue.purgeAllQueues();
-
-        }
-    }
     
-    _queue = new QueueManager("query", processQueue, 2 );
-    
-    instance.myInit = async ()=>{
-        console.log("Query Queue")
-        const jobCount = await _queue.status();
-        console.log( jobCount, " jobs in queue (query)")
-    }
-    
+    new Worker('queryQueue', processQueue ,{connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT }});
+    new Worker('queryQueue', processQueue ,{connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT }});
     return instance
 }

@@ -97,7 +97,12 @@ export default function GenericEditor({item, primitive,...props}) {
       {
         key: "categorize", 
         title: "Auto discover categories from data",
-        action: async ()=>await MainStore().doPrimitiveAction(props.target, "categorize", {source: primitive.id})
+        action: async ()=>await MainStore().doPrimitiveAction(props.target, "categorize", {parent: primitive.id, source: primitive.id})
+      },
+      {
+        key: "categorize2", 
+        title: "Auto discover categories from data (alt)",
+        action: async ()=>await MainStore().doPrimitiveAction(props.target, "categorize", {parent: primitive.id, source: primitive.id, alternative: true})
       },
       ...(props.actions || [])
     ]
@@ -139,7 +144,7 @@ export default function GenericEditor({item, primitive,...props}) {
                     return {
                       key: d.key,
                       title: d.title,
-                      action: async ()=>await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id, source: primitive.id})
+                      action: d.action ?? (async ()=>await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id, source: primitive.id}))
                     }
                   })
                   } title='Action' className='shrink-0 grow-0 h-8' dropdownWidth='w-max' align='left'/>}

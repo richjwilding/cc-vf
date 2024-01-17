@@ -1,5 +1,5 @@
 import Primitive from "./model/Primitive";
-import {createPrimitive, flattenPath, doPrimitiveAction, findResultSetForCategoryId} from './SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, findResultSetForCategoryId, executeConcurrently} from './SharedFunctions'
 import moment from 'moment';
 import { fetchLinksFromWebQuery, replicateURLtoStorage } from './google_helper';
 import { htmlToText } from "html-to-text";
@@ -88,10 +88,10 @@ export async function queryPosts(keywords, options = {}){
     let totalCount = 0
     let count = 0
     let target = options.count ?? 20
-    let results = []
     let timeFrame = "last_year"
 
     const doLookup = async (term, nextPage )=>{
+        let cancelled = false
         try{
             if( nextPage === undefined){
                 count = 0
@@ -101,54 +101,50 @@ export async function queryPosts(keywords, options = {}){
 
             let lookup = await fetchLinksFromWebQuery(query, nextPage ? nextPage : true)
             if( lookup && lookup.links ){
-                let out = lookup.links
-                    if( out ){
-                        for(const item of out){
-                            hasResults = true
-                            if( count < target ){
-
-                                if( options.filterPre && !(await options.filterPre({text: item.snippet, term: term})) ){
-                                    continue
-                                }
-                                
-                                if( options.existingCheck  ){
-                                    const exists = await options.existingCheck(item)
-                                    console.log(exists)
-                                    if( exists ){
-                                        continue
-                                    }
-                                }
-                                const postText = await fetchLIPost( item.url )
-                                if( options.filterPost && !(await options.filterPost({text: postText, term: term})) ){
-                                    continue
-                                }
-                                if( postText ){
-                                    const r = {
-                                        title: item.title,
-                                        referenceParameters:{
-                                            url: item.url,
-                                            snippet: item.snippet,
-                                            text: postText,
-                                        }
-                                    }
-                                    if( options.createResult ){
-                                        await options.createResult( r )
-                                    }else{
-                                        results.push(r)
-                                    }
-                                    count++
-                                    totalCount++
-                                }
+                hasResults = true
+                const process = async function(item){
+                    if( count < target ){
+                        if( options.filterPre && !(await options.filterPre({text: item.snippet, term: term})) ){
+                            return
+                        }
+                        
+                        if( options.existingCheck  ){
+                            const exists = await options.existingCheck(item)
+                            console.log(exists)
+                            if( exists ){
+                                return
                             }
                         }
+                        const postText = await fetchLIPost( item.url )
+                        if( options.filterPost && !(await options.filterPost({text: postText, term: term})) ){
+                            return
+                        }
+                        if( postText ){
+                            const r = {
+                                title: item.title,
+                                referenceParameters:{
+                                    url: item.url,
+                                    snippet: item.snippet,
+                                    text: postText,
+                                }
+                            }
+                            if( options.createResult ){
+                                await options.createResult( r )
+                            }
+                            count++
+                            totalCount++
+                        }
                     }
+                }
+                let exec = await executeConcurrently( lookup.links, process, options.cancelCheck)
+                console.log(exec)
+                cancelled = exec.cancelled
             }
             console.log(hasResults, count, target)
             if( hasResults && count < target ){
-                if( lookup.nextPage){
+                if( lookup.nextPage && !cancelled){
                     console.log(lookup.nextPage)
-                    await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame})
-                }else{
+                    cancelled = await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame})
                 }
             }
         }
@@ -156,13 +152,20 @@ export async function queryPosts(keywords, options = {}){
             console.log("Error in searchPosts")
             console.log(error)
         }
+        return cancelled
     }
 
-    for( const d of keywords.split(",")){
-        const thisSearch = '"' + d.trim() + '"'
-        await doLookup( thisSearch )
+    if(keywords){
+
+        for( const d of keywords.split(",")){
+            const thisSearch = options.quoteKeywords ? '"' + d.trim() + '"' : d.trim()
+            const cancelled = await doLookup( thisSearch )
+            if( cancelled ){
+                break
+            }
+        }
     }
-    return options.createResult ? totalCount : results
+    return totalCount
 
 }
 export async function searchPosts(primitive, options = {}, action = {}){
@@ -390,6 +393,7 @@ export async function enrichCompanyFromLinkedIn(primitive, force = false){
                 'referenceParameters.url': linkedInData.website,
                 'referenceParameters.industry': linkedInData.industry,
                 'referenceParameters.description': linkedInData.description,
+                'referenceParameters.domain': linkedInData.website?.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2"),
                 'title': linkedInData.name,
                 linkedin_done: true
             }, {new: true}
@@ -412,6 +416,7 @@ export async function enrichCompanyFromLinkedIn(primitive, force = false){
                     'referenceParameters.description': linkedInData.description,
                     'referenceParameters.hasImg': linkedInData.profile_pic_url,
                     'referenceParameters.hasBgImg': linkedInData.background_cover_image_url,
+                    'referenceParameters.domain': linkedInData.website?.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2"),
                     'title': linkedInData.name,
                 }
             }

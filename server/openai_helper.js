@@ -17,7 +17,7 @@ export async function consoldiateAxis( json, options = {}){
                 {"role": "user", "content": prompt},
                 {"role": "user", "content": output}
             ],
-            {engine: "gpt4", ...options})
+            {engine: "gpt4p", ...options})
     
         if( options.debug ){
             console.log( interim)
@@ -29,6 +29,35 @@ export async function consoldiateAxis( json, options = {}){
 
         return {success: false, output: interim}
 
+}
+export async function analyzeForClusterPhrases( list, options = {}){
+    if( list === undefined || list.length === 0){
+        return {success: true, output: []}
+    }
+    let type = options.type ?? "problems"
+    let inputType = options.type ?? "problems statement"
+    let minC = options.minClusters ?? 2
+    let maxC = options.maxClusters ?? 10
+    let opener = `I am undertaking market research ${options.theme ? `into the theme: ${options.theme}` : ""}.\nI need to understand how to think about the ${type} in this space.\nHere are a list of ${inputType}s\n`
+    //let prompt =  `I will undertake a clustering process of several thousand ${inputType}s  based on the distance of the embedding of each ${inputType} to each cluster centroid.  Assess the provided ${inputType}s to first filter out those which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a consolidated set of phrases which would group similar ${inputType}s together when used to generate embeddings for the centroid of a cluster.  The aim is to group similar ${inputType}s together into between ${minC} and ${maxC} non-overlapping clusters. Ensure that the phrases are as specific and selective as possible, do not overlap with one another, are not a subset of another phrase, are based on only the information in the ${inputType}s i have provided, and are directly and explicitly relevant to the provided theme. If there are no relevant ${inputType}s then return an empty list.    `
+    //let output = `Provide your response as a json object called "result" containing an array of objects each with a 'phrase' field containing the proposed phrase, a 'relevance' field containing an explanation for how the proposed phrase is directly relevant to the provided theme in no more than 15 words, a 'score' field with an assessment for how relevant the phrase is to the provided theme on the scale of 'not at all', 'hardly', 'somewhat' , 'clearly', and a 'size' field containing the number of ${inputType}s from the provided list that you estimate to align with this phrase.  Do not provide anything other than the json object in your response`
+
+    let prompt = `i will undertake a clustering process of several thousand ${inputType}s based on the distance of the embedding of each problem statement to each cluster centroid.  The aim is to group similar ${inputType}s together into between 2 and 10 non-overlapping clusters. Assess the provided ${inputType}s to first filter out those which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a 2-3 candidate phrases per cluster. Ensure that the clusters are as specific and selective as possible, do not overlap with one another, are not a subset of another cluster, are based on only the information in the ${inputType}s i have provided, are directly and explicitly relevant to the provided theme. If there are no relevant ${inputType}s then return an empty list.`
+    let output = `Provide your response as a json object called "result" containing an array of objects each with a 'cluster_title' field set a 5 word description of the cluster, a 'phrase' field containing an array of proposed phrases (each as a string), a 'relevance' field containing an explanation for how the proposed phrase is directly relevant to the provided theme in no more than 15 words, a 'score' field with an assessment for how relevant the phrase is to the provided theme on the scale of 'not at all', 'hardly', 'somewhat' , 'clearly', and a 'size' field containing the number of ${inputType}s from the provided list that you estimate to align with this phrase.  Do not provide anything other than the json object in your response`
+
+    const interim = await processInChunk( list,
+            [
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                {"role": "user", "content": opener}],
+            [
+                {"role": "user", "content": prompt},
+                {"role": "user", "content": output}
+
+            ],
+            {field: "result", engine: "gpt4p", markPass: true, maxTokens: 100000,...options})
+
+
+    return {success: true, output: interim}
 }
 export async function extractAxisFromDescriptionList( list, options = {}){
     if( list === undefined || list.length === 0){
@@ -173,6 +202,28 @@ export async function summarizeMultipleAsList(list, options = {} ){
     return {success: true, summary: options.asList ? interim : interim[0]}
 
 }
+export async function simplifyAndReduceHierarchy(pathList, list, options = {} ){
+    const types = options.types || 'problem statement'
+    const subTypes = options.subTypes || "sub-problems"
+    const path = pathList.map((d,idx)=>`${idx}} ${d}`).join('\n')
+
+    let interim = await processInChunk( list, 
+            [
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                {"role": "user", "content": `You are processing a data set representing a hierarchy of clusters. Here are the labels associated with the path to the current cluster: ${path}`},
+                {"role": "user", "content": `And here are the labels of sub-clusters within the current cluster:`}],
+            [
+                {"role": "user", "content": `Analyze the labels to assess the differences between the sub clusters and to identify any sub clusters that should be merged together.  If any sub cluster should be merged, identify which is the most suitable resulting sub cluster. Produce a new set of labels which makes clear the differences between sub clusters, the context of the current path, and does not repeat information from labels in the path.`},
+                {"role": "user", "content": `Provide the response in a json object with an array called "output" for each of the remaining sub clusters with each entry having a field called 'label' set to the new label, a field called 'description' providing mode details about the sub-cluster, a field called 'id' set to the original numbered subcluster, and a 'merge_with' field set to the ids of any other subclusters that should be merged with this one. Do not put anything other than the raw json object in the response`},
+            ],
+            {field: "output", engine: options.engine, debug: true, debug_content: true})
+    if( Object.hasOwn(interim, "success")){
+        console.log(interim)
+        return interim
+    }
+
+    return {success: true, summaries: interim}
+}
 export async function simplifyHierarchy(pathList, list, options = {} ){
     const types = options.types || 'problem statement'
     const subTypes = options.subTypes || "sub-problems"
@@ -297,7 +348,7 @@ export async function buildCategories(list, options = {} ){
 export async function analyzeTextAgainstTopics( text, topics, options = {}){
     if( !text || text === ""){return {success:false}}
     const list = text.split(`\n`)
-    const single = topics.split(",").length > 1 
+    const single = options.single ?? topics.split(",").length > 1 
     const type = options.type || "description"
 
     const scoreMap = {
@@ -331,8 +382,8 @@ export async function analyzeTextAgainstTopics( text, topics, options = {}){
 export async function analyzeListAgainstItems( list, overview, options = {}){
     const type = options.type || "description"
     
-    let opener = `Here is a list of ${options.plural ? options.plural : `${type}s`}: `
-    let prompt =  options.prompt || `Here is a description of an offering: ${overview}\nEND OF DESCRIPTION`
+    let opener = options.opener || `Here is a list of ${options.plural ? options.plural : `${type}s`}: `
+    let prompt =  options.prompt || `Here is an overview of ${options.descriptionType ?? "an offering"} ${overview}`
 
     let interim = await processInChunk( list,
             [
@@ -343,7 +394,7 @@ export async function analyzeListAgainstItems( list, overview, options = {}){
                 {"role": "user", "content": options.prompt2},
                 {"role": "user", "content": options.response}
 
-            ],
+            ].filter(d=>d.content),
             {field: "result", ...options})
     if( Object.hasOwn(interim, "success")){
         console.log(interim)
@@ -474,11 +525,11 @@ export async function analyzeListAgainstTopics( list, topics, options = {}){
 
 export async function processPromptOnText( text, options = {}){
     if( !text || text === ""){return {success:false}}
-    const list = text.split(`\n`)
+    const list = Array.isArray(text) ? text : text.split(`\n`)
     const type = options.type || "document"
     const extractType = options.extractNoun || "problem"
     const transformPrompt = options.transformPrompt || "" 
-    let opener = `Here is a ${type}: `
+    let opener = options.opener ?? `Here is a ${type}: `
     let prompt =  options.prompt || `Extract a series of ${extractType}s referred to in the ${type}.  Do not create ${extractType}s that are not mentioned in the ${type}`
     if( options.title ){
         opener = opener.replace('{title}', options.title)
@@ -498,7 +549,7 @@ export async function processPromptOnText( text, options = {}){
                 {"role": "user", "content": output}
 
             ],
-            {field: "results", no_num: true, ...options})
+            {field: options.field ?? "results", no_num: true, ...options})
     return {success: true, output: interim}
 }
 
@@ -531,18 +582,24 @@ async function processInChunk( list, pre, post, options = {} ){
 
     let content = ""
     let currentCount = 0
-
+    let lastTokensCount = maxTokens
+    
     do{
         let leave
+        let numberInBatch = 0
         do{
             leave = true
             let text = fullContent[endIdx] + (options.joiner ?? "\n")
             let thisTokens = encode( text ).length
             if( ( thisTokens + currentCount ) < maxTokens ){
+                numberInBatch++
                 leave = false
                 content += text
                 currentCount += thisTokens
                 endIdx++
+                if( options.batch && numberInBatch >= options.batch ){
+                    leave = true
+                }
             }
         }while(!leave && endIdx <= maxIdx)
         endIdx--
@@ -552,6 +609,7 @@ async function processInChunk( list, pre, post, options = {} ){
             throw "Cant processes chunk"
         }
 
+        lastTokensCount = currentCount
         console.log(`Sending ${startIdx} -> ${endIdx} (${currentCount})`)
         content = (options.contentPrefix ? options.contentPrefix : "") + content + (options.postfix ? "\n" + options.postfix : "")
         const messages = [
@@ -571,7 +629,7 @@ async function processInChunk( list, pre, post, options = {} ){
         }
         const result = await executeAI( messages, options )
         if( result.error && result.token_limit ){
-            maxTokens = maxTokens / 2
+            maxTokens = lastTokensCount / 2
             console.log(`----- HIT MAX LIMIT, REDUCING TO ${maxTokens}`)
             if( maxTokens < 100 ){
                 throw "Token limit too low - something went wrong"
@@ -585,8 +643,11 @@ async function processInChunk( list, pre, post, options = {} ){
                     console.log(result.response)
                     console.log(field)
                 }
-                const values = field ? result.response[field] : result.response
+                let values = field ? result.response[field] : result.response
                 if( values ){
+                    if( !Array.isArray(values)){
+                        values = [values]
+                    }
                     if( options.markPass ){
                         values.forEach((d)=>d._pass = pass)
                     }
@@ -624,6 +685,7 @@ async function executeAI(messages, options = {}){
     let err
     let model = "gpt-3.5-turbo-16k"
     let sleepBase = 2000
+    let response_format = undefined
 //    console.log(`open_ai_helper: Sending OpenAi request`)
     if( options.engine === "gpt4" ){
         console.log(`--- GPT 4`)
@@ -634,12 +696,14 @@ async function executeAI(messages, options = {}){
         console.log(`--- GPT 4 PREVIEW`)
         model = "gpt-4-1106-preview"
         sleepBase = 20000
+        response_format = { type: "json_object" }
     }
     const request = async ()=>{
         try{
             response = await openai.createChatCompletion({
                 //model: options.engine === "gpt4" ?  : "gpt4" ? "gpt-4-1106-preview" "gpt-3.5-turbo-16k",                
                 model: model,
+                response_format,
                 temperature: options.temperature || 0.7,
                 messages: messages
             });
@@ -711,19 +775,26 @@ async function executeAI(messages, options = {}){
 
 export  async function categorize(list, categories, options = {} ){
     const targetType = options.types || "item"
-    const match = options.matchPrompt || `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match.`
+    //const match = options.matchPrompt || `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match. Only allocate items to groups if there is a strong rationale. If there is a strong match assign the ${targetType} to the most suitable category number - otherwise assign it -1`
+    const match = options.matchPrompt || `You must assess how strongly each ${targetType} aligns with each of the numbered categories using a scale of "none", "potential", "clear", and then assign the ${targetType} to number of the category it best aligns with . Items that do not have an explicit, strong or clear alignment to any category must be assigned to the number -1`
+    let tokens = 12000
+    if(options.engine === "gpt4"){
+        tokens = 2000
+    }
+    if(options.engine === "gpt4p"){
+        tokens = 10000
+    }
     const interim = await processInChunk( list, 
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format only"},
-                {"role": "user", "content": `Here are a list of numbered ${targetType}s: `}
+                {"role": "user", "content": `Here are a list of numbered ${options.longType ?? targetType}s: `}
             ],
             [
                 {"role": "user", "content": `And here are a list of numbered categories: ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
-                {"role": "user", "content": `${match} If there is a strong match assign the ${targetType} to the most suitable category number - otherwise assign it -1`} ,
-                {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item and a 'category' field set to the assigned number or label. Do not put anything other than the raw JSON in the response .`}
-                //{"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item and a 'category' field set to the assigned number or label, and a 'rationale' field containing the reason for your choice in no more than 8 words. Do not put anything other than the raw JSON in the response .`}
+                {"role": "user", "content": match},
+                {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item${options?.rationale ? ",  a 'r' field with a 5 word rationale for how it aligns with the assigned category,": ""}, an 'alignment' field detailing the level of alignment to the assigned category, and a 'category' field set to the number of the assigned category. Do not put anything other than the raw JSON in the response .`}
             ],
-            {field: "results", maxTokens: (options.engine === "gpt4" ? 2000 : 12000), engine:  options.engine, ...options})
+            {field: "results", maxTokens: tokens, engine:  options.engine, ...options})
     return interim
 }
 
@@ -1010,11 +1081,11 @@ export default async function analyzeDocument(options = {}){
     }
     return {success: false, status: 400, error: "UNKNOWN", instructions: messages[2]}
 }
-export async function buildEmbeddings( text ){
+export async function buildEmbeddings( text, attempt = 3 ){
     if( !text ){
         return {success: true, embeddings: undefined}
     }
-    text = text.trim()
+    text = typeof(text) === "string" ? text.trim() : `${text}`
     if( !text ){
         return {success: true, embeddings: undefined}
     }
@@ -1036,5 +1107,10 @@ export async function buildEmbeddings( text ){
     }catch(error){
         console.log('Error in buildEmbeddings')
         console.log(error)
+        if( attempt > 0){
+            console.log("Retry")
+            return await  buildEmbeddings( attempt - 1)
+
+        }
     }
 }

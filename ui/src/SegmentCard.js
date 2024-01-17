@@ -602,7 +602,13 @@ export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
 
     const ring = !props.disableHover
 
-    let nestedItems = props.directOnly ? primitive.primitives.ref.allItems : primitive.nestedItems
+    let primitiveKeys =  Object.keys(primitive.primitives)
+    let nestedItems
+    if(primitiveKeys.length === 1 && primitiveKeys[0]==="imports"){
+        nestedItems = primitive.itemsForProcessing
+    }else{
+        nestedItems = props.directOnly ? primitive.primitives.ref.allItems : primitive.nestedItems
+    }
 
     if( props.details?.pivot){
         if(props.details.pivot === "origin"){
@@ -676,6 +682,8 @@ export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
         columns = props.cardView ? Math.max(itemLimit ? 2 : 1, (1 + (Math.floor(Math.sqrt(itemLimit) / 3))))  : (wide ? 10 : 5)
     } 
 
+    const summaryItems = (Object.keys(primitive.metadata?.parameters) ?? []).map(d=>(primitive.metadata?.parameters[d].inSummary ? {key: d, ...primitive.metadata?.parameters[d]} : undefined)).filter(Boolean)
+
     const mainContent = <>
             <p key='title' className={`${props.hideDetails ? "text-xl font-light mb-4" : props.cardView ? "text-xl font-semi m-2 mb-1" : "text-sm font-semi mb-2"} text-gray-800  `}>{primitive.title}</p>
             {!props.hideDetails && <p key='description' className={props.cardView ? 'text-lg text-gray-600 m-2 mb-3' : 'text-xs text-gray-600 mb-2'}>{primitive.referenceParameters.description}</p>}
@@ -714,6 +722,29 @@ export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
             />}
             {!props.hideMore && (props.showList || props.showGrid) && !showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`+ ${moreToShow} items`} onClick={()=>setShowAll(true)}/>}
             {!props.hideMore && (props.showList || props.showGrid) && showAll && moreToShow > 0 && <Panel.MenuButton small className='ml-2 mb-4 mt-1' title={`Show less`} onClick={()=>setShowAll(false)}/>}
+            {props.showSummary &&
+                <div 
+                    className="mb-2">
+                        {summaryItems.map((d)=>{
+                            let out = [<p className='text-gray-500 uppercase mt-4 mb-2 text-sm'>{d.title}:</p>]
+                            if( d.type === 'list'){
+                                let items = [primitive.referenceParameters?.[d.key]].flat()
+                                out.push(<ol className='list-decimal'>{
+                                        items.map(d=>(
+                                            <li className="text-gray-700 italic ml-6 my-1.5">{d}</li>
+                                        ))
+                                    }
+                                </ol>)
+                            }else{
+                                out.push(<p className={`flex place-items-start ${d.inSummary?.main ? "text-lg text-gray-900 " : "text-gray-600 "}`}>
+                                            {primitive.referenceParameters?.[d.key]}
+                                        </p>)
+                            }
+                            return out
+                        })}
+                        <p className="text-gray-500 text-sm my-3">{nestedItems.length} {nestedItems[0]?.metadata?.plural ?? (nestedItems[0]?.metadata?.title ??  "item") + "s"}</p>
+                </div>
+            }
             {props.showInsight && primitive.insights && primitive.insights.length > 0 &&
                 <Panel title='Problems' titleClassName='text-xs w-fit flex text-gray-500 flex place-items-center font-medium' collapsable defaultOpen={false}>
                 <div 
@@ -731,7 +762,9 @@ export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
 
     let width = wide ? "48rem" : '24rem' 
     if( props.cardView || props.minWidth){
-        width = (2 + (columns * (1 + (parseInt(props.minWidth) ?? 16)))) + "rem"
+        width = (2 + (columns * (1 + (props.columnWidth ?? parseInt(props.minWidth) ?? 16)))) + "rem"
+    }else if( props.fixedWidth ){
+        width = props.fixedWidth
     }
     if( props.graph ){
         width = '36rem'

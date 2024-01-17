@@ -123,6 +123,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                             fields={fields} 
                             border={true} 
                             showDetails={props.showDetails}
+                            callbackProcessor={props.callbackProcessor}
                             enableHero={true}
                             showExpand={true}
                             showState={true} 

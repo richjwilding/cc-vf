@@ -46,6 +46,15 @@ const PrimitiveConfig = {
             needParent:true,
             needCategory:true,
         },
+        "evidence":{
+            embed: ["title", "quote"]
+        },
+        "result":{
+            embed: ["title"]
+        },
+        "entity":{
+            embed: ["title","referenceParameters.capabilities","referenceParameters.customers","referenceParameters.offerings"]
+        },
         "activity": {
             needCategory:true,
             "createAtWorkspace": true,
@@ -74,7 +83,7 @@ const PrimitiveConfig = {
             needCategory:true,
         },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search"],
+    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query"],
     pageview:{
         "segment":{
             evidence: false,

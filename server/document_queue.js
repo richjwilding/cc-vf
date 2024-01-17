@@ -3,28 +3,335 @@ import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import { getDocumentAsPlainText, importDocument, locateQuote, removeDocument } from "./google_helper";
 import Primitive from "./model/Primitive";
-import { addRelationship, createPrimitive, dispatchControlUpdate, getNestedValue, primitiveChildren, primitiveOrigin, primitivePrimitives, primitiveTask, removePrimitiveById } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, getNestedValue, primitiveChildren, primitiveOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
 import Category from "./model/Category";
-import { analyzeText, analyzeText2, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
+import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
 import Contact from "./model/Contact";
+import ContentEmbedding from "./model/ContentEmbedding";
+import PrimitiveParser from "./PrimitivesParser";
 
+const parser = PrimitiveParser()
 
 let instance
+
+export async function mergeDataQueryResult( primitive, {ids = [], descriptionRewrite = true, ...options} = {}){
+    const origin = await fetchPrimitive( primitiveOrigin( primitive ) )
+    if( !origin ){
+        throw `Cant find origin for ${primitive.id}`
+    }
+
+    let combine = await fetchPrimitives(  ids )
+    combine = combine.filter(d=>d.id !== primitive.id && primitiveOrigin(d) === origin.id && d.referenceId === primitive.referenceId)
+    console.log(`Got ${ids.length} - filtered to ${combine.length}`)
+
+    let newDescription = primitive.referenceParameters?.description
+    let newTitle = primitive.title
+
+    if( descriptionRewrite ){
+
+        const descList = [primitive, combine].flat().map(d=>d.referenceParameters?.description).filter(d=>d)
+        
+        const newDescriptionResult = await processPromptOnText( descList,{
+            opener: `Here are a list of descriptions related to different results that have been extracted from a large data set.`,
+            prompt: `Write a new description which encompassess the common elements of the underlying problem being addressed and the proposed solution of the originals but without mentioning outlier nuances, specific company names or solution names.  The new description should ${options.focus ? `focus on ${options.focus} and ` : ""} be about 150-250 words in length.`,
+            output: `Return the result in a json object called "result" with a field called 'description' containing the new descripton, and an 'overview' field containing a summary of new description in no more than 20 words`,
+            engine: "gpt4p",
+            debug: true,
+            debug_content: true,
+            field: "result"
+        })
+        console.log(newDescriptionResult)
+        newDescription = newDescriptionResult?.output?.[0]?.description
+        newTitle = newDescriptionResult?.output?.[0]?.overview
+    }
+
+    if( newDescription && newTitle){
+        let newObject = {
+            ...primitive.referenceParameters,
+            description : newDescription}
+        
+
+        for(const source of combine ){
+            const keys = Object.keys( source.referenceParameters ?? {}).filter(d=>!["description"].includes(d))
+            for(const k of keys){
+                newObject[k] = [newObject[k], source.referenceParameters[k]].flat(Infinity).filter((d,i,a)=>d && a.indexOf(d)===i)
+                if( newObject[k].length < 2){
+                    newObject[k] = newObject[k][0]
+                }
+            }
+
+            let pp = new Proxy(source.primitives, parser)
+            let childIds = pp.uniqueAllIds
+            console.log(childIds)
+            for(const childId of childIds){
+                const paths = pp.paths( childId ).map(d=>"primitives"+d)
+                for(const path of paths){
+                    await removeRelationship( source.id, childId, path  )
+                    await addRelationship( primitive.id, childId, path  )
+                }
+            }
+            await removePrimitiveById( source.id )
+        }
+        console.log(`should remove ${combine.map(d=>d.id).join(", ")}`)
+
+        if( descriptionRewrite ){
+            await updateFieldWithCallbacks( primitive.id, 'title', newTitle )
+        }
+        const keys = Object.keys( newObject )
+        for(const k of keys){
+            await updateFieldWithCallbacks( primitive.id, `referenceParameters.${k}`, newObject[k] )
+        }
+    }
+
+
+}
+
+async function doDataQuery( options ) {
+        const primitive = await Primitive.findOne({_id: options.id})
+
+                const resultCategoryId = options.resultCategoryId ?? action.resultCategoryId
+                const resultSet = await findResultSetForCategoryId( primitive, resultCategoryId)
+                if( resultSet === undefined ){
+                    throw "No resultCategoryId specified"
+                }
+                let keepItems = options.remove_first === false
+                if( !keepItems ){
+                    let oldEvidence =  await primitiveChildren(primitive, "result")
+                    console.log( `----> got ${oldEvidence.length} to remove`)
+                    for( const old of oldEvidence){
+                        await removePrimitiveById( old.id )
+                    }
+                }
+                const query = primitive.referenceParameters?.query || primitive.title
+                console.log(`Got query ${query}`)
+                const results = await processPromptOnText( query,{
+                    opener: `You have access to a database of many thousands of text fragments and must answer questions or complete tasks using information in the database.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases. Here is a task or question:`,
+                    prompt: `Build a list of keywords and phrases that will retrieve information from the database which can answer this task or question. The database can also support extraction of different metadata (organizations, individuals, roles, problems, solutions, jobs to be done, and needs), assess which of this meatadata is key to the question or task`,
+                    output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array, and a 'metadata' field containing the identified metadata to extract as an array`,
+                    engine: "gpt4p",
+                    debug: true,
+                    debug_content: true,
+                    field: "result"
+                })
+
+                const metadata = {
+                    "organizations": "an 'organizations' field containing an array of specific and relevant orgnaization name (where specified)", 
+                    "individuals": "an 'individuals' field containing an array of specific and relevant individuals (where specified)", 
+                    "solutions": "an 'solutions' field containing an array of the specific key solutions offered to customers (where specified)", 
+                    "roles": "a 'roles' field containing an array of specific and relevant roles (where specified)", 
+                    "problems": "a 'problems' field containing an array of the specific key problems (where specified)", 
+                    "jobs to be done": "a 'jtbd' field containing an array of specific key jobs to be done (where specified)", 
+                    "needs": "a 'needs' field containing an array of needs and relevant needs (where specified)", 
+                }
+
+                if( results.success ){
+                    let metadataItems = results.output?.[0]?.metadata ?? []
+                    let extraFields = metadataItems.map(d=>metadata[d] ?? undefined).filter(d=>d).join(", ")?.trim() 
+                    if( primitive.referenceParameters.extracts ){
+                        extraFields = " for each part of your answer also include "
+                        extraFields += primitive.referenceParameters.extracts.map(extract=>
+                            `a '${extract.field}' field containing ${extract.prompt}`
+                        ).join(", ") + "."
+                        metadataItems = primitive.referenceParameters.extracts.map(d=>d.field)
+                    }
+                    const prompts = results.output?.[0]?.prompts
+                    console.log(prompts)
+                    if( prompts){
+                        
+                        const fragments = {}
+                        const threshold_min = primitive.referenceParameters?.thresholdMin ?? 0.85
+                        const threshold_seek = primitive.referenceParameters?.thresholdSeek ?? 0.005
+                        const searchTerms = primitive.referenceParameters?.candidateCount ?? 1000
+                        const scanRatio = primitive.referenceParameters?.scanRatio ?? 0.15
+                        for( const prompt of prompts ){
+                            console.log(`Fetching for ${prompt}`)
+                            const emb = await buildEmbeddings( prompt )
+                            if( emb.success ){
+                                let matches = await ContentEmbedding.aggregate([
+                                    {"$vectorSearch": {
+                                        "queryVector": emb.embeddings,
+                                        "path": "embeddings",
+                                        "filter": {$and: [
+                                            {
+                                                workspaceId: primitive.workspaceId
+                                            }
+                                        ]},
+                                        "numCandidates": Math.min(searchTerms * 15, 10000),
+                                        "limit": searchTerms,
+                                        "index": "content_index",
+                                        }
+                                    },
+                                    {
+                                        "$project": {
+                                            "_id": 0,
+                                            "foreignId": 1,
+                                            "text": 1,
+                                            "part": 1,
+                                            "score": { $meta: "vectorSearchScore" }
+                                        }
+                                    }
+                                ])
+                                const totalMatches = matches.length
+                                console.log(`-- got ${totalMatches} matches`)
+
+                                if( totalMatches > 0){
+                                    let threshold = 1
+                                    const targetMatches = totalMatches * scanRatio
+                                    let amount
+                                    do{
+                                        threshold -= threshold_seek
+                                        amount = matches.reduce((a,c)=>a + (c.score > threshold ? 1 : 0),0)
+                                    }while( threshold > threshold_min && amount < targetMatches )
+
+                                    
+                                    matches = matches.filter(d=>d.score > threshold)
+                                    console.log(`-- got ${matches.length} matches`)
+                                    for( const d of matches){
+                                        const id = d.foreignId + "-" + d.part
+                                        fragments[id] = {id: d.foreignId, part: d.part, text: d.text}
+                                    }
+                                }
+                            }
+                        }
+                        console.log(`have ${Object.keys(fragments).length} fragments`)
+                        const fragmentList = Object.values( fragments )
+
+                        const fragmentText = fragmentList.map(d=>d.text)
+
+                        const results = await processPromptOnText( fragmentText,{
+                            opener: `Here is a list of numbered text fragments you can use to answer a question `,
+                            prompt: `Using only the information in the provided text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehsive answer but be concise in your phrasing and the level of detail. Do not provide an answer unless relevant information is available in the provided text fragments.`,
+                            output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words,  a 'ids' field containing the number of the text fragments explicitly used in this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.${(extraFields ?? "").length > 0 ? extraFields + ", " : ""}`,
+                            engine: "gpt4p",
+                            no_num: false,
+                            maxTokens: 80000,
+                            markPass: true,
+                            debug: true,
+                          //  debug_content: true,
+                            field: "answer"
+                        })
+                        if( results.success){
+                            console.log(results.output)
+                            let final
+                            const needsCompact = results.output.map(d=>d._pass).filter((d,i,a)=>a.indexOf(d)===i).length > 1
+                            if( needsCompact ){
+                                final = []
+                                console.log(`Need to dedupe multi-pass answer`)
+                                const toProcess = results.output.map((d,idx)=>JSON.stringify({
+                                    id: idx,
+                                    title: d.title,
+                                    pass: d._pass,
+                                    //...metadataItems.reduce((a,c)=>{a[c] = d[c]; return a},{}),
+                                    description: d.answer
+                                }))
+
+                                const compact = await processPromptOnText( toProcess,{
+                                    opener: `here is a json array containing the results from a query.`,
+                                    prompt: `Analyze the entries to identify groups of entries which can be combined together based upon the similarity of the underlying problems being addressed and the solution as detailed in the 'description' field. Combine only those entries that are very similar, ensuring that nuances of different entries are kept.  Only combine entries that have a different 'pass' field and ensure any entry that is combined is combined with the best fitting other entries.`,
+                                    output: `Generate a new json object with a field called 'output' which is an object with a 'existing' field containing an array of ids of the entries that are not being combined, and a 'new' field containing a list of new entries with each entry containing a 'description' field with a new description that combines all of the descriptions of the entries that are being combined to make the new entry, an 'overview' field containing a summary of new description in no more than 20 words, and an 'ids' field containing the ids of the original entries that have been merged into the new entry.  Ensure that all entries from the original list are included in the either the existing field or in one of the new entries.`,
+                                    engine: "gpt4p",
+                                    no_num: false,
+                                    temperature:1,
+                                    maxTokens: 80000,
+                                    markPass: true,
+                                    field: 'output',
+                                    debug: true,
+                                  debug_content: true,
+                                })
+                                if( compact.success && compact.output){
+                                    const updates = compact.output[0]
+                                    if(updates.existing){
+                                        for( const id of updates.existing){
+                                            final.push( results.output[id] )
+                                        }
+                                    }
+                                    if(updates.new){
+                                        for( const remap of updates.new){
+                                            if( remap.ids ){
+                                                const merge = remap.ids.map(id=>results.output[id] )
+                                                let keys = merge.map(d=>Object.keys(d)).flat().filter((d,i,a)=>a.indexOf(d)===i)
+                                                keys = keys.filter(d=>metadataItems.includes(d))
+                                                keys.push("ids")
+
+
+                                                const mappedSub = keys.reduce((a,c)=>{
+                                                    const allItems = merge.map(d=>d[c]).flat().filter(d=>d)
+                                                    a[c] = allItems.filter((d,i,a)=>d instanceof Object ? true : a.findIndex(d2=>isNaN(d) ? d.toLowerCase() === d2.toLowerCase() : d === d2)===i)
+                                                    return a
+                                                },{})
+
+                                                const item = {
+                                                    answer: remap.description,
+                                                    overview: remap.overview,
+                                                    ...mappedSub
+                                                }
+                                                final.push( item )
+                                            }
+                                        }
+                                    }
+                                    console.log(`Have ${final.length} after merge`)
+                                }else{
+                                    throw "Error consolidating items"
+                                }
+
+                            }else{
+                                final = results.output
+                            }
+
+                            // remove existing
+                            for( const d of final){
+                                const extracts = metadataItems.reduce((a,c)=>{a[c] = d[c]; return a},{})
+                                const newData = {
+                                    workspaceId: primitive.workspaceId,
+                                    parent: primitive.id,
+                                    paths: ['origin',`results.${resultSet}`],
+                                    data:{
+                                        type: "result",
+                                        referenceId: resultCategoryId,
+                                        title: d.overview,
+                                        referenceParameters: {
+                                            ...extracts,
+                                            description: d.answer
+                                        },
+                                        source: d.ids.map(d=>{return {primitive: d.id, part: d.part}})
+                                    }
+                                }
+                                const newPrim = await createPrimitive( newData )
+                                if( newPrim ){
+                                    console.log(`need to link in`)
+                                    const primitiveIds = d.ids.map(idx=>fragmentList[idx]?.id).filter((d,i,a)=>a.indexOf(d) === i )
+                                    console.log(primitiveIds)
+                                    for(const id of primitiveIds){
+                                        await addRelationship(newPrim.id, id, 'ref')
+                                    }
+                                }
+                                
+                            }
+                        }
+
+
+                    }
+                }
+
+}
 
 async function processQuestions( data ){
     try{
 
         console.log(`Answering questions for ${data.id}`)
         const primitive = await Primitive.findOne({_id: data.id})
+        const primitiveCategory = await Category.findOne({id: primitive.referenceId})
         //const origin = await Primitive.findOne({_id: primitiveOrigin(primitive) })
         //let questions = await primitiveChildren(origin, "question")
         const task = await primitiveTask( primitive )
         let questions = await primitiveChildren(task, "question")
+        let keepItems = data.remove_first === false
 
         if( data.qIds ){
             console.log(`Filter ${questions.length} questions`)
             questions = questions.filter((d)=>data.qIds.includes(d.id))
         }
+        console.log(keepItems ? "Will keep existing" : "Will remove existing")
         console.log(`Got ${questions.length} questions from for ${task.id}`)
 
         
@@ -33,11 +340,13 @@ async function processQuestions( data ){
             const prompts = await primitiveChildren(question, "prompt")
             for(const prompt of prompts){
 
-                let oldEvidence =  await primitivePrimitives(prompt, 'primitives.auto', "evidence" )
-                oldEvidence = oldEvidence.filter((d)=>d.parentPrimitives[data.id]?.includes('primitives.origin'))
-                console.log( `----> got ${oldEvidence.length} to remove`)
-                for( const old of oldEvidence){
-                    await removePrimitiveById( old.id )
+                if( !keepItems ){
+                    let oldEvidence =  await primitivePrimitives(prompt, 'primitives.auto', "evidence" )
+                    oldEvidence = oldEvidence.filter((d)=>d.parentPrimitives[data.id]?.includes('primitives.origin'))
+                    console.log( `----> got ${oldEvidence.length} to remove`)
+                    for( const old of oldEvidence){
+                        await removePrimitiveById( old.id )
+                    }
                 }
 
                 const category = await Category.findOne({id: prompt.referenceId})
@@ -75,7 +384,15 @@ async function processQuestions( data ){
             }
 
         }
-        const extract = await getDocumentAsPlainText( primitive.id, data.req )
+        let extract
+        if( primitiveCategory ){
+            const field = Object.keys(primitiveCategory.parameters ?? {}).find(d=>primitiveCategory.parameters[d].useAsContent)
+            extract = {plain: primitive.referenceParameters?.[field] ?? ""}
+        }
+        
+        if( !extract ){
+            extract = await getDocumentAsPlainText( primitive.id, data.req )
+        }
 
         const text = extract.plain
         for( const group of Object.values(groups)){
@@ -215,6 +532,15 @@ export default function QueueDocument(){
         console.log( newJobCount + " jobs in queue (document)")
     }
     
+    instance.doDataQuery = async ( primitive, options )=>{
+        const field = `processing.ai.data_query`
+        if(primitive.processing?.ai?.data_query && (new Date() - new Date(primitive.processing.ai.data_query.started)) < (5 * 60 *1000) ){
+            console.log(`Already active - exiting`)
+            return false
+        }
+        dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date()}, {track: primitive.id, text:"Parsing document"})
+        instance.add(`discovery_${primitive.id}` , {id: primitive.id, mode: "data_query", field: field, ...options})
+    }
     instance.documentDiscovery = async ( primitive, req )=>{
         if( primitive.type === "result"){
             const category = await Category.findOne({id: primitive.referenceId})
@@ -238,16 +564,17 @@ export default function QueueDocument(){
         }
         return true
     }
-    instance.processQuestions = async ( primitive, qIds, req )=>{
+    instance.processQuestions = async ( primitive, options, req )=>{
         try{
 
+            
             if( primitive.type === "result"){
                 const field = `processing.ai.document_questions`
                 if(primitive.processing?.ai?.document_questions && (new Date() - new Date(primitive.processing.ai.document_questions.started)) < (5 * 60 *1000) ){
                     console.log(`Already active - exiting`)
                 }
-                dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date(), subset: qIds}, {user: req?.user?.id, track: primitive.id, text:"Processing document"})
-                instance.add(`questions_${primitive.id}` , {id: primitive.id, mode: "questions", field: field, qIds: qIds, req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}})
+                dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date(), subset: options?.qIds}, {user: req?.user?.id, track: primitive.id, text:"Processing document"})
+                instance.add(`questions_${primitive.id}` , {id: primitive.id, mode: "questions", field: field, ...options, req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}})
             }
         }catch(error){
             console.log(`Error in processQuestions`)
@@ -272,8 +599,18 @@ export default function QueueDocument(){
 
     new Worker('documentQueue', async job => {
         console.log(job.data)
+        if( job.data.mode === "data_query" ){
+            try{
+                console.log("go")
+                await doDataQuery(job.data)
+            }catch(error){
+                console.log(`Error in doDataQuery`)
+                console.log(error)
+            }
+            console.log(`resetting`, job.data)
+            dispatchControlUpdate(job.data.id, job.data.field , null, {track: job.data.id})
+        }
         if( job.data.mode === "questions" ){
-            //console.log('skip')
             await processQuestions( job.data )
             dispatchControlUpdate(job.data.id, job.data.field , null, {track: job.data.id})
         }
@@ -329,7 +666,103 @@ export default function QueueDocument(){
             try{
                 const primitive = await Primitive.findOne({_id:  primitiveId})
                 const category = await Category.findOne({id: primitive.referenceId})
-                const extract = await getDocumentAsPlainText( primitiveId, job.data.req)
+                if( category.isCSV ){
+                    console.log("Starting CSV")
+                    let data = await getDocumentAsPlainText(job.data.id, job.data.req)
+                    if( data ){
+                        data = JSON.parse(data.plain)
+                    }
+                    console.log("Got data")
+                    
+                    const targetPath = 0
+                    const addId = category.resultCategories?.[targetPath]?.resultCategoryId
+                    const detailCategory = await Category.findOne({id: addId})
+                    const evidenceId = detailCategory.resultCategories?.[0]?.resultCategoryId
+                    const evidenceCategory = await Category.findOne({id: evidenceId})
+                    const evidenceTargetPath = detailCategory.resultCategories?.[0]?.id
+
+                    if( detailCategory && evidenceCategory ){
+                        console.log("Processing")
+                        if( data && data.length > 0){
+                            const params = {}
+                            const evidence = []
+                            const headers = Object.keys(data[0])
+                            console.log(headers)
+                            for(const d of headers){
+                                if( d.match(/\d+/)){
+                                    evidence.push(d)
+                                }else{
+                                    if(d === "createdAt"){
+                                        continue
+                                    }
+                                    if(isNaN(data[0][d])){
+                                        params[d]={title:d, type:"string"}
+                                    }else{
+                                        params[d]={title:d, type:"number"}
+                                    }
+                                }
+                            }
+                            if( Object.keys(params).length > 0){
+                                primitive.set(`childParameters`, params)
+                                primitive.markModified("childParameters")
+                                await primitive.save()
+                                
+                                const old = await primitiveChildren( primitive, "detail")
+                                if( old.length > 0){
+                                    console.log(`Clearing out old items - ${old.length} items`)
+                                    for( const d of old ){
+                                        await removePrimitiveById(d.id)
+                                    }
+                                }
+                                let record = 0
+                                for( const item of data ){
+                                    console.log(`adding record`, record)
+                                    record++
+                                    const newData = {
+                                        workspaceId: primitive.workspaceId,
+                                        paths: ['origin', `results.${targetPath}`],
+                                        parent: primitive,
+                                        data:{
+                                            type: "detail",
+                                            referenceId: addId,
+                                            childParameters:{question:{title:"Question",type:"string"}},
+                                            title: `Record ${record}`,
+                                            referenceParameters: Object.keys(params).reduce((a,d)=>{a[d] = item[d];return a}, {})
+                                        }
+                                    }
+                                    const newPrim = await createPrimitive( newData )
+                                    console.log(`added`, newPrim?.id)
+                                    if( newPrim ){
+                                        const queue = []
+                                        for( const answer of evidence){
+                                            console.log(`Parsing `, answer)
+                                            const answerData = {
+                                                workspaceId: primitive.workspaceId,
+                                                paths: ['origin', `results.${evidenceTargetPath}`],
+                                                parent: newPrim,
+                                                data:{
+                                                    type: "evidence",
+                                                    referenceId: evidenceId,
+                                                    title: item[answer],
+                                                    referenceParameters: {
+                                                        question: answer
+                                                    }
+                                                }
+                                            }
+                                            queue.push( createPrimitive( answerData ) )
+                                        }
+                                        console.log(`Waiting for all`)
+                                        await Promise.all(queue);
+                                        console.log(`Waiting for all - done`)
+                                    }
+                                }
+                            }
+                        }
+                        console.log(`done`)
+                    }
+                    return
+                }
+                const extract = await getDocumentAsPlainText( primitiveId, job.data.req, false, true)
                 if( extract ){
                     const text = extract.plain
                     const parent = await Primitive.findOne({_id: await primitiveOrigin(primitive) })

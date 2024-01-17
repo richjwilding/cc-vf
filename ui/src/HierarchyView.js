@@ -242,13 +242,16 @@ export default function HierarchyView({primitive, ...props}){
                 return undefined
             }
             leaves.forEach((leaf)=>{
-                if(out.find((d)=>d.type === leaf.type) === undefined){
-                    out.push({id: 0, type:leaf.type, title: leaf.type, level: 0})
-                }
-                const origin = leaf.origin
-                if( origin.type !== "activity" ){
-                    if(out.find((d)=>d.type === origin.type) === undefined){
-                        out.push({id: 1, type:origin.type, title: origin.metadata?.title || origin.type, level: 1})
+                if(leaf){
+
+                    if(out.find((d)=>d.type === leaf.type) === undefined){
+                        out.push({id: 0, type:leaf.type, title: leaf.type, level: 0})
+                    }
+                    const origin = leaf.origin
+                    if( origin && origin.type !== "activity" ){
+                        if(out.find((d)=>d.type === origin.type) === undefined){
+                            out.push({id: 1, type:origin.type, title: origin.metadata?.title || origin.type, level: 1})
+                        }
                     }
                 }
             })
@@ -286,7 +289,7 @@ export default function HierarchyView({primitive, ...props}){
                     text: text,
                     span: span,
                     primitive: prim,
-                    description: showDescription ? prim.referenceParameters?.description : undefined,
+                    description: showDescription ? (prim.referenceParameters?.description ?? prim.referenceParameters?.overview) : undefined,
                     flag: prim.referenceParameters?.top || prim.referenceParameters?.important,
                     minScale: showDescription ? 0.3 : 0.5,
                     perturb: count % 20,
