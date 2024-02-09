@@ -178,7 +178,11 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
     if( forcePDF || fecthFromPdf || !((await file.exists())[0]) ){
         if( notes || fecthFromPdf || forcePDF){
             console.log(`----- EXTRACT FROM PDF`)
-            return await extractPlainTextFromPdf( id, req )
+            const result = await extractPlainTextFromPdf( id, req )
+            if( result && result.plain){
+                await writeTextToFile(id, result.plain, req)
+            }
+            return result
         }
         if( url ){
             if( url.match(/^https?:\/\/(www\.)?facebook\.com\/[^\/]+\/posts\/[A-Za-z0-9_-]+/)){
@@ -282,65 +286,73 @@ export async function extractPlainTextFromPdf(id, req, inline){
                     reject(err)
                     return
                 }
-                const pages = data.pages
-                // look for header / footer
-                const firstPage = pages[0].content[0]
-                const textSegment = firstPage?.str.slice(0, firstPage.str.length * 0.8)
-                console.log(`looking for ${textSegment}`)
-                const sameCount = pages.filter((p)=>{
-                    const thisPage = p.content[0]
-                    if( thisPage ){
-                        if( thisPage.str.slice(0, textSegment.length) === textSegment ){
-                            if( ((thisPage.y - firstPage.y ) / firstPage.y ) < 0.01 ){
-                                return true
+                try{
+
+                    const pages = data.pages
+                    // look for header / footer
+                    const firstPage = pages.find(d=>d.content?.length > 0)?.content?.[0]
+                    if( firstPage ){
+
+                        const textSegment = firstPage?.str.slice(0, firstPage.str.length * 0.8) ?? ""
+                        console.log(`looking for ${textSegment}`)
+                        const sameCount = pages.filter((p)=>{
+                            const thisPage = p.content[0]
+                            if( thisPage ){
+                                if( thisPage.str.slice(0, textSegment.length) === textSegment ){
+                                    if( ((thisPage.y - firstPage.y ) / firstPage.y ) < 0.01 ){
+                                        return true
+                                    }
+                                }
                             }
+                            return false
+                        }).length
+                        if( sameCount > (pages.length / 2) && (pages.length > 1) ){
+                            console.log(`got same at ${sameCount} out of ${pages.length} - marking as header / footer fo exclusion`)
+                            pages.forEach((page)=>{
+                                page.content.forEach((d)=>{
+                                    if( Math.abs((d.y - firstPage.y ) / firstPage.y ) < 0.01 ){
+                                        d.ignore = true
+                                    }
+                                })
+                            })
                         }
                     }
-                    return false
-                }).length
-                if( sameCount > (pages.length / 2) && (pages.length > 1) ){
-                    console.log(`got same at ${sameCount} out of ${pages.length} - marking as header / footer fo exclusion`)
+
+                    // find section breaks
+                    const breaks = {}
+                    const round = (val)=>Math.round(val * 1000)/1000
                     pages.forEach((page)=>{
+                        let last = undefined
                         page.content.forEach((d)=>{
-                            if( Math.abs((d.y - firstPage.y ) / firstPage.y ) < 0.01 ){
-                                d.ignore = true
+                            if( last !== undefined ){
+                                const diff = round(round(d.y) - last)
+                                if( diff > 0 ){
+                                    breaks[diff] = (breaks[diff] || 0 ) + 1
+                                }
                             }
+                            last = round(d.y)
                         })
                     })
+                    const std = Object.keys(breaks).sort((a,b)=>breaks[b]-breaks[a])[0]
+
+                    pages.forEach((page)=>{
+                        let last = undefined
+                        page.content.forEach((d)=>{
+                            if( last !== undefined ){
+                                const diff = round(round(d.y) - last)
+                                if( diff > std ){
+                                    d.str = '\n' + d.str
+                                    d.sectionBreak = true
+                                }
+                            }
+                            last = round(d.y)
+                        })
+                    })
+
+                    resolve({plain: data.pages.map((p)=>p.content.map((c)=>c.ignore ? "" : c.str).join(" ")).join(" "), data: data})
+                }catch(err){
+                    reject(err)
                 }
-
-                // find section breaks
-                const breaks = {}
-                const round = (val)=>Math.round(val * 1000)/1000
-                pages.forEach((page)=>{
-                    let last = undefined
-                    page.content.forEach((d)=>{
-                        if( last !== undefined ){
-                            const diff = round(round(d.y) - last)
-                            if( diff > 0 ){
-                                breaks[diff] = (breaks[diff] || 0 ) + 1
-                            }
-                        }
-                        last = round(d.y)
-                    })
-                })
-                const std = Object.keys(breaks).sort((a,b)=>breaks[b]-breaks[a])[0]
-
-                pages.forEach((page)=>{
-                    let last = undefined
-                    page.content.forEach((d)=>{
-                        if( last !== undefined ){
-                            const diff = round(round(d.y) - last)
-                            if( diff > std ){
-                                d.str = '\n' + d.str
-                                d.sectionBreak = true
-                            }
-                        }
-                        last = round(d.y)
-                    })
-                })
-
-                resolve({plain: data.pages.map((p)=>p.content.map((c)=>c.ignore ? "" : c.str).join(" ")).join(" "), data: data})
             })
         }catch(err){
             reject(err)
@@ -459,9 +471,9 @@ export async function importDocument(id, req){
                 }
                 return result
             }
-        }else if(url){
+        }
+        if(url){
             try{
-
                 console.log(`Importing URL as PDF`)
                 await grabUrlAsPdf( url, id )
                 return true
@@ -1074,20 +1086,26 @@ export async function grabUrlAsPdf(url, id, text_only = false){
             await createAndUploadPDF( text, file)
         }else{
             console.log(`Awaiting  page`)
-            const browserlessEndpoint = `https://chrome.browserless.io/function?token=${process.env.BROWSERLESS_KEY}&stealth`;
-            
-            const response = await fetch(browserlessEndpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  code: "module.exports=async({page:a,context:b})=>{const{url:c}=b;await a.goto(c);await a.evaluate(() => {document.querySelectorAll('a').forEach(a => {const text = document.createTextNode(a.textContent);a.replaceWith(text);});});const d=await a.pdf();return{data:d,type:\"application/pdf\"}};",
-                  "context": {
-                    "url": url
-                  }
+            let response
+            if( url.slice(-4) === ".pdf"){
+                await replicateURLtoStorage(url, id, bucketName)
+                return 
+            }else{
+                const browserlessEndpoint = `https://chrome.browserless.io/function?token=${process.env.BROWSERLESS_KEY}&stealth`;
                 
-                }),
-              });
-
+                response = await fetch(browserlessEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        code: "module.exports=async({page:a,context:b})=>{const{url:c}=b;await a.goto(c);await a.evaluate(() => {document.querySelectorAll('a').forEach(a => {const text = document.createTextNode(a.textContent);a.replaceWith(text);});});const d=await a.pdf();return{data:d,type:\"application/pdf\"}};",
+                        "context": {
+                            "url": url
+                        }
+                        
+                    }),
+                });
+            }
+                
             if (response.ok) {
 
                 const pdfData = await response.arrayBuffer();
@@ -1291,7 +1309,7 @@ export async function queryGoogleSERP(keywords, options = {}){
     let totalCount = 0
     let count = 0
     let target = options.count ?? 20
-    let maxPage = options.maxPage ?? 20
+    let maxPage = options.maxPage ?? 8
     let results = []
     let timeFrame = "last_year"
 
@@ -1600,7 +1618,6 @@ export async function extractURLsFromPageAlternative( baseUrl, options = {}, fet
                 ...fetch_options
             }
 
-            console.log(`zenrow - `, baseUrl, fetch_options)
         const cUrl = `https://api.zenrows.com/v1/?${new URLSearchParams(params).toString() }`
         const response = await fetch(cUrl,{
             method: 'GET'

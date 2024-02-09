@@ -287,7 +287,7 @@ export default function CollectionViewer({primitive, category, ...props}){
             }
             if( resultCategory){
                 
-                if( resultCategory.parameters.notes ||  category?.views?.options?.createFromUpload){
+                if( resultCategory.parameters?.notes ||  category?.views?.options?.createFromUpload){
                     createButtons.push( {title: "Create from document", action: ()=>createNewResultFromDocument()} )
                 }
                 
@@ -338,15 +338,27 @@ export default function CollectionViewer({primitive, category, ...props}){
             actionMenu = <PrimitiveCard.CardMenu 
                             icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
                             custom={items.map(d=>{
+                                const doAction = async (options)=>{
+                                    await MainStore().doPrimitiveAction( 
+                                        d.collectionAction ? list[0] : primitive, 
+                                        d.collectionAction ? d.key : "auto_cascade", 
+                                        {cascade_key: d.collectionAction ?  undefined : d.key, ids: list?.map(d=>d.id), ...options},
+                                        callbackProcessor
+                                        )
+                                }
                                 return {
                                     ...d,
                                     action: async ()=>{
-                                        await MainStore().doPrimitiveAction( 
-                                            d.collectionAction ? list[0] : primitive, 
-                                            d.collectionAction ? d.key : "auto_cascade", 
-                                            {cascade_key: d.collectionAction ?  undefined : d.key, ids: list?.map(d=>d.id)},
-                                            callbackProcessor
-                                            )
+                                        if( d.actionFields){
+                                            setManualInputPrompt({
+                                                primitive: primitive,
+                                                fields: d.actionFields,
+                                                confirm: async (inputs)=>await doAction( inputs )
+                                            })
+                                        }else{
+                                            await doAction()
+                                        }
+
                                     }
                                 }
                             })} 
@@ -390,6 +402,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                 }
             }
 
+            console.log(view)
             
     if( !allowed.includes(view)){
         return <></>

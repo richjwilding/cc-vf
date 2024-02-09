@@ -105,8 +105,13 @@ let mainstore = MainStore()
           mainstore.globalPicker({
             root: undefined,
             callback:(pick)=>{
-              if( props.primitive){
-                props.primitive.addRelationship(pick, `params.${item.key}`)
+              if( props.callback ){
+                props.callback( pick.id )
+              }else{
+
+                if( props.primitive){
+                  props.primitive.addRelationship(pick, `params.${item.key}`)
+                }
               }
             },
             type: item.primitiveType,
@@ -114,10 +119,10 @@ let mainstore = MainStore()
             
           })
         }
-        const pickedItem = props.primitive?.primitives?.params?.[item.key].allItems?.[0]
+        const pickedItem = props.callback ? mainstore.primitive(item.value) : props.primitive?.primitives?.params?.[item.key].allItems?.[0]
         console.log(pickedItem)
         if( pickedItem ){
-          base = <PrimitiveCard primitive={pickedItem} compact onClick={pick}/>
+          base = <PrimitiveCard micro primitive={pickedItem} compact onClick={pick}/>
         }else{
           base = <Panel.MenuButton small action={pick} title={<div className='flex place-items-center justify-center text-gray-600 w-full'><MagnifyingGlassCircleIcon className='w-5 h-5 mr-1'/>Select item</div>} className='w-full'/>
         }
@@ -905,7 +910,7 @@ const Parameters = function({primitive, ...props}){
   let details = fields.map((k)=>{
     let config = parameters[k]
     if( !config ){
-      return {type: "string", title: "Auto", value: source[k].length + " items\n" + JSON.stringify(source[k]), key: k}
+      return {type: "string", title: `${k} (auto)`, value: source[k].length + " items\n" + JSON.stringify(source[k]), key: k}
     }
     return {...config, value: source[k], autoId: source[`${k}Id`], key: k}
   })

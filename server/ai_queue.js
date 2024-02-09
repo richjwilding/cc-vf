@@ -204,131 +204,153 @@ async function aggregateDuplicatedInSegment( primitive, action ){
 async function rollup2(primitive, target, action ){
     try{
 
-        console.log(`Rollup version 2${primitive.id} starting`)
-        let [list, data] = await getDataForProcessing(primitive, {...action, referenceId: target.referenceParameters?.referenceId, constrainId: target.referenceParameters?.constrainId})
-        let embeddings = await buildEmbeddingsForPrimitives( list, action.field )
+        console.log(`Rollup version 2 ${primitive.id} starting`)
         
         const task = await primitiveTask( primitive)
 
-        let segmentTarget = target?.type === "segment" ? target : undefined
-        
-        const result = await analyzeForClusterPhrases( data, {theme: action?.theme ?? task?.referenceParameters?.topics, debug: true} )
-        console.log(result)
 
-const result2 = {
-    success: true,
-    output: []
-}
-        if( result.success){
-            const groups = result.output 
-            const assignments = await assignPrimitivesByPhrase( list, undefined, groups)
-            if( assignments ){
-                if( segmentTarget ){
-                    // need to remove existing links
-                }
-                const mappedGroups = {}
-                for(const primitiveId in assignments){
-                    const d = assignments[primitiveId]
-                    if( !mappedGroups[d.idx]){
-                        mappedGroups[d.idx] = {ids: [], fragments: [], title: groups[d.idx].cluster_title, phrases: [groups[d.idx].phrase].flat()}
-                    }
-                    const listIdx = list.findIndex(d=>d.id === primitiveId )
-                    const fragment = data[listIdx]
-                    if( fragment ){
-                        mappedGroups[d.idx].fragments.push( fragment )
-                    }else{
-                        throw "Couldnt fetch fragment"
-                    }
-                    mappedGroups[d.idx].ids.push( primitiveId )
-                }
-                if(Object.keys(mappedGroups).length > 0){
-                    if( !segmentTarget ){
-                        segmentTarget = await createPrimitive({
-                            workspaceId: primitive.workspaceId,
-                            parent: primitive.id,
-                            paths: ['origin'],
-                            data:{
-                                type: "segment",
-                                title: "New clustering",
-                                referenceId: action.resultCategory,
-                                referenceParameters:{
-                                    field: action.field,
-                                    resultCategory: action.resultCategory,
-                                    ...action.aiConfig?.[action.field]
-                                }
-                            }
-                        })
-                    } 
-                    if( !segmentTarget ){
-                        throw "Couldnt create segment target"
-                    }
-                    for( const idx in mappedGroups){
-                        const segmentObj = mappedGroups[idx]
-                        const types = primitive.referenceParameters?.types ?? action.aiConfig?.[action.field]?.types ??  "problem statements"
-                        const prompt = primitive.referenceParameters?.prompt ?? action.aiConfig?.[action.field]?.prompt ??  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'"
-                        let summary = await summarizeMultiple( segmentObj.fragments, {types, prompt, engine: "gpt4p", debug:true, debug_content: true})
-                        segmentObj.summary = summary?.success ? summary.summary : undefined
-                    }
+        async function buildCluster( list, data , segmentTarget){
+            const result = await analyzeForClusterPhrases( data, {
+                theme: (primitive.referenceParameters?.theme && primitive.referenceParameters?.theme.trim().length > 0 ? primitive.referenceParameters?.theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics,
+                focus: action?.focus,
+                type: primitive.referenceParameters?.types ?? action.aiConfig?.[action.field]?.types ??  "problem statements",
+                debug_content:true,
+                debug: true} )
+            console.log(result)
+            let parent = segmentTarget
 
-                    const rewrites = await simplifyAndReduceHierarchy( ["Problems in the market"], Object.values(mappedGroups).map(d=>d.summary), {engine: "gpt4p", debug: true, debug_content: true})
-                    if( rewrites.success){
-                        const merged = []
-                        const remap = Object.keys(mappedGroups)
-                        for(const r of rewrites.summaries){
-                            const id = remap[r.id]
-                            const target = mappedGroups[id]
-                            if( target ){
-                                target.title = r.label
-                                target.summary = r.description
-                                if( r.merge_with){
-                                    for( const _id of r.merge_with ){
-                                        const mergeId = remap[_id]
-                                        console.log(`Merging with ${mergeId}`)
-                                        const mergeTarget = mappedGroups[mergeId]
-                                        if( mergeTarget ){
-                                            target.ids = target.ids.concat( mergeTarget.ids)
-                                            delete mappedGroups[mergeId]
-                                            merged.push(mergeId)
-                                        }else{
-                                            console.log(`Couldnt find merge target`)
-                                        }
+            if( result.success){
+                const groups = result.output 
+                const assignments = await assignPrimitivesByPhrase( list, action.field, groups)
+                if( assignments ){
+                    if( segmentTarget ){
+                        // need to remove existing links
+                    }
+                    const mappedGroups = {}
+                    for(const primitiveId in assignments){
+                        const d = assignments[primitiveId]
+                        if( !mappedGroups[d.idx]){
+                            mappedGroups[d.idx] = {ids: [], fragments: [], title: groups[d.idx].cluster_title, phrases: [groups[d.idx].phrase].flat()}
+                        }
+                        const listIdx = list.findIndex(d=>d.id === primitiveId )
+                        const fragment = data[listIdx]
+                        if( fragment ){
+                            mappedGroups[d.idx].fragments.push( fragment )
+                        }else{
+                            throw "Couldnt fetch fragment"
+                        }
+                        mappedGroups[d.idx].ids.push( primitiveId )
+                    }
+                    if(Object.keys(mappedGroups).length > 0){
+                        if( !segmentTarget ){
+                            segmentTarget = await createPrimitive({
+                                workspaceId: primitive.workspaceId,
+                                parent: primitive.id,
+                                paths: ['origin'],
+                                data:{
+                                    type: "segment",
+                                    title: "New clustering",
+                                    referenceId: action.resultCategory,
+                                    referenceParameters:{
+                                        field: action.field,
+                                        resultCategory: action.resultCategory,
+                                        ...action.aiConfig?.[action.field]
                                     }
                                 }
-                            }else{
-                                if( !merged.includes(id) ){
-                                    console.log(`Couldn't find ${id} / ${r.id}`)
+                            })
+                        } 
+                        if( !segmentTarget ){
+                            throw "Couldnt create segment target"
+                        }
+                        for( const idx in mappedGroups){
+                            const segmentObj = mappedGroups[idx]
+                            const types = primitive.referenceParameters?.types ?? action.aiConfig?.[action.field]?.types ??  "problem statements"
+                            const prompt = primitive.referenceParameters?.prompt ?? action.aiConfig?.[action.field]?.prompt ??  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'"
+                            let summary = await summarizeMultiple( segmentObj.fragments, {types, prompt, engine: "gpt4p", debug:true, debug_content: true})
+                            segmentObj.summary = summary?.success ? summary.summary : undefined
+                        }
+
+                        const rewrites = await simplifyAndReduceHierarchy( ["Problems in the market"], Object.values(mappedGroups).map(d=>d.summary), {engine: "gpt4p", debug: true, debug_content: true})
+                        if( rewrites.success){
+                            const merged = []
+                            const remap = Object.keys(mappedGroups)
+                            for(const r of rewrites.summaries){
+                                const id = remap[r.id]
+                                const target = mappedGroups[id]
+                                if( target ){
+                                    target.title = r.label
+                                    target.summary = r.description
+                                    if( r.merge_with){
+                                        for( const _id of r.merge_with ){
+                                            const mergeId = remap[_id]
+                                            console.log(`Merging with ${mergeId}`)
+                                            const mergeTarget = mappedGroups[mergeId]
+                                            if( mergeTarget ){
+                                                target.ids = target.ids.concat( mergeTarget.ids)
+                                                target.fragments = target.fragments.concat( mergeTarget.fragments)
+                                                delete mappedGroups[mergeId]
+                                                merged.push(mergeId)
+                                            }else{
+                                                console.log(`Couldnt find merge target`)
+                                            }
+                                        }
+                                    }
+                                }else{
+                                    if( !merged.includes(id) ){
+                                        console.log(`Couldn't find ${id} / ${r.id}`)
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    for( const idx in mappedGroups){
-                        const segmentObj = mappedGroups[idx]
+                        for( const idx in mappedGroups){
+                            const segmentObj = mappedGroups[idx]
 
-                        segmentObj.segment = await createPrimitive({
-                            workspaceId: primitive.workspaceId,
-                            parent: segmentTarget.id,
-                            paths: ['origin'],
-                            data:{
-                                type: "segment",
-                                title: segmentObj.title,
-                                referenceId: action.resultCategory,
-                                referenceParameters:{
-                                    root: segmentTarget.id,
-                                    phrases: segmentObj.phrases,
-                                    overview: segmentObj.summary 
+                            segmentObj.segment = await createPrimitive({
+                                workspaceId: primitive.workspaceId,
+                                parent: segmentTarget.id,
+                                paths: ['origin'],
+                                data:{
+                                    type: "segment",
+                                    title: segmentObj.title,
+                                    referenceId: action.resultCategory,
+                                    referenceParameters:{
+                                        root: segmentTarget.id,
+                                        phrases: segmentObj.phrases,
+                                        overview: segmentObj.summary 
+                                    }
                                 }
+                            })
+                            for( const primitiveId of segmentObj.ids){
+                                console.log(`setting ${primitiveId} to ${segmentObj.segment.id}`)
+                                await addRelationship( segmentObj.segment.id, primitiveId, "ref")
+                                if( parent ){
+                                    console.log(`Remove from parent`)
+                                    await removeRelationship( parent.id, primitiveId, "ref")
+                                }
+                                
                             }
-                        })
-                        for( const primitiveId of segmentObj.ids){
-                            console.log(`setting ${primitiveId} to ${segmentObj.segment.id}`)
-                            await addRelationship( segmentObj.segment.id, primitiveId, "ref")
-                            
+                        }
+                        for( const idx in mappedGroups){
+                            const segmentObj = mappedGroups[idx]
+                            if( segmentObj.ids.length !== segmentObj.fragments.length ){
+                                console.log(`Fragment / ids mismatch ${segmentObj.ids.length} / ${segmentObj.fragments.length}`)
+                                throw "Error in rollup2"
+                            }
+                            if( segmentObj.ids.length > 10 ){
+                                console.log(`Doing nested cluster of ${segmentObj.ids.length} length`)
+                                await buildCluster( segmentObj.ids.map(d=>fullList.find(d2=>d2.id === d)), segmentObj.fragments, segmentObj.segment ) 
+                            }
                         }
                     }
                 }
             }
         }
+        
+        let [fullList, fullData] = await getDataForProcessing(primitive, {...action, referenceId: target.referenceParameters?.referenceId, constrainId: target.referenceParameters?.constrainId})
+        //let segmentTarget = target?.type === "segment" ? target : undefined
+
+        await buildCluster( fullList, fullData )
         
         console.log("fetch done")
     }catch(error){
@@ -336,13 +358,17 @@ const result2 = {
         console.log(error)
     }
 }
-async function assignPrimitivesByPhrase( list, target, phraseGroups, options = {} ){
+async function assignPrimitivesByPhrase( list, field, phraseGroups, options = {} ){
 
     console.log(`Process by embeddings`)
     const searchTerms = 500 
     const scores = {}
     const threshold = options.threshold ?? 0.9
-    const scopeIds = list.map(d=>d.id)
+    const workspaceId = list[0]?.workspaceId
+
+    field = field.split(".").slice(-1)[0]
+
+
     let candidateIdx  = 0
     for( const candidate of phraseGroups ){
         console.log(`Semantic query: ${candidate.cluster_title}`)
@@ -350,17 +376,62 @@ async function assignPrimitivesByPhrase( list, target, phraseGroups, options = {
         for( const phrase of [candidate.phrase].flat() ){
             const response = await buildEmbeddings(phrase)
             if( response.success){
+                console.log(`Semantic query: ${phrase}`)
+                let idx = 0, batch = 1000
+                do{
+                    const scope = list.slice(idx, idx + batch).map(d=>d.id)
+                    const searchTerms = Math.min(scope.length * 2, 10000) 
+                    console.log(`Doing in batches of ${batch} from ${idx}`)
+                    const matches = await Embedding.aggregate([
+                        {"$vectorSearch": {
+                        "queryVector": response.embeddings,
+                        "path": "embeddings",
+                        "filter": {$and: [
+                                {
+                                    type: field
+                                },{
+                                    foreignId: {$in: scope}
+                                }
+                        ]},
+                        "numCandidates": Math.min(searchTerms * 15, 10000),
+                        "limit": searchTerms,
+                        "index": "vector_index",
+                            }
+                        },
+                        {
+                        "$project": {
+                            "_id": 0,
+                            "foreignId": 1,
+                            "score": { $meta: "vectorSearchScore" }
+                        }
+                        }
+                    ])
+                    console.log(`-- got ${matches.length} matches`)
+                    for(const result of matches){
+                        if( result.score > threshold ){
+                            console.log(result.foreignId, result.score, scores[result.foreignId], phrase.slice(0,20))
+                            if( (scores[result.foreignId] === undefined) || (result.score > scores[result.foreignId].score) ){
+                                scores[result.foreignId] = {score: result.score, idx: candidateIdx, phraseIdx: phraseIdx}
+                            }
+                        }
+                    }
+                    idx += batch
+                }while(idx < list.length)
+
+                /*
                 const matches = await Embedding.aggregate([
                     {"$vectorSearch": {
                         "queryVector": response.embeddings,
                         "path": "embeddings",
-                        /* "filter": {$and: [
+                        "filter": {$and: [
                             {
-                                workspaceId: primitive.workspaceId
+                                workspaceId: workspaceId
                             },{
                                 type: field
+                            },{
+                                foreignId: {$in: scopeIds}
                             }
-                        ]},*/
+                        ]},
                         "numCandidates": searchTerms * 15,
                         "limit": searchTerms,
                         "index": "vector_index",
@@ -376,14 +447,14 @@ async function assignPrimitivesByPhrase( list, target, phraseGroups, options = {
                 ])
                 for(const result of matches){
                     if( result.score > threshold){
-                        if( scopeIds.includes(result.foreignId) ){
-                          //  console.log(result.foreignId, result.score, scores[result.foreignId], candidate.cluster_title?.slice(0,20))
+                        //if( scopeIds.includes(result.foreignId) ){
+                            console.log(result.foreignId, result.score, scores[result.foreignId], candidate.cluster_title?.slice(0,20))
                             if( (scores[result.foreignId] === undefined) || (result.score > scores[result.foreignId].score) ){
                                 scores[result.foreignId] = {score: result.score, idx: candidateIdx, phraseIdx: phraseIdx}
                             }
-                        }
+                        //}
                     }
-                }
+                }*/
             }
             phraseIdx++
         }
@@ -860,7 +931,7 @@ export default function QueueAI(){
                     const source = await Primitive.findOne({_id: job.data.targetId})
                     let [list, data] = await getDataForProcessing(primitive, job.data.action, source)
                     console.log(`got ${list.length} / ${data.length} from ${source.id} - ${source.title}`)
-                    if( job.data.action.scope ){
+                    if( false && job.data.action.scope ){
                         data = data.filter((d,i)=>job.data.action.scope.includes(list[i].id))
                         list = list.filter((d,i)=>job.data.action.scope.includes(d.id))
                         if( data.length !== list.length ){
@@ -876,7 +947,11 @@ export default function QueueAI(){
                                 let catData
                                 if( action.alternative){
                                     const task = await primitiveTask( primitive)
-                                    const result = await analyzeForClusterPhrases( data, {theme: primitive.referenceParameters?.theme ?? action?.theme ?? task?.referenceParameters?.topics, debug: true} )
+                                    const result = await analyzeForClusterPhrases( data, {
+                                        //type:primitive.referenceParameters?.listType, 
+                                        type: primitive.referenceParameters?.types ?? action.aiConfig?.[primitive.referenceParameters?.field]?.types ??  "problem statements",
+                                        theme: (primitive.referenceParameters?.theme && primitive.referenceParameters?.theme.trim().length > 0 ? primitive.referenceParameters?.theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics, 
+                                        debug: true} )
                                     if( result.success ){
                                         const categories =  result.output.map(d=>d.cluster_title)
                                         catData = { 

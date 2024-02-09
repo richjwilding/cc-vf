@@ -85,7 +85,7 @@ export default function QueryQueue(){
                     
                     const config = primitive.referenceParameters || {}
                     Object.keys(category.parameters).forEach((k)=>{
-                        if(config[k] === undefined ){
+                        if(config[k] === undefined && k !== "title"){
                             config[k] = category.parameters[k].default
                         }
                         if( config[k] && category.parameters[k].type === "options"){
@@ -146,6 +146,9 @@ export default function QueryQueue(){
                         const existingCheck = source.primaryField ? async (item)=>{
                             if( item ){
 
+                                if( !item[source.primaryField] ){
+                                    return false
+                                }
                                 // checkCache
                                 if( cache.items.length > 0){
                                     if(cache.items.includes(item[source.primaryField])){
@@ -175,20 +178,32 @@ export default function QueryQueue(){
                                     "workspaceId": primitive.workspaceId,
                                     $and:[{
                                         ...checks,
-                                    },{
+                                    }],/*{
 
                                         $or: [
                                             {[`parentPrimitives.${primitive.id}`]: {$in: ['primitives.origin']}},
                                             {[`parentPrimitives.${oId}`]: {$in: [resultPath]}},
                                         ]
-                                    }],
+                                    }],*/
                                     deleted: {$exists: false},
                                 }
                                 
-                                const existing = await Primitive.findOne(query, {_id: 1})
-                                console.log(existing)
-                                const results = existing !== null
-                                //console.log( `--- Existing = ${results}`)
+                                let existing = await Primitive.find(query, {_id: 1, parentPrimitives: 1})
+                                console.log(`Resource check = ${existing.length}`)
+                                existing = existing.filter(d=>{
+                                    if( !d.parentPrimitives){
+                                        debugger
+                                    }
+                                    return d.parentPrimitives?.[primitive.id]?.includes('primitives.origin') || d.parentPrimitives?.[oId]?.includes(resultPath)
+                                })
+                                console.log(`Post filter = ${existing.length}`)
+
+                                const results = existing.length > 0
+                                if( results ){
+                                    console.log( `--- Existing = ${results.length}`)
+                                    debugger
+
+                                }
                                 return results
                             }
                             return false
@@ -261,7 +276,7 @@ export default function QueryQueue(){
                             return false
                         } : undefined
 
-                        const createResult = async (d)=>{
+                        const createResult = async (d, skipActions)=>{
                             const newData = {
                                 workspaceId: primitive.workspaceId,
                                 paths: ['origin', 'auto'],
@@ -272,7 +287,7 @@ export default function QueryQueue(){
                                     referenceId: source.resultCategoryId ,
                                 }
                             }
-                            const newPrim = await createPrimitive( newData )
+                            const newPrim = await createPrimitive( newData, skipActions )
                             if( newPrim ){
                                 await addRelationship( oId, newPrim.id, resultPath )
                             }
@@ -298,9 +313,22 @@ export default function QueryQueue(){
                         if( source.platform === "google_news" ){
                             await queryGoogleNews( terms, callopts) 
                         }
+                        if( source.platform === "google" ){
+                            await queryGoogleSERP( terms, callopts) 
+                        }
                         if( source.platform === "crunchbase" ){
                             if( source.type === "organization" ){
-                                await queryCrunchbaseOrganizations( terms, callopts ) 
+
+                                const allTerms = {
+                                    keyword: terms,
+                                    searchTerms:{
+                                        ...config,
+                                        count: undefined,
+                                        phrase: undefined,
+                                        exact : undefined                                   
+                                    }
+                                }
+                                await queryCrunchbaseOrganizations( allTerms, callopts ) 
                             }
                             if( source.type === "article" ){
                                 callopts.primitive = await Primitive.findOne({_id: oId})

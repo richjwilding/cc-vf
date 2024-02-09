@@ -35,6 +35,7 @@ export async function analyzeForClusterPhrases( list, options = {}){
         return {success: true, output: []}
     }
     let type = options.type ?? "problems"
+    let focus = options.focus
     let inputType = options.type ?? "problems statement"
     let minC = options.minClusters ?? 2
     let maxC = options.maxClusters ?? 10
@@ -42,7 +43,7 @@ export async function analyzeForClusterPhrases( list, options = {}){
     //let prompt =  `I will undertake a clustering process of several thousand ${inputType}s  based on the distance of the embedding of each ${inputType} to each cluster centroid.  Assess the provided ${inputType}s to first filter out those which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a consolidated set of phrases which would group similar ${inputType}s together when used to generate embeddings for the centroid of a cluster.  The aim is to group similar ${inputType}s together into between ${minC} and ${maxC} non-overlapping clusters. Ensure that the phrases are as specific and selective as possible, do not overlap with one another, are not a subset of another phrase, are based on only the information in the ${inputType}s i have provided, and are directly and explicitly relevant to the provided theme. If there are no relevant ${inputType}s then return an empty list.    `
     //let output = `Provide your response as a json object called "result" containing an array of objects each with a 'phrase' field containing the proposed phrase, a 'relevance' field containing an explanation for how the proposed phrase is directly relevant to the provided theme in no more than 15 words, a 'score' field with an assessment for how relevant the phrase is to the provided theme on the scale of 'not at all', 'hardly', 'somewhat' , 'clearly', and a 'size' field containing the number of ${inputType}s from the provided list that you estimate to align with this phrase.  Do not provide anything other than the json object in your response`
 
-    let prompt = `i will undertake a clustering process of several thousand ${inputType}s based on the distance of the embedding of each problem statement to each cluster centroid.  The aim is to group similar ${inputType}s together into between 2 and 10 non-overlapping clusters. Assess the provided ${inputType}s to first filter out those which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a 2-3 candidate phrases per cluster. Ensure that the clusters are as specific and selective as possible, do not overlap with one another, are not a subset of another cluster, are based on only the information in the ${inputType}s i have provided, are directly and explicitly relevant to the provided theme. If there are no relevant ${inputType}s then return an empty list.`
+    let prompt = `i will undertake a clustering process of several thousand ${inputType}s based on the distance of the embedding of each ${inputType} to each cluster centroid.  The aim is to group similar ${inputType}s together into between 2 and 10 non-overlapping clusters. Assess the provided ${inputType}s to first filter out those which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a 2-3 candidate phrases per cluster. Ensure that the clusters are as specific and selective as possible, do not overlap with one another, are not a subset of another cluster, are based on only the information in the ${inputType}s i have provided, are directly and explicitly relevant to the provided theme${focus ? ` and are related to ${focus}` : ""}. If there are no relevant ${inputType}s then return an empty list.`
     let output = `Provide your response as a json object called "result" containing an array of objects each with a 'cluster_title' field set a 5 word description of the cluster, a 'phrase' field containing an array of proposed phrases (each as a string), a 'relevance' field containing an explanation for how the proposed phrase is directly relevant to the provided theme in no more than 15 words, a 'score' field with an assessment for how relevant the phrase is to the provided theme on the scale of 'not at all', 'hardly', 'somewhat' , 'clearly', and a 'size' field containing the number of ${inputType}s from the provided list that you estimate to align with this phrase.  Do not provide anything other than the json object in your response`
 
     const interim = await processInChunk( list,
@@ -112,16 +113,26 @@ export async function summarizeMultiple(list, options = {} ){
     }    
 
     let listIntro = `Here are a list of ${options.types || "items"}: `
-
+    let prompt = options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`    
+    let finalPrompt = prompt
+    if( options.focus ){
+        if( finalPrompt.includes('{focus}')){
+            finalPrompt = finalPrompt.replaceAll('{focus}', options.focus)
+        }else{
+            finalPrompt =  prompt + `.  Ensure the summary focus mainly on ${options.focus}.`
+        }
+    }
+    
+    
     const interim = await processInChunk( list, 
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": listIntro}],
             [
-                {"role": "user", "content":  options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`},
-                {"role": "user", "content": `Provide the result as a json object with a single field called 'summary' with conatins "a string with your summary. Do not put anything other than the raw json object in the response .`},
+                {"role": "user", "content":  finalPrompt},
+                {"role": "user", "content": `Provide the result as a json object with a single field called 'summary' which conatins a string with your summary with newlines appropriate escaped. Do not put anything other than the raw json object in the response .`},
             ],
-            {field: "summary", debug: false, engine: options.engine, ...options })
+            {field: "summary", debug: false, engine: "gpt4p" ?? options.engine, ...options })
 
 
     if( Object.hasOwn(interim, "success")){
@@ -138,7 +149,7 @@ export async function summarizeMultiple(list, options = {} ){
             [
                 {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single summary.`                    
                             },
-                {"role": "user", "content": `Provide the result as a json object with an single field called 'summary' with conatins a string with your summary. Do not put anything other than the raw json object in the response .`},
+                {"role": "user", "content": `Provide the result as a json object with an single field called 'summary' which conatins a string with your summary. Do not put anything other than the raw json object in the response .`},
             ],
             {field: "summary"})
 
@@ -573,7 +584,7 @@ async function processInChunk( list, pre, post, options = {} ){
     let maxTokens = options.maxTokens || defaultTokens
     const fullContent = list.map((d, idx)=>{
         const start = options.no_num ? "" : (options.prefix ?  `${options.prefix} ${idx}: ` :`${idx}). `)
-        return `${start}${(d instanceof Object ? d.content : d).replaceAll(/\n|\r/g,". ")}`
+        return `${start}${(d instanceof Object ? d.content : d)?.replaceAll(/\n|\r/g,". ")}`
     })
     const maxIdx = fullContent.length - 1
     let interim = []
@@ -651,6 +662,15 @@ async function processInChunk( list, pre, post, options = {} ){
                     if( options.markPass ){
                         values.forEach((d)=>d._pass = pass)
                     }
+                    if( options.idField){
+                        console.log(`Check ID field ${options.idField} bounds`)
+                        values.forEach((d,idx)=>{
+                            if( (parseInt(d[options.idField]) < startIdx) || (parseInt(d[options.idField]) > endIdx) ){
+                                console.log(`-- record has out of bounds id field ${d[options.idField]} vs ${startIdx} - >${endIdx}`)
+                            }
+                        })
+
+                    }
                     if( options.ensureSameSize){
                         if(values.length !== endIdx - startIdx + 1){
                             console.log(result)
@@ -694,7 +714,7 @@ async function executeAI(messages, options = {}){
     }
     if( options.engine === "gpt4p" ){
         console.log(`--- GPT 4 PREVIEW`)
-        model = "gpt-4-1106-preview"
+        model = "gpt-4-turbo-preview"
         sleepBase = 20000
         response_format = { type: "json_object" }
     }

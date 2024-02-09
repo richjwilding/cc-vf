@@ -1,5 +1,4 @@
 import express, { query } from 'express';
-import mongoose from 'mongoose';
 import User from '../model/User';
 import Company from '../model/Company';
 import AssessmentFramework from '../model/AssessmentFramework';
@@ -10,14 +9,11 @@ import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { buildEmbeddingsForPrimitives, getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
-import analyzeDocument, { buildEmbeddings } from '../openai_helper';
 import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
-import { SIO } from '../socket';
-import QueueAI from '../ai_queue';
 import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
-import PrimitiveConfig from '../PrimitiveConfig';
+import { unpack, pack } from 'msgpackr';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -349,8 +345,12 @@ router.get('/primitives', async function(req, res, next) {
         }
       }
         
-      const results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0})
-        res.json(results)
+        const results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0})
+        //res.json(results)
+
+        res.setHeader('Content-Type', 'application/msgpack');
+        res.send(pack(results));
+
       } catch (err) {
         console.log(err)
         res.json({error: err})
@@ -487,58 +487,7 @@ router.post('/set_field', async function(req, res, next) {
 
 
     try {
-
-/*        const prim = await Primitive.findOneAndUpdate(
-            {
-                    "_id": new ObjectId(data.receiver),
-            }, 
-            {
-                $set: { [data.field]: data.value },
-            },
-            {new: true})
-        
-            if( data.field === 'referenceParameters.notes'){                
-                console.log(`Queue purging of old document for ${data.receiver}`)
-               // removeDocument(data.receiver)
-                QueueDocument().add(`doc_refresh_${data.receiver}`, 
-                    {
-                        command: "refresh", 
-                        id: data.receiver, 
-                        value: data.value, 
-                        req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}
-                    })
-            }
-
-        const category = await Category.findOne({id: prim.referenceId})
-        if( category && category.actions ){
-            for(const action of category.actions){
-                if( action.onUpdate ){
-                    const lastField = data.field.split('.').slice(-1)?.[0]
-                    if( action.onUpdate === true || (Array.isArray(action.onUpdate) && action.onUpdate.includes(lastField) )){
-                        result = await doPrimitiveAction(prim, action.key, undefined, req)
-                    }else{
-
-                        console.log('wont do ')
-                    }
-                }
-            }
-        }
-        const config = PrimitiveConfig.typeConfig[prim.type]
-        if( config?.embed){
-            if( config.embed.includes(data.field)){
-                buildEmbeddingsForPrimitives([prim], data.field, true, true)
-            }
-        }
-        
-
-        SIO.notifyPrimitiveEvent(prim, [
-            {
-                type: "set_fields",
-                primitiveId: data.receiver,
-                fields:{[data.field]:data.value}
-            }
-        ])*/
-        await updateFieldWithCallbacks( data.receiver, data.field, data.value )
+        await updateFieldWithCallbacks( data.receiver, data.field, data.value, req )
 
         res.json({success: true, result: result})
       } catch (err) {
@@ -619,7 +568,7 @@ router.post('/add_primitive', async function(req, res, next) {
     let data = req.body
 
     try {
-        const newPrimitive = await createPrimitive( data, req )        
+        const newPrimitive = await createPrimitive( data, false, req  )        
         if( newPrimitive === undefined ){
             throw new Error("No primitive created")
         }

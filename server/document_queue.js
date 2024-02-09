@@ -3,12 +3,13 @@ import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import { getDocumentAsPlainText, importDocument, locateQuote, removeDocument } from "./google_helper";
 import Primitive from "./model/Primitive";
-import { addRelationship, createPrimitive, dispatchControlUpdate, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, getNestedValue, primitiveChildren, primitiveOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
 import Category from "./model/Category";
 import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
 import Contact from "./model/Contact";
 import ContentEmbedding from "./model/ContentEmbedding";
 import PrimitiveParser from "./PrimitivesParser";
+import { searchPosts } from "./linkedin_helper";
 
 const parser = PrimitiveParser()
 
@@ -94,7 +95,24 @@ async function doDataQuery( options ) {
                 if( resultSet === undefined ){
                     throw "No resultCategoryId specified"
                 }
+                
+                const serachScope = [{workspaceId: primitive.workspaceId}]
+                if( options.scope  ){
+                    const node = await fetchPrimitive( options.scope )
+                    let items = (await primitiveDescendents( node, "result"))
+                    if( options.referenceCategoryFilter ){
+                        const asNum = parseInt( options.referenceCategoryFilter)
+                        if( !isNaN(asNum) ){
+                            items = items?.filter(d=>d.referenceId === asNum)
+                        }
+                    }
+                    const ids = items?.map(d=>d.id)
+                    serachScope.push({foreignId: {$in: ids}})
+                    console.log(`Constrained to ${ids.length} items`)
+                }
+                
                 let keepItems = options.remove_first === false
+
                 if( !keepItems ){
                     let oldEvidence =  await primitiveChildren(primitive, "result")
                     console.log( `----> got ${oldEvidence.length} to remove`)
@@ -143,6 +161,7 @@ async function doDataQuery( options ) {
                         const threshold_seek = primitive.referenceParameters?.thresholdSeek ?? 0.005
                         const searchTerms = primitive.referenceParameters?.candidateCount ?? 1000
                         const scanRatio = primitive.referenceParameters?.scanRatio ?? 0.15
+                        const quote = primitive.referenceParameters?.quote ?? true
                         for( const prompt of prompts ){
                             console.log(`Fetching for ${prompt}`)
                             const emb = await buildEmbeddings( prompt )
@@ -151,11 +170,7 @@ async function doDataQuery( options ) {
                                     {"$vectorSearch": {
                                         "queryVector": emb.embeddings,
                                         "path": "embeddings",
-                                        "filter": {$and: [
-                                            {
-                                                workspaceId: primitive.workspaceId
-                                            }
-                                        ]},
+                                        "filter": {$and: serachScope},
                                         "numCandidates": Math.min(searchTerms * 15, 10000),
                                         "limit": searchTerms,
                                         "index": "content_index",
@@ -194,26 +209,36 @@ async function doDataQuery( options ) {
                             }
                         }
                         console.log(`have ${Object.keys(fragments).length} fragments`)
-                        const fragmentList = Object.values( fragments )
+                        const fragmentList = Object.values( fragments )//.slice(132,270)
 
                         const fragmentText = fragmentList.map(d=>d.text)
+                        const outPrompt = [
+                            `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have an 'answered' field indicating if this part contains an answer or if no answer was found, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words`,
+                            quote ? `, a 'quote' field containing up to 50 words of the exact text used from the fragments` : undefined,
+                            `, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.`,
+                            (extraFields ?? "").length > 0 ? extraFields : undefined
+                        ].filter(d=>d).join("") + "."
 
                         const results = await processPromptOnText( fragmentText,{
                             opener: `Here is a list of numbered text fragments you can use to answer a question `,
-                            prompt: `Using only the information in the provided text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehsive answer but be concise in your phrasing and the level of detail. Do not provide an answer unless relevant information is available in the provided text fragments.`,
-                            output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words,  a 'ids' field containing the number of the text fragments explicitly used in this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.${(extraFields ?? "").length > 0 ? extraFields + ", " : ""}`,
+                            prompt: `Using only the information explcitly provided in the text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer but be concise in your phrasing and the level of detail.`,
+                            //output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words, a 'quote' field containing up to 50 words of the exact text used from the fragments, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.${(extraFields ?? "").length > 0 ? extraFields + ", " : ""}`,
+                            output: outPrompt,
                             engine: "gpt4p",
                             no_num: false,
-                            maxTokens: 80000,
+                            maxTokens: 40000,
+                            temperature: 1,
                             markPass: true,
+                            idField: "ids",
                             debug: true,
                           //  debug_content: true,
                             field: "answer"
                         })
-                        if( results.success){
-                            console.log(results.output)
+                        console.log(results.output)
+                        if( results.success && Array.isArray(results.output)){
+                            results.output = results.output.filter(d=>d.answered)
                             let final
-                            const needsCompact = results.output.map(d=>d._pass).filter((d,i,a)=>a.indexOf(d)===i).length > 1
+                            const needsCompact = (options.compact !== false) && results.output.map(d=>d._pass).filter((d,i,a)=>a.indexOf(d)===i).length > 1
                             if( needsCompact ){
                                 final = []
                                 console.log(`Need to dedupe multi-pass answer`)
@@ -227,7 +252,8 @@ async function doDataQuery( options ) {
 
                                 const compact = await processPromptOnText( toProcess,{
                                     opener: `here is a json array containing the results from a query.`,
-                                    prompt: `Analyze the entries to identify groups of entries which can be combined together based upon the similarity of the underlying problems being addressed and the solution as detailed in the 'description' field. Combine only those entries that are very similar, ensuring that nuances of different entries are kept.  Only combine entries that have a different 'pass' field and ensure any entry that is combined is combined with the best fitting other entries.`,
+                                    //prompt: `Analyze the entries to identify groups of entries which can be combined together based upon the similarity of the underlying problems being addressed and the solution as detailed in the 'description' field. Combine only those entries that are very similar, ensuring that nuances of different entries are kept.  Only combine entries that have a different 'pass' field and ensure any entry that is combined is combined with the best fitting other entries.`,
+                                    prompt: `Analyze the entries to identify groups of entries which can be combined together based upon the similarity of topics as detailed in the 'description' and 'title' fields. Combine only those entries that are very similar, ensuring that nuances of different entries are kept.  Only combine entries that have a different 'pass' field and ensure any entry that is combined is combined with the best fitting other entries.`,
                                     output: `Generate a new json object with a field called 'output' which is an object with a 'existing' field containing an array of ids of the entries that are not being combined, and a 'new' field containing a list of new entries with each entry containing a 'description' field with a new description that combines all of the descriptions of the entries that are being combined to make the new entry, an 'overview' field containing a summary of new description in no more than 20 words, and an 'ids' field containing the ids of the original entries that have been merged into the new entry.  Ensure that all entries from the original list are included in the either the existing field or in one of the new entries.`,
                                     engine: "gpt4p",
                                     no_num: false,
@@ -278,7 +304,6 @@ async function doDataQuery( options ) {
                                 final = results.output
                             }
 
-                            // remove existing
                             for( const d of final){
                                 const extracts = metadataItems.reduce((a,c)=>{a[c] = d[c]; return a},{})
                                 const newData = {
@@ -291,9 +316,10 @@ async function doDataQuery( options ) {
                                         title: d.overview,
                                         referenceParameters: {
                                             ...extracts,
-                                            description: d.answer
+                                            description: d.answer,
+                                            quote:d.quote
                                         },
-                                        source: d.ids.map(d=>{return {primitive: d.id, part: d.part}})
+                                        source: d.ids?.map(d=>{return {primitive: d.id, part: d.part}})
                                     }
                                 }
                                 const newPrim = await createPrimitive( newData )
@@ -647,8 +673,10 @@ export default function QueueDocument(){
                         console.log(`Plain text import failed for ${job.data.id}`)
                     }
 
-                    console.log(`-- Chaining discovery`)
-                    await instance.documentDiscovery( primitive, job.data.req)
+                    if( primitive.referenceId === 9){
+                        console.log(`-- Chaining discovery`)
+                        await instance.documentDiscovery( primitive, job.data.req)
+                    }
                 }else{
                     console.log(`Document import failed for ${job.data.id} ${job.data.value}`)
                 }

@@ -17,6 +17,7 @@ import DropdownButton from './DropdownButton';
 import { HeroIcon } from './HeroIcon';
 import { SearchPane } from './SearchPane';
 import ListGraph from './ListGraph';
+import InfiniteCanvas from './InfiniteCanvas';
 
 
 const mainstore = MainStore()
@@ -326,7 +327,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     labels:["None", options.map((d)=>d.title)].flat(),
                     title: `Category: ${d.title}`,// (${list.map(d=>d.metadata.title ?? d.type).filter((d,i,a)=>a.indexOf(d)===i).join(", ")})`,
                     allowMove: !relationship && access === 0 && (!viewPivot || (viewPivot.depth === 0 || viewPivot === 0)),
-                    relationship: relationship,
+                    relationship: d.referenceParameters.pivotBy ?? relationship,
                     access: d.referenceParameters?.pivot ?? access
                 }
             }).filter(d=>d)
@@ -359,6 +360,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                             out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, relationship, access: access, twoPass: true, passType: parameter === "funding" ? "funding" : type})
                         }else if(  type === "contact"){
                             out.push( {type: 'parameter', parameter: "contactId", parameterType: type, title: `${title} - ${parameters[parameter].title}`, relationship, access: access, twoPass: true, passType: "contact"})
+                        }else if(  type === "boolean"){
+                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, relationship, access: access, twoPass: true, passType: "boolean"})
                         }else{
                             out.push( {type: 'parameter', parameter: parameter, parameterType: type, title: `${title} - ${parameters[parameter].title}`, relationship, access: access, twoPass: true, passType: "raw"})
                         }
@@ -369,7 +372,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
             catIds.forEach((id)=>{
                 const category = MainStore().category(id)
-                if( category.primitiveType === "entity" || category.primitiveType === "result" ){
+                if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query"){
                     out.push( {type: 'title', title: `${category.title} Title`, relationship, access: access, twoPass: true, passType: "raw"})
                 }
                 if( category ){
@@ -384,7 +387,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
             return out.filter((filter)=>{
                 if( filter.type === "parameter" ){
-                    return  (p.filter((d)=>["number","string"].includes(typeof(d.referenceParameters[filter.parameter])) || Array.isArray(d.referenceParameters[filter.parameter])).filter((d)=>d !== undefined).length > 0)
+                    return  (p.filter((d)=>(filter.parameterType === "boolean" && d.referenceParameters[filter.parameter] !== undefined) ||  ["number","string"].includes(typeof(d.referenceParameters[filter.parameter])) || Array.isArray(d.referenceParameters[filter.parameter])).filter((d)=>d !== undefined).length > 0)
                 }
                 if( filter.type === "title" ){
                     return  (p.filter((d)=>["number","string"].includes(typeof(d.title))).filter((d)=>d !== undefined).length > 0)
@@ -462,7 +465,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             if( !props.excludeOrigin ){
                 //out = out.concat( txParameters( items.map((d)=>d.origin  === primitive ? undefined : d.origin).filter((d)=>d), "origin"  ) )
                 out = out.concat( expandOrigin(items) )
-                if( items[0].referenceId === 84){
+                if( items[0]?.referenceId === 84){
                     out = out.concat( expandOrigin(items, 0, "partnership_a") )
                     out = out.concat( expandOrigin(items, 0, "partnership_b") )
 
@@ -607,6 +610,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
         const bucket = {
             "raw":(field)=>{
                 return {labels: interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()}
+            },
+            "boolean":(field)=>{
+                return {labels: ["True","False","Not specified"], order: [true, false , undefined], values: [true, false , undefined]}
             },
             "contact":(field)=>{
                 const contacts = interim.map(d=>d.primitive.origin?.referenceParameters?.contact).filter((d,i,a)=>d && a.findIndex(d2=>d2.id === d.id) === i)
@@ -799,18 +805,21 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
     function rescaleFonts( scale = true){
-        const cHeaderWidth = props.compare ? 300 : 100
-        
-        const fontScale = scale ? (props.compare ? 1 : Math.max(1, gridRef.current.offsetWidth / 1600 )) : 1
-        const fontSize = 14 * fontScale
-        myState.current.fontSize = `${fontSize}px`
-        myState.current.padding = `${2 * fontScale}px` 
-        myState.current.minWidth = `${cHeaderWidth * fontScale }px` 
-        
-        for(const node of gridRef.current.querySelectorAll('.vfbgtitle')){
-            node.style.fontSize = myState.current.fontSize
-            node.style.padding = myState.current.padding
-            node.style.minWidth = myState.current.minWidth
+        if( gridRef.current ){
+
+            const cHeaderWidth = props.compare ? 300 : 100
+            
+            const fontScale = scale ? (props.compare ? 1 : Math.max(1, gridRef.current.offsetWidth / 1600 )) : 1
+            const fontSize = 14 * fontScale
+            myState.current.fontSize = `${fontSize}px`
+            myState.current.padding = `${2 * fontScale}px` 
+            myState.current.minWidth = `${cHeaderWidth * fontScale }px` 
+            
+            for(const node of gridRef.current.querySelectorAll('.vfbgtitle')){
+                node.style.fontSize = myState.current.fontSize
+                node.style.padding = myState.current.padding
+                node.style.minWidth = myState.current.minWidth
+            }
         }
     }
 
@@ -857,25 +866,28 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }, [gridRef.current, primitive.id, /*colSelection, rowSelection*/, selectedCategoryIds, layerSelection, activeView, hideNull, importantOnly, viewPivot])
 
     useLayoutEffect(()=>{
-        rescaleFonts()
-        const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
-        const tbb = targetRef.current.getBoundingClientRect()
+        if( gridRef.current ){
 
-        let x, y, scale
-
-        if( myState.current.offset ){
-            scale = myState.current.offset.scale 
-            x =  (gbb.width / 2) * ( scale - 1) + (myState.current.offset.x )
-            y =  (gbb.height / 2) * ( scale - 1) + (myState.current.offset.y )
-        }else{
+            rescaleFonts()
+            const gbb = {width: gridRef.current.offsetWidth , height:gridRef.current.offsetHeight }
+            const tbb = targetRef.current.getBoundingClientRect()
+            
+            let x, y, scale
+            
+            if( myState.current.offset ){
+                scale = myState.current.offset.scale 
+                x =  (gbb.width / 2) * ( scale - 1) + (myState.current.offset.x )
+                y =  (gbb.height / 2) * ( scale - 1) + (myState.current.offset.y )
+            }else{
                 const border = 20
                 const toolbarHeight = 56
-            scale = Math.min(Math.min( (tbb.width - border) / gbb.width, (tbb.height - border - toolbarHeight) / gbb.height),1) 
-            x =  -(gbb.width / 2) + (tbb.width / 2 )
-            y =  -(gbb.height /2) + (tbb.height / 2 )
+                scale = Math.min(Math.min( (tbb.width - border) / gbb.width, (tbb.height - border - toolbarHeight) / gbb.height),1) 
+                x =  -(gbb.width / 2) + (tbb.width / 2 )
+                y =  -(gbb.height /2) + (tbb.height / 2 )
+            }
+            
+            gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
         }
-        
-        gridRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`
     }, [colSelection, rowSelection, updateRel,Object.keys(expandState).join(","), updateExtent])
 
 
@@ -1009,10 +1021,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
 
     async function copyToClipboard(){
-        //let htmlData = list.map((p)=>[p.primitive.plainId,p.primitive.title, p.primitive.origin?.referenceParameters?.contactName || p.primitive.origin.title, p.column, p.row].map((f)=>`<td>${f}</td>`).join("")).map((r)=>`<tr>${r}</tr>`).join("")
-        //const fList = list.filter(d=>d.row !== "None" && d.column !== "None")
-        let fields = list?.[0]?.primitive?.metadata?.renderConfig?.explore?.exportFields ?? ["text","url", "title", "role","profile"]
-        //let htmlData = fList.map((p)=>[p.primitive.plainId,p.primitive.referenceParameters?.text,p.primitive?.referenceParameters?.url, p.primitive.origin?.referenceParameters?.contactName || p.primitive.origin.title, p.primitive.origin?.referenceParameters?.role,p.primitive.origin?.referenceParameters?.profile, p.column, p.row, p.primitive.origin?.linkedInData?.country].map((f)=>`<td>${f}</td>`).join("")).map((r)=>`<tr>${r}</tr>`).join("")
+
+
+        let fields = primitive.referenceParameters?.explore?.exportFields ?? list?.[0]?.primitive?.metadata?.renderConfig?.explore?.exportFields ?? ["text","url", "title", "role","profile"]
         let htmlData = list.map((p)=>{
             let colLabel = p.column?.idx ?? columnExtents.find(d=>d.idx == p.column)?.label
             let rowLabel = p.row?.idx ?? rowExtents.find(d=>d.idx == p.row)?.label
@@ -1043,7 +1054,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 rowLabel
             ].flat().map((f)=>`<td>${f}</td>`).join("")                
         }).map((r)=>`<tr>${r}</tr>`).join("")
-        htmlData = '<table><tbody>' + htmlData + '</tbody></text>'
+
+
+        let category = list[0].primitive.metadata
+        const headers = "<tr>" + [fields.map(d=>category?.parameters?.[d]?.title ?? d), "Axis 1", "Axis 2"].flat().map(d=>`<th>${d}</th>`).join("") +" </tr>"
+
+        htmlData = '<table><tbody>' + headers + htmlData + '</tbody></text>'
 
         const textarea = document.createElement('template');
         textarea.innerHTML = htmlData.trim()
@@ -1301,8 +1317,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
             //out = axisOptions[field].values
             out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].order[i], label: d}))
             console.log(out)
-        }else if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number"   ){
+        }else if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number"){
             out = axisOptions[field].labels
+        }else if( axisOptions[field].parameterType === "boolean"   ){
+            out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].values[i], label: d}))
         }else if( axisOptions[field].parameterType === "contact" ){
             out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].values[i], label: d}))
         }else if( axisOptions[field].type === "question" || axisOptions[field].type === "type"  ){
@@ -1772,7 +1790,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     }
 
-    const exploreView = 
+
+    let exploreView
+    if( primitive.plainId === 257045){
+        exploreView = <InfiniteCanvas />
+    }else{
+
+    exploreView = 
     <>
         {props.allowedCategoryIds && props.allowedCategoryIds.length > 1 && 
             <div key='control' className='z-20 w-full p-2 sticky top-0 left-0 flex rounded-t-lg bg-gray-50 border-b border-gray-200'>
@@ -1980,6 +2004,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 </div>
         </div>
         </>
+    }
 
     let filterPane
     if( showPane === "filter"){

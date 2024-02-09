@@ -83,8 +83,11 @@ const PrimitiveConfig = {
             needCategory:true,
         },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query"],
+    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance"],
     pageview:{
+        "report":{
+            defaultWide: "report" 
+        },
         "segment":{
             evidence: false,
             viewer: true

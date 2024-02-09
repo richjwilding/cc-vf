@@ -269,7 +269,7 @@ export async function queryCrunchbaseOrganizationArticles(keywords, options = {}
     return options.createResult ? totalCount : results
 
 }
-export async function queryCrunchbaseOrganizations(keywords, options = {}){
+export async function queryCrunchbaseOrganizations(terms, options = {}){
 
     let totalCount = 0
     let count = 0
@@ -278,17 +278,65 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
     let cancelled = false
     let timeFrame = "last_year"
 
-    const doLookup = async (term, nextPage )=>{
-        console.log(`Looking up ${term}`)
+    const doLookup = async (allTerms, nextPage )=>{
+        const term = allTerms.keyword
+
+        const query = Object.keys(allTerms).map((k)=>{
+            if( !allTerms[k] ){
+                return
+            }
+            if( k === "keyword"){
+                return {
+                    "type": "predicate",
+                    "field_id": "description",
+                    "operator_id": "contains",
+                    "values": [
+                        allTerms[k]
+                    ]
+                }
+            }else if( k === "ipo"){
+                if( k !== undefined){
+                    return {
+                        "type": "predicate",
+                        "field_id": "ipo_status",
+                        "operator_id": "eq",
+                        "values": ["public"]
+                    }
+                }
+            }else if( k === "headquaters"){
+                if( allTerms[k] === "USA" || allTerms[k] === "United States"){
+                    return {
+                        "type": "predicate",
+                        "field_id": "location_identifiers",
+                        "operator_id": "includes",
+                        "values": ["f110fca2-1055-99f6-996d-011c198b3928"]
+                    }
+                }
+            }else if( k === "exit_year"){
+                return {
+                    "type": "predicate",
+                    "field_id": "exited_on",
+                    "operator_id": "gte",
+                    "values": [{value:`${allTerms[k]}-01-01`}]
+                  }
+            }else{
+                console.log(`Cant map ${k} for CB lookup`)
+            }
+        }).filter(d=>d)
+        if( query.length === 0){
+            return false
+        }
+        console.log(query)
+
         try{
             if( nextPage === undefined){
                 count = 0
             }
             let hasResults = false
+            let lastId
             const url = `https://api.crunchbase.com/api/v4/searches/organizations`
 
-            const params = JSON.stringify(
-                {
+            const po = {
                     "field_ids": [
                     "identifier",
                     "categories",
@@ -298,7 +346,9 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
                     "image_url",
                     "name",
                     "description",
-                    "rank_org"
+                    "stock_symbol",
+                    "ipo_status",
+                    "exited_on"
 
                     ],
                     "order": [
@@ -307,18 +357,13 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
                         "sort": "asc"
                     }
                     ],
-                    "query": [
-                        {
-                            "type": "predicate",
-                            "field_id": "description",
-                            "operator_id": "contains",
-                            "values": [
-                                term
-                            ]
-                        }
-                    ],
+                    query,
                     "limit": options.lookupCount || 500 
-            })
+            }
+            if( nextPage ){
+                po.after_id = nextPage
+            }
+            const params = JSON.stringify(po)
             const response = await fetch(url,{
                 method: 'POST',
                 headers: {
@@ -328,9 +373,12 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
             });
             
             if( response.status === 200){
+                
                 const lookup = await response.json();
+                console.log(lookup)
                 if( lookup && lookup.entities ){
                     console.log(`Got ${lookup.entities.length} candidates`)
+                    lastId = lookup.entities[ lookup.entities.length -1 ]?.uuid
 
                     const process = async function (item){
                         if( !item ){
@@ -372,11 +420,14 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
                                     domain: item.domain,
                                     hasImg: item.properties.image_url,
                                     description: item.properties.description,
+                                    stock_symbol: item.properties.stock_symbol?.value,
+                                    ipo: item.properties.ipo_status,
+                                    exited_at: item.properties.exited_on?.value,
                                     location: item.properties.location_identifiers?.find(d=>d.location_type === "country")?.value || item.properties.location_identifiers?.[0]?.value
                                 }
                             }
                             if( options.createResult ){
-                                const newPrim = await options.createResult( r )
+                                const newPrim = await options.createResult( r, true )
                                 if( newPrim ){
                                     const store = {
                                         id: item.uuid,
@@ -388,7 +439,10 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
                                         domain: item.properties.website_url?.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2"),
                                         source: "Crunchbase search " + term,
                                         categories: item.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}}),
-                                        locations: item.properties.location_identifiers
+                                        locations: item.properties.location_identifiers,
+                                        ipo: item.properties.ipo_status,
+                                    exited_at: item.properties.exited_on?.value,
+                                        stock_symbol: item.properties.stock_symbol?.value
                                         
                                     }
                                     newPrim.set("crunchbaseData", store)
@@ -413,13 +467,14 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
                 console.log(`Got error from CB`)
                 console.log(response)
             }
-            console.log(hasResults, count, target)
-            if( hasResults && count < target ){
-                /*if( lookup.nextPage){
-                    console.log(lookup.nextPage)
-                    await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame})
+            console.log(`Finish cycle = `, hasResults, count, totalCount, target)
+            if( hasResults && totalCount < target ){
+                if( lastId){
+                    console.log(`----------------`)
+                    console.log(nextPage)
+                    return await doLookup( allTerms, lastId)
                 }else{
-                }*/
+                }
             }
         }
         catch(error){
@@ -428,9 +483,10 @@ export async function queryCrunchbaseOrganizations(keywords, options = {}){
         }
     }
 
-    for( const d of keywords.split(",")){
-        const thisSearch = '"' + d.trim() + '"'
-        let cancelled = await doLookup( thisSearch )
+    const searchItems = (terms.keyword?.split(",") ?? []).map(d=>({keyword: d ? '"' + d.trim() + '"' : undefined, ...(terms.searchTerms ?? {})}))
+
+    for( const d of searchItems){
+        let cancelled = await doLookup( d )
         if( cancelled ){
             break
         }
@@ -762,7 +818,10 @@ export async function enrichFromCrunchbase( primitive, options = {}){
                 hasImg: properties.image_url,
                 description: properties.description ?? properties.short_description,
                 domain: properties.website_url?.replace(/^(https?:\/\/)?([^\/]+)\/?$/, "$2"),
-                location: properties.location_identifiers?.find(d=>d.location_type === "country")?.value || properties.location_identifiers?.[0]?.value
+                location: properties.location_identifiers?.find(d=>d.location_type === "country")?.value || properties.location_identifiers?.[0]?.value,
+                stock_symbol: properties.stock_symbol,
+                ipo: properties.ipo,
+                exited_at: properties.exited_at,
             }
             if( properties.image_url ){
                 replicateURLtoStorage(properties.image_url, primitive._id.toString(), "cc_vf_images")
@@ -1053,7 +1112,7 @@ export async function extractArticlesFromCrunchbase(primitive, options = {}, for
     return out
 }
 
-export async function resolveAndCreateCompaniesByName( list, target, resultCategoryId, defaultResultSet, createBlank = false){    
+export async function resolveAndCreateCompaniesByName( list, target, resultCategoryId, defaultResultSet, createBlank = false, create = true){    
     const resultSet = defaultResultSet ?? await findResultSetForCategoryId( target, resultCategoryId)
     if( resultSet === undefined){
         throw "Cant find result set for link_organizations"
@@ -1072,6 +1131,9 @@ export async function resolveAndCreateCompaniesByName( list, target, resultCateg
     }
     for( const item of entityList ){
         if( item.new){
+            if(!create){
+                continue
+            }
             const newData = {
                 workspaceId: target.workspaceId,
                 paths: ['origin', `results.${resultSet}`],
@@ -1110,7 +1172,7 @@ export async function resolveCompaniesByName( list, existingOrgs ){
             if( result ){
                 console.log(`Got ${result.length} companies from lookup ${result.map(d=>d.name).join(", ")}`)
                 const candidateURLs = result.map(d=>d.website_url)
-                const matchByURL = existingOrgs.find(d=> candidateURLs.includes(d.referenceParameters?.url))
+                const matchByURL = existingOrgs.find(d=>d.referenceParameters?.url && candidateURLs.includes(d.referenceParameters?.url))
                 if( matchByURL ){
                     console.log(`Found existing by URL of candidate rather than name ${name} vs ${matchByURL.title}`)
                     candidates = [matchByURL]
@@ -1204,6 +1266,9 @@ export async function fetchCompanyDataFromCrunchbase( primitive ){
                     "short_description",
                     "image_url",
                     "website_url",
+                    "stock_symbol",
+                    "ipo_status",
+                    "exited_on"
                   ],
                   "order": [
                     {
@@ -1244,6 +1309,9 @@ export async function fetchCompanyDataFromCrunchbase( primitive ){
                     short_description: rawData.properties.short_description,
                     website_url: rawData.properties.website_url,
                     image_url:rawData.properties.image_url,
+                    stock_symbol: rawData.properties.stock_symbol?.value,
+                    ipo: rawData.properties.ipo_status,
+                    exited_at: rawData.properties.exited_on?.value,
                     categories: rawData.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}})
 
                 }

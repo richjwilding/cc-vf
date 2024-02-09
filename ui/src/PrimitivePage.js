@@ -34,6 +34,8 @@ import HierarchyView from './HierarchyView';
 import PrimitiveConfig from './PrimitiveConfig';
 import VFTable from './VFTable';
 import CoCreatedLogo from './CoCreatedLogo';
+import PrimitiveReport from './PrimitiveReport';
+import PrimtiveReportViewer from './PrimitiveReportViewer';
 
 
 let mainstore = MainStore()
@@ -95,12 +97,11 @@ export function PrimitivePage({primitive, ...props}) {
         if( val === 'assessment_table'){
           return true
         } 
-        if( val === 'evidence'){
+        if( val === 'evidence' || val === "report"){
           return true
         } 
         if( val.type === "result"){
           return true
-          return primitive.metadata?.resultCategories?.[val.index]?.views?.options?.fullPageExplorer
         }
       }
       if( primitive.clusters ){
@@ -555,9 +556,10 @@ export function PrimitivePage({primitive, ...props}) {
                           //nestedReferenceIds={10}
                           />
                     }
-                    {showWorkingPane === "report" &&
+                    {showWorkingPane === "old_report" &&
                       <ReportView primitive={primitive}/>
                     }
+                    {showWorkingPane === "report" && <PrimtiveReportViewer primitive={primitive} source={MainStore().primitive(251421)}/>}
                     {showWorkingPane === "assessment_table" &&
                       <VFTable primitive={primitive}/>
                     }

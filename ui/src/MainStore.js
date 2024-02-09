@@ -6,6 +6,7 @@ import {default as PrimitiveConfig} from "./PrimitiveConfig";
 import AssessmentAnalyzer from "./AssessmentAnalyzer";
 import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
+import { unpack, pack } from 'msgpackr';
 
 
 function areArraysEqualIgnoreOrder(arr1, arr2) {
@@ -62,11 +63,12 @@ function MainStore (prims){
             console.log(`will load`)
             return new Promise((resolve)=>{
                 const users = fetch(`/api/primitives?owns=${id}`).then(response => {
-                    response.json().then(data => {
+                    response.arrayBuffer().then(buffer => {
 //                        obj.data.primitives = data 
   //                      obj._cache_prim = undefined
+                            const data = unpack(new Uint8Array(buffer))
 
-                        obj.data.primitives = data.reduce((o,d)=>{o[d.id || d._id] = primitive_access(d, "primitive"); return o}, {})
+                        obj.data.primitives = data.reduce((o,d)=>{o[d._id] = primitive_access(d, "primitive"); return o}, {})
                         
                         let primitive = obj.primitive(id)
                         if( primitive === undefined){
@@ -103,8 +105,9 @@ function MainStore (prims){
             console.log(`Removing ${toPurge.length} items`)
 
             const response = await fetch(`/api/primitives?workspace=${obj.activeWorkspaceId}`)
-            const data =  await response.json()
-            obj.data.primitives = data.reduce((o,d)=>{o[d.id || d._id] = primitive_access(d, "primitive"); return o}, {})
+            const buffer =  await response.arrayBuffer()
+            const data = unpack(new Uint8Array(buffer))
+            obj.data.primitives = data.reduce((o,d)=>{o[d._id] = primitive_access(d, "primitive"); return o}, {})
 
             obj.joinChannel(obj.activeWorkspaceId)
             obj.loadControl(true)
@@ -1578,7 +1581,13 @@ function MainStore (prims){
                                         hitList = hitList.filter(d=>d !== undefined && d !== null )
                                         thisSet = notCat1( thisSet || list, [filter.sourcePrimId], filter)
                                     }
-                                    thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>hitList.includes(d)).length > 0)
+                                    if( !filter.relationship || filter.relationship === "origin" ){
+
+                                        thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>hitList.includes(d)).length > 0)
+                                    }else{
+                                        thisSet = (thisSet || list).filter(d=>invert ^ (d.relationshipAtLevel(filter.relationship,filter.pivot)?.[0]?.parentPrimitiveIds ?? []).filter(d=>hitList.includes(d)).length > 0)
+
+                                    }
                                     //thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).parentPrimitiveIds.includes(filter.value)) 
                                 }else if( filter.type === "not_category_level1"){
                                     const hits = [filter.value].flat()
@@ -1626,6 +1635,45 @@ function MainStore (prims){
                                 }
                             }
                             return thisSet || list
+                        }
+                    }
+                    if( prop === "fetchItemsForAction"){
+                        return (options = {})=>{
+
+                            let list = []
+                            let primitive = receiver
+                            let source = options.source ?? primitive
+                            
+                            
+                            let type = primitive.referenceParameters?.type 
+                            const target = primitive.referenceParameters?.target || "children"
+                            const referenceId = primitive.referenceParameters?.referenceId 
+                            
+                            if(target === "descend"){
+                                list = source.primitives.descendants
+                                throw "NOT DONE"
+                            }else if(target === "all_descend"){
+                                list = source.primitives.descendants
+                            }else if(target === "ref"){
+                                list = source.primitives.ref.uniqueAllItems
+                            }else if(target === "children"){
+                                list = source.primitives.uniqueAllItems
+                            }else if(target === "items"){
+                                list = source.itemsForProcessing
+                            }
+                            
+                            if( type ){
+                                list = list.filter((d)=>d.type === type)
+                            }
+                            if( referenceId ){
+                                list = list.filter((d)=>d.referenceId === referenceId)
+                            }
+                            
+                            if( list === undefined){
+                                return []
+                            }
+                            
+                            return list
                         }
                     }
                     if( prop === "itemsForProcessing"){
@@ -2011,7 +2059,8 @@ function MainStore (prims){
             const companies = fetch('/api/companies').then(response => {obj.loadProgress.push('companies');return response.json()})
             const contacts = fetch('/api/contacts').then(response => {obj.loadProgress.push('contacts');return response.json()})
             const categories = fetch('/api/categories').then(response => {obj.loadProgress.push('categories');return response.json()})
-            const primitives = fetch('/api/primitives').then(response => {obj.loadProgress.push('primitives');return response.json()})
+            //const primitives = fetch('/api/primitives').then(response => {obj.loadProgress.push('primitives');return response.json()})
+            const primitives = fetch('/api/primitives').then(response => response.arrayBuffer()).then(buffer => {obj.loadProgress.push('primitives');return unpack(new Uint8Array(buffer))})
             const workspaces = fetch('/api/workspaces').then(response => {obj.loadProgress.push('workspaces');return response.json()})
             const frameworks = fetch('/api/frameworks').then(response => {obj.loadProgress.push('frameworks');return response.json()})
             
