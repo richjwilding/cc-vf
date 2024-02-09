@@ -9,6 +9,9 @@ export default function InfiniteCanvas(props){
     const enablePages =  true
     const enableFlipping = true
     const enableNodePruning = true
+
+    const scaleTriggers = {min: 0.1, max: 3}
+    
     const stageRef = useRef()
     const frameRef = useRef()
     const myState = useRef()
@@ -21,7 +24,7 @@ export default function InfiniteCanvas(props){
 
     const test_items = useMemo(()=>{
         const out = []
-        let cols = 500, rows = 500
+        let cols = 120, rows = 120
         
         for(let i = 0; i < (cols * rows); i++){
             out.push({x: (i % cols), y: Math.floor(i / cols)})
@@ -35,9 +38,8 @@ export default function InfiniteCanvas(props){
             return
         }        
         myState.current ||= {}
-        myState.current.positions = {}
         if( enablePages ){
-            myState.current.pages = {content: {}}
+            myState.current.pages = []
         }
         const w = width / 2
         const h = height / 2
@@ -52,12 +54,18 @@ export default function InfiniteCanvas(props){
 
             if( enablePages){
                 let [px,py] = calcPage( l, t)
-                page = `${px}-${py}`
-                myState.current.pages.content[page] ||= []
-                myState.current.pages.content[page].push( d )
+                let [mx,my] = calcPage( r, b)
+
+                for(let j = py; j <= my; j++){
+                    for(let i = px; i <= mx; i++){
+                        myState.current.pages[i] ||= []
+                        myState.current.pages[i][j] ||= []
+
+                        myState.current.pages[i][j].push(d)
+                    }
+                }
                 d.attrs['page'] = page
             }
-            myState.current.positions[d.attrs.id] = {x1: l, y1:t, x2: r, y2:b, page }
         }
     }
 
@@ -67,7 +75,6 @@ export default function InfiniteCanvas(props){
 
     useLayoutEffect(()=>{
         console.log(stageRef.current)
-       alignViewport(0,0,3,true)
         updateVisibility(0,0)
         return ()=>{
             if( myState.current.allNodes ){
@@ -90,11 +97,8 @@ export default function InfiniteCanvas(props){
         }
         let nodes =  stageRef.current.children[0].children
         let scale = stageRef.current.scale().x
-        if( !myState.current?.positions){
+        if( !myState.current?.pages){
             buildPositionCache()
-            for( const d  of nodes){
-                d.visible(false)
-            }
         }
         x = x 
         y = y 
@@ -131,16 +135,31 @@ export default function InfiniteCanvas(props){
             let pagesToProcess
             if( enableFlipping ){
                 if( enableNodePruning ){
-                    let allPages = pagesToProcess = [lastPages, pages, outer].flat().filter((d,i,a)=>a.indexOf(d)===i)
-                    stageRef.current.children[0].children = allPages.map(d=>myState.current.pages.content[d]).flat().filter(d=>d)
+                    pagesToProcess = [pages, outer].flat().filter((d,i,a)=>a.indexOf(d)===i)
+                }else{
+                    pagesToProcess = [lastPages.filter(d=>!pages.includes(d)), pages.filter(d=>!lastPages.includes(d))].flat()
+                    pagesToProcess = pagesToProcess.concat( outer ).filter((d,i,a)=>a.indexOf(d)===i)
                 }
-                pagesToProcess = [lastPages.filter(d=>!pages.includes(d)), pages.filter(d=>!lastPages.includes(d))].flat()
-                pagesToProcess = pagesToProcess.concat( outer ).filter((d,i,a)=>a.indexOf(d)===i)
             }else{
                 pagesToProcess = [lastPages, pages, outer].flat().filter((d,i,a)=>a.indexOf(d)===i)
             }
 
-            nodes = pagesToProcess.map(d=>myState.current.pages.content[d]).flat().filter(d=>d)
+            const seen = new Set();
+            nodes = [];
+            pagesToProcess.forEach(d => {
+              const [x, y] = d.split("-");
+              const n = myState.current.pages[x]?.[y];
+              if( n){
+                  n.forEach(item => {
+                      const uniqueKey = item._id; // Assuming 'item' has a unique 'id'
+                      if (!seen.has(uniqueKey)) {
+                          seen.add(uniqueKey);
+                          nodes.push(item);
+                        }
+                    });
+                }
+            });
+
 
             myState.current.pages.lastRendered = pages
 
@@ -150,21 +169,30 @@ export default function InfiniteCanvas(props){
         let x2 = x + w
         let y2 = y + h
 
+        const activeNodes = []
 
+                    
 
         for( const d  of nodes){
-            let c = myState.current?.positions[d.attrs.id]
-            let visible = c.x2 > x &&  c.x1 < x2 && c.y2 > y && c.y1 < y2
-            d.visible(visible)
+            let c = d.attrs
+            let visible = (c.width * scale) > 10 && ((c.x + c.width) > x &&  c.x < x2 && (c.y + c.height) > y && c.y < y2)
             if(visible){
                 vis++
                 if( enableNodePruning ){
-                    //d._clearCache('transform');
-                    d._clearSelfAndDescendantCache('absoluteTransform')
+                    if( d.attrs["_txc"] !== myState.current.transformCount){
+                        d._clearSelfAndDescendantCache('absoluteTransform')
+                        d.attrs["_txc"] = myState.current.transformCount
+                    }
+                    activeNodes.push(d)
+                }else{
+                    d.visible(visible)
                 }
             }
         }
-        console.log(`RENDERED ${vis} of ${nodes.length} candidates / ${stageRef.current.children[0].children.length}`)
+        if( enableNodePruning ){
+            stageRef.current.children[0].children = activeNodes
+        }
+        //console.log(`RENDERED ${vis} of ${nodes.length} candidates / ${stageRef.current.children[0].children.length}`)
     }
 
     function alignViewport(tx,ty, scale, forceRescale = false){
@@ -194,17 +222,9 @@ export default function InfiniteCanvas(props){
             const tw = width //* scale
             const th = height //* scale
 
-//            x = Math.max(0,Math.floor(-tx / scale / tw)) * tw
-  //          y = Math.max(0,Math.floor(-ty / scale / th)) * th
 
             let fx = -tx / myState.current.flipping.last.scale * scale 
             let fy = -ty / myState.current.flipping.last.scale * scale
-
-  
-        //    let fhx = Math.max(0,Math.floor(fx / tw)) * tw
-         //   let fhy = Math.max(0,Math.floor(fy / th)) * th
-            
-
 
             let fhx = Math.floor(((fx ) - (myState.current.flipping.last.fsx / myState.current.flipping.last.scale * scale) ) / tw) 
             let fhy = Math.floor(((fy ) - (myState.current.flipping.last.fsy / myState.current.flipping.last.scale * scale) ) / th) 
@@ -220,8 +240,8 @@ export default function InfiniteCanvas(props){
             const refScale = scale / (myState.current.flipping.last.scale ?? 1)
             
             if( isZooming || forceRescale){
-                if( refScale > 1.8 || refScale < 0.2 || forceRescale || myState.current.flipping.last.fhx !== fhx || myState.current.flipping.last.fhy !== fhy){
-                    console.log(`RESET ZOOM`, cx, stageRef.current.x(), scale)
+                if( refScale > scaleTriggers.max || refScale < scaleTriggers.min || forceRescale || myState.current.flipping.last.fhx !== fhx || myState.current.flipping.last.fhy !== fhy){
+                    //console.log(`RESET ZOOM`, cx, stageRef.current.x(), scale)
                     stageRef.current.doneReset = (stageRef.current.doneReset ?? 0) + 1
                     myState.current.flipping.last.scale = scale
                     
@@ -246,7 +266,7 @@ export default function InfiniteCanvas(props){
             }
            if( !isZooming ){
                 if(myState.current.flipping.last.fhx !== fhx || myState.current.flipping.last.fhy !== fhy){
-                    console.log("FLIP", fx - myState.current.flipping.last.fsx, fhx - myState.current.flipping.last.fhx)
+                    //console.log("FLIP", fx - myState.current.flipping.last.fsx, fhx - myState.current.flipping.last.fhx)
                     
                     let q = quantizeFrame( fx, fy)
                     
@@ -276,25 +296,25 @@ export default function InfiniteCanvas(props){
                     doUpdate = true
                     myState.current.flipping.last.cx = cx
                     myState.current.flipping.last.cy = cy
-                    console.log(`UPDATE CHUNK`)
+                    //console.log(`UPDATE CHUNK`)
                 }
             }
 
             if( doUpdate ){
-            console.time("updateVis")
+                //console.time("updateVis")
                 updateVisibility(cx, cy)
-            console.timeEnd("updateVis")
+                //console.timeEnd("updateVis")
                 if( updateStagePosition ){
-                    console.log(`Update stage to ${-vx}, ${-vy} @ ${scale} ${stageRef.current.scale()?.x}`)
-                    console.time("updatePos")
+                    //console.log(`Update stage to ${-vx}, ${-vy} @ ${scale} ${stageRef.current.scale()?.x}`)
+                    //console.time("updatePos")
+                    myState.current.transformCount = (myState.current.transformCount || 0) + 1
                     stageRef.current.position({x:-vx, y: -vy})
-                    console.timeEnd("updatePos")
+                    //console.timeEnd("updatePos")
                 }
-            console.time("draw")
-
+                //console.time("draw")
                 stageRef.current.batchDraw()
-            console.timeEnd("draw")
-                console.log(`DOING REDRAW`)
+                //console.timeEnd("draw")
+                //console.log(`DOING REDRAW`)
             }
 
 
@@ -433,10 +453,11 @@ export default function InfiniteCanvas(props){
                         perfectDrawEnabled={false}
                         listening={false}
                     >
+                    <Rect  id='frame' x={10} y={10} width={760} height={760} stroke="#ff0000" fill='#00ff00'/>
                     {test_items.map((d,idx)=>{
                         const id = `g_${idx}`
-                        return <Group key={id} id={id} x={d.x * 80} y={d.y * 80} width={80} height={80} visible={true}>
-                            <Rect  width={76} height={76} text={`${d.x} / ${d.y}`} stroke="#888"/>
+                        return <Group key={id} id={id} x={d.x * 80} y={d.y * 80} width={80} height={80} visible={enableNodePruning}>
+                            <Rect  width={76} height={76} stroke="#888"/>
                             <Text  x={5} y={2} width={51} height={51} text={`${d.x} / ${d.y}`} fontSize={12}/>
                         </Group>
                     })}
