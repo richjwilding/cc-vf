@@ -460,7 +460,7 @@ export async function queryCrunchbaseOrganizations(terms, options = {}){
                         }
                     }
                     hasResults = true
-                    let exec = await executeConcurrently( lookup.entities, process, options.cancelCheck)
+                    let exec = await executeConcurrently( lookup.entities, process, options.cancelCheck, ()=> count >= target )
                     cancelled = exec?.cancelled
                 }
             }else{

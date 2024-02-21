@@ -35,6 +35,13 @@ export default function PrimtiveReportViewer({primitive, ...props}){
     if( targetResultCategoryId === 37){
         list = list.filter(d=>d.parentPrimitiveIds.includes('659f99bee8f1243ff4d97fa6'))
     }
+    if( primitive.plainId === 262816){
+        list = primitive.task?.primitives.descendants.filter(d=>d.referenceId === 54).flat()
+    }
+    if( primitive.plainId === 273341){
+        list = mainstore.primitive("65cc980a98d8dcc176818703").primitives.allCategory
+    }
+
 
     const [viewerPick, setViewerPick] = useState(list?.[0])
     

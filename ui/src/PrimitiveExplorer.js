@@ -10,7 +10,7 @@ import { useLayoutEffect } from 'react';
 import useDataEvent from './CustomHook';
 import MyCombo from './MyCombo';
 import TooggleButton from './ToggleButton';
-import { roundCurrency } from './RenderHelpers';
+import { renderMatrix, roundCurrency } from './RenderHelpers';
 import SegmentCard, { itemsForGraph, projectData } from './SegmentCard';
 import { exportViewToPdf } from './ExportHelper';
 import DropdownButton from './DropdownButton';
@@ -21,6 +21,7 @@ import InfiniteCanvas from './InfiniteCanvas';
 
 
 const mainstore = MainStore()
+
 
 const encodeFilter = (option, idx, value)=>{
     const val = value ?? option.order?.[idx]
@@ -64,14 +65,14 @@ const encodeFilter = (option, idx, value)=>{
             const struct =  isNaN(axis) ?  primitive.referenceParameters?.explore?.axis?.[axis] : primitive.referenceParameters?.explore?.filters?.[axis]
             if( struct ){
                 if(struct.type === "parameter" ){
-                    return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && d.relationship === struct.relationship && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                    return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && mainstore.equalRelationships(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }else if(struct.type === "question" ){
-                    return axisOptions.find(d=>d.type === struct.type &&  d.relationship === struct.relationship && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
+                    return axisOptions.find(d=>d.type === struct.type &&  mainstore.equalRelationships(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
                 }else if(struct.type === "title"  || struct.type === "type" ){
-                    return axisOptions.find(d=>d.type === struct.type &&  d.relationship === struct.relationship && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                    return axisOptions.find(d=>d.type === struct.type &&  mainstore.equalRelationships(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }
                 const connectedPrim = isNaN(axis) ? primitive.primitives.axis[axis].allIds[0] : primitive.referenceParameters.explore.filters[axis].sourcePrimId
-                return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && d.relationship === struct.relationship && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && mainstore.equalRelationships(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
             }
             return 0
         }
@@ -383,7 +384,20 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 const o = mainstore.primitive(d)
                 process(o.childParameters, o.metadata?.title)
             })
-            out = out.filter((d,i)=>out.findIndex(d2=>d2.type === d.type && d.title === d2.title && d.access === d2.access && d.relationship === d2.relationship ) === i)
+
+            const tasks = mainstore.uniquePrimitives(p.map(d=>d.task))
+            const taskParams = tasks.map(d=>d.itemParameters ?? {}).reduce((a,c)=>{
+                Object.keys(c).forEach((k)=>{
+                    a[k] = {...(a[k] || {}), ...c[k]}
+                })
+                return a
+            })
+            console.log(taskParams)
+            if( Object.keys(taskParams).length > 0){
+                const itemParams = p.map(d=>process(taskParams[d.referenceId], ""))
+            }
+
+            out = out.filter((d,i)=>out.findIndex(d2=>d2.type === d.type && d.title === d2.title && d.access === d2.access && mainstore.equalRelationships(d.relationship, d2.relationship) ) === i)
 
             return out.filter((filter)=>{
                 if( filter.type === "parameter" ){
@@ -431,14 +445,18 @@ export default function PrimitiveExplorer({primitive, ...props}){
             
             const expandOrigin = (nodes, count = 0, relationship)=>{
                 let out = []
-                    const origins = relationship ? mainstore.uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel(relationship,1)).flat(Infinity).filter((d)=>d)) : nodes.map((d)=>!d.isTask && d.origin).filter((d)=>d)
+                    const origins = relationship ? mainstore.uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel(Array.isArray(relationship) ? relationship.slice(-1)[0] : relationship,1)).flat(Infinity).filter((d)=>d)) : nodes.map((d)=>!d.isTask && d.origin).filter((d)=>d)
                     if( relationship ){
                         console.log(origins)
                     }
                     if( origins.length > 0){
                         out = out.concat( txParameters( origins, count + 1, relationship ) )
-                        if( !relationship ){
+                        if( relationship ){
+                            out = out.concat( expandOrigin(origins, count + 1, [relationship, relationship.slice(-1)].flat()) )
+                            out = out.concat( expandOrigin(origins, count + 1, [relationship, "link"].flat()) )
+                        }else{
                             out = out.concat( expandOrigin(origins, count + 1) )
+                            out = out.concat( expandOrigin(origins, count + 1, ["origin", "link"]) )
                         }
                     }
                     const questions = mainstore.uniquePrimitives(mainstore.uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "prompt").map(d => d.origin))
@@ -465,6 +483,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             if( !props.excludeOrigin ){
                 //out = out.concat( txParameters( items.map((d)=>d.origin  === primitive ? undefined : d.origin).filter((d)=>d), "origin"  ) )
                 out = out.concat( expandOrigin(items) )
+                out = out.concat( expandOrigin(items, 0, "link") )
                 if( items[0]?.referenceId === 84){
                     out = out.concat( expandOrigin(items, 0, "partnership_a") )
                     out = out.concat( expandOrigin(items, 0, "partnership_b") )
@@ -472,7 +491,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
             }
         }
-        const final = out.filter((d, idx, a)=>(d.type !== "category") || (d.type === "category" && a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access)) === idx))
+        const final = out.filter((d, idx, a)=>{
+            return (d.type !== "category" ) || (d.type === "category" && a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access)) === idx)
+        })
         const labelled = final.map((d,idx)=>{return {id:idx, ...d}})
         
         if( props.compare ){
@@ -502,14 +523,22 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
 
-    const pickProcess = ( mode )=>{
+    const _pickProcess = ( mode )=>{
         const option = axisOptions[mode]
         if( option ){
             if( option.type === "category"){
                 return (p)=>{
                     let item = p
-                    item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
-                    if( !item ){return undefined}
+                    if( true || option.relationship === "ALL"){
+                        let candidates = [p]
+                        for(let i = 0; i < option.access; i++ ){
+                            candidates = MainStore().uniquePrimitives(candidates.map(d=>d.parentPrimitives).flat())
+                        }
+                        item = candidates.filter(d=>d.parentPrimitiveIds.filter(d=>option.order.includes(d)).length > 0)?.[0]
+                    }else{
+                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                    }
+                    if( !item ){return "_N_"}//}undefined}
                     if( primitive.referenceParameters?.explore?.allowMulti){
                         const matches = item.parentPrimitiveIds.map((d)=>option.order?.indexOf(d)).filter((d,i,a)=>d !== -1 && a.indexOf(d)===i).sort()
                         if( matches.length === 0){
@@ -569,6 +598,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     if( option.parameterType === "number" && typeof(value) === "string"){
                         value = parseFloat(value)
                     }
+                    if( option.parameterType === "boolean"){
+                    }
                     return value
                 }
             }else if( option.type === "specificity"){
@@ -602,6 +633,16 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }
         }
     }
+    const pickProcess = ( mode)=>{
+        const real = _pickProcess(mode)
+        return (p)=>{
+            let r = real(p)
+            if( r === null){
+                r = undefined
+            }
+            return r
+        }
+    } 
     const column = pickProcess( colSelection )
     const row = pickProcess( rowSelection )
 
@@ -690,6 +731,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 ...forFilter.reduce((a,d,idx)=>{a[`filterGroup${idx}` ]=d(p); return a},{})
             }
         })
+        console.log(interim)
+        console.log(axisOptions)
+        console.log(axisOptions.find(d=>d.id === 22)?.relationship)
         
         if( primitive.referenceParameters?.explore?.allowMulti){
             let unpacked = []
@@ -755,7 +799,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     }
 
                 }else{
-                    const thisFilter = encodeFilter( axisOptions[d.option], undefined, Object.keys(d.filter).map(k=>k === "_N_"  ? undefined : k ))
+                    //const thisFilter = encodeFilter( axisOptions[d.option], undefined, Object.keys(d.filter).map(k=>(k === "_N_" || k === "undefined" || k ==="null")  ? undefined : k ))
+                    const thisFilter = encodeFilter( axisOptions[d.option], undefined, Object.keys(d.filter).map(k=>(k === "_N_" || k === undefined || k === "undefined" || k ==="null")  ? undefined : k ))
                     console.log(thisFilter)
                     temp = primitive.filterItems( temp, [thisFilter] )
                     baseFilters.push( thisFilter )
@@ -764,7 +809,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             const ids = temp.map(d=>d.id)
             interim = interim.filter(d=>ids.includes(d.primitive.id ) )
             if( primitive.referenceParameters?.explore?.allowMulti ){
-                interim = interim.filter((d,i,a)=>a.findIndex(d2 => (d.primitive.id === d2.primitive.id) && ((d.column?.idx ?? d.column) === (d2.column?.idx ?? d2.column)) && ((d.row?.idx ?? d.row) === (d2.row?.idx ?? d2.row))) === i)
+                interim = interim.filter((d,i,a)=>a.findIndex(d2 => (d.primitive.id === d2.primitive.id) && ((d.column?.idx) === (d2.column?.idx)) && ((d.row?.idx) === (d2.row?.idx))) === i)
             }
 
         }
@@ -793,7 +838,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     })
                 }).flat()
             }
-            interim = interim.filter((d,i,a)=>a.findIndex(d2=>((d2.column?.idx ?? d2.column) === (d.column?.idx ?? d.column) ) && ((d2.row?.idx ?? d2.row) === (d.row?.idx ?? d.row) ) && d.primitive.id === d2.primitive.id) === i)
+            interim = interim.filter((d,i,a)=>a.findIndex(d2=>((d2.column?.idx) === (d.column?.idx) ) && ((d2.row?.idx ) === (d.row?.idx) ) && d.primitive.id === d2.primitive.id) === i)
         }
 
         return [interim, baseFilters]
@@ -1096,7 +1141,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     }
                     console.log(id)
                     MainStore().sidebarSelect( MainStore().primitive(id), {scope: primitive} )
-                    //MainStore().sidebarSelect( MainStore().primitive(id), {scope: primitive, context: {column: column?.label ?? column ?? "None", row: row?.label ?? row ?? "None"}} )
                 }
             }
         },
@@ -1318,7 +1362,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
             out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].order[i], label: d}))
             console.log(out)
         }else if( axisOptions[field].parameterType === "currency" || axisOptions[field].parameterType === "number"){
-            out = axisOptions[field].labels
+            //out = axisOptions[field].labels
+            out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].values[i], label: d}))
         }else if( axisOptions[field].parameterType === "boolean"   ){
             out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].values[i], label: d}))
         }else if( axisOptions[field].parameterType === "contact" ){
@@ -1326,9 +1371,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
         }else if( axisOptions[field].type === "question" || axisOptions[field].type === "type"  ){
             out = axisOptions[field].labels.map((d,i)=>({idx: axisOptions[field].values[i], label: d}))
         }else{ 
-            out = axisOptions[field].values
+            out = axisOptions[field].values.map((d,i)=>({idx: d, label: d}))
         }
-        console.log(fieldName,out)
         out = out.filter((_,idx)=>!((filter && filter[axisOptions[field].order[idx]]) || (hideNull && myState.current?.[fieldName + "Empty"]?.[axisOptions[field].order[idx]]))) ?? []
 
         return out
@@ -1388,7 +1432,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
             ] ){
                 if( axis?.order && altAxis?.order ){
                     const allowedValues = filter ? axis.order.map((d, idx)=> filter[ d ] ? undefined : axis.values[idx] ).filter(d=>d) : axis.values
-                    console.log(altEmpty, allowedValues)
                     altAxis.order.forEach((alt,idx)=>{
                         if( !altFilter || !altFilter[alt]){
                             const altPresent = list.filter(d=>tester(d, altAxis.values[idx], allowedValues))
@@ -1405,7 +1448,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
         
 
         const columSizing = columns.map((col, cIdx)=>{
-            const inColumn = list.filter(d=>d.column === (col?.idx ?? col))
+            const inColumn = list.filter(d=>d.column === col?.idx)
             let spanColumns = undefined
             let spanRows = undefined
             let nestedCount
@@ -1448,7 +1491,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 }
                 return Math.max(...cc)
             }else{
-                const rowLabels = Object.values(rows).reduce((a,c)=>{a[c?.idx ?? c]=true;return a},{})
+                const rowLabels = Object.values(rows).reduce((a,c)=>{a[c?.idx]=true;return a},{})
                 const byRows = inColumn.reduce((a,c)=>{
                     if( rowLabels[c?.row ]){
                         a[c.row] = (a[c.row] ?? 0) + 1
@@ -1711,6 +1754,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 type: axis.type,
                 subtype: axis.subtype,
                 parameter: axis.parameter,
+                relationship: axis.relationship,
                 access: axis.access,
                 value: undefined
             }
@@ -1792,8 +1836,30 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
     let exploreView
-    if( primitive.plainId === 257045){
-        exploreView = <InfiniteCanvas />
+    let selectionForCategory = selectedBox?.infoPane?.filters ? primitive.filterItems(list.map(d=>d.primitive), selectedBox.infoPane.filters).map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i) : undefined
+
+    if( [161258, 257045].includes(primitive.plainId) ){
+        exploreView = <InfiniteCanvas 
+                            highlights={{
+                                "primitive":"border",
+                                "cell":"background"
+                            }}
+                            callbacks={{
+                                onClick:{
+                                    primitive:(id)=>{
+                                        mainstore.sidebarSelect(id)
+                                    }
+                                }
+                            }}
+                            render={(stageOptions)=>renderMatrix(
+                                                                primitive, 
+                                                                list, {
+                                                                    _primitiveClick: (id)=>alert(id),
+                                                                    columnExtents: columnExtents, 
+                                                                    rowExtents: 
+                                                                    rowExtents, 
+                                                                    ...stageOptions
+                                                                })} />
     }else{
 
     exploreView = 
@@ -1828,7 +1894,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         flat placement='left-end' portal className={`hover:text-ccgreen-800 hover:shadow-md`}/>
                     </div>
                     <div key='category_toolbar' className={`bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 left-4 bottom-4 p-0.5 flex flex-col place-items-start space-y-2 ${showCategoryPane ? "w-[28rem]" :""}`}>
-                        {showCategoryPane && <PrimitiveCard.Categories primitive={primitive} scope={list.map(d=>d.primitive?.id).filter((d,i,a)=>a.indexOf(d)===i)} directOnly hidePanel className='px-4 pt-4 pb-2 w-full h-fit'/>}
+                        {showCategoryPane && <PrimitiveCard.Categories primitive={primitive} scope={selectionForCategory} directOnly hidePanel className='px-4 pt-4 pb-2 w-full h-fit'/>}
                         <DropdownButton noBorder icon={showCategoryPane ? <ArrowDownLeftIcon className='w-5 h-5'/> : <HeroIcon icon='Puzzle' className='w-5 h-5 '/>} onClick={()=>setshowCategoryPane(!showCategoryPane)} flat className={`hover:text-ccgreen-800 hover:shadow-md`}/>
                     </div>
                 <div 
@@ -1845,7 +1911,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                             const cFilterIdx = colFilter === undefined ? idx : colRemap[idx]
                             //console.log(`SETTING HEADER `, myState.current.fontSize )
                             return(
-                            <p key={`rt${col?.idx ?? col}-${update}-${updateNested}-${updateRel}-${updateExtent}`}
+                            <p key={`rt${col?.idx}-${update}-${updateNested}-${updateRel}-${updateExtent}`}
                                 style={{
                                     fontSize: myState.current.fontSize ?? '14px',    
                                     minWidth: myState.current.minWidth ?? "100px",    
@@ -1855,7 +1921,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                     {
                                         props.compare  && axisOptions[colSelection].type === "parent"
                                         ? (axisOptions[colSelection].order?.[cFilterIdx] ?  <PrimitiveCard textSize='lg' compact primitive={mainstore.primitive(axisOptions[colSelection].order[cFilterIdx])} onClick={()=>MainStore().sidebarSelect( mainstore.primitive(axisOptions[colSelection].order[cFilterIdx]) )}/> : "None")
-                                        : (col?.label ?? col ?? "None")
+                                        : (col?.label ?? "None")
                                     }
                             </p>
                         )})}
@@ -1865,12 +1931,12 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         let rowOption = axisOptions[rowSelection]
                         return <React.Fragment>
                             {hasRowHeaders && <p 
-                                key={`ct${row?.idx ?? row}-${update}-${updateNested}-${updateRel}-${updateExtent}`} 
+                                key={`ct${row?.idx}-${update}-${updateNested}-${updateRel}-${updateExtent}`} 
                                 className='touch-none vfbgtitle z-[2] p-2 self-stretch flex justify-center place-items-center text-center !bg-gray-100'>
                                     {
                                         props.compare  && rowOption.type === "parent"
                                         ? (rowOption.order?.[rFilterIdx] ?  <PrimitiveCard compact primitive={mainstore.primitive(rowOption.order[rFilterIdx])} onClick={()=>MainStore().sidebarSelect( mainstore.primitive(rowOption.order[rFilterIdx]) )}/> : "None")
-                                        : (row?.label ?? row ?? "None")
+                                        : (row?.label ?? "None")
                                     }
                             </p>}
                             {layoutColumns.map((column, cIdx)=>{
@@ -1882,7 +1948,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                     subList = filterForCompare( subList, axisOptions[colSelection], cFilterIdx, axisOptions[rowSelection], rFilterIdx)
                                     subList = filterForCompare( subList, axisOptions[rowSelection], rFilterIdx, axisOptions[colSelection], cFilterIdx)
                                 }else{
-                                    subList = list.filter((item)=>item.column === (column?.idx ?? column) && item.row === (row?.idx ?? row))
+                                    //subList = list.filter((item)=>item.column === (column?.idx ?? column) && item.row === (row?.idx ?? row))
+                                    // column && 'idx' in column ? column.idx : column
+
+                                    subList = list.filter((item)=>item.column === column?.idx  && item.row === row?.idx )
                                 }
                                 if( viewConfig?.config?.searchPane ){
                                     subList = subList.sort((a,b)=>a.plainId - b.plainId)
@@ -1899,9 +1968,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                         ...baseFilters
                                     ].filter(d=>d)
                                 }
-                                const thisKey = `${column?.idx ?? column}-${row?.idx ?? row}-${update}-${updateNested}-${updateExtent}`
-                                return <div 
-                                        style={
+                                const thisKey = `${column?.idx}-${row?.idx}-${update}-${updateNested}-${updateExtent}`
+                                    return <div 
+                                            style={
                                             viewAsSegments
                                                 ? 
                                                    ( viewConfig?.parameters?.fixedSpan
@@ -1918,9 +1987,10 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                         id={`${cIdx}-${rIdx}`}
                                         data-MYID={thisKey}
                                         key={thisKey}
-                                        onClick={()=>{
+                                        onClick={(e)=>{
+                                            e.stopPropagation();
                                             console.log( infoPane )
-                                            setSelectedBox({column: cVal,row: rVal })
+                                            setSelectedBox({column: cVal,row: rVal, infoPane })
                                             MainStore().sidebarSelect( primitive, {
                                                 infoPane: infoPane
                                             })}
@@ -2069,7 +2139,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
 
     if( true || viewConfig?.config?.searchPane || primitive.type === "assessment"){
-        return <div className='flex w-full h-0 grow'>
+        return <div 
+            className='flex w-full h-0 grow'
+            onClick={()=>{
+                setSelectedBox(undefined)
+                MainStore().sidebarSelect( undefined)
+            }}
+            >
             {exploreView}
             {showPane === "search" && <SearchPane primitive={primitive} dropParent={targetRef} dropCallback={externalDrop}/>}
             {showPane === "filter" && 

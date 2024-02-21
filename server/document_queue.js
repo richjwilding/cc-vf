@@ -413,7 +413,9 @@ async function processQuestions( data ){
         let extract
         if( primitiveCategory ){
             const field = Object.keys(primitiveCategory.parameters ?? {}).find(d=>primitiveCategory.parameters[d].useAsContent)
-            extract = {plain: primitive.referenceParameters?.[field] ?? ""}
+            if( field ){
+                extract = {plain: primitive.referenceParameters?.[field] ?? ""}
+            }
         }
         
         if( !extract ){

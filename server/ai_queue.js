@@ -468,7 +468,7 @@ async function rollup( primitive, target, action ){
     let list, data
     let redo = []
 
-    if( ["param.aggregateFeatures","param.technology","param.offerings","param.customers"].includes(action.field) ){
+    if( false && ["param.aggregateFeatures","param.technology","param.offerings","param.customers"].includes(action.field) ){
         [list, data] = await getDataForProcessing(primitive, {...action, referenceId: target.referenceParameters?.referenceId, constrainId: target.referenceParameters?.constrainId, field: "param.description"})
         console.log(`-- back ${list.length} / ${data.length}`)
         let idx = 0
@@ -514,7 +514,8 @@ async function rollup( primitive, target, action ){
         if( data.length !== list.length){
             console.log(`Mismatch on data vs list size`)
         }else{
-            let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: action.field})
+            let lastField = action.field.split(".").slice(-1)[0]
+            let embeddings = await Embedding.find({foreignId: {$in: list.map((d)=>d.id)}, type: lastField})
             console.log(`Have ${embeddings.length}`)
             embeddings = embeddings.filter(d=>!redo.includes(d.foreignId))
             console.log(`Noe ${embeddings.length} after checking for redo`)
@@ -530,7 +531,7 @@ async function rollup( primitive, target, action ){
                 const response = await buildEmbeddings(thisItem)
                 if( response.success){
                     const dbUpdate = await Embedding.findOneAndUpdate({
-                        type: action.field,
+                        type: lastField,
                         workspaceId: list[idx].workspaceId,
                         foreignId: list[idx].id
                     },{
@@ -931,7 +932,7 @@ export default function QueueAI(){
                     const source = await Primitive.findOne({_id: job.data.targetId})
                     let [list, data] = await getDataForProcessing(primitive, job.data.action, source)
                     console.log(`got ${list.length} / ${data.length} from ${source.id} - ${source.title}`)
-                    if( false && job.data.action.scope ){
+                    if( job.data.action.scope ){
                         data = data.filter((d,i)=>job.data.action.scope.includes(list[i].id))
                         list = list.filter((d,i)=>job.data.action.scope.includes(d.id))
                         if( data.length !== list.length ){
@@ -949,7 +950,8 @@ export default function QueueAI(){
                                     const task = await primitiveTask( primitive)
                                     const result = await analyzeForClusterPhrases( data, {
                                         //type:primitive.referenceParameters?.listType, 
-                                        type: primitive.referenceParameters?.types ?? action.aiConfig?.[primitive.referenceParameters?.field]?.types ??  "problem statements",
+                                        type: primitive.referenceParameters?.types ?? action.aiConfig?.[primitive.referenceParameters?.field]?.types ??  "problem statement",
+                                        batch: 500,
                                         theme: (primitive.referenceParameters?.theme && primitive.referenceParameters?.theme.trim().length > 0 ? primitive.referenceParameters?.theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics, 
                                         debug: true} )
                                     if( result.success ){
@@ -1159,243 +1161,140 @@ export default function QueueAI(){
                                     if( sourceType.length === 0){
                                         throw "Need a source type description to run"
                                     }
-                                    if( customerType.length === 0){
-                                        throw "Need a customer type description to run"
-                                    }
-                                    
-                                    let mutableList = list.filter(d=>d.referenceParameters?.customers)//.slice(0,50)
-
-                                    // Pass 1 - remove entities that are not relevant for mapping
-                                    console.log(`Have ${mutableList.length} entities to process`)
-                                    const result = await analyzeListAgainstItems( mutableList.map(d=>d.referenceParameters.customers), undefined, {
-                                        opener:"I have a list of companies, here are the customers each serves",
-                                        engine:  primitive.referenceParameters?.engine || action.engine,
-                                        prompt: `For each item in the list determine if the associated company serves ${customerType} `,
-                                        response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the company, a boolean 's' indicating if the company serves ${customerType}, and a 'r' field explaining your rationale in 10 words or less.`,
-                                        asScore: true,
-                                        batch: 100,
-                                        temperature:1,
-                                        engine: 'gpt4p',
-                                        debug: true, debug_content: true
-                                    } )
-                                    console.log( result)
-                                    if( result.success && result.output){
-                                        mutableList = mutableList.filter((d,idx)=>result.output[idx].s)
-                                        console.log(`Now have ${mutableList.length} entities to process`)
-
-                                        for(const category of catOptions){
-                                            const title = categoryList[catId]
-                                            console.log(`Checking for ${category.plainId} - ${title}`)
-                                            const directs = (await primitivePrimitives(category, "ref", "evidence"))
-                                            const directLength = directs.length
-                                            console.log(`-- have ${directs.length} children`)
-
-                                            const process = async (entity, itemId)=>{
-                                                console.log(`Test ${itemId} [${entity.plainId}]`)
-                                                let d = ""
-                                                for(const field of ["description","offerings"]){
-                                                    if(entity.referenceParameters?.[field]){
-                                                        d += `\n${field}: ${entity.referenceParameters?.[field]}.`
-                                                    }
-
-                                                }
-                                                if( d.length === 0){
-                                                    return 
-                                                }
-
-                                                const result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
-                                                    opener: `Here are a list of ${sourceType} faced by ${customerType}`,
-                                                    engine:  primitive.referenceParameters?.engine || action.engine,
-                                                    descriptionType: " a company",
-                                                    prompt2: `For each problem in the list, assess if the problem is solved by the company based on what is stated in the overview.`,
-                                                    response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the problem statement, a boolean 's' indicating if it is clear that the problem is solved for customers of the company, and a 'r' field explaining your rationale in 10 words or less.`,
-                                                    postfix: "END OF LIST",
-                                                    asScore: true,
-                                                    temperature:1,
-                                                    engine: 'gpt4p',
-                                                    debug: true, debug_content: true
-                                                } )
-                                                if( result.success ){
-
-                                                    const filtered = result.output.filter(d=>d.s )
-                                                    const passed = filtered.length
-                                                    const alignment = primitive.referenceParameters?.alignment ?? 0.5
-                                                    
-                                                    const threshold = Math.floor(directLength * alignment)
-                                                    console.log(`met ${passed} vs ${directLength} (threshold = ${alignment} = ${threshold})`)
-                                                    if( passed >= threshold ){
-                                                        await addRelationship( category.id, entity.id, 'ref')
-                                                    }
-                                                }
-                                            }
-                                            await executeConcurrently( mutableList, process)
+                                    let mutableList = list
+                                    if( customerType && customerType.length > 0){
+                                     //   throw "Need a customer type description to run"
+                                        
+                                        mutableList = list.filter(d=>d.referenceParameters?.customers)//.slice(0,50)
+                                        
+                                        // Pass 1 - remove entities that are not relevant for mapping
+                                        console.log(`Have ${mutableList.length} entities to process`)
+                                        const result = await analyzeListAgainstItems( mutableList.map(d=>d.referenceParameters.customers), undefined, {
+                                            opener:"I have a list of companies, here are the customers each serves",
+                                            engine:  primitive.referenceParameters?.engine || action.engine,
+                                            prompt: `For each item in the list determine if the associated company serves ${customerType} `,
+                                            response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the company, a boolean 's' indicating if the company serves ${customerType}, and a 'r' field explaining your rationale in 10 words or less.`,
+                                            asScore: true,
+                                            batch: 100,
+                                            temperature:1,
+                                            engine: 'gpt4p',
+                                            debug: true, debug_content: true
+                                        } )
+                                        console.log( result)
+                                        if( result.success && result.output){
+                                            mutableList = mutableList.filter((d,idx)=>result.output.find(d=>d.i === idx)?.s)
+                                            console.log(`Now have ${mutableList.length} entities to process`)
                                         }
                                     }
-                                    return
-                                }else if( pCategory?.mapMode === "___children" ){
-                                    categoryAlloc = []
-                                    resultMap = {}
-                                    console.log(`MAP BY CHILDREN`)
-                                    let catId = 0
-                                    let summary = []
-                                    let isProblemStatement = false
-                                    
+
                                     for(const category of catOptions){
                                         const title = categoryList[catId]
                                         console.log(`Checking for ${category.plainId} - ${title}`)
-                                        const directs = (await primitivePrimitives(category, "ref", "evidence"))
-                                        const directLength = directs.length
+                                        let directs = (await primitivePrimitives(category, "ref", "evidence"))
                                         console.log(`-- have ${directs.length} children`)
-                                        
+
+                                        let attempts = 4
+                                        async function consolidate(){
+                                            console.log(`Too many items - consolidating attempt ${attempts} remanining`)
+                                            const response = await processPromptOnText( directs.map(d=>d.title), {
+                                                opener: "Here are a list of problem statements",
+                                                prompt: "Create a new list of no more than 50 problem statements by removing duplicates and synthezising the most significant and recurring problems, whilst being careful to not lose important details or nuance from the originals. Each new item should be about 20-30 words max and be of the form 'It sucks that....'.",
+                                                output: "Provide the result as a json object called 'results' containing an array of the new problem statements",
+                                                engine: "gpt3",
+                                                batch: 300
+                                            })
+                                            if( response?.success ){
+                                                directs = response.output.map(d=>({title:d}))
+                                                console.log(`Got ${directs.length} consolidated problems`)
+                                            }else{
+                                                throw "Couldnt rationalize list"
+                                            }
+                                        }
+                                        while( directs.length > 50 && attempts > 0){
+                                            await consolidate()
+                                            attempts--
+                                        }
+                                        const directLength = directs.length
+
                                         const process = async (entity, itemId)=>{
-                                            console.log(`Test ${itemId} [${list[itemId].plainId}]`)
-                                            let result
+                                            console.log(`Test ${itemId} [${entity.plainId}]`)
                                             let d = ""
-                                            for(const field of ["offerings","customers"]){
+                                            for(const field of ["description","offerings"]){
                                                 if(entity.referenceParameters?.[field]){
                                                     d += `\n${field}: ${entity.referenceParameters?.[field]}.`
                                                 }
 
                                             }
-                                            summary[itemId] = d
                                             if( d.length === 0){
                                                 return 
                                             }
 
-                                            if( directs[0]?.referenceId === 10){
-                                                isProblemStatement = true
-                                                result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
-                                                    opener:"Here are a list of Problem statements faced by Small to medium sized businesses when securing financing",
-                                                    engine:  primitive.referenceParameters?.engine || action.engine,
-                                                    descriptionType: " a company",
-                                                    //prompt2: `For each problem in the list, determine if it addressed by the company in the overview, if it applies to customers of the company as stated in overview, or if it is not applicable to the company or the customers of the company as stated in the overview, and if the problem is solved by the company based on what is stated in the overview.`,
-                                                    prompt2: `For each problem in the list, assess if the problem is relevant for customers of the company as stated in overview, and if the problem is solved by the company based on what is stated in the overview.`,
-
-                                                    //response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the problem statement, a boolean 'internal' indicating if the problem is solved for the company, a 'customer' field indicating if the problem is sovled for customers of the company, a 'solved' field indicating if the company solves the job to be done, and a 'reason' field explaining your rationale in 10 words or less.`,
-                                                    response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the problem statement, a boolean 'c' indicating if the problem is relevant for customers of the company, a boolean 's' indicating if it is clear that the problem is solved for customers of the company, and a 'r' field explaining your rationale in 10 words or less.`,
-                                                    postfix: "END OF LIST",
-                                                    asScore: true,
-                                                    temperature:1,
-                                                    engine: 'gpt4p',
-                                                    debug: true, debug_content: true
-                                                } )
-                                            }else{
-                                                result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
-                                                    type:"Jobs to be Done statement",
-                                                    engine:  primitive.referenceParameters?.engine || action.engine,
-                                                    prompt2: `For each Job to be done in the list, determine if it applies to the company in the overview, if it applies to customers of the company as stated in overview, or if it is not applicable to the company or the customers of the company as stated in the overview, and if the job to be done is solved by the company based on what is stated in the overview.`,
-                                                    response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the Jobs to be done, a boolean 'internal' indicating if it applies to the company, a 'customer' field indicating if applies to the stated customers of the company, a 'neither' field indicating if it is applicable to neither, a 'solved' field indicating if the company solves the job to be done, and a 'reason' field explaining your rationale in 10 words or less.`,
-                                                    postfix: "END OF LIST",
-                                                    asScore: true,
-                                                    engine: 'gpt4p',
-                                                    debug: true, debug_content: true
-                                                } )
-                                            }
-                                            
-                                            if( result.success && result.output){
-                                                console.log(`results for ${itemId}\n======================`)
-                                                console.log(result.output)
-                                                //const filtered = result.output.filter(d=>d.solved && d.customer && !d.internal)
-                                                const filtered = result.output.filter(d=>d.s && d.c)
-  //                                              const both = result.output.filter(d=>d.solved && d.customer && d.internal)
-                                                const passed = filtered.length
-//                                                console.log(`met ${filtered.length} (vs ${both.length}) vs ${directLength}`)
-                                                console.log(`met ${filtered.length} vs ${directLength}`)
-                                                const threshold = directLength > 4 ? directLength * 0.5 : 0
-                                                if( passed > threshold ){
-                                                    resultMap[itemId] = resultMap[itemId] || {}
-                                                    resultMap[itemId][catId] = resultMap[itemId][catId] || []
-                                                    
-                                                    resultMap[itemId][catId] = filtered.map(d=>{
-                                                        if( directs[d.i] === undefined || directs[d.i]?.title === undefined){
-                                                            console.log(`GOT NULL`)
-                                                            return undefined
-                                                        }
-                                                        return directs[d.i]?.title
-                                                    }).filter(d=>d)
-
-                                                }
-                                            }
-                                        }
-                                        await executeConcurrently( list, process)
-                                        catId++
-                                    }
-                                    //resultMap = {}
-                                    
-                                    console.log(resultMap)
-                                    const remapped = {}
-                                    for( const dataId of Object.keys(resultMap)){
-                                        const remap = Object.keys(resultMap[dataId]).map((catId)=>{
-                                            return resultMap[dataId][catId].map(d=>{return {title: d, catId: catId}}).filter(d=>d.title)
-                                        }).flat()
-                                        
-                                        
-                                        let result
-                                        let noDirect
-                                        
-                                        if( isProblemStatement){
-                                            result = await analyzeListAgainstItems( remap.map((d)=>d.title), summary[dataId], {
-                                                type:"Problem statement",
+                                            const result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
+                                                opener: `Here are a list of ${sourceType} faced by ${customerType ?? "customers"}`,
                                                 engine:  primitive.referenceParameters?.engine || action.engine,
                                                 descriptionType: " a company",
-                                                prompt2: `Assess which Problem Statements from the list are most directly addressed by the company`,
-                                                response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the selected problem statement, and a 'reason' field with a explanation of your rationale in no more than 6 words`,
+                                                prompt2: `For each problem in the list, assess if the problem is solved by the company based on what is stated in the overview.`,
+                                                response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the problem statement, a boolean 's' indicating if it is clear that the problem is solved for customers of the company, and a 'r' field explaining your rationale in 10 words or less.`,
+                                                postfix: "END OF LIST",
                                                 asScore: true,
+                                                batch:25,
+                                                temperature:1,
                                                 engine: 'gpt4p',
                                                 debug: true, debug_content: true
                                             } )
-                                            console.log(result.output)
-                                            if(result.success && result.output){
-                                                const winner = result.output[0]
-                                                for(const winner of result.output){
-                                                    const category = remap[winner.i]
-                                                    if( category ){
-                                                        console.log(`${dataId} - > ${winner.i} / ${category.catId} = ${winner.direct}`)
-                                                        remapped[dataId] ||= {}
-                                                        remapped[dataId][category.catId] = 5
-                                                    }
+                                            if( result.success ){
+
+                                                const filtered = result.output.filter(d=>d.s )
+                                                const passed = filtered.length
+                                                let alignment = primitive.referenceParameters?.alignment ?? 0.1
+                                                if( directLength > 100 ){
+                                                    alignment *= 0.5
+                                                }
+                                                
+                                                const threshold = Math.floor(directLength * alignment)
+                                                console.log(`met ${passed} vs ${directLength} (threshold = ${alignment} = ${threshold})`)
+                                                if( passed >= threshold ){
+                                                    await addRelationship( category.id, entity.id, 'ref')
                                                 }
                                             }
-                                        }else{
-
-                                            result = await analyzeListAgainstItems( remap.map((d)=>d.title), data[dataId], {
-                                                type:"Jobs to be Done statement",
-                                                engine:  primitive.referenceParameters?.engine || action.engine,
-                                                prompt2: `Assess which Job to Done from the list is most directly addressed by the offering`,
-                                                response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the selected Job to be Done,  a 'user' field set to the end user, a boolean 'direct' field set to true if the stated user of the selected Job to be Done is a direct end customer of the offering - or set to false if the offering would be most likely used by a third party to deliver value indirectly, and a 'reason' field with a explanation of your rationale in no more than 6 words`,
-                                                asScore: true,
-                                                engine: 'gpt4p',
-                                                debug: true, debug_content: true
-                                            } )
-                                            console.log(result.output)
-                                            if(result.success && result.output){
-                                                const winner = result.output[0]
-                                                if(winner){
-                                                    const category = remap[winner.i]
-                                                    if( category ){
-                                                        console.log(`${dataId} - > ${winner.i} / ${category.catId} = ${winner.direct}`)
-                                                        if(winner.direct){
-                                                            remapped[dataId] = {[category.catId]: 5}
-                                                        }
-                                                    }
-                                                }
+                                        }
+                                        await executeConcurrently( mutableList, process)
+                                    }
+                                    return
+                                }else if( pCategory?.mapMode === "evaluate" ){
+                                    let opener = "Here is a list of items"
+                                    if( ! primitive.referenceParameters.evaluation){
+                                        throw "Nothing to evaluate"
+                                    }
+                                    if( primitive.referenceParameters.conditions){
+                                        opener = `Here is some context about a task you will perform: ${primitive.referenceParameters.conditions}.\n\nAnd here is a list of items `
+                                    }
+                                    let prompt = `For each item in the list provided, undertake the following evaluation and assess the likelihood of it being true on the scale of "not at all", "possibly", "likely", "clearly": ${primitive.referenceParameters.evaluation}`
+                                    const result = await processPromptOnText( data, {
+                                        opener,
+                                        prompt,
+                                        output: "Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed and a field called 'likelihood' set to your assessment for that item.  Do not include anything other than the json object in the response.",
+                                        engine: "gpt4p",
+                                        debug: true,
+                                        no_num: false,
+                                        debug_content: true,
+                                        batch: 50
+                                    })
+                                    console.log(result)
+                                    const resultCache = catOptions.reduce((a,c)=>{a[c.title] = c; return a}, {} )
+                                    if( result.success ){
+                                        for(const d of result.output){
+                                            const item = list[d.id]
+                                            let category = resultCache[d.likelihood]
+                                            if( !category ){
+                                                console.log(`WARN: couldnt align`, d)
+                                            }
+                                            if( item && category){
+                                                await addRelationship( category.id, item.id, 'ref' )
                                             }
                                         }
                                     }
-                                    console.log(remapped)
-                                    Object.keys(remapped).forEach(i=>{
-//                                        const category = Object.keys(resultMap[i]).sort((a,b)=>resultMap[i][b] - resultMap[i][a])?.[0]
-                                        for(const category of Object.keys(remapped[i])){
-                                            if( remapped[i][category] > 0 ){
-                                                console.log(remapped[i],category)
-                                                categoryAlloc.push({
-                                                    id: i,
-                                                    category: category
-                                                })
-                                            }
-                                        }
-                                    })
-                                    console.log(`DONE`)
+                                    throw "done"
                                 }
                                 else if( primitive.referenceParameters?.categorizeByTopic ){
                                     categoryAlloc = []
@@ -1503,7 +1402,9 @@ export default function QueueAI(){
     {
         connection: { 
             host: process.env.QUEUES_REDIS_HOST, 
-            port: process.env.QUEUES_REDIS_PORT 
+            port: process.env.QUEUES_REDIS_PORT,
+            maxStalledCount: 0,
+            stalledInterval:300000
         }
     });
     return instance

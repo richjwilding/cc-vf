@@ -530,27 +530,31 @@ export async function nestedItems(primitive){
     }
     return []
 }
-export async function multiPrimitiveAtOrginLevel( list, level, relationship){
+export async function multiPrimitiveAtOrginLevel( list, level, relationship = "origin"){
     const cache = {}
     if( level === 0){
         return list
     }
 
-    const startIds = list.map(d=>primitiveWithRelationship(d, relationship ?? "origin"))
     let inc = 1
     let dec = level
     let ids
+    let isArray = Array.isArray(relationship)
+    const rel = isArray ? relationship[0] : relationship
+    const startIds = list.map(d=>primitiveWithRelationship(d, rel))
+
     do{        
         console.log(`Fetch level ${inc}`)
         const parents = await Primitive.find({
             $and:[
-                {_id: {$in: ids ?? startIds.filter((d,i,a)=>a.indexOf(d)===i)}},
+                {_id: {$in: (ids ?? startIds).filter((d,i,a)=>a.indexOf(d)===i)}},
                 { deleted: {$exists: false}}
             ]
         }, inc === level ? {} : {_id: 1, parentPrimitives: 1})
         ids = []
         for( const p of parents ){
-            const next = primitiveWithRelationship(p, relationship ?? "origin")
+            const rel = isArray ? relationship[inc] : relationship
+            const next = primitiveWithRelationship(p, rel )
             if( !cache[p.id] ){
                 cache[p.id] = {next: next, level: inc}
                 if( inc === level ){
@@ -586,22 +590,6 @@ async function getDataForImport( source, cache = {} ){
     console.log(`Importing from other sources of ${source.plainId} / ${source.id}`)
     const sources = await primitivePrimitives(source, 'primitives.imports')
     console.log(`GOT import from ${sources.map(d=>d.plainId)}`)
-
-    const l1OriginCache = {}
-    const originAtWrapper = async (p, d)=>{
-        if( d !== 1){
-            return await primitiveOriginAtLevel(p, d)
-        }
-        const key = primitiveOrigin( p )
-        const hit = l1OriginCache[key]
-        if( hit ){
-            return hit 
-        }
-        const lookup = await primitiveOriginAtLevel(p, d)
-        l1OriginCache[key] = lookup
-        return lookup
-
-    }
 
     for( const imp of sources){
         let list = []
@@ -669,7 +657,7 @@ async function getDataForImport( source, cache = {} ){
                             const check = [filter.value].flat()
                             const setToCheck = (thisSet || list)
                             console.log(`Filter ref type `, check, invert)
-                            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot)
+                            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
                             
                             let idx = 0
                             for(const d of setToCheck){
@@ -682,48 +670,64 @@ async function getDataForImport( source, cache = {} ){
                         }
                     }
                     if( filter.type === "parameter"){
+                        const setToCheck = (thisSet || list)
+                        let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
+
                         if( filter.value !== undefined){
                             const temp = []
-                            const isArray = Array.isArray( filter.value )
-                            for(const d of (thisSet || list)){
+                            let idx = 0
+                            let toCheck = filter.value
+                            const isArray = Array.isArray( toCheck )
+                            if( isArray ){
+                                toCheck = filter.value.map(d=>d === null ? undefined : d)
+                            }
+                            for(const d of setToCheck){
                                 if( isArray ){
-                                    if( invert ^ filter.value.includes((await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param])) {
+                                    
+                                    if( invert ^ toCheck.includes(lookups[idx]?.referenceParameters?.[filter.param])) {
                                         temp.push(d)
                                     }
                                 }else{
-                                    if( invert ^ (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] === filter.value) {
+                                    if( invert ^ lookups[idx]?.referenceParameters?.[filter.param] === toCheck) {
                                         temp.push(d)
                                     }
                                 }
+                                idx++
                             }
                             thisSet = temp
                         }
                         if( filter.min_value !== undefined && filter.max_value !== undefined){
                                 const temp = []
-                                for(const d of (thisSet || list)){
-                                    const value = (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param]
+                                let idx = 0
+                                for(const d of setToCheck){
+                                    const value = lookups[idx]?.referenceParameters?.[filter.param]
                                     if( invert ^ (value >= filter.min_value && value <= filter.max_value)) {
                                         temp.push(d)
                                     }
+                                    idx++
                                 }
                                 thisSet = temp
                         }
                         else{
                             if( filter.min_value !== undefined ){
                                 const temp = []
-                                for(const d of (thisSet || list)){
-                                    if( invert ^ (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] >= filter.min_value) {
+                                let idx = 0
+                                for(const d of setToCheck){
+                                    if( invert ^ lookups[idx]?.referenceParameters?.[filter.param] >= filter.min_value) {
                                         temp.push(d)
                                     }
+                                    idx++
                                 }
                                 thisSet = temp
                             }
                             if( filter.max_value !== undefined ){
                                 const temp = []
-                                for(const d of (thisSet || list)){
-                                    if( invert ^ (await primitiveOriginAtLevel(d, filter.pivot))?.referenceParameters?.[filter.param] <= filter.max_value) {
+                                let idx = 0
+                                for(const d of setToCheck){
+                                    if( invert ^ lookups[idx]?.referenceParameters?.[filter.param] <= filter.max_value) {
                                         temp.push(d)
                                     }
+                                    idx++
                                 }
                                 thisSet = temp
                             }
@@ -750,27 +754,9 @@ async function getDataForImport( source, cache = {} ){
                             idx++
                         }
                         thisSet = temp
-
-/*
-
-                        const temp = []
-                        let hitList = [filter.value].flat()
-                        if( hitList.includes(undefined) || hitList.includes(null)){
-                            hitList = hitList.filter(d=>d !== undefined && d !== null )
-                            doCat1Check = true
-                        }
-
-
-                        let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot)
-
-                        for(const d of (thisSet || list)){
-                            if( invert ^ Object.keys((await primitiveOriginAtLevel(d, filter.pivot)).parentPrimitives ?? {}).filter(d=>hitList.includes(d)).length > 0){
-                                temp.push(d)
-                            }
-                        }
-                        thisSet = temp*/
                     }
                     if( filter.type === "not_category_level1" || doCat1Check){
+                        console.log(`WARNING - USING OLD primitiveOriginAtLevel`)
                         const hits = doCat1Check ? [filter.sourcePrimId] : [filter.value].flat()
                         let l1Hits = []
                         for( const d of hits){
@@ -813,12 +799,15 @@ async function getDataForImport( source, cache = {} ){
                         const temp = []
                         const promptCache = {}
                         const questionCache = {}
+                        const serachCache = {}
+
+                        const setToCheck = (thisSet || list)
+                        let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
+                        console.log(`Set = ${setToCheck.length} / Lookups = ${lookups.length}`)
+
+                        let idx = 0
                         for(const d of (thisSet || list)){
-                            let item = d
-                            if( filter.pivot > 0 ){
-                                item = await Primitive.findOne({_id:  primitiveOriginAtLevel(d, filter.pivot)})
-                                console.log("pivot back")
-                            }
+                           let item = lookups[idx]
                             if( item ){
                                 let add = false
                                 if( filter.subtype == "question"){
@@ -847,9 +836,15 @@ async function getDataForImport( source, cache = {} ){
                                     }
                                 }
                                 if( filter.subtype == "search"){
-                                    const search = (await primitiveParentsOfType(item, "search"))?.[0]
+                                    let search = Object.keys( item.parentPrimitives ?? {}).filter(d=>serachCache[d])?.[0]
+                                    let id = search
+                                    if( !search){
+                                        search = (await primitiveParentsOfType(item, "search"))?.[0]
+                                        id = search?.id
+                                    }
                                     if( search ){
-                                        if( filter.map.includes( search.id)){
+                                        serachCache[id] = true
+                                        if( filter.map.includes( id )){
                                             add = true
                                         }
                                     }
@@ -859,6 +854,7 @@ async function getDataForImport( source, cache = {} ){
                                 }
 
                             }
+                            idx++
                         }
                         thisSet = temp
                     }
@@ -891,9 +887,17 @@ export async function primitiveOriginAtLevel( primitive, pivot ){
 }
 export async function primitiveListOrigin( list, pivot, parentTypes = undefined, relationship = "origin" ){
     for( let idx = 0; idx < pivot; idx++ ){
-        const originIds = list.map(d=>{
-            return (Object.keys(d.parentPrimitives ?? {})).filter((k)=>d.parentPrimitives[k].includes("primitives." + relationship))[0]
-        }).filter((d,i,a)=>a.indexOf(d)===i)
+        let originIds 
+        
+        if( relationship = "ALL"){
+            originIds = list.map(d=>{
+                return d.parentPrimitives ? Object.keys(d.parentPrimitives) : undefined
+            }).flat(Infinity).filter((d,i,a)=>d && a.indexOf(d)===i)
+        }else{
+            originIds = list.map(d=>{
+                return (Object.keys(d.parentPrimitives ?? {})).filter((k)=>d.parentPrimitives[k].includes("primitives." + relationship))[0]
+            }).filter((d,i,a)=>a.indexOf(d)===i)
+        }
         console.log(`ids = ${originIds.length}`)
 
         const query = {$and:[
@@ -940,7 +944,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
             list = await primitiveDescendents(source, type, {fullDocument:true})
         }
     }else if(target === "all_descend"){
-        list = await primitiveDescendents(source, type, {fullDocument:true, paths: ["origin", "auto", "ref"]})
+        list = await primitiveDescendents(source, type, {fullDocument:true, paths: ["origin", "auto", "ref", "link"]})
     }else if(target === "children"){
         list = startList || await primitiveChildren(source)
     }else if(target === "evidence"){
@@ -1446,7 +1450,18 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             if( command === "summarize"){
                 const category = await Category.findOne({id: action.referenceCategoryId})
                 const source = options.source ? await fetchPrimitive( options.source ) : undefined
-                const [items, toSummarize] = await getDataForProcessing(primitive, {...(action ?? {}), source, ...(category?.openai?.summarize?.source || {})} )
+
+                let items, toSummarize
+
+                if(action.field === 'content'){
+                    toSummarize = (await getDocumentAsPlainText( primitive.id ))?.plain
+                    if( toSummarize ){
+                        toSummarize = toSummarize.split("\n")                        
+                    }
+                    console.log(`GOT CONTENT TO SUMAMRIZE`)
+                }else{
+                    [items, toSummarize] = await getDataForProcessing(primitive, {...(action ?? {}), source, ...(category?.openai?.summarize?.source || {})} )
+                }
                 
                 let summary
                 if( action.prompt ){
@@ -2113,13 +2128,100 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 await findPeopleFromLinkedIn(primitive, options, action)
 
             }
+            if( command === "fetch_company_from_person" ){
+                const task = await primitiveTask( primitive )
+                const resultCategory = action.resultCategory
+                const resultSet = await findResultSetForCategoryId( task, resultCategory)
+                
+                const targetCatgeory = await Category.findOne({id: resultCategory})
+            
+                const linkSet = targetCatgeory?.resultCategories.find((d)=>d.resultCategoryId == primitive.referenceId)?.id
+
+                if( linkSet !== undefined && resultSet !== undefined ){
+                    if( primitive.referenceParameters.experiences){
+                        let idx = 0
+                        let headline = primitive.referenceParameters.headline
+                        if( headline ){
+                            let cIdx = 0
+                            for(const candidate of primitive.referenceParameters.experiences){
+                                let candidate_company = candidate.company?.trim()
+                                candidate_company = candidate_company.replaceAll(/\binc\b/gi,"")
+                                candidate_company = candidate_company.replaceAll(/\binc\.\b/gi,"")
+                                candidate_company = candidate_company.replaceAll(/\bltd\b/gi,"")
+                                candidate_company = candidate_company.replaceAll(/\blimited\b/gi,"")
+                                
+                                if( candidate_company){
+                                    if( headline.toLowerCase().indexOf(candidate_company.toLowerCase()) > -1){
+                                        if( candidate.company_linkedin_profile_url ){
+                                            idx = cIdx
+                                            console.log(`Found headline company at ${cIdx}`)
+                                        }
+                                    }
+                                }
+                                cIdx++
+                            }
+                            const selected = primitive.referenceParameters.experiences[idx]
+                            if( selected ){
+                                let existing = await Primitive.findOne({
+                                    "workspaceId": primitive.workspaceId,
+                                    [`parentPrimitives.${task.id}`]: {$in: ['primitives.origin']},
+                                    deleted: {$exists: false},
+                                    "referenceParameters.linkedIn": selected.company_linkedin_profile_url
+                                })
+                                if( existing ){
+                                    console.log(selected.company_linkedin_profile_url, " already exists")
+                                }else{
+                                    console.log(`Will created from ${selected.company_linkedin_profile_url}`)
+                                    existing = await createPrimitive({
+                                        workspaceId: task.workspaceId,
+                                        parent: task.id,
+                                        paths: ['origin', `results.${resultSet}`],
+                                        data:{
+                                            type: "entity",
+                                            referenceId: resultCategory,
+                                            referenceParameters:{
+                                                linkedIn: selected.company_linkedin_profile_url
+                                            }
+                                        }
+                                    })
+                                }
+                                if( existing ){
+                                    await addRelationship( existing.id, primitive.id, `results.${linkSet}`)
+                                    await addRelationship( existing.id, primitive.id, `link`)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if( command === "fetch_company_from_post" ){
+                const task = await primitiveTask( primitive )
+                const resultCategory = action.resultCategory
+                const resultSet = await findResultSetForCategoryId( task, resultCategory)
+                
+                const targetCatgeory = await Category.findOne({id: resultCategory})
+            
+                const linkSet = targetCatgeory?.resultCategories.find((d)=>d.resultCategoryId == primitive.referenceId)?.id
+
+                if( primitive.referenceParameters.company){
+                    if( resultSet !== undefined ){
+                        const organization = (await resolveAndCreateCompaniesByName([primitive.referenceParameters.company], task, resultCategory, resultSet, false))?.[0]
+                        if( organization){
+                            if( linkSet){
+                                await addRelationship( organization.id, primitive.id, `results.${linkSet}`)
+                            }
+                            await addRelationship( organization.id, primitive.id, `link`)
+                        }
+                    }
+                }
+            }
             if( command === "lookup_author" ){
                 const task = await primitiveTask( primitive )
                 const resultCategory = action.resultCategory
                 const resultSet = await findResultSetForCategoryId( task, resultCategory)
                 console.log(`adding to ${task.id} / results.${resultSet}`)
                 if( resultSet !== undefined ){
-                    const m = primitive.referenceParameters.url.match(/\S+.linkedin.com\/posts\/(.*)_/)
+                    const m = primitive.referenceParameters.url.match(/\S+.linkedin.com\/posts\/(.+?)_/)
                     if( m ){
                         const profileUrl = "https://www.linkedin.com/in/" + m[1]
                         console.log(`${profileUrl} <- ${primitive.referenceParameters.url}}`)
@@ -2133,9 +2235,13 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         if( existing ){
                             console.log(url, " already exists")
                         }else{
-                            const profile_data = await fetchLinkedInProfile(profileUrl)
-                            if( profile_data ){
-                                existing = await addPersonFromProxyCurlData( profile_data, profileUrl, resultCategory, task, resultSet)
+                            try{
+                                const profile_data = await fetchLinkedInProfile(profileUrl)
+                                if( profile_data ){
+                                    existing = await addPersonFromProxyCurlData( profile_data, profileUrl, resultCategory, task, resultSet)
+                                }
+                            }catch(error){
+                                console.log(`Couldnt fetch person profile`)
                             }
                         }
                         if( existing ){
@@ -2677,7 +2783,7 @@ export async function filterEntitiesByTopics( list, topics, key = "description")
     }
     return list
 }
-export async function executeConcurrently(list, process, cancelCheck, concurrencyLimit = 5 ){
+export async function executeConcurrently(list, process, cancelCheck, stopCheck, concurrencyLimit = 5 ){
     let currentIndex = 0;
     let activePromises = []
     let cancelled = false
@@ -2687,6 +2793,11 @@ export async function executeConcurrently(list, process, cancelCheck, concurrenc
     }
     const next = async () => {
         if (currentIndex < list.length) {
+            if(stopCheck && (await stopCheck())){
+                console.log("Stopped")
+                cancelled = true
+                return {results, cancelled}
+            }
             if(cancelCheck && (await cancelCheck())){
                 console.log("Cancelled")
                 cancelled = true
@@ -2694,18 +2805,20 @@ export async function executeConcurrently(list, process, cancelCheck, concurrenc
             }
             const thisIndex = currentIndex++
             const item = list[thisIndex];
-            try{
-                const result = await process(item, thisIndex);
-                results[thisIndex] = result
-            }catch(error){
-               console.log(`Error in concurrent thread`) 
-               console.log(error)
+            if( item){
+                try{
+                    const result = await process(item, thisIndex);
+                    results[thisIndex] = result
+                }catch(error){
+                    console.log(`Error in concurrent thread`) 
+                    console.log(error)
+                }
             }
             await next();
         }
     };
 
-    for (let i = 0; i < concurrencyLimit && i < list.length; i++) {
+    for (let i = 0; i < concurrencyLimit; i++) {
         activePromises.push(next());
     }
     await Promise.all(activePromises);

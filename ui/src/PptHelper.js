@@ -72,12 +72,13 @@ export async function exportKonvaToPptx( stage ){
     function processNode( konvaNode, ox = 0, oy = 0 ){
         const x = ox + konvaNode.x()
         const y = oy + konvaNode.y()
+        let fragmentJoin = " " // "\n"
 
 
         if (konvaNode instanceof Konva.Text) {
             const fontSize = konvaNode.fontSize() * fontScale
 
-            let text = konvaNode.textArr.map(d=>d.text + "\n").join("")
+            let text = konvaNode.textArr.map(d=>d.text).join(fragmentJoin)
 
             slide.addText(text, {
                 x: x * scale,

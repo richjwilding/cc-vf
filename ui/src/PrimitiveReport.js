@@ -3,7 +3,7 @@ import { Stage, Layer, Rect, Text, Transformer, Group, Image, Line } from 'react
 import MainStore from './MainStore';
 import useImage from 'use-image';
 import useDataEvent from './CustomHook';
-import { roundCurrency } from './RenderHelpers';
+import { RenderPrimitiveAsKonva, RenderSetAsKonva, roundCurrency } from './RenderHelpers';
 import { exportKonvaToPptx } from './PptHelper';
 
 let showBoundingBox = false
@@ -60,6 +60,7 @@ function getTokensInString(text) {
     return false;
   }
 function shrinkTextToFit( konvaObject, attributes, startSize ){
+    return
     var sourceTokens = getTokensInString(attributes.text);
     var minFont = 2
     if( startSize ){
@@ -67,130 +68,141 @@ function shrinkTextToFit( konvaObject, attributes, startSize ){
     }
     let size = konvaObject.fontSize()
     
-    console.log(`Start = ${size}`)
+//    console.log(`Start = ${size}`)
     while( (size > minFont) && (konvaObject.getHeight() > attributes.height || hasBrokenWords(sourceTokens, konvaObject.textArr))){
         const newSize = size > 20 ? size - 1 : size > 10 ? size - 0.5 : size * 0.98
         konvaObject.fontSize( newSize );
         size = newSize
-        console.log(`-- ${size}`)
+        //console.log(`-- ${size}`)
     }
-}
-function customRenderer( list, renderId, element, primitive, source){
-    console.log('doing')
-    console.log(list.map(d=>d.plainId).length)
-    let startX = element.render.x + (element.padding ?? 20)
-    let startY = element.render.y + (element.padding ?? 20)
-    let out = []
-    let cx = startX
-    let cy = startY
-    let config = {grid: true, width: 600, height: 160, padding: [10,10,10,10]}
-    if( renderId === 29 ){
-        list = list.sort((a,b)=>(b.referenceParameters?.funding ?? 0) - (a.referenceParameters?.funding ?? 0) )
-    }
-
-    if( renderId === 84 ){
-        const priority = []
-        list = list.filter((item)=>{
-            const partnership_a = item.relationshipAtLevel("partnership_a", 1)?.[0]
-            const partnership_b = item.relationshipAtLevel("partnership_b", 1)?.[0]
-            if( !(partnership_b && partnership_a)){return false}
-            if( !(partnership_b.title && partnership_a.title)){return false}
-            const rejects = ["Not specified", "Various", "unspecified", "dubai", "ahlibank", "european bank for"]
-            if( rejects.filter(d=>partnership_a.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){return false}
-            if( rejects.filter(d=>partnership_b.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){return false}
-            const hits = ["HSBC", "BNP", "BoA", "Bank of America", "Barclays", "Chase", "Goldman Sachs", "Fargo", "JP Morgan","midcap"]
-            if( hits.filter(d=>partnership_a.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){
-                priority.push( item )
-                return false
-            }
-            if( hits.filter(d=>partnership_b.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){
-                priority.push( item )
-                return false
-            }
-            return true
-        })
-        list = [priority, list].flat()
-        list = list.filter((d,i,a)=>{
-            const partnership_a = d.relationshipAtLevel("partnership_a", 1)?.[0]
-            return a.findIndex(d2=>d2.relationshipAtLevel("partnership_a", 1)?.[0].id === partnership_a.id) === i 
-        })
-    }
-    for(const item of list){
-        console.log(`Rendering `, item.plainId)
-        if( (cy + config.height + config.padding[0] - startY ) > element.render.height ){
-            break
-        }
-        if( renderId === 29 ){
-            config = {grid: true, width: 320, height: 150, padding: [10,10,10,10], items: {funding: true}}
-            const size = 65
-            const description = item.referenceParameters?.description
-            const funding = config.items.funding ? (item.referenceParameters?.funding ? `${roundCurrency(item.referenceParameters?.funding)} total funding` : "UNKNOWN FUNDING") : undefined
-            const inset = 15
-            const divideX = config.padding[3] + size + inset + inset
-            const imageX = (inset ) + config.padding[3]
-            const frameWidth = config.width - config.padding[1] - config.padding[3]
-            const frameHeight = config.height - config.padding[0] - config.padding[2]
-            const textX = divideX + (inset * 0.5) 
-            const textWidth = frameWidth - (textX - config.padding[3]) - 10
-            const activeHeight = frameHeight - inset - inset  - (funding ? 20 : 0)
-            const textY = config.padding[0] + inset
-            const imageY = config.padding[0] + inset + ((activeHeight - size) / 2) - 22
-            console.log(activeHeight)
-            out.push(<Group x={cx } y={cy } >
-                <Rect x={config.padding[3]} y={config.padding[0]} width={frameWidth} height={frameHeight} stroke="#f3f3f3"/>
-                <Rect x={divideX} y={config.padding[0]} width={frameWidth - (divideX - config.padding[3])} height={frameHeight} fill="#f3f3f3"/>
-                <Text width={size + inset + inset - 4} y={imageY + size + 8} x={config.padding[3] + 2} text={item.title} align='center' fontSize={12}  fontFamily='Poppins' />
-                <PrimitiveImage x={imageX} y={imageY} size={size} url={`/api/image/${item.id}`}/>
-                <Text x={textX} y={textY} width={textWidth} height={activeHeight} ellipsis align='left' verticalAlign='top' text={description} lineHeight={1.15} fontFamily='Poppins'/>
-                {config.items.funding && <Text x={textX} y={textY + activeHeight} width={textWidth} height={20} align='center' verticalAlign='top' text={funding} fontSize='16' lineHeight={1.1} fill='#888'  fontFamily='Poppins'/>}
-            </Group>)    
-        }
-        if( renderId === 84 ){
-            const partnership_a = item.relationshipAtLevel("partnership_a", 1)?.[0]
-            const partnership_b = item.relationshipAtLevel("partnership_b", 1)?.[0]
-            if( !(partnership_a && partnership_b)){
-                continue
-            }
-            const size = config.height - 50
-            const separation = 100
-            const description = item.referenceParameters.summary 
-            const textX = 30 + config.padding[3] + size + separation + size + 10
-            out.push(<Group x={cx } y={cy } >
-                <Rect x={config.padding[3]} y={config.padding[0]} width={config.width} height={config.height} fill="#f3f3f3"/>
-                <Text width={size} y={30+size} x={20 + config.padding[3]} text={partnership_a.title} align='center' fontSize={12}/>
-                <Text width={size} y={30+size} x={20 + config.padding[3] + size + separation} align="center" text={partnership_b.title}  fontSize={12}/>
-                <Line
-                    x={20 + config.padding[3] + size + (separation / 2)}
-                    y={(config.height / 2) + config.padding[0]}
-                    points={[5, -10, 15, 0, 5, 10]}
-                    stroke="#444"
-                />
-                <Line
-                    x={20 + config.padding[3] + size + (separation / 2)}
-                    y={(config.height / 2) + config.padding[0]}
-                    points={[-5, -10, -15, 0, -5, 10]}
-                    stroke="#444"
-                />
-                <PrimitiveImage x={20 + config.padding[3]} y={config.padding[0] + 10} size={size} url={`/api/image/${partnership_a.id}`}/>
-                <PrimitiveImage x={20 + config.padding[3] + size + separation} y={config.padding[0] + 10} size={size} url={`/api/image/${partnership_b.id}`}/>
-                <Text x={textX} y={config.padding[0] + 20} width={config.width - 30 - textX} height={config.height - 40} align='center' verticalAlign='middle' text={description} lineHeight={1.1}/>
-            </Group>)    
-        }
-        cx += config.width  + config.padding[1] + config.padding[3]
-        if( (cx + config.width - startX) > element.render.width ){
-            cx = startX 
-            cy += config.height + config.padding[0] + config.padding[2]
-        }
-    }
-    return <React.Fragment>{out}</React.Fragment>
 }
 
 const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, ...props}, ref){
     const stage = useRef()
     const trRef = useRef()
+    const myState = useRef({manualList: {}})
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [rInstance, setRInstance] = useState(  )
     const [selected, setSelected] = useState()
+
+    function customRenderer( list, renderId, element, primitive, source, stage, commonAttrs){
+
+        if( element.content?.config){
+            var group = RenderSetAsKonva( element, list, {...element.content,...element.render, x:0, y: 0, imageCallback: ()=>stage.current.batchDraw()} )
+            myState.current.manualList[element.id] = group
+            return <Group id={`o${element.id}`} {...commonAttrs} />
+        }
+
+        console.log('doing')
+        console.log(list.map(d=>d.plainId).length)
+        let startX = element.render.x + (element.padding ?? 20)
+        let startY = element.render.y + (element.padding ?? 20)
+        let out = []
+        let cx = startX
+        let cy = startY
+        let config = {grid: true, width: 600, height: 160, padding: [10,10,10,10]}
+        if( renderId === 29 ){
+            list = list.sort((a,b)=>(b.referenceParameters?.funding ?? 0) - (a.referenceParameters?.funding ?? 0) )
+        }
+
+        if( renderId === 84 ){
+            const priority = []
+            list = list.filter((item)=>{
+                const partnership_a = item.relationshipAtLevel("partnership_a", 1)?.[0]
+                const partnership_b = item.relationshipAtLevel("partnership_b", 1)?.[0]
+                if( !(partnership_b && partnership_a)){return false}
+                if( !(partnership_b.title && partnership_a.title)){return false}
+                const rejects = ["Not specified", "Various", "unspecified", "dubai", "ahlibank", "european bank for"]
+                if( rejects.filter(d=>partnership_a.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){return false}
+                if( rejects.filter(d=>partnership_b.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){return false}
+                const hits = ["HSBC", "BNP", "BoA", "Bank of America", "Barclays", "Chase", "Goldman Sachs", "Fargo", "JP Morgan","midcap"]
+                if( hits.filter(d=>partnership_a.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){
+                    priority.push( item )
+                    return false
+                }
+                if( hits.filter(d=>partnership_b.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){
+                    priority.push( item )
+                    return false
+                }
+                return true
+            })
+            list = [priority, list].flat()
+            list = list.filter((d,i,a)=>{
+                const partnership_a = d.relationshipAtLevel("partnership_a", 1)?.[0]
+                return a.findIndex(d2=>d2.relationshipAtLevel("partnership_a", 1)?.[0].id === partnership_a.id) === i 
+            })
+        }
+        for(const item of list){
+            //console.log(`Rendering `, item.plainId)
+            if( (cy + config.height + config.padding[0] - startY ) > element.render.height ){
+                break
+            }
+            if( renderId === 29 ){
+                //config = {grid: true, width: 230, height: 120, padding: [10,10,10,10], items: {funding: false}}
+                config = {grid: true, width: 300, height: 130, padding: [5,5,5,5], items: {funding: true}}
+                const size = 45
+                const description = item.referenceParameters?.description
+                const funding = config.items.funding ? (item.referenceParameters?.funding ? `${roundCurrency(item.referenceParameters?.funding)} total funding` : "UNKNOWN FUNDING") : undefined
+                const inset = 15
+                const divideX = config.padding[3] + size + inset + inset
+                const imageX = (inset ) + config.padding[3]
+                const frameWidth = config.width - config.padding[1] - config.padding[3]
+                const frameHeight = config.height - config.padding[0] - config.padding[2]
+                const textX = divideX + (inset * 0.5) 
+                const textWidth = frameWidth - (textX - config.padding[3]) - 10
+                const activeHeight = frameHeight - inset - inset  - (funding ? 10 : 0)
+                const textY = config.padding[0] + inset
+                const imageY = config.padding[0] + inset + ((activeHeight - size) / 2) - 22
+             //   console.log(activeHeight)
+                out.push(<Group x={cx } y={cy } >
+                    <Rect x={config.padding[3]} y={config.padding[0]} width={frameWidth} height={frameHeight} stroke="#f3f3f3"/>
+                    <Rect x={divideX} y={config.padding[0]} width={frameWidth - (divideX - config.padding[3])} height={frameHeight} fill="#f3f3f3"/>
+                    <Text width={size + inset + inset - 4} y={imageY + size + 8} x={config.padding[3] + 2} text={item.title} align='center' fontSize={10}  fontFamily='Poppins' />
+                    <PrimitiveImage x={imageX} y={imageY} size={size} url={`/api/image/${item.id}`}/>
+                    <Text x={textX} y={textY} width={textWidth} height={activeHeight} ellipsis align='left' verticalAlign='top' fontSize={11} text={description} lineHeight={1.15} fontFamily='Poppins'/>
+                    {config.items.funding && <Text x={textX} y={textY + activeHeight} width={textWidth} height={10} align='center' verticalAlign='top' text={funding} fontSize={10} lineHeight={1.1} fill='#888'  fontFamily='Poppins'/>}
+                </Group>)    
+            }
+            if( renderId === 84 ){
+                const partnership_a = item.relationshipAtLevel("partnership_a", 1)?.[0]
+                const partnership_b = item.relationshipAtLevel("partnership_b", 1)?.[0]
+                if( !(partnership_a && partnership_b)){
+                    continue
+                }
+                const size = config.height - 50
+                const separation = 100
+                const description = item.referenceParameters.summary 
+                const textX = 30 + config.padding[3] + size + separation + size + 10
+                out.push(<Group x={cx } y={cy } >
+                    <Rect x={config.padding[3]} y={config.padding[0]} width={config.width} height={config.height} fill="#f3f3f3"/>
+                    <Text width={size} y={30+size} x={20 + config.padding[3]} text={partnership_a.title} align='center' fontSize={12}/>
+                    <Text width={size} y={30+size} x={20 + config.padding[3] + size + separation} align="center" text={partnership_b.title}  fontSize={12}/>
+                    <Line
+                        x={20 + config.padding[3] + size + (separation / 2)}
+                        y={(config.height / 2) + config.padding[0]}
+                        points={[5, -10, 15, 0, 5, 10]}
+                        stroke="#444"
+                    />
+                    <Line
+                        x={20 + config.padding[3] + size + (separation / 2)}
+                        y={(config.height / 2) + config.padding[0]}
+                        points={[-5, -10, -15, 0, -5, 10]}
+                        stroke="#444"
+                    />
+                    <PrimitiveImage x={20 + config.padding[3]} y={config.padding[0] + 10} size={size} url={`/api/image/${partnership_a.id}`}/>
+                    <PrimitiveImage x={20 + config.padding[3] + size + separation} y={config.padding[0] + 10} size={size} url={`/api/image/${partnership_b.id}`}/>
+                    <Text x={textX} y={config.padding[0] + 20} width={config.width - 30 - textX} height={config.height - 40} align='center' verticalAlign='middle' text={description} lineHeight={1.1}/>
+                </Group>)    
+            }
+            cx += config.width  + config.padding[1] + config.padding[3]
+            if( (cx + config.width - startX) > element.render.width ){
+                cx = startX 
+                cy += config.height + config.padding[0] + config.padding[2]
+            }
+        }
+        return <React.Fragment>{out}</React.Fragment>
+    }
+
 
     const exportToPptx = ()=>{
         console.log(`EXPORTING`)
@@ -239,14 +251,27 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
     }, [primitive.id, source.id])
     
     useLayoutEffect(()=>{
+        //    console.log(`STARTING UP`, primitive.id, source.id, selected?.id, rInstance?.id, trRef.current,  update)
         if( stage.current ){
             for(const element of elements){
                 const kO = stage.current.find(`#${element.id}`)?.[0]
-                if( kO ) {
+                if( kO && kO.text ) {
                     shrinkTextToFit( kO, {id: element.id, height: element.render?.height ?? 50, text: kO.text() }, element.render?.fontSize ?? 16)
                 }
             }
 
+            
+            if( myState.current.manualList){
+                Object.keys(myState.current.manualList).forEach(d=>{
+                    const node = stage.current.find(`#o${d}`)?.[0]
+                    console.log(`Rendering manual for `, node)
+                    if( node ){
+                        node.removeChildren()
+                        node.add(myState.current.manualList[d] )
+                    }
+                })
+                stage.current.batchDraw()
+            }
         }
         if( trRef.current ){
             const kO = stage.current.find(`#${selected.id}`)?.[0]
@@ -256,6 +281,10 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
             if( textNode ){
                 selected.text = textNode.text()
             }
+        }
+
+        return ()=>{
+            console.log(`Cleaning up`)
         }
     },[ primitive.id, source.id, selected?.id, rInstance?.id, trRef.current,  update ])
 
@@ -321,6 +350,9 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                     let items = [source]
                     if( d.referenceParameters?.target ){
                         items = items.map(d2=>d.fetchItemsForAction({source: d2})).flat(Infinity)
+                        if( d.referenceParameters.parentFilterId){
+                            items = items.filter(d2=>d2.parentPrimitiveIds.includes(d.referenceParameters.parentFilterId))
+                        }
                     }
                     const out = []
                     let needCustomRender = false
@@ -334,6 +366,8 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                                     rInstance.setField(`computeCache.${d.id}`, "_FETCHING_")
                                     fetchData(d)
                                 }else{
+
+                                    text = (d.content?.caption ? d.content?.caption + "\n\n" : "") + text
                                     if( d.content.compute === "extract"){
                                         if( Array.isArray(text)){
                                             items = text.map(d=>MainStore().primitive(d))
@@ -368,7 +402,7 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                                 if(e.evt.altKey || e.evt.shiftKey){
                                         fetchData(d)
                                 }
-                                selectElement({id: `bb${d.id}`, textId: d.id})
+                                selectElement({id: `bb${d.id}`, textId: `tt${d.id}`})
                             }}
                             onTransform={(e) => {
                                 const node = stage.current.find(`#${selected.id}`)?.[0]
@@ -414,10 +448,13 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                             draggable
                             onDragMove={(e) => {
                                 const node = stage.current.find(`#${selected.textId}`)?.[0]
-                                node.setAttrs({
-                                    x: e.target.x(),
-                                    y: e.target.y(),
-                                  });
+                                if( node ){
+
+                                    node.setAttrs({
+                                        x: e.target.x(),
+                                        y: e.target.y(),
+                                    });
+                                }
 
                             }}
                             onDragEnd={(e) => {
@@ -431,9 +468,9 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                             }}
                         
                         />
-                        {needCustomRender && customRenderer(items, needCustomRender, d, primitive, source)}
+                        {needCustomRender && customRenderer(items, needCustomRender, d, primitive, source, stage, commonAttrs)}
                         {!needCustomRender && <Text 
-                            key={d.id} 
+                            key={"tt" + d.id} 
                             onClick={(e)=>{
                                if(e.evt.altKey || e.evt.shiftKey){
                                     fetchData(d)

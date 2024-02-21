@@ -15,7 +15,7 @@ import { encode } from "gpt-3-encoder";
 import { buildEmbeddings } from "./openai_helper";
 import Parser from '@postlight/parser';
 import csv from 'csv-parser';
-import { dispatchControlUpdate } from "./SharedFunctions";
+import { dispatchControlUpdate, executeConcurrently } from "./SharedFunctions";
 import { storeDocumentEmbeddings } from "./DocumentSearch";
 import * as cheerio from 'cheerio';
 
@@ -1398,32 +1398,13 @@ export async function queryGoogleSERP(keywords, options = {}){
 
             let lookup = options.override ? {links: [{title:"test", snippet: options.override.snippet, url: options.override.url}]} : (await fetchLinksFromWebQuery(query, searchOptions))
             if( lookup && lookup.links ){
-                let out = lookup.links
-                    if( out ){
-                        hasResults = true
-                        const next = async () => {
-                            if (currentIndex < out.length) {
-                                if(options.cancelCheck && (await options.cancelCheck())){
-                                    console.log("Cancelled")
-                                    cancelled = true
-                                    return
-                                }
-                                const item = out[currentIndex++];
-                                await processItem(item);
-                                await next();
-                            }
-                        };
-
-                        for (let i = 0; i < concurrencyLimit && i < out.length; i++) {
-                            activePromises.push(next());
-                        }
-                        await Promise.all(activePromises);
-                    }
+                let exec = await executeConcurrently( lookup.links, processItem, options.cancelCheck, ()=> count >= target)
+                cancelled = exec?.cancelled
             }
             console.log(hasResults, count, target)
             if( !cancelled && (hasResults && count < target) ){
                 if( lookup.nextPage){
-                    console.log(lookup.nextPage)
+                    console.log('Do next page check', lookup.nextPage)
                     if( lookup.nextPage < maxPage){
                         await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame})
                     }
@@ -1711,10 +1692,10 @@ export async function fetchURLAsTextAlternative( url, options = {} ){
                         returnDomByDefault: false
                     },
                     selectors: [
-                      //  { selector: 'a', format: 'skip' },
+                        { selector: 'a', format: 'skip' },
                         { selector: 'input', format: 'skip' },
                         { selector: 'img', format: 'skip' },
-                        //{ selector: 'button', format: 'skip' },
+                        { selector: 'button', format: 'skip' },
                         //{ selector: '[class*=nav]', format: 'skip' }
                     ]
                 }
@@ -1722,8 +1703,10 @@ export async function fetchURLAsTextAlternative( url, options = {} ){
                 if( text ){
                     let parts = text.split('\n').filter(d=>d && d.length > 0)
                     let title = parts.shift()
-                    const fullText = parts.join("\n")
-                    if( fullText.length === 0){
+                    let fullText = parts.join("\n").replaceAll(/\[\s*(https?:\/\/[^\]]+)\s*\]/g,"")
+                    fullText = fullText.replace(/ +/g, ' ');
+                    fullText = fullText.replace(/\n+/g, '\n');
+                    if( fullText.length < 25){
                         return undefined
                     }
                     return{
@@ -1780,10 +1763,10 @@ export async function fetchURLPlainText( url, asArticle = false ){
         const attempts = [
             //{title: "Article", exec: asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
             //{title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
-        //    {title: "zenRows 1", exec: async ()=>await fetchURLAsTextAlternative( url )},
-         /*   {title: "zenRows 2", exec: async ()=>await fetchURLAsTextAlternative( url,{
+            {title: "zenRows 1", exec: async ()=>await fetchURLAsTextAlternative( url )},
+            {title: "zenRows 2", exec: async ()=>await fetchURLAsTextAlternative( url,{
                         'js_render': 'true',
-                    } )},*/
+                    } )},
             {title: "zenRows 3", exec: async ()=>await fetchURLAsTextAlternative( url,{
                         'js_render': 'true',
                         'premium_proxy': 'true',
@@ -1797,7 +1780,8 @@ export async function fetchURLPlainText( url, asArticle = false ){
             console.log("Trying " + attempt.title)
             result = await attempt.exec()
             if( result ){
-                console.log(result)
+                console.log("Success " + attempt.title)
+//                console.log(result)
                 return result
             }
         }

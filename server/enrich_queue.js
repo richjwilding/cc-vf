@@ -356,7 +356,7 @@ export default function EnrichPrimitive(){
                 console.log(`Skipping discovery fro ${primitive.id}`)
                 return
             }
-            let urls = await site_discovery(primitive, {...options, onlyURLs: true, limit: 10})
+            let urls = await site_discovery(primitive, {...options, onlyURLs: true, limit: options.count ?? 6})
             if( !urls || urls.length === 0 ){
                 return
             }
@@ -377,14 +377,16 @@ export default function EnrichPrimitive(){
                 const results = await processPromptOnText( text,{
                     opener: `here is the text from the webpage of a company called ${company}:`,
                     prompt: `Produce a summary of the companies offerings, target customers, markets and capabilities using only information explicity mentioned in the text i have provided.`,
-                    output: `Return the result in a json object called "result" with a field called 'description' containing a summary of the company in no more than 100 words (if present), an 'offerings' field containing an array of offerings with each array entry being no more than 10 words  (if present), a 'markets' field containing an array of geographical markets the company operates in with each array entry being no more than 10 words (if present), an 'customers' field containing an array of target customers with each array entry being no more than 10 words (if present), a 'capabilities' field containing an array of capabilities with each array entry being no more than 10 words (if present),`,
+                    output: `Return the result in a json object called "result" with a field called 'description' containing a summary of the company in no more than 100 words (if present), an 'offerings' field containing an array of offerings with each array entry being no more than 10 words  (if present), a 'customers' field containing an array of target customers with each array entry being no more than 10 words (if present), a 'capabilities' field containing an array of capabilities with each array entry being no more than 10 words (if present),`,
+                    //output: `Return the result in a json object called "result" with a field called 'description' containing a summary of the company in no more than 100 words (if present), an 'offerings' field containing an array of offerings with each array entry being no more than 10 words  (if present), a 'markets' field containing an array of geographical markets the company operates in with each array entry being no more than 10 words (if present), an 'customers' field containing an array of target customers with each array entry being no more than 10 words (if present), a 'capabilities' field containing an array of capabilities with each array entry being no more than 10 words (if present),`,
                     engine: "gpt4p",
                     field: "result"
                 })
                 console.log(results)
                 if( results.success ){
                     console.log("here")
-                    for(const field of ["description","offerings", "customers", "capabilities", "markets"]){
+                    //for(const field of ["description","offerings", "customers", "capabilities", "markets"]){
+                    for(const field of ["description","offerings", "customers", "capabilities"]){
                         const v = results.output?.[0]?.[field]
                         if(v){
                             console.log(`update ${field}`, v)
@@ -404,6 +406,9 @@ export default function EnrichPrimitive(){
     async function site_discovery(primitive, options){
                 const param = options.parameter ?? "url"
                 let url = primitive.referenceParameters?.[param]
+                if( !url ){
+                    return
+                }
                 console.log(param, url)
                 if( !url.match(/^\D+:\/\// )){
                     url = "https://" + url
@@ -459,8 +464,8 @@ export default function EnrichPrimitive(){
                                 const result = await categorize( urlMap, catList.map(d=>d.description),{
                                     longType: "items containing two fieds - a url of a weblink and the descriptive text for the link",
                                     matchPrompt: `For each item you must assess the best match with a category from the supplied list using information from the weblink and/or descriptive text, or determine if there is a not a strong match. Ignore any links that are most likely about shopping, purchasing, delivery, ecommerce listing or other ecommerce activities`,
-                                    engine: "gpt4p",
-                                    maxTokens: 80000,
+                                   // engine: "gpt4p",
+                                   // maxTokens: 80000,
                                     debug: true
                                 })
                                 if( result ){

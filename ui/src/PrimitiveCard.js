@@ -883,7 +883,15 @@ const Parameters = function({primitive, ...props}){
     }
   }, [])
 
-  let parameters = props.showParents && primitive.origin ? (primitive.origin.childParameters || PrimitiveConfig.metadata[primitive.origin.type]?.parameters) : (primitive.metadata?.parameters || PrimitiveConfig.metadata[primitive.type]?.parameters)
+  let parameters = (primitive.metadata?.parameters || PrimitiveConfig.metadata[primitive.type]?.parameters)
+  if( props.showParents ){
+    parameters = undefined
+    if( primitive.origin && primitive.origin.childParameters){
+      parameters = primitive.origin.childParameters
+    }else if( primitive.task && primitive.task.itemParameters?.[primitive.referenceId]){
+      parameters = primitive.task.itemParameters[primitive.referenceId]
+    }
+  } 
   let source = primitive.referenceParameters 
   
   if( !parameters ){ return <></> }
@@ -1152,7 +1160,7 @@ const Details = function({primitive, ...props}){
   const eventTracker = useDataEvent(props.noEvents ? undefined : ["set_parameter","set_field"], primitive.id )
   let metadata = primitive.metadata
   let parameters = primitive.metadata?.parameters || undefined
-  let showParents = primitive.origin?.childParameters
+  let showParents = primitive.origin?.childParameters || primitive.task?.itemParameters?.[primitive.referenceId]
   if( !parameters && !primitive.parentParameters ){ return <></> }
   
   const panelTitle = <>{props.title || "Details"}{metadata.do_discovery && <AIProcessButton active="document_discovery" primitive={primitive} process={(p)=>p.analyzer().doDiscovery({force: true})}/>}</>
@@ -1296,7 +1304,7 @@ const Categories = function({primitive, ...props}){
   }
     
   let button
-  const baseCategories = [53,55,33]
+  const baseCategories = [53,55,33, 90]
 
   let createButtons = [
                           {title:"Create new", small:true, action: ()=>createCategory()},

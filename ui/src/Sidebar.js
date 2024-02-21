@@ -192,7 +192,7 @@ export function Sidebar({primitive, ...props}) {
         }
         
         const categoryType = items.map(d=>d.metadata).filter((d,i,a)=>d&& a.findIndex(d2=>d2.id==d.id) ===i)
-        const nestedActions = categoryType.map(d=>d.actions?.filter(d=>d.menu)).flat() ?? []
+        const nestedActions = categoryType.map(d=>d.actions?.filter(d=>d.collectionAction || d.showInCollection)).flat() ?? []
 
 
         infoPaneContent = <div className='p-4 space-y-2'>
@@ -368,6 +368,12 @@ export function Sidebar({primitive, ...props}) {
                             }}
                         />
                     </Panel>
+                }
+                {primitive.parentPrimitiveRelationships["link"] && showSource &&
+                    <div className='mt-6 mb-3 border-t'>
+                        <h3 className="mb-2 text-md text-gray-400 pt-2">Linked to</h3>
+                        <PrimitiveCard primitive={primitive.parentPrimitiveRelationships["link"][0]} showState={true} showLink={true} showDetails="panel"/>
+                    </div>
                 }
                 {origin && showSource &&
                     <div className='mt-6 mb-3 border-t'>

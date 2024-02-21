@@ -68,6 +68,7 @@ function App() {
   }, [])
 
   const selectPrimitive = (primitive, options)=>{
+    console.log(primitive)
     if( primitive === null){
       setOpen(false)
       setOverlay(false)

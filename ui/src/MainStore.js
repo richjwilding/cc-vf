@@ -1152,10 +1152,10 @@ function MainStore (prims){
     const uniquePrimitives = (list) => {
         const ids = new Set();
         return list.filter((p) => {
-            /*if (p === undefined) {
-                console.warn(`undefined primitive`);
+            if (p === undefined) {
+             //   console.warn(`undefined primitive`);
                 return false;
-            }*/
+            }
             if (ids.has(p.id)) {
                 return false;
             }
@@ -1163,16 +1163,23 @@ function MainStore (prims){
             return true;
         });
     };
-    const __uniquePrimitives = (list)=>{
-        let ids = {}
-        return list.filter((p)=>{
-            if(p=== undefined){console.warn(`undefined prim`)}
-            if( ids[p.id] ){return false}
-            ids[p.id] = true
-            return p
-        })
-    }
     obj.uniquePrimitives = uniquePrimitives
+    const equalRelationships = (or1,or2)=>{
+        if( or1 === or2){
+            return true
+        }
+        let r1 = [or1].flat()
+        let r2 = [or2].flat()
+    
+        if(r1.length !== r2.length){
+            return false
+        }
+        const setR2 = new Set(r2);
+
+        return r1.every(element => setR2.has(element));
+
+    }
+    obj.equalRelationships = equalRelationships
     const primitive_access = (d, type)=>{
         if( d._id){
             d.id = d._id
@@ -1254,7 +1261,7 @@ function MainStore (prims){
                         if(parameterName === "state"){
                             return true
                         }
-                        const parameters = {...receiver.metadata?.parameters, ...(receiver.origin?.childParameters || {})}
+                        const parameters = {...receiver.metadata?.parameters, ...(receiver.origin?.childParameters || {}), ...(receiver.task?.itemParameters?.[receiver.referenceId] || {})}
                         if( Object.keys(parameters).length === 0 ){
                             return false
                         }
@@ -1485,16 +1492,25 @@ function MainStore (prims){
                 }
 
                 if( prop === "relationshipAtLevel"){
-                    return function(relationship, level){
+                    return function(original, level = 0){
                         if(level === 0){
                             return [receiver]
                         }
                         let out = []
-                        const parents = receiver.parentPrimitiveRelationships[relationship]
+                        let relationship = original
+                        let fwdArray
+
+                        if( Array.isArray(original)){
+                            fwdArray = [original].flat()
+                            level = fwdArray.length
+                            relationship = fwdArray.shift()
+                        }
+                        
+                        const parents = relationship === "origin" ? [receiver.origin] : receiver.parentPrimitiveWithRelationship(relationship)
                         if( parents ){
                             out = uniquePrimitives(parents)
                             if( level > 1){
-                                out = uniquePrimitives(parents.map(d=>d.relationshipAtLevel(relationship, level - 1, false)).flat(Infinity).filter(d=>d))
+                                out = uniquePrimitives(parents.map(d=>d.relationshipAtLevel(fwdArray ? fwdArray : relationship, level - 1, false)).flat(Infinity))
                             }
                         }
                         return out
@@ -1567,7 +1583,8 @@ function MainStore (prims){
                             const notCat1 = (list, hits, filter)=>{
                                 const invert = filter.invert ?? false
                                 const l1Hits = hits.map(d=>obj.primitive(d)?.primitives?.allCategory).flat().map(d=>d.id)
-                                return list.filter(d=>invert ^ !d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0)
+                                return list.filter(d=>invert ^ !d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0)
+                                //return list.filter(d=>invert ^ !d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0)
                             }
 
                             for( const filter of filters){
@@ -1597,39 +1614,52 @@ function MainStore (prims){
                                 }else if( filter.type === "type"){
                                     if( filter.map !== undefined){
                                         if( Array.isArray(filter.map)){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes(d.originAtLevel(filter.pivot).referenceId))
+                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes(d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceId))
+                                            //thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes(d.originAtLevel(filter.pivot).referenceId))
                                         }else{
-                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceId === filter.map)
+                                            thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceId === filter.map)
+                                            //thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceId === filter.map)
                                         }
                                     }
                                 }else if( filter.type === "title"){
                                     if( filter.value !== undefined){
                                         if( Array.isArray(filter.value)){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.originAtLevel(filter.pivot).title))
+                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.title))
+                                            //thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.originAtLevel(filter.pivot).title))
                                         }else{
-                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value === d.originAtLevel(filter.pivot).title)
+                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value === d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.title)
+                                            //thisSet = (thisSet || list).filter(d=>invert ^ filter.value === d.originAtLevel(filter.pivot).title)
                                         }
                                     }
                                 }else if( filter.type === "parameter"){
                                     if( filter.value !== undefined){
                                         if( Array.isArray(filter.value)){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.originAtLevel(filter.pivot).referenceParameters?.[filter.param]))
+                                            thisSet = (thisSet || list).filter(d=>{
+                                                let r = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param]
+                                                if( r === null){
+                                                    r = undefined
+                                                }
+                                                return invert ^ filter.value.includes(r)
+                                            })
                                         }else{
-                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] === filter.value)
+                                            thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] == filter.value)
                                         }
                                     }
                                     if( filter.min_value !== undefined && filter.max_value !== undefined){
                                             thisSet = (thisSet || list).filter(d=>{
-                                                const value = d.originAtLevel(filter.pivot).referenceParameters?.[filter.param]
+                                                //const value = d.originAtLevel(filter.pivot).referenceParameters?.[filter.param]
+                                                const value = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param]
                                                 return invert ^ (value >= filter.min_value && value <= filter.max_value)
                                             })
                                     }
                                     else{
                                         if( filter.min_value !== undefined ){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] >= filter.min_value)
+                                            thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] >= filter.min_value)
+                                            //thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] >= filter.min_value)
                                         }
                                         if( filter.max_value !== undefined ){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] <= filter.max_value)
+                                            thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] <= filter.max_value)
+                                            //thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] <= filter.max_value)
                                         }
                                     }
                                 }
@@ -1857,6 +1887,22 @@ function MainStore (prims){
                     if( prop === "parentPrimitiveIds"){
                         return d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 ) : []
                     }
+                    if( prop === "parentPrimitiveWithRelationship"){
+                        return (rel)=>{
+                            let out
+
+                            if( d.parentPrimitives ){
+                                out = Object.keys(d.parentPrimitives).filter(k=>{
+                                    return d.parentPrimitives[k].filter(d=>d.split(".").slice(-1)?.[0] === rel).length > 0
+                                }).map(id=>obj.primitive(id))
+                                
+                                if( out.length === 0){
+                                    out = undefined
+                                }
+                            }
+                            return out
+                        }
+                    }
                     if( prop === "parentPrimitiveRelationships"){
                         return receiver.parentPrimitives.reduce((o, p)=>{
                             let rels = [receiver.parentRelationship(p)].flat()
@@ -2008,11 +2054,21 @@ function MainStore (prims){
                         if( !(parent instanceof(Object)) ){
                             parent = obj.primitive(parent)
                         }
-                        const out = parent.primitives.paths( d.id )?.map((d)=>d.slice(1))
+                        let out = d.parentPrimitives[parent.id]
+                        if( out ){
+                            out = out.map(d=>d.slice(11))
+                            if( root ){
+                                const len = root.length
+                                out = out.filter((d)=>d.substr(0, len) == root)
+                            }
+                        }
+                        return out
+                        
+                        /*const out = parent.primitives.paths( d.id )?.map((d)=>d.slice(1))
                         if( root ){
                             return out.filter((d)=>d.substr(0, root.length) == root)
                         }
-                        return out
+                        return out*/
                     }
                 }
                 if( prop in d){

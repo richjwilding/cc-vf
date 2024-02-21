@@ -41,7 +41,7 @@ export async function lookupTicker( primitive ){
         console.log(`Looking for stock = ${query}` )
         const lookup = await yahooFinance.search(query, queryOptions );
         if( lookup && lookup.quotes){
-            ticker = lookup.quotes.find(d=>d.shortname.toLowerCase().match(primitive.title.toLowerCase()))?.symbol
+            ticker = lookup.quotes.find(d=>d.shortname?.toLowerCase().match(primitive.title?.toLowerCase()))?.symbol
             if( ticker ){
                 update = true
                 dispatchControlUpdate(primitive.id, `referenceParameters.stock_symbol`, ticker)

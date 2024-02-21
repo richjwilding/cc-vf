@@ -94,7 +94,9 @@ export default function CategoryCard({primitive, ...props}){
                             active="mark_categories"
                             markOnProcess
                             primitive={primitive} 
-                            process={async ()=>await MainStore().doPrimitiveAction(primitive.origin, "mark_categories", {source: primitive.id, scope: props.scope})}
+                            process={async ()=>{
+                                await MainStore().doPrimitiveAction(primitive.origin, "mark_categories", {source: primitive.id, scope: props.scope})
+                            }}
                             />
                     }
                     </div>}>
@@ -111,7 +113,7 @@ export default function CategoryCard({primitive, ...props}){
         <p key='footer' className='text-xs text-gray-400'>#{primitive.plainId}</p>
         </div>
         {false && editPrompt && <GenericEditor target={primitive.task} actions={primitive.task?.metadata?.actions ? primitive.task.metadata.actions.filter((d)=>d.key === "categorize") : undefined} set={(p)=>p.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>d.primitiveType === "category")} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
-        {editPrompt && <GenericEditor target={primitive.origin} set={(p)=>p.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>[32,53,55].includes(d.id))} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
+        {editPrompt && <GenericEditor target={primitive.origin} set={(p)=>p.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>[32].includes(d.id))} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
         </>
     )
 }

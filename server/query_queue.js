@@ -3,12 +3,12 @@ import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import Primitive from "./model/Primitive";
 import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask } from "./SharedFunctions";
-import { queryPosts } from "./linkedin_helper";
+import { queryPosts, searchLinkedInJobs } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
 import { fetchArticlesFromGdelt } from "./gdelt_helper";
 import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
-import { queryFacebookGroup, queryGoogleNews, queryYoutube } from "./google_helper";
+import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryYoutube } from "./google_helper";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 
 
@@ -191,9 +191,6 @@ export default function QueryQueue(){
                                 let existing = await Primitive.find(query, {_id: 1, parentPrimitives: 1})
                                 console.log(`Resource check = ${existing.length}`)
                                 existing = existing.filter(d=>{
-                                    if( !d.parentPrimitives){
-                                        debugger
-                                    }
                                     return d.parentPrimitives?.[primitive.id]?.includes('primitives.origin') || d.parentPrimitives?.[oId]?.includes(resultPath)
                                 })
                                 console.log(`Post filter = ${existing.length}`)
@@ -201,8 +198,6 @@ export default function QueryQueue(){
                                 const results = existing.length > 0
                                 if( results ){
                                     console.log( `--- Existing = ${results.length}`)
-                                    debugger
-
                                 }
                                 return results
                             }
@@ -254,7 +249,7 @@ export default function QueryQueue(){
                                 const embeddedFragments = await buildDocumentTextEmbeddings( data.text )
                                 if( embeddedFragments ){
                                     const scores  = embeddedFragments.map(d=>cosineSimilarity( d.embeddings, embeddedTopic ))
-                                    const threshold = config.threshold ?? 0.7
+                                    const threshold = config.threshold ?? 0.75
                                     const match = scores.filter(d=>d>=threshold).length > 0
                                     data.embeddedFragments = embeddedFragments
                                     return match
@@ -263,8 +258,8 @@ export default function QueryQueue(){
                             }
                             if( type === "topic" ){
                                 if( topic ){
-                                    const result = await analyzeTextAgainstTopics(data.text, topic, {single:true, type: resultCategory?.title, engine: primitive.referenceParameters?.engine ?? "gpt4p"})
                                     const threshold = filter.threshold ?? 3
+                                    const result = await analyzeTextAgainstTopics(data.text, topic, {maxTokens: 2000, maxTokensToSend: 10000, stopAtOrAbove: threshold,single:true, type: resultCategory?.title, engine: primitive.referenceParameters?.engine ?? "gpt3t"})
                                     if( result.output >= threshold){
                                         return true
                                     }
@@ -299,6 +294,9 @@ export default function QueryQueue(){
                         if( source.platform === "linkedin" ){
                             if( source.type === "posts" ){
                                 await queryPosts( terms,  callopts) 
+                            }
+                            if( source.type === "jobs" ){
+                                await searchLinkedInJobs( terms,  callopts) 
                             }
                         }
                         if( source.platform === "gdelt" ){

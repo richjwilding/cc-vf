@@ -43,7 +43,7 @@ export async function analyzeForClusterPhrases( list, options = {}){
     //let prompt =  `I will undertake a clustering process of several thousand ${inputType}s  based on the distance of the embedding of each ${inputType} to each cluster centroid.  Assess the provided ${inputType}s to first filter out those which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a consolidated set of phrases which would group similar ${inputType}s together when used to generate embeddings for the centroid of a cluster.  The aim is to group similar ${inputType}s together into between ${minC} and ${maxC} non-overlapping clusters. Ensure that the phrases are as specific and selective as possible, do not overlap with one another, are not a subset of another phrase, are based on only the information in the ${inputType}s i have provided, and are directly and explicitly relevant to the provided theme. If there are no relevant ${inputType}s then return an empty list.    `
     //let output = `Provide your response as a json object called "result" containing an array of objects each with a 'phrase' field containing the proposed phrase, a 'relevance' field containing an explanation for how the proposed phrase is directly relevant to the provided theme in no more than 15 words, a 'score' field with an assessment for how relevant the phrase is to the provided theme on the scale of 'not at all', 'hardly', 'somewhat' , 'clearly', and a 'size' field containing the number of ${inputType}s from the provided list that you estimate to align with this phrase.  Do not provide anything other than the json object in your response`
 
-    let prompt = `i will undertake a clustering process of several thousand ${inputType}s based on the distance of the embedding of each ${inputType} to each cluster centroid.  The aim is to group similar ${inputType}s together into between 2 and 10 non-overlapping clusters. Assess the provided ${inputType}s to first filter out those which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a 2-3 candidate phrases per cluster. Ensure that the clusters are as specific and selective as possible, do not overlap with one another, are not a subset of another cluster, are based on only the information in the ${inputType}s i have provided, are directly and explicitly relevant to the provided theme${focus ? ` and are related to ${focus}` : ""}. If there are no relevant ${inputType}s then return an empty list.`
+    let prompt = `i will undertake a clustering process of several thousand ${inputType}s based on the distance of the embedding of each ${inputType} to each cluster centroid.  The aim is to group similar ${inputType}s together into between 2 and 10 non-overlapping clusters. Assess the provided ${inputType}s to first filter out any which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a 2-3 candidate phrases per cluster. Ensure that the clusters are as specific and selective as possible, do not overlap with one another, are not a subset of another cluster, are based on only the information in the ${inputType}s i have provided, are directly and explicitly relevant to the provided theme${focus ? ` and are related to ${focus}` : ""}. If there are no relevant ${inputType}s then return an empty list.`
     let output = `Provide your response as a json object called "result" containing an array of objects each with a 'cluster_title' field set a 5 word description of the cluster, a 'phrase' field containing an array of proposed phrases (each as a string), a 'relevance' field containing an explanation for how the proposed phrase is directly relevant to the provided theme in no more than 15 words, a 'score' field with an assessment for how relevant the phrase is to the provided theme on the scale of 'not at all', 'hardly', 'somewhat' , 'clearly', and a 'size' field containing the number of ${inputType}s from the provided list that you estimate to align with this phrase.  Do not provide anything other than the json object in your response`
 
     const interim = await processInChunk( list,
@@ -369,15 +369,25 @@ export async function analyzeTextAgainstTopics( text, topics, options = {}){
         "hardly": 1, 
         "not at all": 0}
     
-    let opener = `Here is a ${type}: `
-    let prompt =  options.prompt || `Assess how strongly the ${type} relates to ${single ? "the topic of" : "one or more of the following topics:"} ${topics}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`
+    let opener = `Here is the text: `
+    let prompt =  options.prompt || `I will provide you text detailing ${type}. Assess how strongly the ${type} relates to ${single ? "the topic of" : "one or more of the following topics:"} ${topics}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`
+
+    if( options.stopAtOrAbove ){
+        options.chunkCallback = (chunk)=>{
+            console.log(`Got`, chunk)
+            let chunkScores = chunk.map((d)=>scoreMap[d.s] ?? 0)
+            let highestScore = chunkScores.reduce((a,c)=>c> a ? c : a, 0)
+            console.log( highestScore)
+            return highestScore < options.stopAtOrAbove
+        }
+    }
 
     let interim = await processInChunk( list,
             [
-                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                //{"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": opener}],
             [
-                {"role": "user", "content": prompt},
                 {"role": "user", "content": `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the ${type}, and a "s" field containing your assessment as a string.`}
 
             ],
@@ -569,6 +579,7 @@ async function processInChunk( list, pre, post, options = {} ){
 
     const field = options.field ?? "answer"
     let pass = 0
+    let tokensProcessed = 0
 
     //let maxTokens = options.maxTokens || (options.engine === "gpt4" ? 5000 : 12000)
 
@@ -648,6 +659,7 @@ async function processInChunk( list, pre, post, options = {} ){
             endIdx = startIdx
         }else{
 
+            tokensProcessed += currentCount
             
             if( result.success && result.response ){
                 if( options.debug ){
@@ -679,6 +691,13 @@ async function processInChunk( list, pre, post, options = {} ){
                         }
                     }
                     interim = interim.concat( values )
+                    if( options.chunkCallback ){
+                        let doNextChunk = options.chunkCallback( values )
+                        if( !doNextChunk ){
+                            console.log(`Stopping early at current chunk`)
+                            return interim
+                        }
+                    }
                 }
                 pass++
             }else{
@@ -690,6 +709,13 @@ async function processInChunk( list, pre, post, options = {} ){
         }
         content = ""
         currentCount = 0
+        if( options.maxTokensToSend ){
+            if( currentCount > options.maxTokensToSend){
+                console.log(`Stopping for max token limit`)
+                return interim
+            }
+
+        }
     }while(endIdx < maxIdx )
 
     return interim
@@ -796,7 +822,7 @@ async function executeAI(messages, options = {}){
 export  async function categorize(list, categories, options = {} ){
     const targetType = options.types || "item"
     //const match = options.matchPrompt || `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match. Only allocate items to groups if there is a strong rationale. If there is a strong match assign the ${targetType} to the most suitable category number - otherwise assign it -1`
-    const match = options.matchPrompt || `You must assess how strongly each ${targetType} aligns with each of the numbered categories using a scale of "none", "potential", "clear", and then assign the ${targetType} to number of the category it best aligns with . Items that do not have an explicit, strong or clear alignment to any category must be assigned to the number -1`
+    const match = options.matchPrompt || `You must assess how strongly each of the provided numbered ${targetType} aligns with each of the provided numbered categories using a scale of "none", "potential", "clear", and then assign the numbered ${targetType} to the number of the category it best aligns with . Numbered ${targetType}s that do not have an explicit, strong or clear alignment to any category must be assigned to the number -1`
     let tokens = 12000
     if(options.engine === "gpt4"){
         tokens = 2000
@@ -806,12 +832,13 @@ export  async function categorize(list, categories, options = {} ){
     }
     const interim = await processInChunk( list, 
             [
-                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format only"},
-                {"role": "user", "content": `Here are a list of numbered ${options.longType ?? targetType}s: `}
+                {"role": "system", "content": match},
+                //{"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format only"},
+                {"role": "user", "content": `Here is the list of numbered ${options.longType ?? targetType}s: `}
             ],
             [
                 {"role": "user", "content": `And here are a list of numbered categories: ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
-                {"role": "user", "content": match},
+             //   {"role": "user", "content": match},
                 {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item${options?.rationale ? ",  a 'r' field with a 5 word rationale for how it aligns with the assigned category,": ""}, an 'alignment' field detailing the level of alignment to the assigned category, and a 'category' field set to the number of the assigned category. Do not put anything other than the raw JSON in the response .`}
             ],
             {field: "results", maxTokens: tokens, engine:  options.engine, ...options})

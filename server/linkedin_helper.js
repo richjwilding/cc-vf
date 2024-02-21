@@ -1,10 +1,11 @@
 import Primitive from "./model/Primitive";
 import {createPrimitive, flattenPath, doPrimitiveAction, findResultSetForCategoryId, executeConcurrently} from './SharedFunctions'
 import moment from 'moment';
-import { fetchLinksFromWebQuery, replicateURLtoStorage } from './google_helper';
+import { fetchLinksFromWebQuery, fetchURLPlainText, replicateURLtoStorage, writeTextToFile } from './google_helper';
 import { htmlToText } from "html-to-text";
 import Category from "./model/Category";
 import Parser from '@postlight/parser';
+import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
 
 export const liPostExtractor = {
     domain: 'www.linkedin.com',
@@ -536,6 +537,128 @@ export async function findPeopleFromLinkedIn( primitive, options, action ){
         }
     }
 }
+export async function searchLinkedInJobs(keywords, options = {}){
+    const target = options.count ?? 50
+    let maxPage = options.maxPage ?? 8
+    let totalCount = 0
+    const searchOptions = {
+        geoId: options.geoId ?? 103644278,
+        when: options.when ?? "past-month"
+    }
+    async function doLookup( keyword, url ){
+        let cancelled = false
+        if( url === undefined){
+            const query = new URLSearchParams({ 
+                ...searchOptions,
+                keyword: keyword
+            }).toString()
+            url = `https://nubela.co/proxycurl/api/v2/linkedin/company/job?${query}`
+        }
+        
+        console.log(`Doing proxycurl search for jobs`)
+        const response = await fetch(url,{
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
+            },
+        });
+        
+        if( response.status !== 200){
+            console.log(`Error from proxycurl`)
+            console.log(response)
+            return {error: response}
+        }
+        const results = await response.json()
+        const processItem = async (item)=>{
+                if( options.existingCheck  ){
+                    const exists = await options.existingCheck(item)
+                    if( exists ){
+                        return
+                    }
+                }
+                let pageContent = {}
+                
+                const params = {
+                        'url': item.job_url,
+                        'apikey': process.env.ZENROWS_KEY,
+                        'js_render': 'true',
+                        'premium_proxy': 'true',
+                        'proxy_country': 'us',
+                        'css_extractor': `{"top":".top-card-layout","main":".decorated-job-posting__details"}`,
+                    }
+
+                const cUrl = `https://api.zenrows.com/v1/?${new URLSearchParams(params).toString() }`
+                const response = await fetch(cUrl,{
+                    method: 'GET'
+                })
+                if(response.status === 200){
+                    const results = await response.json();
+                    if( results ){
+                        console.log(results)
+                        let text = results.top + "\n" + results.main
+                        text = text.replace(/ +/g, ' ');
+                        text = text.replace(/\n+/g, '\n');
+                        pageContent = {
+                            description: text.split(" ").slice(0,400).join(" "),
+                            fullText: text                   
+                        }
+                    }
+
+                }else{
+                    console.log(`LI Job fetch failed`)
+                    console.log(response)
+                    return undefined
+                }
+
+                if( pageContent ){
+                    const r = {
+                        title: item.company + " - " + item.job_title,
+                        referenceParameters:{
+                            url: item.job_url,
+                            posted: item.list_date,
+                            company: item.company,
+                            location: item.location,
+                            company_linkedin: item.company_url,
+                            source:"LinkedIn - " + keyword,
+                            description: pageContent.description
+                        }
+                    }
+                    
+                    const embeddedFragments = await buildDocumentTextEmbeddings( pageContent.fullText )
+                    
+                    const newPrim = await options.createResult( r )
+                    if( newPrim ){
+                        await writeTextToFile(newPrim.id.toString(), pageContent.fullText)
+                        await storeDocumentEmbeddings( newPrim, embeddedFragments)
+                    }
+                    totalCount++
+                }
+        }
+        if(results && results.job){
+            let exec = await executeConcurrently( results.job, processItem, options.cancelCheck, ()=> totalCount >= target)
+            cancelled = exec?.cancelled
+
+            if( !cancelled && (totalCount < target) ){
+                if( results.next_page_api_url){
+                    console.log(`Do next page check ${results.next_page_no}`, results.next_page_api_url)
+                    if( results.next_page_no < maxPage){
+                        await doLookup( keyword, results.next_page_api_url)
+                    }
+                }
+            }
+        }
+    }
+    if( keywords ){
+        for( const d of keywords.split(",")){
+            const thisSearch = options.quoteKeywords ? '"' + d.trim() + '"' : d.trim()
+            const cancelled = await doLookup( thisSearch )
+            if( cancelled ){
+                break
+            }
+        }
+    }
+    return totalCount
+}
 export async function fetchLinkedInProfile( linkedin_profile_url, use_cache = "if-present" ){
     const query = new URLSearchParams({ 
         linkedin_profile_url: linkedin_profile_url,
@@ -594,6 +717,7 @@ export async function addPersonFromProxyCurlData( profile, url, resultCategoryId
                 degree_end_year: oldestDegree?.ends_at?.year,
                 location: [profile.city, profile.state, profile.country].filter(d=>d).join(", "),
                 profile: url,
+                experiences: profile.experiences,
                 ...extra
             },
             linkedInData: profile
@@ -621,11 +745,11 @@ export async function fetchCompanyProfileFromLinkedIn( primitive ){
         
         const query = new URLSearchParams({ 
             "resolve_numeric_id":false,
-            "categories": "no",
-            "funding_data": "no",
-            "extra":"no",
-            "exit_data":"no",
-            "acquisitions":"no",
+            "categories": "exclude",
+            "funding_data": "exclude",
+            "extra":"exclude",
+            "exit_data":"exclude",
+            "acquisitions":"exclude",
             "url": targetProfile,
             "use_cache":"if-present"
         }).toString()

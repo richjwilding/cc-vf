@@ -119,7 +119,40 @@ export default function PrimitiveParser(obj){
                         return find( target )
                     }
                 }
+                
                 if( prop === "paths" ){
+                    return function(){
+                        let id = arguments[0]
+                        let out = []
+                        const find = (v, path)=>{
+                            if( v instanceof(Array) ){
+                                for(const d of v){
+                                    if( d === id ){
+                                        out.push( path )
+                                    }else{
+                                        if( d instanceof(Object)){
+                                            Object.keys(d).forEach((k)=>find( d[k], `${path}.${k}`))
+                                        }
+                                    }
+                                }
+                            }else if( v !== undefined && v !== null){
+                                Object.keys(v).forEach((k)=>find( v[k], `${path}.${k}`))
+                            }
+                        }
+                        find( target, "" )
+                        let result = out
+                        if( result && arguments.length == 2){
+                            let str = arguments[1] instanceof(Array) ? `.${arguments[1].join('.')}.` : arguments[1]
+                            let len = str.length
+                            result = result.filter((p)=>p.slice(0, len) === str)
+                        }
+                        if( result ){
+                            result = result.map((p)=>p.replace(/^\.null/,""))
+                        }
+                        return result
+                    }
+                }
+                if( prop === "__paths" ){
                     return function(){
                         let id = arguments[0]
                         const find = (v, path)=>{
@@ -175,7 +208,19 @@ export default function PrimitiveParser(obj){
                     return uniqueArray( receiver.ids )
                 }
 
-                if( prop === "allIds"){
+                if (prop === "allIds") {
+                    const flatten = (v, acc = []) => {
+                        if (v !== null && typeof v === 'object') {
+                            Object.values(v).forEach(d => flatten(d, acc));
+                        } else {
+                            acc.push(v);
+                        }
+                        return acc;
+                    };
+                    return flatten(target);
+                }
+
+               /* if( prop === "allIds"){
                     const flatten = (v)=>{
                         return Object.values(v).map((d)=>{
                             if( d instanceof(Object) ){
@@ -186,7 +231,7 @@ export default function PrimitiveParser(obj){
                         }).flat()
                     }
                     return flatten( target )
-                }
+                }*/
                 if( prop === "uniqueAllIds"){
                     return uniqueArray( receiver.allIds )
                 }
