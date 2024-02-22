@@ -12,20 +12,42 @@ export default function InfiniteCanvas(props){
     const enableNodePruning = true
 
     const scaleTriggers = {min: 0.1, max: 3}
+
+    const colors = {
+        hover:{
+            background:{
+                fill:'#a3f0c611'
+            },
+            border:{
+                stroke: "#a3f0c6",
+                fill : '#a3f0c633'
+            }
+        },
+        select:{
+            background:{
+                fill : '#9abef822'
+            },
+            border:{
+                stroke: "#9abef8",
+                fill : '#9abef833'
+            }
+        }
+    }
     
     const stageRef = useRef()
     const frameRef = useRef()
+    const layerRef = useRef()
     const myState = useRef()
 
-    const chunkWidth = 400
-    const chunkHeight = 400
+    const chunkWidth = 400//800
+    const chunkHeight = 400//800
 
 
     const test_items = useMemo(()=>{
         myState.current ||= {}
         const out = []
         
-        let cols = 50, rows = 50
+        let cols = 200, rows = 50
         
         for(let i = 0; i < (cols * rows); i++){
             out.push({x: (i % cols), y: Math.floor(i / cols)})
@@ -50,7 +72,12 @@ export default function InfiniteCanvas(props){
     }
     function rescaleImages(scale){
         let updated = []
+        if(!myState.current.imageCache){return}
+        console.log(scale)
         for(const d of Object.values( myState.current.imageCache )){
+            if( d.parent.attrs._vis !== myState.current.refreshCount){
+                continue
+            }
             const ratio = scale / d.scale 
             if( ratio < 0.2 || ratio > 1.5){
                 d.newScale = scale
@@ -62,35 +89,48 @@ export default function InfiniteCanvas(props){
         let idx = 0, step = 20
         for(let bi = 0; bi < len; bi += step){
             setTimeout(() => {
-                const [scale = 1] = stageRef.current.container().style.transform.match(/scale\((.*?)\)/)?.[1]?.split(',') || [];
+                let doDraw = false
                 for(let i = 0; i < step; i++) {
                     const fi = bi +i
                     if( fi < len){
                         const d = updated[ fi]
                         if( d._scale !== d.newScale){
-                            d._scale = d.newScale
-                            d.node.clearCache()
-                            d.node.cache({pixelRatio: d.newScale * 2})
+                            if((d.node.attrs.width * d.newScale) > 5 && (d.node.attrs.height * d.newScale) > 5 ){
+                                d._scale = d.newScale
+                                d.node.clearCache()
+                                d.node.cache({pixelRatio: d.newScale * 2})
+                                doDraw = true
+                            }
                         }
                     }
                 }
-                stageRef.current.batchDraw()
+                if(doDraw){
+                    stageRef.current.batchDraw()
+                }
                 
             }, idx * 5);
             idx++
         }
     }
 
-    function buildPositionCache(){
+    function buildPositionCache(frame){
         if(!stageRef.current){
             return
         }        
+        if( !enablePages ){
+            return
+        }
         myState.current ||= {}
-        if( enablePages ){
-            myState.current.pages = []
+        
+        if(frame.pages){
+            //throw `Pages already present for frame ${frame.id}`
+            frame.pages = []
+        }else{
+            frame.pages = []
         }
 
-        let nodes =  stageRef.current.children[0].children
+
+        let nodes =  frame.node.children
         for(const d of nodes){
 
             let l = d.x()
@@ -105,10 +145,10 @@ export default function InfiniteCanvas(props){
 
                 for(let j = py; j <= my; j++){
                     for(let i = px; i <= mx; i++){
-                        myState.current.pages[i] ||= []
-                        myState.current.pages[i][j] ||= []
+                        frame.pages[i] ||= []
+                        frame.pages[i][j] ||= []
 
-                        myState.current.pages[i][j].push(d)
+                        frame.pages[i][j].push(d)
                     }
                 }
                 d.attrs['page'] = page
@@ -119,11 +159,18 @@ export default function InfiniteCanvas(props){
     useEffect(()=>{
     }, [])
 
-    function convertItems(){
+    function convertItems(props, options = {}){
+        options = {x:0, y:0, ...options}
         const target = stageRef.current?.children[0]
         if( target ){
-            let frameId = 0
-            const frame = new Konva.Rect({
+            let frameId = myState.current?.frames?.length ?? 0
+            const frame = new Konva.Group({
+                x: options.x,
+                y: options.y,
+                id: `f${frameId}`
+            }) 
+            target.add(frame)
+            const frameBorder = new Konva.Rect({
                 x: 0,
                 y:0,
                 width: 1000,
@@ -133,9 +180,9 @@ export default function InfiniteCanvas(props){
                 strokeWidth:1,
                 strokeScaleEnabled: false,
                 visible: false,
-                id: `f${frameId}`
+                id: `frame`
             }) 
-            target.add(frame)
+            frame.add(frameBorder)
             let maxX = 0, maxY = 0
 
             if( props.render){
@@ -156,11 +203,13 @@ export default function InfiniteCanvas(props){
                     moveList.push(d)
 
                 })                    
-                target.add(g)
-                moveList.forEach(d=>target.add(d))
+                frame.add(g)
+                moveList.forEach(d=>frame.add(d))
 
                 maxX = g.width()
                 maxY = g.height()
+
+
                 
             }else if( props.list){
                 let i = 0
@@ -176,7 +225,7 @@ export default function InfiniteCanvas(props){
                         visible: enableNodePruning
                     })
 
-                    target.add(g)
+                    frame.add(g)
                     
                     let r = g.x() + g.width()
                     let b = g.y() + g.height()
@@ -195,6 +244,7 @@ export default function InfiniteCanvas(props){
                         y: d.y * 80,
                         width: 80,
                         height: 80,
+                        name:"primitive",
                         visible: enableNodePruning
                     })
                     
@@ -204,7 +254,7 @@ export default function InfiniteCanvas(props){
                     if( b > maxY){ maxY = b }
 
                     if( g ){
-                        target.add(g)
+                        frame.add(g)
                         const r = new Konva.Rect({
                             width: 72,
                             height: 72,
@@ -225,8 +275,23 @@ export default function InfiniteCanvas(props){
                     }
                 })            
             }
-          frame.width(maxX)
-           frame.height(maxY)
+           // frame.width(maxX)
+           // frame.height(maxY)
+            frameBorder.width(maxX)
+            frameBorder.height(maxY)
+            myState.current.frames ||= []
+
+            const [maxCol,maxRow] = calcPage( maxX, maxY)
+
+            myState.current.frames[frameId] = {
+                id: frameId,
+                node: frame,
+                allNodes: frame.children,
+                x: options.x ?? 0,
+                y: options.y ?? 0,
+                maxCol,
+                maxRow
+            }
         }
 
     }
@@ -248,7 +313,12 @@ export default function InfiniteCanvas(props){
 
     useLayoutEffect(()=>{
         console.log(stageRef.current)
-        convertItems()
+        convertItems(props)
+        convertItems(props, {x: 1720, y: 720})
+        for( const frame of myState.current.frames ?? []){
+            console.log(`Building for ${frame.id}`)
+            buildPositionCache(frame)
+        }
         resizeFrame()
         updateVisibility(0,0)
 
@@ -260,9 +330,11 @@ export default function InfiniteCanvas(props){
 
         return ()=>{
             observer.unobserve(frameRef.current);
-            if( myState.current.allNodes ){
-                console.log(`Restoring all nodes`)
-                stageRef.current.children[0].children = myState.current.allNodes
+            for(const frame of myState.current.frames ?? []){
+                if( frame.allNodes ){
+                    console.log(`Restoring all nodes on ${frame.id}`)
+                    frame.node.children = frame.allNodes
+                }
             }
         }
     },[])
@@ -271,114 +343,154 @@ export default function InfiniteCanvas(props){
         return [Math.floor(x / chunkWidth),  Math.floor(y / chunkHeight)]
     }
 
-    function updateVisibility(x,y, zooming){
+    function updateVisibility(x,y){
         if(!stageRef.current){
             return
         }        
-        if( !myState.current.allNodes ){
-            myState.current.allNodes = stageRef.current.children[0].children
-        }
-        let nodes =  stageRef.current.children[0].children
+        let nodes =  layerRef.current.children
         let scale = stageRef.current.scale().x
-        if( !myState.current?.pages){
-            buildPositionCache()
-        }
         x = x 
         y = y 
         let w = myState.current.width / scale
         let h = myState.current.height / scale
         let idx = 0
         let vis = 0
+        let x2 = x + w
+        let y2 = y + h
+
+        myState.current.refreshCount = (myState.current.refreshCount ?? 0) + 1
 
         if( enablePages ){
+            let lastPages = enableNodePruning ? undefined : myState.current.lastRendered ?? []
             if( enableFlipping ){
                 w *= 2
                 h *= 2
             }
-            const lastPages = myState.current.pages.lastRendered ?? []
+                
 
             const cols = Math.ceil(w / chunkWidth) + 1
             const rows = Math.ceil(h / chunkHeight) + 1
-            
-            const [px, py] = calcPage(x,y)
-          //  console.log(`Will render ${cols} x ${rows} pages from ${px}, ${py}`)
-            const pages = []
-            const outer = []
-            for(let j = 0; j < rows; j++){
-                for(let i = 0; i < cols; i++){
-                    const page = `${px+i}-${py+j}`
-                    if( zooming && ((i === 0) || (j === 0) || (i === (cols - 1)) || (j === (rows - 1)))){
-                        outer.push( page )
-                    }else{
-                        pages.push( page )
-                    }
-                }
-            }
-
-            let pagesToProcess
-            if( enableFlipping ){
-                if( enableNodePruning ){
-                    pagesToProcess = [pages, outer].flat().filter((d,i,a)=>a.indexOf(d)===i)
-                }else{
-                    pagesToProcess = [lastPages.filter(d=>!pages.includes(d)), pages.filter(d=>!lastPages.includes(d))].flat()
-                    pagesToProcess = pagesToProcess.concat( outer ).filter((d,i,a)=>a.indexOf(d)===i)
-                }
-            }else{
-                pagesToProcess = [lastPages, pages, outer].flat().filter((d,i,a)=>a.indexOf(d)===i)
-            }
-
-            const seen = new Set();
-            nodes = [];
-            pagesToProcess.forEach(d => {
-              const [x, y] = d.split("-");
-              const n = myState.current.pages[x]?.[y];
-              if( n){
-                  n.forEach(item => {
-                      const uniqueKey = item._id; // Assuming 'item' has a unique 'id'
-                      if (!seen.has(uniqueKey)) {
-                          seen.add(uniqueKey);
-                          nodes.push(item);
-                        }
-                    });
-                }
-            });
-
-
-            myState.current.pages.lastRendered = pages
 
             w = cols * chunkWidth
             h = rows * chunkHeight
-        }
-        let x2 = x + w
-        let y2 = y + h
 
-        const activeNodes = []
+            x2 = x + w
+            y2 = y + h
+            
+            //  console.log(`Will render ${cols} x ${rows} pages from ${px}, ${py}`)
+            for(const frame of myState.current.frames){
+                const [px, py] = calcPage(x - frame.node.attrs.x, y - frame.node.attrs.y)
+                
+                const seenPages = new Set();
+                const pages = []
 
-        let showFrame = scale < 0.2
-                    
-        for( const d  of nodes){
-            let c = d.attrs
-            let visible = (c.width * scale) > 10 && ((c.x + c.width) > x &&  c.x < x2 && (c.y + c.height) > y && c.y < y2)
-            if(visible){
-                vis++
-                if( enableNodePruning ){
-                    if( d.attrs["_txc"] !== myState.current.transformCount){
-                        d._clearSelfAndDescendantCache('absoluteTransform')
-                        d.attrs["_txc"] = myState.current.transformCount
+
+                let spx = Math.max(0, px)
+                let spy = Math.max(0, py)
+                let epx = Math.min(frame.maxCol + 1, px + cols)
+                let epy = Math.min(frame.maxRow + 1, py + rows)
+
+
+
+                //console.log(`Frame ${frame.id} offset by ${px}, ${py} pages - : ${spx}, ${spy} - doing ${epx-spx} x ${epy-spy} pages`)
+
+                for(let j = spy; j < epy; j++){
+                    for(let i = spx; i < epx; i++){
+                        const page = `${i}-${j}`
+                        if (!seenPages.has(page)) {
+                            seenPages.add(page);
+                            pages.push( page )
+                        }
                     }
-                    activeNodes.push(d)
+                }
+                
+                let pagesToProcess
+                if( enableFlipping ){
+                    if( enableNodePruning ){
+                        pagesToProcess = pages//.filter((d,i,a)=>a.indexOf(d)===i)
+                    }else{
+                        pagesToProcess = [lastPages.filter(d=>!pages.includes(d)), pages.filter(d=>!lastPages.includes(d))].flat()//.filter((d,i,a)=>a.indexOf(d)===i)
+                    }
                 }else{
+                    pagesToProcess = [lastPages, pages].flat().filter((d,i,a)=>a.indexOf(d)===i)
+                }
+                
+                let hidden = 0
+                const seen = new Set();
+                nodes = [];
+                pagesToProcess.forEach(d => {
+                    const [x, y] = d.split("-");
+                    const n = frame.pages[x]?.[y];
+                    if( n){
+                        n.forEach(item => {
+                            const uniqueKey = item._id; // Assuming 'item' has a unique 'id'
+                            if (!seen.has(uniqueKey)) {
+                                seen.add(uniqueKey);
+                                if( (item.attrs.width * scale) > 10){
+                                    nodes.push(item);
+                                }else{
+                                    hidden++
+                                }
+                            }
+                        });
+                    }
+                });
+                
+                
+                if( !enableNodePruning ){
+                    myState.current.lastRendered = pages
+                }
+                
+                
+                const activeNodes = []
+                
+                vis = 0
+                let ax = x - frame.node.attrs.x
+                let ax2 = x2 - frame.node.attrs.x
+                let ay = y - frame.node.attrs.y
+                let ay2 = y2 - frame.node.attrs.y
+                for( const d  of nodes){
+                    let c = d.attrs
+                    //let visible = (c.width * scale) > 10 && ((c.x + c.width) > x &&  c.x < x2 && (c.y + c.height) > y && c.y < y2)
+                    let visible = ((c.x + c.width) > ax &&  c.x < ax2 && (c.y + c.height) > ay && c.y < ay2)
+                    if(visible){
+                        vis++
+                        if( enableNodePruning ){
+                            d.attrs._vis = myState.current.refreshCount
+                            
+                            if( d.attrs["_txc"] !== myState.current.transformCount){
+                                d._clearSelfAndDescendantCache('absoluteTransform')
+                                d.attrs["_txc"] = myState.current.transformCount
+                            }
+                            activeNodes.push(d)
+                        }else{
+                            d.visible(visible)
+                        }
+                    }
+                }
+                frame.lastNodes = activeNodes
+                let showFrame = hidden > 0
+                
+                frame.node.find('#frame')?.[0]?.visible(showFrame)
+                
+                if( enableNodePruning ){
+                    frame.node.children = activeNodes
+                }
+                //console.log(`${frame.id} RENDERED ${vis} of ${nodes.length} candidates / ${myState.current.frames.map(d=>d.allNodes.length).reduce((a,c)=>a+c,0)}`)
+            }
+        }else{
+            for( const d  of nodes){
+                let c = d.attrs
+                let visible = ((c.x + c.width) > x &&  c.x < x2 && (c.y + c.height) > y && c.y < y2)
+                if(visible){
+                    vis++
                     d.visible(visible)
                 }
             }
+            console.log(`RENDERED ${vis} of ${nodes.length} candidates / ${myState.current.frames.map(d=>d.allNodes.length).reduce((a,c)=>a+c,0)}`)
         }
+
         
-        stageRef.current.find('#f0')?.[0]?.visible(showFrame)
-        
-        if( enableNodePruning ){
-            stageRef.current.children[0].children = activeNodes
-        }
-//        console.log(`RENDERED ${vis} of ${nodes.length} candidates / ${stageRef.current.children[0].children.length}`)
     }
 
     function alignViewport(tx,ty, scale, forceRescale = false){
@@ -668,58 +780,36 @@ export default function InfiniteCanvas(props){
             }
         )
 
-        function findTrackedNodesAtPosition(x,y, classes){
+        function findTrackedNodesAtPosition(px,py, classes){
             if( classes ){
                 classes = [classes].flat()
             }
             const found = []
             const checked = new Set()
-            if( myState.current.pages.lastRendered ){
-                for(const page of myState.current.pages.lastRendered){
-                    const [px, py] = page.split("-");
-                    const n = myState.current.pages[px]?.[py];
-                    if( n ){
-                        for(const d of n){
-                            if( !checked.has(d._id) && d.attrs.x <= x && d.attrs.y <= y &&  (d.attrs.x + d.attrs.width) >= x && (d.attrs.y + d.attrs.height) >= y){
-                                if( !classes || d.attrs.name?.split(" ").filter(d=>classes.includes(d)).length >0){
-                                    found.push(d)
-                                    checked.add( d._id)
-                                }
-                            }
+            for(const frame of myState.current.frames){
+                for(const d of frame.lastNodes){
+                    let x = px - frame.node.attrs.x
+                    let y = py - frame.node.attrs.y
+                    if( !checked.has(d._id) && d.attrs.x <= x && d.attrs.y <= y &&  (d.attrs.x + d.attrs.width) >= x && (d.attrs.y + d.attrs.height) >= y){
+                        if( !classes || d.attrs.name?.split(" ").filter(d=>classes.includes(d)).length >0){
+                            found.push(d)
+                            checked.add( d._id)
                         }
                     }
                 }
             }
             return found
         }
-        function leftNode(node, type){
-            const operation = props.highlights?.[type]
+
+
+        function addOverlay( node, label, operation, colors){
             if( operation === "background"){
                 if( node.getClassName() === "Group"){
                     const bg = node.find('Rect')?.[0]
-                    if( bg ){
-                        bg.fill(bg.attrs.baseFill)
-                    }
-                }
-            }
-            if( operation === "border"){
-                if( node.getClassName() === "Group"){
-                    const border = node.find('.border')?.[0]
-                    if( border ){
-                        border.remove()
-                    }
-                }
-            }
-            stageRef.current.batchDraw()
-        }
-        function enteredNode(node, type, scale){
-            const operation = props.highlights?.[type]
-            if( operation === "background"){
-                if( node.getClassName() === "Group"){
-                    const bg = node.find('Rect')?.[0]
-                    if( bg ){
+                    if( bg && !bg.attrs.overlay_label || bg.attrs.overlay_label === "hover" ){
                         bg.attrs.baseFill = bg.attrs.fill
-                        bg.fill('#a3f0c611')
+                        bg.attrs.overlay_label = label
+                        bg.fill(colors[operation]?.fill)
                     }
                 }
             }
@@ -731,21 +821,61 @@ export default function InfiniteCanvas(props){
                         cornerRadius: 2,
                         width: node.attrs.width,
                         height: node.attrs.height,
-                        stroke: "#a3f0c6",
-                        fill:'#a3f0c633',
-                        //strokeWidth: Math.min(2, 2 / (scale ?? restoreScale())),
+                        stroke: colors[operation]?.stroke,
+                        fill: colors[operation]?.fill,
                         strokeScaleEnabled: false,
-                        name: "border"
+                        name: label
                     })
+
                     node.add(border)
                 }
             }
             stageRef.current.batchDraw()
         }
+        function removeOverlay( node, label, operation){
+            if( operation === "background"){
+                if( node.getClassName() === "Group"){
+                    const bg = node.find('Rect')?.[0]
+                    if( bg && bg.attrs.overlay_label === label){
+                        bg.fill(bg.attrs.baseFill)
+                        bg.attrs.overlay_label = undefined
+                    }
+                }
+            }
+            if( operation === "border"){
+                if( node.getClassName() === "Group"){
+                    const border = node.find(`.${label}`)?.[0]
+                    if( border ){
+                        border.remove()
+                    }
+                }
+            }
+            stageRef.current.batchDraw()
+        }
+
+        function leftNode(node, type){
+            const operation = props.highlights?.[type]
+            removeOverlay( node, "border", operation)
+        }
+        function enteredNode(node, type, scale){
+            const operation = props.highlights?.[type]
+            addOverlay( node, "border", operation, colors.hover)
+        }
 
         function processMouseMove(e){
             let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
             processHighlights(x,y)
+        }
+        function clearSelection(){
+            myState.current.hover ||= {}
+            for(const type of Object.keys(props.selectable ?? {})){
+                if( myState.current?.selected?.[type] ){
+                    for( const d of myState.current.selected[type]){
+                        removeOverlay(d, "select", props.highlights?.[type] ?? "border")
+                    }
+                    myState.current.selected[type] = undefined
+                }
+            }
         }
         function clearHightlights(){
             myState.current.hover ||= {}
@@ -781,19 +911,46 @@ export default function InfiniteCanvas(props){
         }
         function processClick(e){
             let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
-            let found = findTrackedNodesAtPosition( x, y, "primitive")
+            let found = findTrackedNodesAtPosition( x, y)
             let doneClick = false
             for( const d of found){
                 if( d.attrs.onClick ){
                     d.attrs.onClick(d.attrs.id)
                     doneClick = true
                 }else{
-                    for(const cls of d.attrs.name?.split(" "))
-                    if( props.callbacks?.onClick?.[cls] ){
-                        props.callbacks?.onClick?.[cls]( d.attrs.id )
-                        doneClick = true
+                    for(const cls of (d.attrs.name?.split(" ") ?? [])){
+                        if( props.selectable?.[cls]){
+
+                            if( myState.current.lastSelection && myState.current.lastSelection !== cls && props.selectable[myState.current.lastSelection].multiple && e.evt.shiftKey ){
+                                continue
+                            }
+
+                            if( !myState.current.lastSelection  || 
+                                props.selectable[cls].multiple !== true ||
+                                cls !== myState.current.lastSelection 
+                                || e.evt.shiftKey == false
+                                ){
+                                clearSelection()
+                            }
+                            myState.current.selected ||= {}
+                            myState.current.lastSelection = cls
+                            myState.current.selected[cls] ||= []
+                            myState.current.selected[cls].push(d)
+                            
+                            leftNode(d, cls)
+                            addOverlay(d, "select", props.highlights?.[cls] ?? "border", colors.select)
+                            doneClick = true
+                        }                        
+                        if( props.callbacks?.onClick?.[cls] ){
+                            const ids = myState.current.selected[cls].map(d=>d.attrs.id)
+                            const result = props.callbacks?.onClick?.[cls]( ids.length > 1 ? ids : ids )
+                            doneClick = true
+                        }
                     }
                 }
+            }
+            if(!doneClick){
+                clearSelection()
             }
             e.evt.stopPropagation()
         }
@@ -829,6 +986,7 @@ export default function InfiniteCanvas(props){
                     transformOrigin: "0 0"
                 }}>
                     <Layer
+                        ref={layerRef}
                         perfectDrawEnabled={false}
                         listening={false}
                     >

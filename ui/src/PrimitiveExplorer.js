@@ -1844,6 +1844,14 @@ export default function PrimitiveExplorer({primitive, ...props}){
                                 "primitive":"border",
                                 "cell":"background"
                             }}
+                            selectable={{
+                                "primitive":{
+                                    multiple: false
+                                },
+                                "cell":{
+                                    multiple: true
+                                }
+                            }}
                             callbacks={{
                                 onClick:{
                                     primitive:(id)=>{
