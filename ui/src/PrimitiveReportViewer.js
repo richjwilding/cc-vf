@@ -3,7 +3,7 @@ import MainStore from "./MainStore"
 import PrimitiveExplorer from "./PrimitiveExplorer"
 import ProximityView from "./ProximityView"
 import { PrimitiveCard } from './PrimitiveCard';
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import DropdownButton from "./DropdownButton";
 import { HeroIcon } from "./HeroIcon";
 import { ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, DocumentArrowDownIcon, MinusCircleIcon, PlusCircleIcon, PlusIcon, RectangleGroupIcon } from "@heroicons/react/24/outline";
@@ -11,12 +11,14 @@ import { InputPopup } from "./InputPopup";
 import Panel from "./Panel";
 import PrimitiveReport from "./PrimitiveReport";
 import { exportKonvaToPptx } from "./PptHelper";
+import pptxgen from "pptxgenjs";
 
 
 
 export default function PrimtiveReportViewer({primitive, ...props}){
     const [showViewerPick, setShowViewerPick] = useState(true)
-    const [selectedElement, setSelectedElement] = useState(true)
+    const [selectedElement, realSetSelectedElement] = useState(true)
+    const [autoExport, setAutoExport] = useState(undefined)
     const report = useRef()
 
     const mainstore = MainStore()
@@ -27,19 +29,31 @@ export default function PrimtiveReportViewer({primitive, ...props}){
     const targetResultCategoryId = primitive.referenceParameters?.resultCategoryId ?? 86
     console.log(`targetResultCategoryId `,targetResultCategoryId )
     let  list = primitive.task?.primitives.descendants.filter(d=>d.referenceId===  targetResultCategoryId).flat()
+    
+    if( primitive.primitives.params.source?.length > 0 ){
+        const source = primitive.primitives.params.source.allItems[0]
+        list = source ? source.primitives.descendants.filter(d=>d.referenceId === 82 || d.referenceId === 54).flat() : []
+    }else{
+        
+        
+        
+        if( targetResultCategoryId === 54){
+            list = list.filter(d=>d.parentPrimitiveIds.includes('65a17a43a8d6241e3c3b6134'))
+        }
+        if( targetResultCategoryId === 37){
+            list = list.filter(d=>d.parentPrimitiveIds.includes('659f99bee8f1243ff4d97fa6'))
+        }
+        if( primitive.plainId === 262816){
+            list = primitive.task?.primitives.descendants.filter(d=>d.referenceId === 54).flat()
+        }
+        if( primitive.plainId === 273341){
+            list = mainstore.primitive("65cc980a98d8dcc176818703").primitives.allCategory
+        }
+    }
 
-
-    if( targetResultCategoryId === 54){
-        list = list.filter(d=>d.parentPrimitiveIds.includes('65a17a43a8d6241e3c3b6134'))
-    }
-    if( targetResultCategoryId === 37){
-        list = list.filter(d=>d.parentPrimitiveIds.includes('659f99bee8f1243ff4d97fa6'))
-    }
-    if( primitive.plainId === 262816){
-        list = primitive.task?.primitives.descendants.filter(d=>d.referenceId === 54).flat()
-    }
-    if( primitive.plainId === 273341){
-        list = mainstore.primitive("65cc980a98d8dcc176818703").primitives.allCategory
+    function setSelectedElement(e){
+        MainStore().sidebarSelect( e)
+        realSetSelectedElement(e)
     }
 
 
@@ -68,6 +82,47 @@ export default function PrimtiveReportViewer({primitive, ...props}){
 
     const showPicker = (showViewerPick || props.viewSelf)
 
+    function exportAll(){
+            let pptx = new pptxgen();
+            
+            let widthInInches = 10 * 4
+            let heightInInches = 5.625 * 4
+            
+            pptx.defineLayout({ name:'VF_CUSTOM', width: widthInInches, height: heightInInches });
+            pptx.layout = 'VF_CUSTOM'
+            
+            
+            const count = list.length
+            let idx = 0
+
+            setViewerPick( list[idx])
+            setAutoExport( {idx: 0, pptx: pptx} )
+
+    }
+    useLayoutEffect(()=>{
+        async function doExport(){
+
+            if( autoExport.idx < list.length){
+                await new Promise(r => setTimeout(r, 2000));                    
+                console.log(`EXPORT ${autoExport.idx}`)
+                report.current.exportToPptx(autoExport.pptx)
+                
+                let idx= autoExport.idx + 1
+                if( idx < list.length){
+                    setViewerPick( list[idx])
+                    setAutoExport( {idx: idx, pptx: autoExport.pptx} )
+                }else{
+                    console.log(`SAVING`)
+                    autoExport.pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
+                    setAutoExport( undefined )
+                }
+            }
+        }
+        if( autoExport && report.current){
+            doExport()
+        }
+    }, [autoExport?.idx])
+        
     return <div 
             //  style={{gridTemplateColumns: "9rem calc(100% - 9rem)"}}
             className={`w-full flex min-h-[40vh] h-full bg-white rounded-md`}
@@ -81,7 +136,7 @@ export default function PrimtiveReportViewer({primitive, ...props}){
                     {list.map((d)=><PrimitiveCard variant={false} primitive={d} compact onClick={()=>setViewerPick(d)} showExpand onEnter={()=>mainstore.sidebarSelect(d)} className={d === viewerPick ? "!bg-ccgreen-100 !border-ccgreen-200 !border" : "!border !border-gray-50"}/>)}
                 </div>
                 <div className='shrink-0 grow-0'>
-                    <Panel.MenuButton title="Create new" className='w-full'/>
+                    <Panel.MenuButton title="Export" className='w-full' action={exportAll}/>
                 </div>
             </div>
         }

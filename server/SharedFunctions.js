@@ -927,9 +927,11 @@ export async function getDataForProcessing(primitive, action, source, options = 
         source = primitive
     }
 
-    let type = primitive.referenceParameters?.type || action.type
-    const target = primitive.referenceParameters?.target || action.target || "children"
-    const referenceId = primitive.referenceParameters?.referenceId || action.referenceId
+    const category = await Category.findOne({id: primitive.referenceId})
+
+    let type = primitive.referenceParameters?.type || action.type //|| category.type
+    const target = primitive.referenceParameters?.target || action.target || category?.target || "children"
+    const referenceId = primitive.referenceParameters?.referenceId || action.referenceId || category?.referenceId
     const field = primitive.referenceParameters?.field || action.field || "title"
 
     if(target === "descend"){
@@ -1353,7 +1355,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                             return [d,d.replace(/\binc\b/i,"").trim()]
                         }).flat().filter((d,i,a)=>a.indexOf(d)===i)
                         console.log(list)
-                        list = list.filter(d=>!["HSBC", "Wells Fargo", "Goldman Sachs","Citi", "JP Morgan", "JPMorgan Chase", "Bank of America", "BNP Paribas"].includes(d))
+                      //  list = list.filter(d=>!["HSBC", "Wells Fargo", "Goldman Sachs","Citi", "JP Morgan", "JPMorgan Chase", "Bank of America", "BNP Paribas"].includes(d))
                         list = (await resolveAndCreateCompaniesByName(list, task, 29, undefined, false, true )).map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i)
                         console.log(` - Resolved to ${list.length}`)
 

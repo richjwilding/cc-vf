@@ -88,7 +88,7 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
     function customRenderer( list, renderId, element, primitive, source, stage, commonAttrs){
 
         if( element.content?.config){
-            var group = RenderSetAsKonva( element, list, {...element.content,...element.render, x:0, y: 0, imageCallback: ()=>stage.current.batchDraw()} )
+            var group = RenderSetAsKonva( element, list, {...element.content,renderConfig: element.render, x:0, y: 0, imageCallback: ()=>stage.current.batchDraw()} )
             myState.current.manualList[element.id] = group
             return <Group id={`o${element.id}`} {...commonAttrs} />
         }
@@ -142,7 +142,7 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                 config = {grid: true, width: 300, height: 130, padding: [5,5,5,5], items: {funding: true}}
                 const size = 45
                 const description = item.referenceParameters?.description
-                const funding = config.items.funding ? (item.referenceParameters?.funding ? `${roundCurrency(item.referenceParameters?.funding)} total funding` : "UNKNOWN FUNDING") : undefined
+                const funding = config.items.funding ? (item.referenceParameters?.funding ? `${roundCurrency(item.referenceParameters?.funding)} total funding` : undefined ) : undefined
                 const inset = 15
                 const divideX = config.padding[3] + size + inset + inset
                 const imageX = (inset ) + config.padding[3]
@@ -160,7 +160,7 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                     <Text width={size + inset + inset - 4} y={imageY + size + 8} x={config.padding[3] + 2} text={item.title} align='center' fontSize={10}  fontFamily='Poppins' />
                     <PrimitiveImage x={imageX} y={imageY} size={size} url={`/api/image/${item.id}`}/>
                     <Text x={textX} y={textY} width={textWidth} height={activeHeight} ellipsis align='left' verticalAlign='top' fontSize={11} text={description} lineHeight={1.15} fontFamily='Poppins'/>
-                    {config.items.funding && <Text x={textX} y={textY + activeHeight} width={textWidth} height={10} align='center' verticalAlign='top' text={funding} fontSize={10} lineHeight={1.1} fill='#888'  fontFamily='Poppins'/>}
+                    {config.items.funding && funding && <Text x={textX} y={textY + activeHeight} width={textWidth} height={10} align='center' verticalAlign='top' text={funding} fontSize={10} lineHeight={1.1} fill='#888'  fontFamily='Poppins'/>}
                 </Group>)    
             }
             if( renderId === 84 ){
@@ -204,11 +204,12 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
     }
 
 
-    const exportToPptx = ()=>{
+    const exportToPptx = (ppt)=>{
         console.log(`EXPORTING`)
 
         if( stage.current ){
-            exportKonvaToPptx( stage.current )
+            stage.current.batchDraw()
+            exportKonvaToPptx( stage.current, ppt )
         }
     }
 
@@ -223,11 +224,10 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
     useDataEvent('set_field set_parameter', elements.map(d=>d.id), ()=>forceUpdate() )
 
     function selectElement(item){
-        console.log( item?.textId)
         setSelected(item)
         if( props.setSelectedElement ){
             if( item ){
-                const prim = MainStore().primitive(item.textId)
+                const prim = MainStore().primitive(item.primitiveId)
                 if( prim ){
                     props.setSelectedElement( prim )
                     return
@@ -256,7 +256,7 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
             for(const element of elements){
                 const kO = stage.current.find(`#${element.id}`)?.[0]
                 if( kO && kO.text ) {
-                    shrinkTextToFit( kO, {id: element.id, height: element.render?.height ?? 50, text: kO.text() }, element.render?.fontSize ?? 16)
+                    shrinkTextToFit( kO, {id: element.id, height: element.render?.height ?? 50, text: kO.text() }, element.referenceParameters?.fontSize ?? element.render?.fontSize ?? 16)
                 }
             }
 
@@ -293,12 +293,13 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
     }
     
     function processCache(d, data){
-        if( d.content.compute === "auto_summarize"){
+        let content = d.referenceParameters?.content ?? d.content
+        if( content.compute === "auto_summarize"){
             data = data.replaceAll(/\\n/g,"\n").replace(/\n+/g, '\n').replace(/\n/g, '\n\n');
-            if( d.content.caption ){
-                data = d.content.caption + "\n\n" + data
+            if( content.caption ){
+                data = content.caption + "\n\n" + data
             }
-        }else if (d.content.compute === "auto_extract"){
+        }else if (content.compute === "auto_extract"){
             if( Array.isArray(data)){
                 data = data.join("\n")
             }
@@ -306,7 +307,8 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
         return data
     } 
     function fetchData(d){
-        MainStore().doPrimitiveAction( d, `auto_${d.content.compute}`, {instance: rInstance.id,source: source.id, prompt: d.content.prompt, summary_type: d.content.summary_type, focus: source.referenceParameters?.focus ?? source.title}, (response)=>{
+        let content = d.referenceParameters?.content ?? d.content
+        MainStore().doPrimitiveAction( d, `auto_${content.compute}`, {instance: rInstance.id,source: source.id, prompt: content.prompt, summary_type: content.summary_type, focus: source.referenceParameters?.focus ?? source.title}, (response)=>{
             if( response ){
                 rInstance.setField(`computeCache.${d.id}`, processCache( d, response ))
                 forceUpdate()
@@ -320,7 +322,7 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
     return (<>
         <Stage 
                 style={{
-                    background: primitive.render?.background ?? "white"
+                    background: primitive.referenceParameters?.background ?? primitive.render?.background ?? "white"
                 }}
                 onClick={(e)=>{
                     if(e.target === stage.current){
@@ -338,14 +340,24 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                         height: d.render?.height ?? 50
                     };
                     const textAttrs ={
-                        fontFamily: d.render?.fontFamily ?? 'Poppins',
-                        fontSize: d.render?.fontSize ?? 16,
-                        fontStyle: d.render?.fontStyle ?? "normal",
-                        padding: d.render?.padding ?? 20 ,
-                        lineHeight: d.render?.lineHeight ?? 1.25,
+                        fontFamily: d.referenceParameters?.fontFamily ?? d.render?.fontFamily ?? 'Poppins',
+                        fontSize: d.referenceParameters?.fontSize ?? d.render?.fontSize ?? 16,
+                        fontStyle: d.referenceParameters?.fontStyle ?? d.render?.fontStyle ?? "normal",
+                        padding: d.referenceParameters?.padding ?? d.render?.padding ?? 20 ,
+                        lineHeight: d.referenceParameters?.lineHeight ?? d.render?.lineHeight ?? 1.25,
                     }
                     
-                    let text = source ? source.title : ""
+                    const field = d.referenceParameters?.field ?? "title"
+                    let text = ""
+                    if( source ){
+                        let node = source
+                        let parts = field.split(".")
+                        if( parts.length > 1){
+                            node = source.referenceParameters
+                        }
+                        text = node?.[parts.pop()] ?? source.title
+                    }
+
                     
                     let items = [source]
                     if( d.referenceParameters?.target ){
@@ -356,9 +368,9 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                     }
                     const out = []
                     let needCustomRender = false
-                    if( d.content ){
-                        if( d.content.compute){
-                            if(d.content.compute ){
+                    let content = d.referenceParameters?.content ?? d.content
+                    if( content ){
+                        if( content.compute && content.compute !== "grid"){
                                 text = rInstance.computeCache && rInstance.computeCache[d.id]
                                 if( text === "_FETCHING_"){
                                     text = "Fetching data...."
@@ -367,21 +379,21 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                                     fetchData(d)
                                 }else{
 
-                                    text = (d.content?.caption ? d.content?.caption + "\n\n" : "") + text
-                                    if( d.content.compute === "extract"){
-                                        if( Array.isArray(text)){
-                                            items = text.map(d=>MainStore().primitive(d))
+                                    const original = text
+                                    text = (content?.caption ? content?.caption + "\n\n" : "") + text
+                                    if( content.compute === "extract"){
+                                        if( Array.isArray(original)){
+                                            items = original.map(d=>MainStore().primitive(d))
                                             needCustomRender = items[0]?.referenceId
                                         }
                                     }
                                 }
-                            }
                         }else if( items[0]?.referenceId === 84 || items[0]?.referenceId === 29 ){
                             needCustomRender = items[0].referenceId
                         }else{
                             for( const item of items){
                                 let node = item
-                                const field = d.content.field
+                                const field = d.referenceParameters?.field ?? content.field ?? "title"
                                 const parts = field.split(".")
                                 let lastField = parts.pop()
                                 if( parts.length > 0 ){
@@ -389,20 +401,24 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                                 }
                                 out.push( node?.[lastField] )
                             }
-                            text = (d.content?.caption ? d.content?.caption + "\n\n" : "") + out.join("\n")
+                            text = (content?.caption ? content?.caption + "\n\n" : "") + out.join("\n")
+                        }
+                    }else{
+                        if(text){
+                            rInstance.setField(`computeCache.${d.id}`, text)
                         }
                     }
                     return <>
                         <Rect {...commonAttrs} stroke={showBoundingBox ? "black" : undefined} strokeWidth={1}
-                            fill={d.render?.background ?? undefined}
-                            cornerRadius={d.render?.rounded ? (Math.min(commonAttrs.width, commonAttrs.height) * 0.05) : undefined}
+                            fill={d.referenceParameters?.background ?? d.render?.background ?? undefined}
+                            cornerRadius={d.referenceParameters?.rounded ?? d.render?.rounded ? (Math.min(commonAttrs.width, commonAttrs.height) * 0.05) : undefined}
                             key={`bb${d.id}`} 
                             id={`bb${d.id}`} 
                             onClick={(e)=>{
                                 if(e.evt.altKey || e.evt.shiftKey){
                                         fetchData(d)
                                 }
-                                selectElement({id: `bb${d.id}`, textId: `tt${d.id}`})
+                                selectElement({id: `bb${d.id}`, textId: `tt${d.id}`, primitiveId: d.id})
                             }}
                             onTransform={(e) => {
                                 const node = stage.current.find(`#${selected.id}`)?.[0]
@@ -476,12 +492,12 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                                     fetchData(d)
                                }
 
-                                selectElement({id: `bb${d.id}`, textId: d.id})
+                                selectElement({id: `bb${d.id}`, textId: d.id, primitiveId: d.id})
                                 console.log(`Click `, d.id)
                             }}
                             draggable
                             onDragStart={(e) => {
-                                selectElement({id: `bb${d.id}`, textId: d.id})
+                                selectElement({id: `bb${d.id}`, textId: d.id, primitiveId: d.id})
                             }}
                             onDragMove={(e) => {
                                 const node = stage.current.find(`#${selected.id}`)?.[0]

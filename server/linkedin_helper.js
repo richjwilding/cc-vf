@@ -541,6 +541,11 @@ export async function searchLinkedInJobs(keywords, options = {}){
     const target = options.count ?? 50
     let maxPage = options.maxPage ?? 8
     let totalCount = 0
+
+    // UK : 101165590
+    // US : 103644278
+    // Denmark: 104514075
+    // Italy : 103350119
     const searchOptions = {
         geoId: options.geoId ?? 103644278,
         when: options.when ?? "past-month"

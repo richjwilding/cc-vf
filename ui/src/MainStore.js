@@ -137,14 +137,26 @@ function MainStore (prims){
                 }else if(entry.type === "add_relationship"){
                         const parent = obj.primitive( entry.id)
                         const target = obj.primitive( entry.target)
-                        obj.triggerCallback("relationship_update", [entry.id, entry.target])
-                        parent.addRelationship(target, entry.path, true)
+                        if( parent && target){
+                            if(parent.primitives.fromPath(entry.path)?.allIds.includes(entry.target)){
+                                console.log(`SKIP ADD - ALREADY THERE`)
+                            }else{
+                                obj.triggerCallback("relationship_update", [entry.id, entry.target])
+                                parent.addRelationship(target, entry.path, true)
+                            }
+                        }
                     //console.log(  ` Add rel ${parent.id} > ${target.id} : ${entry.path}` )
                 }else if(entry.type === "remove_relationship"){
                         const parent = obj.primitive( entry.id)
                         const target = obj.primitive( entry.target)
-                        obj.triggerCallback("relationship_update", [entry.id, entry.target])
-                        parent.removeRelationship(target, entry.path, true)
+                        if( parent && target){
+                            if(parent.primitives.fromPath(entry.path)?.allIds.includes(entry.target)){
+                                obj.triggerCallback("relationship_update", [entry.id, entry.target])
+                                parent.removeRelationship(target, entry.path, true)
+                            }else{
+                                console.log(`SKIP REMOVED - NOT THERE`)
+                            }
+                        }
                     //console.log(  ` Remove rel ${parent.id} > ${target.id} : ${entry.path}` )
                 }else if(entry.type === "remove_primitives"){
                     if( entry.primitiveIds && Array.isArray(entry.primitiveIds) ){
@@ -461,6 +473,7 @@ function MainStore (prims){
                     from: from,
                     to: to
                 }
+                obj.triggerCallback("relationship_update", [receiver, target])
                 fetch("/api/move_relationship",{
                     method: 'POST',
                     headers: {
@@ -471,9 +484,9 @@ function MainStore (prims){
                 .then(res => res.json())
                     .then(
                     (result) => {
-                        if( obj.ajaxResponseHandler( result )){
+                        /*if( obj.ajaxResponseHandler( result )){
                             obj.triggerCallback("relationship_update", [receiver, target])
-                        }
+                        }*/
                     },
                     (error) => {
                         console.warn(error)
@@ -487,6 +500,7 @@ function MainStore (prims){
                     path: path,
                     set: set
                 }
+                obj.triggerCallback("relationship_update", [receiver, target])
                 fetch("/api/set_relationship",{
                     method: 'POST',
                     headers: {
@@ -497,9 +511,9 @@ function MainStore (prims){
                 .then(res => res.json())
                 .then(
                   (result) => {
-                    if( obj.ajaxResponseHandler( result )){
+                    /*if( obj.ajaxResponseHandler( result )){
                         obj.triggerCallback("relationship_update", [receiver, target])
-                    }
+                    }*/
                   },
                   (error) => {
                     console.warn(error)
@@ -1345,7 +1359,13 @@ function MainStore (prims){
                             let set = parameterName.split(".")
                             let last = set.pop()
                             set.forEach((n)=>{
+                                const last = target
                                 target = target[n]
+                                if( !target ){
+                                    last[n] = {}
+                                    target = last[n]
+                                }
+
                             })
                             target[last] = value
                             if(!skip){
@@ -1594,16 +1614,21 @@ function MainStore (prims){
                                 const invert = filter.invert ?? false
                                 if( filter.type === "parent"){
                                     let hitList = [filter.value].flat()
-                                    if( hitList.includes(undefined) || hitList.includes(null)){
-                                        hitList = hitList.filter(d=>d !== undefined && d !== null )
-                                        thisSet = notCat1( thisSet || list, [filter.sourcePrimId], filter)
-                                    }
-                                    if( !filter.relationship || filter.relationship === "origin" ){
-
-                                        thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>hitList.includes(d)).length > 0)
+                                    if( hitList.length === 0){
+                                        thisSet = (thisSet || list)
                                     }else{
-                                        thisSet = (thisSet || list).filter(d=>invert ^ (d.relationshipAtLevel(filter.relationship,filter.pivot)?.[0]?.parentPrimitiveIds ?? []).filter(d=>hitList.includes(d)).length > 0)
 
+                                        if( hitList.includes(undefined) || hitList.includes(null)){
+                                            hitList = hitList.filter(d=>d !== undefined && d !== null )
+                                            thisSet = notCat1( thisSet || list, [filter.sourcePrimId], filter)
+                                        }
+                                        if( !filter.relationship || filter.relationship === "origin" ){
+                                            
+                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>hitList.includes(d)).length > 0)
+                                        }else{
+                                            thisSet = (thisSet || list).filter(d=>invert ^ (d.relationshipAtLevel(filter.relationship,filter.pivot)?.[0]?.parentPrimitiveIds ?? []).filter(d=>hitList.includes(d)).length > 0)
+                                            
+                                        }
                                     }
                                     //thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).parentPrimitiveIds.includes(filter.value)) 
                                 }else if( filter.type === "not_category_level1"){
@@ -1681,7 +1706,7 @@ function MainStore (prims){
                             
                             if(target === "descend"){
                                 list = source.primitives.descendants
-                                throw "NOT DONE"
+                                console.warn("CHECK IF  DONE")
                             }else if(target === "all_descend"){
                                 list = source.primitives.descendants
                             }else if(target === "ref"){

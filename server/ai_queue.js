@@ -803,8 +803,6 @@ export default function QueueAI(){
         connection: { 
             host: process.env.QUEUES_REDIS_HOST, 
             port: process.env.QUEUES_REDIS_PORT,
-            maxStalledCount: 0,
-            stalledInterval:300000
         },
     });
     instance.myInit = async ()=>{
@@ -1210,7 +1208,9 @@ export default function QueueAI(){
                                                 throw "Couldnt rationalize list"
                                             }
                                         }
+                                        let consoldiated = false
                                         while( directs.length > 50 && attempts > 0){
+                                            consoldiated = true
                                             await consolidate()
                                             attempts--
                                         }
@@ -1246,7 +1246,7 @@ export default function QueueAI(){
 
                                                 const filtered = result.output.filter(d=>d.s )
                                                 const passed = filtered.length
-                                                let alignment = primitive.referenceParameters?.alignment ?? 0.1
+                                                let alignment = primitive.referenceParameters?.alignment ?? (consoldiated ? 0.25 : 0.1)
                                                 if( directLength > 100 ){
                                                     alignment *= 0.5
                                                 }
@@ -1403,9 +1403,11 @@ export default function QueueAI(){
         connection: { 
             host: process.env.QUEUES_REDIS_HOST, 
             port: process.env.QUEUES_REDIS_PORT,
-            maxStalledCount: 0,
-            stalledInterval:300000
-        }
+        },
+        skipStalledCheck: true,
+        maxStalledCount: 0,
+        removeOnFail: true,
+        stalledInterval:300000
     });
     return instance
     

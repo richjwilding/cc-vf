@@ -137,6 +137,37 @@ let mainstore = MainStore()
           base = <p>None</p>
         }
         return <div className='w-full flex'>{base}</div>
+      }else if( item.type === "categoryId"){
+        let list = []
+        if( props.allowNone){
+                list.push({key: "none", title: "No items", categoryId: undefined, category: undefined})
+        }
+        for( const cat of mainstore.categories()){
+          if( ["entity","evidence","result","category"].includes(cat.primitiveType) ){
+            list.push({title: cat.title, categoryId: cat.id, category: cat})
+          }
+        }                
+
+        const setSource = (idx)=>{
+          const source = list[idx]
+
+          if( props.callback ){
+            const res = {}
+            props.callback(parseInt(source.categoryId))
+          }else{
+            if( item.key ){
+              props.primitive.setParameter( item.key, parseInt(source.categoryId))
+            }
+          }
+        }
+
+        return <MyCombo 
+          disabled={item.locked}
+          selectedItem={list.findIndex(d=>item.value === d.categoryId)} 
+          setSelectedItem={setSource}
+          items={list.map((d, idx)=>{return {id:idx, ...d}})}
+            className='ml-auto w-full'
+          />
       }else if( item.type === "category_source"){
         let list = []
 
@@ -156,7 +187,7 @@ let mainstore = MainStore()
             let items
 
             const unpackItems = (items, level)=>{
-                const types = items.map(d=>d.metadata).filter((d,i,a)=>a.findIndex(d2=>d.id === d2.id)===i)
+                const types = items.map(d=>d.metadata).filter((d,i,a)=>a.findIndex(d2=>d && d2 && d.id === d2.id)===i)
                 for( const cat of types ){
                   list.push({key: "items", target: "items", title: cat.title, categoryId: cat.id, category: cat, pivot: level > 0 ? level : undefined})
                 }                
@@ -337,9 +368,12 @@ let mainstore = MainStore()
 
         if(_target === "evidence" || _target === "items"){
           sourceMeta =  mainstore.category(_refId) 
-        }
-        else if(task && _target?.slice(0,7) === "results"){
+        }else if(_target === "origin"){
+          sourceMeta = props.primitive.origin
+        }else if(task && _target?.slice(0,7) === "results"){
           sourceMeta = mainstore.category(task.metadata?.resultCategories[_target.slice(8)].resultCategoryId)
+        }else{
+          sourceMeta = mainstore.category(_refId)
         }
 
         const list = [{
@@ -543,6 +577,9 @@ let mainstore = MainStore()
         fieldClassName={`${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
         clamp={clamp}
         callback={props.callback ? props.callback : (value)=>{
+            if( item.type === "integer"){
+              value = parseInt( value )
+            }
             return props.primitive.setParameter(item.key, value)
         }}
         className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
@@ -920,7 +957,22 @@ const Parameters = function({primitive, ...props}){
     if( !config ){
       return {type: "string", title: `${k} (auto)`, value: source[k].length + " items\n" + JSON.stringify(source[k]), key: k}
     }
-    return {...config, value: source[k], autoId: source[`${k}Id`], key: k}
+    let val 
+    let parts = k.split(".")
+    if( parts.length == 1 ){
+      val = source[k]
+    }else{
+      let node = source
+      let last = parts.pop()
+      for( const d of parts){
+        if( node ){
+          node = node[d]
+        }
+      }
+      val = node?.[last]
+    }
+    console.log(k, val)
+    return {...config, value: val, autoId: source[`${k}Id`], key: k}
   })
 
   if( !props.fullList ){

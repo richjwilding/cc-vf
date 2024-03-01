@@ -118,6 +118,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const targetRef = useRef()
     const gridRef = useRef()
     const myState = useRef({})
+    const canvas = useRef({})
 
     let cancelRender = false
 
@@ -315,6 +316,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }
            }
             return Object.values(catIds).map((d)=>{
+                if( !d){
+                    return
+                }
                 const options = d.primitives?.allUniqueCategory
                 if( !options ){
                     return undefined
@@ -391,7 +395,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     a[k] = {...(a[k] || {}), ...c[k]}
                 })
                 return a
-            })
+            },{})
             console.log(taskParams)
             if( Object.keys(taskParams).length > 0){
                 const itemParams = p.map(d=>process(taskParams[d.referenceId], ""))
@@ -417,7 +421,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
         const baseCategories = primitive.primitives.allUniqueCategory
         out = out.concat( findCategories( baseCategories ) )
-        if( primitive.referenceParameters?.explore?.importCategories){
+        if( primitive.referenceParameters?.explore?.importCategories !== false){
             let nodes = [primitive]
             let updated = false
             let added = 0
@@ -752,11 +756,13 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 let unpack = [ base ]
                 for(const key of expands){
                     let thisOut = []
+                    let idx = 0
                     for( const replicate of unpack){
                         for( const perm of entry[key]){
-                            const thisEntry = {...replicate}
+                            const thisEntry = {...replicate, dup_track: idx}
                             thisEntry[key] = perm
                             thisOut.push(thisEntry)
+                            idx++
                         }
                     }
                     unpack = thisOut
@@ -765,6 +771,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }
             interim = unpacked
         }
+        console.log(interim)
 
         for( const [selection, accessor] of [
             [colSelection, "column"],
@@ -809,7 +816,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
             const ids = temp.map(d=>d.id)
             interim = interim.filter(d=>ids.includes(d.primitive.id ) )
             if( primitive.referenceParameters?.explore?.allowMulti ){
-                interim = interim.filter((d,i,a)=>a.findIndex(d2 => (d.primitive.id === d2.primitive.id) && ((d.column?.idx) === (d2.column?.idx)) && ((d.row?.idx) === (d2.row?.idx))) === i)
+                //interim = interim.filter((d,i,a)=>a.findIndex(d2 => (d.primitive.id === d2.primitive.id) && ((d.column?.idx) === (d2.column?.idx)) && ((d.row?.idx) === (d2.row?.idx))) === i)
+                interim = interim.filter((d,i,a)=>a.findIndex(d2 => (d.primitive.id === d2.primitive.id) && (d.column === d2.column) && (d.row === d2.row)) === i)
             }
 
         }
@@ -1779,9 +1787,20 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const rowRemap =  axisOptions[rowSelection]?.order?.map((d,idx)=>((rowFilter && rowFilter[d]) || (hideNull && myState.current?.rowEmpty?.[d])) ? undefined : idx).filter(d=>d!==undefined)
     const colRemap =  axisOptions[colSelection]?.order?.map((d,idx)=>((colFilter && colFilter[d]) || (hideNull && myState.current?.columnEmpty?.[d])) ? undefined : idx).filter(d=>d!==undefined)
 
+    let updateBatch
+    console.log(`UPREND`)
     useDataEvent("relationship_update", [primitive.id, items.map((d)=>d.id)].flat(), (data)=>{
-        storeCurrentOffset()
-        forceUpdateRel()
+        if( updateBatch ){
+            console.log(`Clearing`)
+            clearTimeout(updateBatch)
+        }
+        updateBatch = setTimeout(() => {
+            console.log("RUP")
+            storeCurrentOffset()
+            forceUpdateRel()
+            updateBatch = undefined
+        }, 50);
+        return false
     })
 
     //console.log(renderProps)
@@ -1835,43 +1854,11 @@ export default function PrimitiveExplorer({primitive, ...props}){
     }
 
 
-    let exploreView
     let selectionForCategory = selectedBox?.infoPane?.filters ? primitive.filterItems(list.map(d=>d.primitive), selectedBox.infoPane.filters).map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i) : undefined
 
-    if( [161258, 257045].includes(primitive.plainId) ){
-        exploreView = <InfiniteCanvas 
-                            highlights={{
-                                "primitive":"border",
-                                "cell":"background"
-                            }}
-                            selectable={{
-                                "primitive":{
-                                    multiple: false
-                                },
-                                "cell":{
-                                    multiple: true
-                                }
-                            }}
-                            callbacks={{
-                                onClick:{
-                                    primitive:(id)=>{
-                                        mainstore.sidebarSelect(id)
-                                    }
-                                }
-                            }}
-                            render={(stageOptions)=>renderMatrix(
-                                                                primitive, 
-                                                                list, {
-                                                                    _primitiveClick: (id)=>alert(id),
-                                                                    columnExtents: columnExtents, 
-                                                                    rowExtents: 
-                                                                    rowExtents, 
-                                                                    ...stageOptions
-                                                                })} />
-    }else{
+    const experiment = [178135,278794, 161258, 257045, 164523].includes(primitive.plainId)
 
-    exploreView = 
-    <>
+    let exploreView = <>
         {props.allowedCategoryIds && props.allowedCategoryIds.length > 1 && 
             <div key='control' className='z-20 w-full p-2 sticky top-0 left-0 flex rounded-t-lg bg-gray-50 border-b border-gray-200'>
                 <div className='flex place-items-center space-x-2 w-full flex-wrap '>
@@ -1879,7 +1866,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 </div>
             </div>
         }
-                <div ref={targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain relative'>
+                <div ref={experiment ? undefined : targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain relative'>
         {props.closeButton ?? ""}
                     <div key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 top-32 p-1.5 flex flex-col place-items-start space-y-2'>
                         {!props.compare && axisOptions && <DropdownButton noBorder icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={axisOptions} flat placement='left-start' portal showTick selectedItemIdx={selectedColIdx} setSelectedItem={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
@@ -1897,6 +1884,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         <DropdownButton noBorder icon={<ArrowUpTrayIcon className='w-5 h-5 '/>} 
                         items={[
                             {'title': "Export to PDF", icon: <DocumentArrowDownIcon className='w-5 h-5 mx-1'/>, action: ()=>exportViewToPdf(gridRef.current)},
+                            experiment && {'title': "Export to PPTX", icon: <DocumentArrowDownIcon className='w-5 h-5 mx-1'/>, action: ()=> canvas.current ? canvas.current.exportToPptx() : undefined },
                             {'title': "Copy to clipboard", icon: <ClipboardDocumentIcon className='w-5 h-5 mx-1'/>, action: copyToClipboard},
                         ]} 
                         flat placement='left-end' portal className={`hover:text-ccgreen-800 hover:shadow-md`}/>
@@ -1905,7 +1893,78 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         {showCategoryPane && <PrimitiveCard.Categories primitive={primitive} scope={selectionForCategory} directOnly hidePanel className='px-4 pt-4 pb-2 w-full h-fit'/>}
                         <DropdownButton noBorder icon={showCategoryPane ? <ArrowDownLeftIcon className='w-5 h-5'/> : <HeroIcon icon='Puzzle' className='w-5 h-5 '/>} onClick={()=>setshowCategoryPane(!showCategoryPane)} flat className={`hover:text-ccgreen-800 hover:shadow-md`}/>
                     </div>
-                <div 
+                {experiment && <InfiniteCanvas 
+                            ref={canvas}
+                            update={update + updateRel + updateExtent}
+                            updateOld={update}
+                            updateRel={updateRel}
+                            updateExtent={updateExtent}
+                            highlights={{
+                                "primitive":"border",
+                                "cell":"background"
+                            }}
+                            selectable={{
+                                "primitive":{
+                                    multiple: false
+                                },
+                                "cell":{
+                                    multiple: true
+                                }
+                            }}
+                            drag={{
+                                "primitive": {
+                                    cell:{
+                                        start: undefined,
+                                        droppable: (id,start, drop)=>{
+                                            const [sc,sr] = dropZoneToAxis(start)
+                                            const [dc,dr] = dropZoneToAxis(drop)
+                                            if( sr != dr && !axisOptions[rowSelection].allowMove){
+                                                return false
+                                            }
+                                            if( sc != dc && !axisOptions[colSelection].allowMove){
+                                                return false
+                                            }
+                                            return true
+                                        },
+                                        drop: (id, start, drop)=>moveItem(id,start,drop)
+                                    }
+                                }
+                            }}
+                            callbacks={{
+                                onClick:{
+                                    primitive:(id)=>{
+                                        mainstore.sidebarSelect(id)
+                                    },
+                                    cell:(id)=>{
+                                        const cell = id?.[0]
+                                        if( cell ){
+                                            const [cIdx,rIdx] = cell.split("-")
+
+                                            let infoPane = {
+                                                filters: [
+                                                    encodeFilter( axisOptions[colSelection], colRemap[cIdx] ),
+                                                    encodeFilter( axisOptions[rowSelection], rowRemap[rIdx] ),
+                                                    ...baseFilters
+                                                ].filter(d=>d)
+                                            }
+                                            MainStore().sidebarSelect( primitive, {
+                                                infoPane: infoPane
+                                            })
+                                        }
+                                    }
+                                }
+                            }}
+                            render={[{id: primitive.id, items: (stageOptions)=>renderMatrix(
+                                                                primitive, 
+                                                                list, {
+                                                                    _primitiveClick: (id)=>alert(id),
+                                                                    columnExtents: columnExtents, 
+                                                                    rowExtents: 
+                                                                    rowExtents, 
+                                                                    ...stageOptions
+                                                                })}]}
+                />}
+                {!experiment &&<div 
                     key={`grid`}
                     ref={gridRef}
                     style = {{
@@ -2079,10 +2138,9 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         })}
                         </React.Fragment>
                     })}
-                </div>
+                </div>}
         </div>
         </>
-    }
 
     let filterPane
     if( showPane === "filter"){

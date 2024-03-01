@@ -6,8 +6,16 @@ export default function useDataEvent(fields, ids, callback){
     const [count, forceUpdate] = React.useReducer( (x)=>x+1, 0)
 
     const wrap = (ids)=>{
-        forceUpdate()
-        callback && callback(ids)
+        let doUpdate = true
+        if( callback ){
+            const r = callback(ids)
+            if( r === false){
+                doUpdate = false
+            }
+        }
+        if( doUpdate ){
+            forceUpdate()
+        }
     }
 
     React.useEffect(()=>{

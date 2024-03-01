@@ -22,14 +22,20 @@ export async function exportKonvaToPptx( konva ){
     // 4. Save the Presentation
     await pres.writeFile({ fileName: "Sample Presentation.pptx" });
 }*/
-export async function exportKonvaToPptx( stage ){
-    let pptx = new pptxgen();
-
+export async function exportKonvaToPptx( stage, pptx ){
+    let savePptx = false
+    
     let widthInInches = 10 * 4
     let heightInInches = 5.625 * 4
 
-    pptx.defineLayout({ name:'VF_CUSTOM', width: widthInInches, height: heightInInches });
-    pptx.layout = 'VF_CUSTOM'
+    if( !pptx ){
+        pptx = new pptxgen();
+        
+        
+        pptx.defineLayout({ name:'VF_CUSTOM', width: widthInInches, height: heightInInches });
+        pptx.layout = 'VF_CUSTOM'
+        savePptx = true
+    }
 
 
     let slide = pptx.addSlide();
@@ -169,5 +175,7 @@ export async function exportKonvaToPptx( stage ){
         }
     }
 
-    pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
+    if( savePptx ){
+        pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
+    }
 }

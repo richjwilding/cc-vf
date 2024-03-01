@@ -82,6 +82,10 @@ const PrimitiveConfig = {
             needParent:true,
             needCategory:true,
         },
+        "element": {
+            needCategory:true,
+            defaultReferenceId: 89
+        },
     },
     types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance"],
     pageview:{
