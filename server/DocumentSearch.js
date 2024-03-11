@@ -6,7 +6,13 @@ import { buildEmbeddings } from "./openai_helper";
 
 export async function indexDocument( primitive, {force} = {}){
     try{
-        if( !force ){
+        if( force ){
+            await ContentEmbedding.deleteMany({
+                foreignId: primitive.id,
+                workspaceId: primitive.workspaceId
+            })
+            
+        }else{
             const existing = await ContentEmbedding.findOne({
                 foreignId: primitive.id,
                 workspaceId: primitive.workspaceId

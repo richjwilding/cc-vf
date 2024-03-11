@@ -1,5 +1,5 @@
 import Primitive from "./model/Primitive";
-import {createPrimitive, flattenPath, doPrimitiveAction, findResultSetForCategoryId, executeConcurrently} from './SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, findResultSetForCategoryId, executeConcurrently, dispatchControlUpdate} from './SharedFunctions'
 import moment from 'moment';
 import { fetchLinksFromWebQuery, fetchURLPlainText, replicateURLtoStorage, writeTextToFile } from './google_helper';
 import { htmlToText } from "html-to-text";
@@ -687,6 +687,32 @@ export async function fetchLinkedInProfile( linkedin_profile_url, use_cache = "i
     return await response.json()
 }
 
+export async function updateFromProxyCurlData( primitive ){
+    const profileUrl = primitive.referenceParameters.profile
+    if( profileUrl ){
+        const profile = await fetchLinkedInProfile(profileUrl)
+    
+        
+        const oldestDegree = profile.education?.filter(d=>d.degree_name).reverse()[0]
+        const referenceParameters = {
+                role: profile.occupation,
+                headline: profile.headline,
+                summary: profile.summary,
+                summary: profile.summary,
+                profile_pic_url: profile.profile_pic_url,
+                degree: oldestDegree?.degree_name,
+                degree_end_year: oldestDegree?.ends_at?.year,
+                location: [profile.city, profile.state, profile.country].filter(d=>d).join(", "),
+                profile: profileUrl,
+                experiences: profile.experiences}
+        
+        await dispatchControlUpdate( primitive.id, "referenceParameters", referenceParameters)
+        await dispatchControlUpdate( primitive.id, "title", profile.full_name)
+        if(profile.profile_pic_url){
+            await replicateURLtoStorage( profile.profile_pic_url, primitive.id, 'cc_vf_images' )
+        }
+    }
+}
 export async function addPersonFromProxyCurlData( profile, url, resultCategoryId, primitive, resultSet, extra = {} ){
     const existing = await Primitive.findOne({
         "workspaceId": primitive.workspaceId,

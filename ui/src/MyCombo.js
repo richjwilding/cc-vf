@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
 import { CheckIcon, ChevronUpDownIcon } from '@heroicons/react/20/solid'
 import { Combobox } from '@headlessui/react'
 import MainStore from './MainStore'
 import { HeroIcon } from './HeroIcon'
+import { Float } from '@headlessui-float/react'
+import { offset } from '@floating-ui/react-dom'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -11,9 +13,19 @@ function classNames(...classes) {
 export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
   const [query, setQuery] = useState('')
   const [selectedItemFallback, setSelectedItemFallback] = useState(props.multiple ? [] : props.items[0])
+  const main = useRef()
 
   const selectedItemReal = setSelectedItem ? selectedItem : selectedItemFallback
   const setSelectedItemReal = setSelectedItem ? setSelectedItem : setSelectedItemFallback
+
+
+  const middleware = [
+    offset(({rects}) => {
+      return (
+        main.current ? -main.current.offsetWidth : 0
+      );
+    })
+  ]
 
   const filteredItems =
     query === ''
@@ -21,8 +33,57 @@ export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
       : props.items.filter((item) => {
           return item.title.toLowerCase().includes(query.toLowerCase())
         })
+
+
+
+
+        const actualMenu = [
+                <Combobox.Button disabled={props.disabled} className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-2 focus:outline-none">
+                  <ChevronUpDownIcon className={`h-5 w-5 ${props.disabled ? "text-gray-200" : "text-gray-400"  }`} aria-hidden="true" />
+                </Combobox.Button>,                
+                filteredItems.length > 0 ? (
+                    <Combobox.Options 
+                        className="absolute z-10 mt-1 max-h-60 lg:max-h-[50vh] overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
+                      {filteredItems.map((item) => (
+                        <Combobox.Option
+                          key={item?.id}
+                          value={item instanceof Object ? item.id : item}
+                          className={({ active }) =>
+                            classNames(
+                              'relative cursor-default select-none py-2 pl-3 pr-9',
+                              active ? 'bg-indigo-600 text-white' : 'text-gray-900'
+                            )
+                          }
+                        >
+                        {({ active, selected }) => (
+                            <>
+                              <div className="flex items-center">
+                                <HeroIcon icon={item.icon} className="h-6 w-6 flex-shrink-0 rounded-full" />
+                                <span className={classNames('ml-3 truncate', selected && 'font-semibold')}>{item.title}</span>
+                              </div>
+
+                              {selected && (
+                                <span
+                                  className={classNames(
+                                    'absolute inset-y-0 right-0 flex items-center pr-4',
+                                    active ? 'text-white' : 'text-indigo-600'
+                                  )}
+                                >
+                                  <CheckIcon className="h-5 w-5" aria-hidden="true" />
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </Combobox.Option>
+                      ))}
+                    </Combobox.Options>
+                ) : undefined
+              ].filter(d=>d)
+
+
   return (
     <Combobox 
+      ref={main} 
       disabled={props.disabled}
       multiple={Array.isArray(selectedItemReal)} as="div" value={selectedItemReal} onChange={setSelectedItemReal} className={props.className}>
       {props.label && <Combobox.Label className="block text-sm font-medium leading-6 text-gray-900">{props.label}</Combobox.Label>}
@@ -32,46 +93,9 @@ export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
           onChange={(event) => setQuery(event.target.value)}
           displayValue={(item) => Array.isArray(item) ?  `${props.prefix || ""}${item.length} items` : props.items ? `${props.prefix || ""}${props.items.find((d)=>d?.id === item)?.title ?? "Select..."}` : ""}
         />
-        <Combobox.Button disabled={props.disabled} className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-2 focus:outline-none">
-          <ChevronUpDownIcon className={`h-5 w-5 ${props.disabled ? "text-gray-200" : "text-gray-400"  }`} aria-hidden="true" />
-        </Combobox.Button>
-
-        {filteredItems.length > 0 && (
-          <Combobox.Options className="absolute z-10 mt-1 max-h-60 lg:max-h-[50vh] overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
-            {filteredItems.map((item) => (
-              <Combobox.Option
-                key={item?.id}
-                value={item instanceof Object ? item.id : item}
-                className={({ active }) =>
-                  classNames(
-                    'relative cursor-default select-none py-2 pl-3 pr-9',
-                    active ? 'bg-indigo-600 text-white' : 'text-gray-900'
-                  )
-                }
-              >
-              {({ active, selected }) => (
-                  <>
-                    <div className="flex items-center">
-                      <HeroIcon icon={item.icon} className="h-6 w-6 flex-shrink-0 rounded-full" />
-                      <span className={classNames('ml-3 truncate', selected && 'font-semibold')}>{item.title}</span>
-                    </div>
-
-                    {selected && (
-                      <span
-                        className={classNames(
-                          'absolute inset-y-0 right-0 flex items-center pr-4',
-                          active ? 'text-white' : 'text-indigo-600'
-                        )}
-                      >
-                        <CheckIcon className="h-5 w-5" aria-hidden="true" />
-                      </span>
-                    )}
-                  </>
-                )}
-              </Combobox.Option>
-            ))}
-          </Combobox.Options>
-        )}
+         {props.portal
+          ? <Float as="div" portal middleware={middleware} placement='right-end'>{actualMenu}</Float>
+          : actualMenu}
       </div>
     </Combobox>
   )

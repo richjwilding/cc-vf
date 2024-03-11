@@ -86,7 +86,7 @@ export default function NewPrimitive({...props}) {
 
     const mainstore = MainStore()
     const getCategoryList = ()=>{
-        let list = mainstore.categories().filter((d)=>props.type === undefined || props.type === d.primitiveType)
+        let list = mainstore.categories().filter((d)=>props.type === undefined || [props.type].flat().includes(d.primitiveType))
         if( props.categoryId ){
             list = props.categoryId.map((id)=>mainstore.category(id))
         }else if(props.parent ){
@@ -118,9 +118,10 @@ export default function NewPrimitive({...props}) {
     const workspace = MainStore().workspace(selectedWorkspace)
 
     async function submit() {
+        const type = selectedCategory.primitiveType ?? [props.type].flat()[0]
         const primitive = await MainStore().createPrimitive({
             title: value,
-            type: props.type,
+            type: type,
             categoryId: selectedCategory?.categoryId,
             parent: props.parent,
             parentPath: props.parentPath,

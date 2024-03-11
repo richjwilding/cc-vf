@@ -946,11 +946,13 @@ export default function QueueAI(){
                                 let catData
                                 if( action.alternative){
                                     const task = await primitiveTask( primitive)
+                                    const theme = (primitive.referenceParameters?.theme && primitive.referenceParameters?.theme.trim().length > 0 ? primitive.referenceParameters?.theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics
                                     const result = await analyzeForClusterPhrases( data, {
                                         //type:primitive.referenceParameters?.listType, 
                                         type: primitive.referenceParameters?.types ?? action.aiConfig?.[primitive.referenceParameters?.field]?.types ??  "problem statement",
+                                        focus: primitive.referenceParameters?.cat_theme,
                                         batch: 500,
-                                        theme: (primitive.referenceParameters?.theme && primitive.referenceParameters?.theme.trim().length > 0 ? primitive.referenceParameters?.theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics, 
+                                        theme: theme,
                                         debug: true} )
                                     if( result.success ){
                                         const categories =  result.output.map(d=>d.cluster_title)
@@ -1325,6 +1327,7 @@ export default function QueueAI(){
                                         engine:  primitive.referenceParameters?.engine || action.engine,
                                         rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
                                         batch: primitive.referenceParameters?.batch ?? action.batch ?? 80,
+                                        focus: primitive.referenceParameters?.focus ?? primitive.referenceParameters?.cat_theme,
                                         temperature: 0.85,
                                         debug: true,
                                         debug_content: true

@@ -1,6 +1,6 @@
 import MainStore from './MainStore';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ClipboardDocumentIcon, DocumentArrowDownIcon, FunnelIcon, MagnifyingGlassIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ClipboardDocumentIcon, DocumentArrowDownIcon, FunnelIcon, MagnifyingGlassIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { PrimitiveCard } from './PrimitiveCard';
 //import html2canvas from 'html2canvas';
 //import MiroExporter from './MiroExporter'; 
@@ -119,6 +119,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
     const gridRef = useRef()
     const myState = useRef({})
     const canvas = useRef({})
+    const [experiment, setExperiment] = React.useState( [178135,278794, 161258, 257045, 164523].includes(primitive.plainId) )
 
     let cancelRender = false
 
@@ -377,7 +378,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
             catIds.forEach((id)=>{
                 const category = MainStore().category(id)
-                if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query"){
+                if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query" || category.primitiveType === "evidence"){
                     out.push( {type: 'title', title: `${category.title} Title`, relationship, access: access, twoPass: true, passType: "raw"})
                 }
                 if( category ){
@@ -543,7 +544,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
                     }
                     if( !item ){return "_N_"}//}undefined}
-                    if( primitive.referenceParameters?.explore?.allowMulti){
+                    if( primitive.referenceParameters?.explore?.allowMulti ){
                         const matches = item.parentPrimitiveIds.map((d)=>option.order?.indexOf(d)).filter((d,i,a)=>d !== -1 && a.indexOf(d)===i).sort()
                         if( matches.length === 0){
                             return "_N_"
@@ -708,8 +709,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     labels = new Array(bucketCount).fill(0).map((_,i)=>{
                         const start = minValue + (bucket * i)
                         mins[i] = start
-                        max[i] = start + bucket - 1
-                        return `${Math.floor(start)} - ${Math.floor(start + bucket) - 1}`
+                        max[i] = start + bucket - (i === (bucketCount - 1) ? 0 : 1)
+                        return `${Math.floor(mins[i])} - ${Math.floor(max[i])}`
                     }) 
                 }
                 interim.forEach((d)=>{
@@ -815,7 +816,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
             }
             const ids = temp.map(d=>d.id)
             interim = interim.filter(d=>ids.includes(d.primitive.id ) )
-            if( primitive.referenceParameters?.explore?.allowMulti ){
+            if( primitive.referenceParameters?.explore?.allowMulti  ){
                 //interim = interim.filter((d,i,a)=>a.findIndex(d2 => (d.primitive.id === d2.primitive.id) && ((d.column?.idx) === (d2.column?.idx)) && ((d.row?.idx) === (d2.row?.idx))) === i)
                 interim = interim.filter((d,i,a)=>a.findIndex(d2 => (d.primitive.id === d2.primitive.id) && (d.column === d2.column) && (d.row === d2.row)) === i)
             }
@@ -846,7 +847,8 @@ export default function PrimitiveExplorer({primitive, ...props}){
                     })
                 }).flat()
             }
-            interim = interim.filter((d,i,a)=>a.findIndex(d2=>((d2.column?.idx) === (d.column?.idx) ) && ((d2.row?.idx ) === (d.row?.idx) ) && d.primitive.id === d2.primitive.id) === i)
+            //interim = interim.filter((d,i,a)=>a.findIndex(d2=>((d2.column?.idx) === (d.column?.idx) ) && ((d2.row?.idx ) === (d.row?.idx) ) && d.primitive.id === d2.primitive.id) === i)
+            interim = interim.filter((d,i,a)=>a.findIndex(d2=>(d2.column === d.column) && (d2.row === d.row ) && d.primitive.id === d2.primitive.id) === i)
         }
 
         return [interim, baseFilters]
@@ -1856,7 +1858,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     let selectionForCategory = selectedBox?.infoPane?.filters ? primitive.filterItems(list.map(d=>d.primitive), selectedBox.infoPane.filters).map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i) : undefined
 
-    const experiment = [178135,278794, 161258, 257045, 164523].includes(primitive.plainId)
 
     let exploreView = <>
         {props.allowedCategoryIds && props.allowedCategoryIds.length > 1 && 
@@ -1878,6 +1879,7 @@ export default function PrimitiveExplorer({primitive, ...props}){
                         {props.compare && <DropdownButton noBorder title="IMP" items={undefined} flat placement='left-start' onClick={()=>updateImportantOnly(!importantOnly)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${importantOnly ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {props.compare && <DropdownButton noBorder title='CF' showTick hideArrow flat items={axisFilterOptions(axisOptions[colSelection], colFilter)} placement='left-start' setSelectedItem={(d)=>updateAxisFilter(d, "column")} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${axisOptions[colSelection].exclude && axisOptions[colSelection].exclude.reduce((a,c)=>a||c,false) ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {props.compare && <DropdownButton noBorder title='RF' showTick hideArrow flat items={axisFilterOptions(axisOptions[rowSelection], rowFilter)} placement='left-start' setSelectedItem={(d)=>updateAxisFilter(d, "row" )} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${axisOptions[colSelection].exclude && axisOptions[colSelection].exclude.reduce((a,c)=>a||c,false) ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {<DropdownButton noBorder icon={<SparklesIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>setExperiment(!experiment)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${hideNull ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {(viewConfig?.config?.searchPane || primitive.type === "assessment") && <DropdownButton noBorder icon={<MagnifyingGlassIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "search" ? setShowPane(false) : setShowPane("search")} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${hideNull ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                     </div>
                     <div key='export' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 bottom-4 p-0.5 flex flex-col place-items-start space-y-2'>

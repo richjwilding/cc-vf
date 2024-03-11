@@ -66,6 +66,24 @@ function App() {
       }
     })
   }, [])
+  useEffect(() => {
+    const handleGestureStart = (e) => {
+      e.preventDefault();
+    };
+
+    const handleGestureChange = (e) => {
+      e.preventDefault();
+    };
+
+    document.addEventListener('gesturestart', handleGestureStart);
+    document.addEventListener('gesturechange', handleGestureChange);
+
+    return () => {
+      document.removeEventListener('gesturestart', handleGestureStart);
+      document.removeEventListener('gesturechange', handleGestureChange);
+    };
+  }, []); // Empty dependency array means this effect runs once on mount and once on unmount
+              
 
   const selectPrimitive = (primitive, options)=>{
     console.log(primitive)

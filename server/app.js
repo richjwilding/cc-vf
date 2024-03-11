@@ -99,7 +99,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 app.get('/google/login',
   passport.authenticate('google', {
-          scope: ['email', 'profile', 'https://www.googleapis.com/auth/drive'],
+          scope: ['email', 'profile', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/adwords'],
             accessType: 'offline',
             prompt: 'consent',
             //prompt: 'select_account',

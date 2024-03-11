@@ -18,7 +18,7 @@ export default function HomeScreen(props){
     }
     
     const activities = filterForWorksapce(MainStore().primitives().filter((p)=>p.isTask))
-    const ventures = filterForWorksapce(MainStore().primitives().filter((p)=>p.type === 'venture'))
+    const ventures = filterForWorksapce(MainStore().primitives().filter((p)=>p.type === 'venture' || p.type==="concept"))
     const handleCreate = (prim)=>{
         setShowNew(false)
         navigate(`/item/${prim.id}`)
@@ -38,7 +38,7 @@ export default function HomeScreen(props){
                     </div>
                 </div>
             </Panel>
-            <Panel key='ventures' titleButton={{title:"New Venture", action: ()=>setShowNew('venture')}} title='Ventures' collapsable={true} count={ventures.length} open={true} major='true' >
+            <Panel key='ventures' titleButton={{title:"New Venture", action: ()=>setShowNew(['venture','concept'])}} title='Ventures' collapsable={true} count={ventures.length} open={true} major='true' >
                 <div className="w-full flex overflow-x-scroll">
                     <div className="w-fit flex gap-4 p-4">
                         {ventures.map((p)=>{

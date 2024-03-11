@@ -68,7 +68,6 @@ const PrimitiveConfig = {
             defaultReferenceId: 39
         },
         "view": {
-            allowedParents:["activity","experiment"],
             needParent:true,
             needCategory:false,
             defaultReferenceId: 38
@@ -86,8 +85,12 @@ const PrimitiveConfig = {
             needCategory:true,
             defaultReferenceId: 89
         },
+        "concept": {
+            needCategory:true,
+            defaultReferenceId: 92
+        },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance"],
+    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance", "concept"],
     pageview:{
         "report":{
             defaultWide: "report" 

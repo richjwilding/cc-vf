@@ -142,8 +142,15 @@ let mainstore = MainStore()
         if( props.allowNone){
                 list.push({key: "none", title: "No items", categoryId: undefined, category: undefined})
         }
-        for( const cat of mainstore.categories()){
-          if( ["entity","evidence","result","category"].includes(cat.primitiveType) ){
+
+        let available = mainstore.categories()
+        if( props.activeOnly ){
+          const ids = props.primitive.primitives.descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
+          available = available.filter(d=>ids.includes(d.id))
+        }
+        
+        for( const cat of available){
+          if( ["entity","evidence","result","category","query","activity"].includes(cat.primitiveType) ){
             list.push({title: cat.title, categoryId: cat.id, category: cat})
           }
         }                
@@ -165,6 +172,7 @@ let mainstore = MainStore()
           disabled={item.locked}
           selectedItem={list.findIndex(d=>item.value === d.categoryId)} 
           setSelectedItem={setSource}
+          portal
           items={list.map((d, idx)=>{return {id:idx, ...d}})}
             className='ml-auto w-full'
           />
@@ -949,13 +957,17 @@ const Parameters = function({primitive, ...props}){
     fields = fields.filter((f)=>keyNames.includes(f))
   }
   if( primitive.metadata?.autoParam){
-    fields = fields.concat( Object.keys(primitive.referenceParameters) ).filter(d=>(d,i,a)=>a.indexOf(d) === i) 
+    fields = fields.concat( Object.keys(primitive.referenceParameters) ).filter((d,i,a)=>a.indexOf(d) === i) 
   }
   fields = fields.filter((d)=>!parameters[d]?.hidden)
   let details = fields.map((k)=>{
     let config = parameters[k]
     if( !config ){
-      return {type: "string", title: `${k} (auto)`, value: source[k].length + " items\n" + JSON.stringify(source[k]), key: k}
+      if( Array.isArray(source[k]) || typeof(source[k]) === "object" ){
+        return {type: "string", title: `${k} (auto)`, value: source[k].length + " items\n" + JSON.stringify(source[k]), key: k}
+      }else{
+        return {type: "string", title: `${k} (auto)`, value: source[k], key: k}
+      }
     }
     let val 
     let parts = k.split(".")
@@ -971,7 +983,6 @@ const Parameters = function({primitive, ...props}){
       }
       val = node?.[last]
     }
-    console.log(k, val)
     return {...config, value: val, autoId: source[`${k}Id`], key: k}
   })
 

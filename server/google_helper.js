@@ -19,7 +19,7 @@ import { dispatchControlUpdate, executeConcurrently } from "./SharedFunctions";
 import { storeDocumentEmbeddings } from "./DocumentSearch";
 import * as cheerio from 'cheerio';
 
-
+let adconfig = {}
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -88,10 +88,6 @@ export async function buildDocumentEmbedding(id, req){
     let embeddings = await Embedding.deleteMany({foreignId: id, type: "content"})
     const content = (await getDocumentAsPlainText(id, req))
     const text = content?.plain
-    if( id === "6511c742249568f6acaa716f")
-    {
-        console.log(`here`)
-    }
     if( text ){
 
     const splitWords = (text)=>{
@@ -175,7 +171,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
         fecthFromPdf = true
     }
 
-    if( forcePDF || fecthFromPdf || !((await file.exists())[0]) ){
+    if( true || forcePDF || fecthFromPdf || !((await file.exists())[0]) ){
         if( notes || fecthFromPdf || forcePDF){
             console.log(`----- EXTRACT FROM PDF`)
             const result = await extractPlainTextFromPdf( id, req )
@@ -206,6 +202,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
                 }
             }
 
+            /*
             let html
 
             try{
@@ -241,6 +238,12 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
             }
 
             if( text.match(/enable javascript/i) ){
+                return undefined
+            }*/
+
+
+            let text = (await fetchURLPlainText(url))?.fullText
+            if( !text ){
                 return undefined
             }
             await writeTextToFile(id, text, req)
@@ -632,6 +635,189 @@ export async function importGoogleDoc(id, fileId, req, pdf = true){
       });
       await waitForFileToExit(id, bucket)
       return true
+}
+
+export async function fecthUSDFXRate(currency){
+    const lower = currency.toLowerCase()
+    if( lower === "usd"){
+        return 1
+    }
+    const urls = [
+            "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json",
+            "https://latest.currency-api.pages.dev/v1/currencies/usd.min.json",
+            "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json",
+            "https://latest.currency-api.pages.dev/v1/currencies/usd.json"
+    ]
+    async function lookup(idx = 0){
+        const url = urls[idx]
+        if( url ){
+            try{
+                const response = await fetch(url)
+                const data = await response.json()
+                if( data.usd[lower] ){
+                    return data.usd[lower]
+                }
+                return await lookup( idx + 1)
+            }catch(error){
+                console.log(error)
+                return await lookup(idx + 1)
+            }
+        }
+    }
+    return await lookup()
+}
+
+export async function getGoogleAdKeywordMetrics(keywords, req, retries = 3){
+    const customerId = "3063204472" 
+
+    {
+        if( !adconfig.currency ){
+            const headers = {
+                'Authorization': `Bearer ${req.user.accessToken}`,
+                'developer-token': process.env.GOOGLE_AD_DEV,
+                'login-customer-id': customerId, // Optional: Set this if you're accessing a client account under a manager
+                'Content-Type': 'application/json',
+            };
+            
+            const body = JSON.stringify({
+                query: 'SELECT customer.currency_code FROM customer'
+            });
+            
+            const response = await fetch(`https://googleads.googleapis.com/v16/customers/${customerId}/googleAds:search`, {
+                method: 'POST',
+                headers: headers,
+                body: body
+            })
+            let data = await response.json()
+            if(data.error){
+                if(data.error.code === 401){
+                    if( retries > 0){
+                        console.log(`refreshing token`)
+                        if(await refreshToken( req )){
+                            return await getGoogleAdKeywordMetrics( keywords, req, retries - 1 )
+                        }
+                    }
+
+                }
+
+            }
+
+            let code = data.results[0].customer.currencyCode
+            console.log('Currency Code:', code)
+            adconfig.currency = code
+            if( ! code ){
+                return
+            }
+        }else{
+            console.log(`reuse code`)
+        }
+    }
+    if( !adconfig.fxRate || moment().subtract(adconfig.expiry, "s").format("X") > 0 ){
+        console.log(`refetching fx`)
+        adconfig.fxRate = await fecthUSDFXRate(adconfig.currency)
+        adconfig.expiry = moment().add( 1000 * 60 * 60).format("X")
+    }
+
+    if(! adconfig.fxRate ){
+        console.log(`fx rate not known, assuming 1`)        
+    }
+
+
+
+    const url = `https://googleads.googleapis.com/v16/customers/${customerId}:generateKeywordHistoricalMetrics`
+
+    const headers = {
+        'Authorization': `Bearer ${req.user.accessToken}`,
+        'Content-Type': 'application/json',
+        'developer-token': process.env.GOOGLE_AD_DEV
+      };
+      
+      const body = JSON.stringify({
+        "language": "languageConstants/1000", // This is the criterion ID for English.
+        "geoTargetConstants": ["geoTargetConstants/2840"], // Example criterion ID for the United States.
+        "keywordPlanNetwork": "GOOGLE_SEARCH_AND_PARTNERS",
+        "keywords": [keywords].flat(),
+      });
+      
+      try{
+          const response = await fetch(url, {
+              method: 'POST',
+              headers: headers,
+              body: body
+            })
+            const data = await response.json()
+            if(data.error){
+                if(data.error.code === 401){
+                    if( retries > 0){
+                        console.log(`refreshing token`)
+                        if(await refreshToken( req )){
+                            return await getGoogleAdKeywordMetrics( keywords, req, retries - 1 )
+                        }
+                    }
+                }else if(data.error.code === 429){
+                    console.log(`Throttled - sleeping`)
+                    await sleep(1500)
+                    return await getGoogleAdKeywordMetrics( keywords, req, retries - 1 )
+                }
+            }
+                
+            if(data.results){
+                return {success: true, 
+                    results: data.results.map(d=>{
+                        if( d.keywordMetrics === undefined){
+                            return d
+                        }
+                        return {
+                            competition: d.keywordMetrics.competition,
+                            monthly: d.keywordMetrics.monthlySearchVolumes.map(d=>parseInt(d.monthlySearches)),
+                            highBid: d.keywordMetrics.highTopOfPageBidMicros / 1000000 / (adconfig.fxRate ?? 1),
+                            lowBid: d.keywordMetrics.lowTopOfPageBidMicros / 1000000 / (adconfig.fxRate ?? 1),
+                        }
+                    })
+                }
+            }
+            
+            return {success: false, error: data.error}
+        }catch(error){
+            console.log(`error in getGoogleAdKeywordMetrics`)
+            console.log(error)
+            return {success: false, error: error}
+        }
+}
+export async function getGoogleAdKeywordIdeas(keywords, req){
+    const customerId = "7681868607" 
+    const url = `https://googleads.googleapis.com/v16/customers/${customerId}:generateKeywordIdeas`
+
+    const headers = {
+        'Authorization': `Bearer ${req.user.accessToken}`,
+        'Content-Type': 'application/json',
+        'developer-token': process.env.GOOGLE_AD_DEV
+      };
+      
+      const body = JSON.stringify({
+        "language": "languageConstants/1000", // This is the criterion ID for English.
+        "geoTargetConstants": ["geoTargetConstants/2840"], // Example criterion ID for the United States.
+        "keywordPlanNetwork": "GOOGLE_SEARCH_AND_PARTNERS",
+        "keywordSeed": {
+          "keywords": ["market intelligence"],
+          //"url": "https://www.example.com"
+        }
+      });
+      
+      fetch(url, {
+        method: 'POST',
+        headers: headers,
+        body: body
+      })
+      .then(response => response.json()) // Parsing the JSON response body
+      .then(data => {
+        console.log(data.error?.details)
+        console.log(data.error?.details?.erros)
+        console.log(data)
+      }) // Handling the parsed data
+      .catch(error => {
+        console.error('Error:', error)
+    }); // Handling errors
 }
 
 export async function decodeBase64ImageToStorage(data, id, bucketName){

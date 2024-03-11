@@ -36,6 +36,7 @@ import VFTable from './VFTable';
 import CoCreatedLogo from './CoCreatedLogo';
 import PrimitiveReport from './PrimitiveReport';
 import PrimtiveReportViewer from './PrimitiveReportViewer';
+import MapViewer from './MapViewer';
 
 
 let mainstore = MainStore()
@@ -97,7 +98,7 @@ export function PrimitivePage({primitive, ...props}) {
         if( val === 'assessment_table'){
           return true
         } 
-        if( val === 'evidence' || val === "report"){
+        if( val === 'map' || val === 'evidence' || val === "report"){
           return true
         } 
         if( val.type === "result"){
@@ -298,6 +299,10 @@ export function PrimitivePage({primitive, ...props}) {
                             </div>
                           }
                       <PrimitiveCard.EvidenceList onCardClick={(p)=>props.selectPrimitive(p)} showCategories={primitive.primitives.allCategory.length > 0} relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
+                    </Panel>}
+              {showWorkingPane !== "map" &&
+                    <Panel key='map_panel' title="Maps" expandButton={()=>setShowWorkingPane('map')} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                      <MapViewer primitive={primitive}/>
                     </Panel>}
               {primitive.type === "assessment" && primitive.framework &&
                     <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>
@@ -565,6 +570,12 @@ export function PrimitivePage({primitive, ...props}) {
                     }
                     {hasDocumentViewer && (typeof(showWorkingPane) === 'boolean')  && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
                     {showWorkingPane === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
+                    {showWorkingPane === "map" && 
+                      <MapViewer 
+                        primitive={primitive}
+                        closeButton={()=>setShowWorkingPane()}
+                      
+                      />}
                     {(showWorkingPane instanceof Object && showWorkingPane.type === "result" )  && 
                       <CollectionViewer 
                           closeButton={()=>setShowWorkingPane()}

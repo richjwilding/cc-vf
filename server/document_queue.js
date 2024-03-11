@@ -124,7 +124,7 @@ async function doDataQuery( options ) {
                 console.log(`Got query ${query}`)
                 const results = await processPromptOnText( query,{
                     opener: `You have access to a database of many thousands of text fragments and must answer questions or complete tasks using information in the database.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases. Here is a task or question:`,
-                    prompt: `Build a list of keywords and phrases that will retrieve information from the database which can answer this task or question. The database can also support extraction of different metadata (organizations, individuals, roles, problems, solutions, jobs to be done, and needs), assess which of this meatadata is key to the question or task`,
+                    prompt: `Build a list of keywords and phrases that will retrieve information from the database which can answer this task or question. The database can also support extraction of different metadata (organizations, organization_type, responsibilities, experience_level, individuals, roles, problems, solutions, jobs to be done, value proposition, and needs), assess which of this meatadata is key to the question or task`,
                     output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array, and a 'metadata' field containing the identified metadata to extract as an array`,
                     engine: "gpt4p",
                     debug: true,
@@ -134,17 +134,23 @@ async function doDataQuery( options ) {
 
                 const metadata = {
                     "organizations": "an 'organizations' field containing an array of specific and relevant orgnaization name (where specified)", 
+                    "organization_type": "an 'organization_type' field containing an array of specific and relevant orgnaization name (where specified)", 
                     "individuals": "an 'individuals' field containing an array of specific and relevant individuals (where specified)", 
                     "solutions": "an 'solutions' field containing an array of the specific key solutions offered to customers (where specified)", 
                     "roles": "a 'roles' field containing an array of specific and relevant roles (where specified)", 
                     "problems": "a 'problems' field containing an array of the specific key problems (where specified)", 
-                    "jobs to be done": "a 'jtbd' field containing an array of specific key jobs to be done (where specified)", 
+                    "jobs to be done": {field: "jtbd", prompt: "a 'jtbd' field containing an array of specific key jobs to be done (where specified)"}, 
+                    "value proposition": {field: "value_proposition", prompt: "a 'value_proposition' field containing an array of value propositions in the format 'helping [person or role with need] to [what they want to accompolish] by [value derlivered]' (where specified)"}, 
                     "needs": "a 'needs' field containing an array of needs and relevant needs (where specified)", 
+                    "experience_level": "a 'experience_level' field containing an array of seniority or experience level (where specified or infrerred)", 
+                    "responsibilities": "a 'responsibilities' field containing an array of responsiilities the person has (where specified or infrerred)", 
                 }
 
                 if( results.success ){
                     let metadataItems = results.output?.[0]?.metadata ?? []
-                    let extraFields = metadataItems.map(d=>metadata[d] ?? undefined).filter(d=>d).join(", ")?.trim() 
+                    let parts = metadataItems.filter(d=>metadata[d]).map(d=>metadata[d].prompt ?? metadata[d]).join(", ")?.trim() 
+                    let extraFields = parts.length > 0 ? " for each part of your answer also include " + parts : ""
+
                     if( primitive.referenceParameters.extracts ){
                         extraFields = " for each part of your answer also include "
                         extraFields += primitive.referenceParameters.extracts.map(extract=>
@@ -305,7 +311,7 @@ async function doDataQuery( options ) {
                             }
 
                             for( const d of final){
-                                const extracts = metadataItems.reduce((a,c)=>{a[c] = d[c]; return a},{})
+                                const extracts = metadataItems.reduce((a,c)=>{a[metadata[c]?.field ?? c] = d[metadata[c]?.field ?? c]; return a},{})
                                 const newData = {
                                     workspaceId: primitive.workspaceId,
                                     parent: primitive.id,
@@ -546,9 +552,6 @@ export default function QueueDocument(){
         connection: { 
             host: process.env.QUEUES_REDIS_HOST, 
             port: process.env.QUEUES_REDIS_PORT,
-            maxStalledCount: 0,
-            stalledInterval:300000
-
         }
     });
     instance.myInit = async ()=>{
@@ -931,6 +934,13 @@ export default function QueueDocument(){
         }
         
     },
-    {connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT }});
+    {
+        connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT },
+        settings: {
+                maxStalledCount: 0,
+                removeOnFail: true,
+                stalledInterval:300000
+        }
+    });
     return instance
 }

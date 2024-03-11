@@ -26,29 +26,18 @@ export default function PrimtiveReportViewer({primitive, ...props}){
 
     //const list = [252416,252434,252435].map(d=>mainstore.primitive(d).primitives.uniqueAllItems.filter(d=>d.referenceId===82)).flat()
 
-    const targetResultCategoryId = primitive.referenceParameters?.resultCategoryId ?? 86
+    const targetResultCategoryId = primitive.referenceParameters?.referenceId ?? primitive.referenceParameters?.resultCategoryId ?? 86
     console.log(`targetResultCategoryId `,targetResultCategoryId )
     let  list = primitive.task?.primitives.descendants.filter(d=>d.referenceId===  targetResultCategoryId).flat()
     
-    if( primitive.primitives.params.source?.length > 0 ){
-        const source = primitive.primitives.params.source.allItems[0]
-        list = source ? source.primitives.descendants.filter(d=>d.referenceId === 82 || d.referenceId === 54).flat() : []
-    }else{
-        
-        
-        
-        if( targetResultCategoryId === 54){
-            list = list.filter(d=>d.parentPrimitiveIds.includes('65a17a43a8d6241e3c3b6134'))
-        }
-        if( targetResultCategoryId === 37){
-            list = list.filter(d=>d.parentPrimitiveIds.includes('659f99bee8f1243ff4d97fa6'))
-        }
-        if( primitive.plainId === 262816){
-            list = primitive.task?.primitives.descendants.filter(d=>d.referenceId === 54).flat()
-        }
-        if( primitive.plainId === 273341){
-            list = mainstore.primitive("65cc980a98d8dcc176818703").primitives.allCategory
-        }
+    if( primitive.plainId === 262816){
+        list = primitive.task?.primitives.descendants.filter(d=>d.referenceId === 54).flat()
+    }
+    if( primitive.plainId === 273341){
+        list = mainstore.primitive("65cc980a98d8dcc176818703").primitives.allCategory
+    }else {
+        const source = primitive.primitives.params.source?.length > 0 ? primitive.primitives.params.source.allItems[0] : primitive.task
+        list = source ? source.primitives.descendants.filter(d=>d.referenceId === targetResultCategoryId) : []
     }
 
     function setSelectedElement(e){

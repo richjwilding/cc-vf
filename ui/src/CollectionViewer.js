@@ -252,7 +252,14 @@ export default function CollectionViewer({primitive, category, ...props}){
 
     }
     const linkTo = async (picked)=>{
-        console.log(`got `, picked)
+        const items = [picked].flat()
+        if( category ){
+            for(const d of items){
+                if( !resultCategory || d.referenceId === resultCategory.id){
+                    primitive.addRelationship(d, `results.${category.id}`)
+                }
+            }
+        }
     }
 
     let title = category.plurals
@@ -276,7 +283,7 @@ export default function CollectionViewer({primitive, category, ...props}){
             const defaultCreateOptions = category?.views?.create?.default
 
             createButtons = [{title:"Create new", action: ()=>createResult(defaultCreateOptions, true)}]
-            if( category?.views?.options?.showLink ){
+            if( category?.views?.showLink ?? category?.views?.options?.showLink ){
                 createButtons.push( {title: "Link existing", action: ()=>setShowLink(true)} )
                 
             }
@@ -333,7 +340,7 @@ export default function CollectionViewer({primitive, category, ...props}){
 
 
 
-        const items = resultCategory.actions.filter(d=>/*(d.menu && !d.hideInCollection) ||*/ d.collectionAction || d.showInCollection)
+        const items = resultCategory.actions.filter(d=>d.collectionAction || d.showInCollection)
         if( items.length > 0){
             actionMenu = <PrimitiveCard.CardMenu 
                             icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
@@ -616,7 +623,7 @@ export default function CollectionViewer({primitive, category, ...props}){
             </>
         }
         {showNew && <NewPrimitive parent={primitive} title={showNew} type={showNew} done={()=>setShowNew(false)} cancel={()=>setShowNew(false)}/>}
-        {showLink && <PrimitivePicker callback={linkTo} setOpen={setShowLink} type={category?.type} referenceId={category?.resultCategoryId} />}
+        {showLink && <PrimitivePicker callback={linkTo} setOpen={setShowLink} type={category?.type} referenceId={category?.resultCategoryId} allowAll/>}
      </>
 
     let mainContent 

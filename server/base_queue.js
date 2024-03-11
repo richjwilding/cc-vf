@@ -9,8 +9,12 @@ class QueueManager {
             redisOptions ={
                 host: process.env.QUEUES_REDIS_HOST, 
                 port: process.env.QUEUES_REDIS_PORT,
+            },
+            settings ={
                 maxStalledCount: 0,
+                removeOnFail: true,
                 stalledInterval:300000
+
             },
             idleTimeBeforePurge = 300000 ) { 
         this.type = type;
@@ -19,6 +23,8 @@ class QueueManager {
         this.queues = {};
         this.workers = {};
         this.connection = redisOptions
+        this.settings = settings
+
         this.processCallback = callback
         this.redis = createClient({socket: {host: redisOptions.host, port: redisOptions.port}});
 
@@ -131,7 +137,7 @@ class QueueManager {
                     await this.resetCancelJob(job.name)
 
                     await this.setQueueActivity(queueName, false);
-                }, { connection: this.connection }));
+                }, { connection: this.connection, ...this.settings }));
             }
         }
         return this.queues[queueName];
@@ -140,9 +146,14 @@ class QueueManager {
     async addJob(workspaceId, jobData) {
         try {
             const jobId = jobData.id + "-" + jobData.mode
-            console.log(`Starting job ${jobId} on ${workspaceId}`)
             const queue = await this.getQueue(workspaceId);
-            await queue.add(jobId, jobData, { removeOnComplete: true, removeOnFail: true });
+            const existing = await queue.getJob(jobId)
+            if(  existing ){
+                console.log(`Job already present - skipping `)
+                return
+            }
+            console.log(`Starting job ${jobId} on ${workspaceId}`)
+            await queue.add(jobId, jobData, { removeOnComplete: true, removeOnFail: true, jobId: jobId });
             await this.updateQueueActivity(`${workspaceId}-${this.type}`);
         } catch (error) {
             console.error(`Error adding job to queue: ${error}`);

@@ -3,11 +3,11 @@ import Category from './model/Category';
 import Counter from './model/Counter';
 import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
-import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn, findPeopleFromLinkedIn, fetchLinkedInProfile, addPersonFromProxyCurlData, searchPosts, liPostExtractor} from './linkedin_helper'
+import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn, findPeopleFromLinkedIn, fetchLinkedInProfile, addPersonFromProxyCurlData, searchPosts, liPostExtractor, updateFromProxyCurlData} from './linkedin_helper'
 import { enrichCompanyFunding, extractAcquisitionsFromCrunchbase, extractArticlesFromCrunchbase, lookupCompanyByName, pivotFromCrunchbase, resolveAndCreateCompaniesByName, resolveCompaniesByName, resolveCompanyByNames } from './crunchbase_helper';
-import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList} from './openai_helper';
+import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList, processAsSingleChunk} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
-import { buildEmbeddingsForPrimitives, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLPlainText, getDocumentAsPlainText, removeDocument, replicateURLtoStorage, writeTextToFile } from './google_helper';
+import { buildEmbeddingsForPrimitives, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLPlainText, getDocumentAsPlainText, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, removeDocument, replicateURLtoStorage, writeTextToFile } from './google_helper';
 import { SIO } from './socket';
 import EnrichPrimitive from './enrich_queue';
 import QueueAI from './ai_queue';
@@ -19,6 +19,7 @@ import QueryQueue from './query_queue';
 import { indexDocument } from './DocumentSearch';
 import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
+import Embedding from './model/Embedding';
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -885,7 +886,12 @@ export async function primitiveOriginAtLevel( primitive, pivot ){
     }
     return node
 }
-export async function primitiveListOrigin( list, pivot, parentTypes = undefined, relationship = "origin" ){
+export async function primitiveListOrigin( list, pivot, parentTypes = undefined, relationship = "origin", referenceId ){
+    let stopOnMatch = false
+    if( pivot === "hierarchy" && (parentTypes || referenceId)){
+        pivot = 100
+        stopOnMatch = true
+    }
     for( let idx = 0; idx < pivot; idx++ ){
         let originIds 
         
@@ -910,11 +916,21 @@ export async function primitiveListOrigin( list, pivot, parentTypes = undefined,
         
         console.log( `unique = `, list.length)
 
-        if( parentTypes ){
-
-            list = list.filter(d=>parentTypes.includes(d.type))
-            console.log( `filtered = `, list.length)
+        if( stopOnMatch ){
+            let match = list.filter(d=>referenceId ? d.referenceId === referenceId  : parentTypes.includes(d.type))
+            console.log(`match = ${match.length}`)
+            if( match.length > 0){
+                return match
+            }
+        }else{
+            if( parentTypes ){
+                list = list.filter(d=>parentTypes.includes(d.type))
+                console.log( `filtered = `, list.length)
+            }
         }
+    }
+    if( stopOnMatch ){
+        return []
     }
     return list
 }
@@ -930,9 +946,21 @@ export async function getDataForProcessing(primitive, action, source, options = 
     const category = await Category.findOne({id: primitive.referenceId})
 
     let type = primitive.referenceParameters?.type || action.type //|| category.type
-    const target = primitive.referenceParameters?.target || action.target || category?.target || "children"
-    const referenceId = primitive.referenceParameters?.referenceId || action.referenceId || category?.referenceId
-    const field = primitive.referenceParameters?.field || action.field || "title"
+    let target = primitive.referenceParameters?.target || action.target || category?.target || "children"
+    let referenceId = primitive.referenceParameters?.referenceId || action.referenceId || category?.referenceId
+    let field = primitive.referenceParameters?.field || action.field || "title"
+
+    if( action.action_override){
+        if( action.target){
+            target = action.target
+        }
+        if( action.type){
+            type = action.type
+        }
+        if( action.referenceId){
+            referenceId = action.referenceId
+        }
+    }
 
     if(target === "descend"){
         if( startList ){
@@ -974,6 +1002,12 @@ export async function getDataForProcessing(primitive, action, source, options = 
     }else if( target === "items"){
         list = await getDataForImport( source )
         console.log(`TOTAL IMPORT = ${list.length}`)
+    }else if( target === "parents"){
+        list = await primitiveListOrigin( [source], 1)
+        console.log(`TOTAL parents = ${list.length}`)
+    }else if( target === "hierarchy"){
+        list = await primitiveListOrigin( [source], "hierarchy", undefined, "ALL", referenceId)
+        console.log(`TOTAL parents = ${list.length}`)
     }else if( target === "items_parent_descend"){
         list = await getDataForImport( source )
         console.log(`TOTAL Stage 1 = ${list.length}`)
@@ -1238,7 +1272,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
 
 
 
-            await doPrimitiveAction(p, options.cascade_key, {...options, ids: undefined, cascadeKey: undefined})
+            await doPrimitiveAction(p, options.cascade_key, {...options, ids: undefined, cascadeKey: undefined}, req)
         }
         return
     }
@@ -1368,6 +1402,16 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 summary = await summarizeMultiple( toProcess, {...config, focus: options.focus, debug: true, debug_content:true})
                 if( summary && summary.summary ){
                     let result = summary.summary
+
+                    result = result.replace(/\\n/g, '\n');
+                    result = result.replace(/\n+/g, '\n');
+                    result = result.replace(/^\s*\d+\)?\.?\s*/gm, '');
+                    if( primitive.referenceParameters?.asList ?? options.asList ){
+
+                    }else{
+                        result = result.trim().replace(/\n/g, '\n\n');                 
+                    }
+
                     return result
                 }
             }
@@ -1430,6 +1474,313 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
                 done = true
+            }
+            if( command === "link_related_evidence"){
+                let category = await Category.findOne({id: primitive.referenceId})
+                const context = await buildContext( primitive, category )
+                if( !context || context.length === 0){
+                    throw "No context"
+                }
+
+
+                let opener = action.opener ?? `I am undertaking market research into an idea.  Here is a summary of a ${category.title}:`
+                let prompt = action.prompt ?? `I have a database with hundreds of articles about the topic which i can run a semantic query on.  Provide a list of search keywords (multiword is okay) suitable for a semantic query which would find relevant evidence to support or contradict this ${category.title}. `
+
+                const process = `${opener}\n${context}\n\n${action.prompt}`
+
+                const result = await processAsSingleChunk( process, {
+                    output: `Provide your response as a json array called results with each entry being a string containing one of the suggested queries.`,
+                    debug: true
+                } )
+                if( result.success ){
+                    const list = await Primitive.find({
+                        workspaceId: primitive.workspaceId,
+                        referenceId: action.referenceId,
+                        deleted: {$exists: false}
+                    })
+                    console.log(`Have ${list.length} in scope`)
+                    let idx = 0, batch = 1000
+                    const threshold = primitive.referenceParameters?.threshold ?? 0.92
+                    let field = "title"
+                    let targetList = []
+
+                    for(const term of result.results){
+                        console.log(`Doing for ${term}`)
+
+                        const query = await buildEmbeddings(term)
+                        if( query.success ){
+                            const scope = list.slice(idx, idx + batch).map(d=>d.id)
+                            const searchTerms = Math.min(scope.length * 2, 10000) 
+                            const matches = await Embedding.aggregate([
+                                {
+                                    "$vectorSearch": {
+                                        "queryVector": query.embeddings,
+                                        "path": "embeddings",
+                                        "filter": {$and: [
+                                            {
+                                                type: field
+                                            },{
+                                                foreignId: {$in: scope}
+                                            }
+                                        ]},
+                                        "numCandidates": Math.min(searchTerms * 15, 10000),
+                                        "limit": searchTerms,
+                                        "index": "vector_index",
+                                    }
+                                },
+                                {
+                                    "$project": {
+                                        "_id": 0,
+                                        "foreignId": 1,
+                                        "score": { $meta: "vectorSearchScore" }
+                                    }
+                                }
+                            ])
+                            console.log(`-- got ${matches.length} matches`)
+                            for(const result of matches){
+                                if( result.score > threshold ){
+                                    console.log(result.foreignId, result.score)
+                                    targetList.push(result.foreignId)
+                                }
+                            }
+                        }
+                    }
+                    targetList = targetList.filter((d,i,a)=>a.indexOf(d)===i)
+                    for(const d of targetList){
+                        await addRelationship( primitive.id, d, 'link')
+                    }
+                }
+            }
+            if(command === "build_generic_view" ){
+                const referenceId = (options.referenceId === "undefined") ? undefined : ((options.referenceId !== undefined ? parseInt( options.referenceId ) : undefined )|| action.referenceId)
+                const baseId = action.baseCategoryId || PrimitiveConfig.typeConfig["view"].defaultReferenceId 
+                
+                if(  referenceId === undefined ){
+                    throw `Cant add view to ${primitive.id}`
+                }
+
+                const paths = ['origin']
+                const newPrim = await createPrimitive({
+                    workspaceId: primitive.workspaceId,
+                    parent: primitive.id,
+                    paths: paths,
+                    data:{
+                        type: "view",
+                        referenceId: baseId,
+                        title: "New view",
+                        referenceParameters:{
+                            target: "items",
+                            referenceId: referenceId,
+                            descend: referenceId !== undefined ? true : false,
+                            self: true
+                        }
+                    }
+                })
+                if( newPrim ){
+                    await addRelationship(newPrim.id, primitive.id, "imports")
+
+                    console.log(`Check circular child ${newPrim.id}`)
+                    const check = await Primitive.findOne({_id:  primitive._id})
+                    await primitiveDescendents(check, undefined, {paths: []})
+                    console.log(`Check circular parent`)
+                    const check2 = await Primitive.findOne({_id:  newPrim._id})
+                    await primitiveParents( check2 )
+                    console.log(`DONE CHECKS`)
+                }
+            }
+            if(command === "keyword_metrics"){
+                //const result = await getGoogleAdKeywordMetrics(options.keywords, req)
+                let data
+                const result = await getGoogleAdKeywordMetrics(primitive.title, req)
+                if( result.success){
+                    data = result.results[0]
+                    let updated  = {
+                        "avg_monthly": data.monthly ? parseInt(data.monthly.reduce((a,c)=>a+c,0) / 12) : 0,
+                        "last_12_mo":data.monthly,
+                        "competition": data.competition,
+                        "bid_high": data.highBid,
+                        "bid_low": data.lowBid
+                    }
+                    await dispatchControlUpdate(primitive.id, "referenceParameters", updated)
+                    console.log(updated)
+                }
+            }
+            if( command === "generate"){
+
+                function convertParam(category,source,d){
+                    if( d === "title"){
+                        return source.title
+                    }
+                    if( category.parameters[d]){
+                        if( source.referenceParameters[d]?.length > 0 ){
+                            return `${category.parameters[d].title}: ${source.referenceParameters[d]}`
+                        }
+                    }
+                }
+
+                const title = primitive.title
+                const category = await Category.findOne({id: primitive.referenceId})
+                const resultCategory = await Category.findOne({id: action.resultCategoryId})
+                const context = action.useContext ? (await buildContext(primitive, category)) : action.context_fields?.map(d=>convertParam(category, primitive, d)).filter(d=>d).join("\n")
+                const resultSet = category.resultCategories?.find((d2)=>d2.resultCategoryId == action.resultCategoryId)?.id
+
+                if( !category || !resultCategory || resultSet === undefined){
+                    throw `Generate is missing details ${category !== undefined} ${resultCategory !== undefined} ${resultSet !== undefined}`
+                }
+
+                let info = ""
+                let active_fields = []
+                let id_map = {}
+                for(const d of action.inputs){
+                    const inputCategory = await Category.findOne({id: d.referenceId})
+                    const resultSet = category.resultCategories.find((d2)=>d2.resultCategoryId == d.referenceId)?.id
+
+                    id_map[d.plural] = []
+                    const [items, _] = await getDataForProcessing( primitive, {target: d.target ?? "all_descend", referenceId: d.referenceId, action_override: true})
+                    let idx = 0
+                    let context = ""
+                    for(const d2 of items){
+                        let current
+                        if( d.fields ){
+                            current = d.fields.map(d=>convertParam(inputCategory, d2, d)).filter(d=>d).join("\n")
+                        }else if(d.useContext){
+                            current = await buildContext(d2, inputCategory)
+                        }
+                        if( current && current.length > 0){
+                            context += `${d.type} ${idx}\n${current}\n`
+                            id_map[d.plural].push(d2.id)
+                            idx++
+                        }
+                    }
+                    if( idx > 0){
+                        active_fields.push(d.plural)
+                    }
+                    if( context && context.length > 0){
+                        info += d.title + ":\n" + context + "\n"
+                    }
+                    if( d.consolidate){
+                        console.log(`===== NEED TO CONSOLIDATE`)
+                    }
+                }
+                let process = action.generator
+                if( context.length >0 && info.length >0 && process){
+
+
+                    const trackFields = active_fields.map(d=>`a '${d}_ids' field containing an array listing the numerical ids of all ${d}s factored into this item`)
+
+                    let lastField = active_fields.pop()
+                    let field_list = active_fields.length > 0 ? active_fields.join(", ") + `, and ${lastField}` : lastField
+
+                    process = process.replaceAll('{title}', primitive.title)
+                    process = process.replaceAll('{context}', context)
+                    process = process.replaceAll('{information}', info)
+                    process = process.replaceAll('{field_list}', field_list)
+
+
+                    let outputFields = Object.keys(action.resultFields).map(d=>`a '${d}' field containing ${action.resultFields[d].prompt}`)
+
+
+                    const result = await processAsSingleChunk( process, {
+                        outputFields: outputFields.concat(trackFields),
+                        debug:true
+                    } )
+                    if( result.success){
+                        for(const d of result.results){
+                            console.log(d)
+                            const newData = {
+                                referenceParameters:{}, 
+                                referenceId: action.resultCategoryId,
+                                type: resultCategory.primitiveType,
+                                title: `New ${category.title}`
+                            }
+
+                            let primsToLink = []
+
+                            const nestObjects = []
+
+                            for(const p of Object.keys(d)){
+                                if( p.slice(-4) === "_ids"){
+                                    const inputs = p.slice(0,-4)
+                                    console.log( `need to link in ${d[p].join(", ")}`)
+                                    if( !id_map[inputs]){
+                                        console.log(`Cant decode ${p} in generator`)
+                                        continue
+                                    }
+                                    const indexes = d[p].map(idx=>typeof(idx) === "string" ? parseInt(idx.match(/\d+/)?.[0] ) : idx).filter(d=>isNaN(d) ? undefined : d)
+                                    let ids = indexes.map(idx=>id_map[inputs][idx])
+                                    console.log(ids)
+                                    primsToLink = primsToLink.concat(ids)
+                                }else if(action.resultFields[p].nest){
+                                    console.log(`Need to nest`)
+
+                                    let value = d[p]
+                                    if( typeof(value) === "object" && !Array.isArray(value)){
+                                        value = JSON.stringify(value)
+                                    }
+                                    for(const d of [value].flat()){
+                                        nestObjects.push( {
+                                            resultCategoryId: action.resultFields[p].resultCategoryId,
+                                            title: d
+                                        })
+                                    }
+                                }else{
+                                    let node = newData
+                                    let target = action.resultFields[p].target ?? p
+                                    let parts = target.split(".")
+                                    if( parts.length === 1){
+                                        if( target !== "title"){
+                                            parts = ['referenceParameters', target]
+                                        }
+                                    }
+                                    let lastField = parts.pop()
+                                    for( const d of parts){
+                                        if( node ){
+                                            node = node[d]
+                                        }
+                                    }
+                                    if( !node ){
+                                        console.log(`Cant decode ${target} in generator`)
+                                        continue
+                                    }
+                                    let value = d[p]
+                                    if( typeof(value) === "object" && !Array.isArray(value)){
+                                        value = JSON.stringify(value)
+                                    }
+                                    node[lastField] = value
+                                }
+                            }
+
+                            const newPrim = await createPrimitive({
+                                workspaceId: primitive.workspaceId,
+                                paths:['origin', `results.${resultSet}`],
+                                parent: primitive.id,
+                                data: newData
+                            })
+                            if( newPrim ){
+
+                                for( const d of primsToLink){
+                                    await addRelationship(d, newPrim.id, "link")
+                                }
+                                for(const d of nestObjects){
+                                    const resultSet = 0
+                                    console.log(`SHOULD CHECK NEST POSITION`)
+                                    await createPrimitive({
+                                        workspaceId: primitive.workspaceId,
+                                        paths:['origin', `results.${resultSet}`],
+                                        parent: newPrim.id,
+                                        data: {
+                                            type: "evidence",
+                                            referenceId: d.resultCategoryId,
+                                            title: d.title
+                                        }
+                                    })
+                                    
+                                }
+                            }
+                        }
+                    }
+
+                }
             }
             if( command === "finance_signals"){
                 if( !primitive.financialData || options?.force ){
@@ -1565,14 +1916,18 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                             return undefined
                         }
                     }
-                    const value = node[lastField]
+                    let value = entry.field === "main_title" ? root.title : node[lastField]
                     if( resultCategoryId ){
                         let resultCategory = resultCache[resultCategoryId]
                         if( !resultCategory){
                             resultCache[resultCategoryId] = await Category.findOne({id: resultCategoryId})
                             resultCategory = resultCache[resultCategoryId]
                         }
-                        for( const d of [value].flat()){
+                        let thisValue = value
+                        if( entry.idx !== undefined){
+                            thisValue = value?.[entry.idx]
+                        }
+                        for( const d of [thisValue].flat()){
                             if( entry.type === "entity"){
                                 if( !resultPathCache[resultCategoryId]){
                                     resultPathCache[resultCategoryId] = await findResultSetForCategoryId( task, resultCategoryId)
@@ -1616,7 +1971,8 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         if( target.slice(0, prefix.length !== prefix)){
                             target = prefix + target
                         }
-                        updateFieldWithCallbacks( parent.id, target, value )
+                        const final = Array.isArray( value ) ? value.join(",") : value
+                        updateFieldWithCallbacks( parent.id, target, final )
                     }
                 }
                 
@@ -1718,7 +2074,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
             }
             if( command === "embed_content"){
-                await indexDocument( primitive )
+                await indexDocument( primitive, {force:options.force} )
             }
             if( command === "custom_query"){
                 await QueueDocument().doDataQuery( primitive, {...action, ...options})
@@ -1928,9 +2284,8 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         const types = options.types || action.types
                         const referenceId = (options.referenceId === "undefined") ? undefined : ((options.referenceId !== undefined ? parseInt( options.referenceId ) : undefined )|| action.referenceId)
                         const referenceCategoryId = (options.referenceCategoryId !== undefined ? parseInt( options.referenceCategoryId ) : undefined )|| action.referenceCategoryId
-                        const baseId = primitive.referenceParameters?.baseCategory || action.baseCategory || PrimitiveConfig.typeConfig["view"].defaultReferenceBaseId || referenceCategory
+                        const baseId = primitive.referenceParameters?.baseCategory || action.baseCategory || PrimitiveConfig.typeConfig["view"].defaultReferenceId || referenceId
                         const self = true
-                        //const constrainedSource = options.keywords
                         let category
                         let sourcePath 
                         if( referenceId ){
@@ -2142,38 +2497,50 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 if( linkSet !== undefined && resultSet !== undefined ){
                     if( primitive.referenceParameters.experiences){
                         let idx = 0
-                        let headline = primitive.referenceParameters.headline
+                        let found = false
+                        let headline = primitive.referenceParameters.headline ?? primitive.referenceParameters.role
                         if( headline ){
                             let cIdx = 0
                             for(const candidate of primitive.referenceParameters.experiences){
                                 let candidate_company = candidate.company?.trim()
-                                candidate_company = candidate_company.replaceAll(/\binc\b/gi,"")
-                                candidate_company = candidate_company.replaceAll(/\binc\.\b/gi,"")
-                                candidate_company = candidate_company.replaceAll(/\bltd\b/gi,"")
-                                candidate_company = candidate_company.replaceAll(/\blimited\b/gi,"")
-                                
-                                if( candidate_company){
-                                    if( headline.toLowerCase().indexOf(candidate_company.toLowerCase()) > -1){
-                                        if( candidate.company_linkedin_profile_url ){
-                                            idx = cIdx
-                                            console.log(`Found headline company at ${cIdx}`)
+                                if( candidate_company ){
+                                    candidate_company = candidate_company.replaceAll(/\binc\b/gi,"")
+                                    candidate_company = candidate_company.replaceAll(/\binc\.\b/gi,"")
+                                    candidate_company = candidate_company.replaceAll(/\bltd\b/gi,"")
+                                    candidate_company = candidate_company.replaceAll(/\blimited\b/gi,"")
+
+                                    if( candidate_company.length > 0){
+                                        if( headline.toLowerCase().indexOf(candidate_company.toLowerCase()) > -1){
+                                            if( candidate.company_linkedin_profile_url ){
+                                                idx = cIdx
+                                                console.log(`Found headline company at ${cIdx}`)
+                                            }
                                         }
                                     }
                                 }
                                 cIdx++
                             }
-                            const selected = primitive.referenceParameters.experiences[idx]
+                            let selected = primitive.referenceParameters.experiences[idx]
+                            if( !found ){
+                                let candidates = primitive.referenceParameters.experiences.filter(d=>d.date_from && d.url)
+                                if( candidates.length > 0){
+                                    candidates = candidates.sort((a,b)=>b.date_from - a.date_from)
+                                    console.log(`using most recent expereince ${candidates[0].date_from}`)
+                                    selected = candidates[0]
+                                }
+                            }
                             if( selected ){
+                                const url = selected.company_linkedin_profile_url ?? selected.url
                                 let existing = await Primitive.findOne({
                                     "workspaceId": primitive.workspaceId,
                                     [`parentPrimitives.${task.id}`]: {$in: ['primitives.origin']},
                                     deleted: {$exists: false},
-                                    "referenceParameters.linkedIn": selected.company_linkedin_profile_url
+                                    "referenceParameters.linkedIn": url
                                 })
                                 if( existing ){
-                                    console.log(selected.company_linkedin_profile_url, " already exists")
+                                    console.log(url, " already exists")
                                 }else{
-                                    console.log(`Will created from ${selected.company_linkedin_profile_url}`)
+                                    console.log(`Will created from ${url}`)
                                     existing = await createPrimitive({
                                         workspaceId: task.workspaceId,
                                         parent: task.id,
@@ -2182,7 +2549,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                             type: "entity",
                                             referenceId: resultCategory,
                                             referenceParameters:{
-                                                linkedIn: selected.company_linkedin_profile_url
+                                                linkedIn: url
                                             }
                                         }
                                     })
@@ -2216,6 +2583,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         }
                     }
                 }
+            }
+            if( command === "refresh_profile" ){
+                await updateFromProxyCurlData( primitive )
             }
             if( command === "lookup_author" ){
                 const task = await primitiveTask( primitive )
@@ -2785,6 +3155,24 @@ export async function filterEntitiesByTopics( list, topics, key = "description")
     }
     return list
 }
+
+export async function buildContext(primitive, category){
+    category = category ?? await Category.findOne({id: primitive.referenceId})
+    if( !category || !category.ai?.process?.context){
+        return undefined
+    }
+
+    let out = ""
+    for(const d of Object.keys(category.ai.process.context.fields ?? [])){
+        if( primitive.referenceParameters?.[d] ){
+            let header = category.ai?.process?.context.fields[d]
+
+            out += header?.length > 0 ? `${header}: ${primitive.referenceParameters[d]}\n` : `${primitive.referenceParameters[d]}\n`
+        }
+    }
+    return out.length === 0 ? undefined : out
+}
+
 export async function executeConcurrently(list, process, cancelCheck, stopCheck, concurrencyLimit = 5 ){
     let currentIndex = 0;
     let activePromises = []

@@ -19,7 +19,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const colors = {
         hover:{
             background:{
-                fill:'#a3f0c611'
+                //fill:'#a3f0c611'
+                fill:'#fafefb'
             },
             border:{
                 stroke: "#a3f0c6",
@@ -29,11 +30,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         drop_hover:{
             background:{
                 fill:'#a3f0c644'
+                //fill:'#f9fafb'
             }
         },
         select:{
             background:{
-                fill : '#9abef822'
+                //fill : '#9abef822'
+                fill:'#f3f6fd'
             },
             border:{
                 stroke: "#9abef8",
@@ -84,19 +87,29 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( !myState.current.rescaleList  ){
             return
         }
-        const delay = 1 +(Math.random() * 50)
+        const delay = 1 +(Math.random() * 5)
+
+        if(!myState.current.width || !myState.current.height){
+            console.log(`Wont refresh ${myState.current.rescaleList.length}`)
+            setTimeout(() => {
+                refreshImages()
+            }, delay)
+            return
+        }
+        
         setTimeout(() => {
             requestAnimationFrame(()=>{
                 let needUpdate = false
-                for(let idx = 0; idx < 20; idx++){
+                let steps = 200
+                for(let idx = 0; idx < steps; idx++){
                     const d = myState.current.rescaleList[idx]
                     if( d ){
-                        d.refreshCache()
                         d.queuedForRefresh = false
+                        d.refreshCache()
                         needUpdate = true
                     }
                 }
-                myState.current.rescaleList = myState.current.rescaleList.slice(20)
+                myState.current.rescaleList = myState.current.rescaleList.slice(steps)
                 if( needUpdate ){
                     stageRef.current.batchDraw()
                 }
@@ -121,74 +134,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 refreshImages()
             }
         }
-
-        /*if( myState.current.refreshTimer ){
-            return
-        }
-        myState.current.refreshTimer = setTimeout(() => {
-            requestAnimationFrame(()=>{
-                myState.current.refreshTimer = undefined    
-                stageRef.current.batchDraw()
-            })
-        }, 75);
-        */
-        return
-        parent._clearSelfAndDescendantCache('absoluteTransform')
-        image.cache({
-            pixelRatio: 2
-        })
-        
-        myState.current.imageCache ||= {}
-        myState.current.imageCache[image._id] = {
-            scale: restoreScale(),
-            parent: parent,
-            node: image
-        }
-
     }
-/*    function rescaleImages(scale){
-        let updated = []
-        if(!myState.current.imageCache){return}
-        for(const d of Object.values( myState.current.imageCache )){
-            if( d.parent.attrs._vis !== myState.current.refreshCount){
-                continue
-            }
-            const ratio = scale / d.scale 
-            if( ratio < 0.2 || ratio > 1.8){
-                d.newScale = scale
-                updated.push(d)
-            }
-        }
-
-
-        let len = updated.length
-        let idx = 0, step = 20
-        for(let bi = 0; bi < len; bi += step){
-            setTimeout(() => {
-                let doDraw = false
-                for(let i = 0; i < step; i++) {
-                    const fi = bi +i
-                    if( fi < len){
-                        const d = updated[ fi]
-                        if( d._scale !== d.newScale){
-                            if((d.node.attrs.width * d.newScale) > 5 && (d.node.attrs.height * d.newScale) > 5 ){
-                                d._scale = d.newScale
-                                d.node.clearCache()
-                                d.node.cache({pixelRatio: d.newScale * 2})
-                                doDraw = true
-                            }
-                        }
-                    }
-                }
-                if(doDraw){
-                    stageRef.current.batchDraw()
-                }
-                
-            }, idx * 5);
-            idx++
-        }
-    }*/
-
     function buildPositionCache(frame){
         if(!stageRef.current){
             return
@@ -241,6 +187,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         const frame = new Konva.Group({
             x: options.x ?? 0,
             y: options.y ?? 0,
+            name: "frame",
             id: `f${frameId}`
         }) 
         target.add(frame)
@@ -396,21 +343,33 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
     function resizeFrame(w, h){
         if( frameRef.current && stageRef.current){
-            myState.current.width = w ?? frameRef.current.offsetWidth
-            myState.current.height = h ?? frameRef.current.offsetHeight
-            stageRef.current.width( (enableFlipping ? 2 : 1) * myState.current.width)
-            stageRef.current.height( (enableFlipping ? 2 : 1) * myState.current.height)
-            if( enableFlipping ){
-                let [x,y,scale] = restoreTransform()
-                alignViewport(x,y,scale)
-                updateVisibility(myState.current.flipping?.last.cx ?? 0, myState.current.flipping?.last.cy ?? 0)
+            if( myState.current.resizeTimer ){
+                console.log('resize clear')
+                clearTimeout( myState.current.resizeTimer )
             }
+            myState.current.resizeTimer = setTimeout(() => {
+                console.log('resize timeout')
+                
+                myState.current.width = w ?? frameRef.current.offsetWidth
+                myState.current.height = h ?? frameRef.current.offsetHeight
+                stageRef.current.width( (enableFlipping ? 2 : 1) * myState.current.width)
+                stageRef.current.height( (enableFlipping ? 2 : 1) * myState.current.height)
+                if( enableFlipping ){
+                    let [x,y,scale] = restoreTransform()
+                    console.log(x,y,scale)
+                    alignViewport(x,y,scale)
+                    updateVisibility(myState.current.flipping?.last.cx ?? 0, myState.current.flipping?.last.cy ?? 0)
+                }
+            }, 50);
             
         }
     }
 
     useLayoutEffect(()=>{
         console.log(stageRef.current)
+        var ctx = layerRef.current.getContext()._context;
+        console.log(ctx.textRendering)
+        ctx.textRendering = "optimizeSpeed";
         
         if( props.render ){
             for( const set of props.render){
@@ -425,14 +384,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             console.log(`Building for ${frame.id}`)
             buildPositionCache(frame)
         }
-        resizeFrame()
-        updateVisibility(0,0)
+        //resizeFrame()
 
 
         const observer = new ResizeObserver((rect)=>{
             resizeFrame(rect[0].contentRect.width, rect[0].contentRect.height)
         });
         observer.observe(frameRef.current);
+       // updateVisibility(0,0)
+        //stageRef.current.batchDraw()
 
         return ()=>{
             observer.unobserve(frameRef.current);
@@ -957,7 +917,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         }
                         const oldScale = memo[4]
                         const thisScale = state.offset[0]
-                        
 
                         const tx = (memo[2] - memo[0]) / oldScale
                         const ty = (memo[3] - memo[1]) / oldScale
@@ -967,7 +926,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                         let updated = alignViewport(x,y, thisScale, state.last)
 
-                        return [ updated.x, updated.y, memo[2], memo[3],updated.scale] 
+                        return [ updated.x, updated.y, memo[2], memo[3],updated.scale, state.pinching] 
                     },
         onWheel: (state) => {
                     if( !state.ctrlKey ){
@@ -1057,14 +1016,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             if( operation === "border"){
                 if( node.getClassName() === "Group"){
                     const border = new Konva.Rect({
-                        x: 0,
-                        y: 0,
+                        x: 1,
+                        y: 1,
                         cornerRadius: 2,
-                        width: node.attrs.width,
-                        height: node.attrs.height,
+                        width: node.attrs.width - 2,
+                        height: node.attrs.height - 2,
                         stroke: colors[operation]?.stroke,
                         fill: colors[operation]?.fill,
-                        strokeScaleEnabled: false,
+                       // strokeScaleEnabled: false,
                         name: label
                     })
 
@@ -1115,6 +1074,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     myState.current.selected[type] = undefined
                 }
             }
+            stageRef.current.batchDraw()
         }
         function clearHightlights(){
             myState.current.hover ||= {}
@@ -1127,11 +1087,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         function doHighlight(found, type, prefix = ""){
             let doDraw = false
+            let cleared 
             if( found ){
                 const thisItem = found
                 if( myState.current.hover[type] !== thisItem ){
                     if( myState.current.hover[type] ){
                         doDraw = true
+                        cleared = myState.current.hover[type]
                         leftNode(myState.current.hover[type], type, prefix)
                     }
                     myState.current.hover[type] = thisItem
@@ -1144,12 +1106,70 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 if( myState.current.hover[type] ){
                     doDraw = true
                     leftNode(myState.current.hover[type], type, prefix)
+                    cleared = myState.current.hover[type]
                     myState.current.hover[type] = undefined
                 }
             }
             if( doDraw ){
-                stageRef.current.batchDraw()
+                let updates = []
+                if( props.highlights?.[type] === "border" ){
+                    if( cleared ){
+                        updates.push(cleared)
+                    }
+                    if( found ){
+                        updates.push(found)
+                    }
+                }else{
+
+                    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+                    
+                    if( cleared ){
+                        const x1 = cleared.attrs.x, y1 = cleared.attrs.y
+                        const x2 = x1 + cleared.attrs.width, y2 = y1 + cleared.attrs.height
+                        if( x1 < minX){minX = x1}
+                        if( y1 < minY){minY = y1}
+                        if( x2 > maxX){maxX = x2}
+                        if( y2 > maxY){maxY = y2}
+                        
+                    }
+                    if( found ){
+                        const x1 = found.attrs.x, y1 = found.attrs.y
+                        const x2 = x1 + found.attrs.width, y2 = y1 + found.attrs.height
+                        if( x1 < minX){minX = x1}
+                        if( y1 < minY){minY = y1}
+                        if( x2 > maxX){maxX = x2}
+                        if( y2 > maxY){maxY = y2}
+                    }
+                    let count = 0
+                    for(const frame of myState.current.frames){
+                        for(const d of frame.lastNodes){
+                            let x1 = d.attrs.x, y1 = d.attrs.y
+                            let x2 = x1 + d.attrs.width, y2 = y1 + d.attrs.height  
+                            if(x2 >= minX &&  x1 <= maxX && y2 >= minY && y1 <= maxY){
+                                if(d.attrs.name === "frame" || d.attrs.name === "view"){
+                                    continue
+                                }
+                                updates.push(d)
+                                count++
+                                if( x1 < minX){minX = x1}
+                                if( y1 < minY){minY = y1}
+                                if( x2 > maxX){maxX = x2}
+                                if( y2 > maxY){maxY = y2}
+                            }
+                        }
+                    }
+                }
+                requestAnimationFrame(()=>{
+                    let canvas = layerRef.current.getCanvas()
+                    for(const d of updates){
+                        //d.draw()
+                        d.drawScene(canvas)
+                    }
+                })
             }            
+        }
+        function getRefreshList(x,y){
+            return findTrackedNodesAtPosition( x, y)
         }
         function processHighlights(x,y, dropCandidate){
             if( !dropCandidate && myState.current.dragging){

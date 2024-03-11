@@ -26,9 +26,14 @@ class CustomImage extends Shape {
     if( !this.attrs.placeholder ){
       this._buildPrivateCache()
       if( this.attrs.url ){
-        this.fetchAndCreateImageBitmap( )
+        this.fetchAndCreateImageBitmap( ).then(()=>{
+          console.log(`loaded`)
+          if(this.attrs.refreshCallback ){
+            this.attrs.refreshCallback()
+          }
+        })
       }
-  }
+    }
     
     this._requestDraw()
 
@@ -99,52 +104,6 @@ class CustomImage extends Shape {
       img.src = this.attrs.url
     });
   }
-/*  OLDfetchAndCreateImageBitmap() {
-    return fetch(this.attrs.url)
-      .then(response => response.blob())
-      .then(blob => {
-        return createImageBitmap(blob).then(bitmap => {
-          let targetWidth = this.attrs.width * this.maxScale * this.scaleRatio, targetHeight = this.attrs.height  * this.maxScale * this.scaleRatio
-          
-          const targetRatio = targetWidth / targetHeight
-          const bitmapAspectRatio = bitmap.width / bitmap.height;
-
-
-          if(bitmap.width < targetWidth){
-            targetWidth = bitmap.width
-            targetHeight = targetWidth / targetRatio
-          }
-          if(bitmap.height < targetHeight){
-            targetHeight = bitmap.height
-            targetWidth = targetHeight * targetRatio
-          }
-
-          const bitmapScale = Math.min( targetWidth / bitmap.width, targetHeight / bitmap.height)
-          let newWidth = bitmap.width * bitmapScale
-          let newHeight = bitmap.height * bitmapScale
-
-          const xOffset = (targetWidth - newWidth) / 2;
-          const yOffset = (targetHeight - newHeight) / 2;
-
-      
-
-          this.maxImage = document.createElement('canvas');
-          this.maxImage.width = targetWidth
-          this.maxImage.height = targetHeight
-
-          let ctx = this.maxImage.getContext("2d")
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0,0,targetWidth, targetHeight);
-          ctx.drawImage(bitmap, xOffset, yOffset, newWidth, newHeight);
-          this.refreshCache()
-          if(this.attrs.refreshCallback){
-            this.attrs.refreshCallback()
-          }
-
-        });
-      });
-  }*/
-
   _buildPrivateCache(){
 
     this.pcache = new SceneCanvas({
@@ -168,7 +127,6 @@ class CustomImage extends Shape {
   static ensurePlaceholderReady() {
     if (!CustomImage.placeholderImage) {
       if (!this.placeholderImagePromise) {
-        console.log(`***** CARETI`)
         // Only create the placeholder if it doesn't already exist
         this.placeholderImagePromise =  new Promise((resolve) => {
           const img = new Image();

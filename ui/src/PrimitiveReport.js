@@ -3,7 +3,7 @@ import { Stage, Layer, Rect, Text, Transformer, Group, Image, Line } from 'react
 import MainStore from './MainStore';
 import useImage from 'use-image';
 import useDataEvent from './CustomHook';
-import { RenderPrimitiveAsKonva, RenderSetAsKonva, roundCurrency } from './RenderHelpers';
+import { RenderPrimitiveAsKonva, RenderSetAsKonva, finalizeImages, roundCurrency } from './RenderHelpers';
 import { exportKonvaToPptx } from './PptHelper';
 
 let showBoundingBox = false
@@ -87,10 +87,17 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
 
     function customRenderer( list, renderId, element, primitive, source, stage, commonAttrs){
 
-        if( element.content?.config){
-            var group = RenderSetAsKonva( element, list, {...element.content,renderConfig: element.render, x:0, y: 0, imageCallback: ()=>stage.current.batchDraw()} )
-            myState.current.manualList[element.id] = group
-            return <Group id={`o${element.id}`} {...commonAttrs} />
+        const rh_config = element.referenceParameters?.content?.config || element.content?.config
+        console.log(rh_config)
+        if( rh_config){
+            var group = RenderSetAsKonva( element, list, {...element.content,renderConfig: {itemSize: 64, ...element.render}, x:0, y: 0, imageCallback: ()=>stage.current.batchDraw(), placeholder: false, config: rh_config } )
+            if( group ){
+
+                myState.current.manualList[element.id] = group
+                return <Group id={`o${element.id}`} {...commonAttrs} />
+            }else{
+                return <></>
+            }
         }
 
         console.log('doing')
@@ -112,9 +119,10 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                 const partnership_b = item.relationshipAtLevel("partnership_b", 1)?.[0]
                 if( !(partnership_b && partnership_a)){return false}
                 if( !(partnership_b.title && partnership_a.title)){return false}
-                const rejects = ["Not specified", "Various", "unspecified", "dubai", "ahlibank", "european bank for"]
+                const rejects = ["Not specified", "Various", "unspecified"]
                 if( rejects.filter(d=>partnership_a.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){return false}
                 if( rejects.filter(d=>partnership_b.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){return false}
+                /*
                 const hits = ["HSBC", "BNP", "BoA", "Bank of America", "Barclays", "Chase", "Goldman Sachs", "Fargo", "JP Morgan","midcap"]
                 if( hits.filter(d=>partnership_a.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){
                     priority.push( item )
@@ -123,7 +131,7 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
                 if( hits.filter(d=>partnership_b.title.toLowerCase().indexOf(d.toLowerCase()) > -1).length > 0){
                     priority.push( item )
                     return false
-                }
+                }*/
                 return true
             })
             list = [priority, list].flat()

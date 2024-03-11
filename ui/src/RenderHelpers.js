@@ -1,6 +1,7 @@
 import Konva from "konva";
 import { Util } from 'konva/lib/Util'
 import CustomImage  from "./CustomImage";
+import CustomText from "./CustomText";
 const typeMaps = {}
 const categoryMaps = {}
 
@@ -51,7 +52,8 @@ export function RenderSetAsKonva( primitive, list, options = {} ){
     }
 
     if( !renderer ){
-        throw `Cant find renderer for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${config}`
+        console.warn(`Cant find renderer for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${config}`)
+        return
     }
     return renderer(primitive, {list:list, ...options, config: options.config} )
 }
@@ -62,7 +64,8 @@ export function RenderPrimitiveAsKonva( primitive, options = {} ){
         renderer = typeMaps[ "default" ]?.[config]
     }
     if( !renderer ){
-        throw `Cant find renderer for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${config}`
+        console.warn(`Cant find renderer for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${config}`)
+        return
     }
     return renderer(primitive, options)
 
@@ -78,12 +81,17 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     }
     const fullWidth = config.itemSize + config.itemPadding[1] + config.itemPadding[3]
 
-    config.rows = Math.ceil( options.list.length / config.columns )
-    config.width ||= ((config.columns - 1) * config.spacing[1]) + (config.columns * fullWidth) + config.padding[1] + config.padding[3]
+    const calcWidth = ((config.columns + 1) * config.spacing[1]) + (config.columns * fullWidth) + config.padding[1] + config.padding[3]
 
-    if( options.getConfig){
-        return config
+    if( calcWidth > config.width ){
+        config.columns = Math.max(1, ((config.width - config.padding[1] + config.padding[3]) - config.spacing[1]) / (config.itemSize + config.spacing[1]))
+    }else{
+        config.width = calcWidth
     }
+
+    config.rows = Math.ceil( options.list.length / config.columns )
+
+
     const width = config.width 
     
     const g = new Konva.Group({
@@ -93,7 +101,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
         y: (options.y ?? 0),
         width: width
     })
-    let x = config.padding[3]
+    let x = config.padding[3] + config.spacing[1]
 
     const items = options.list
 
@@ -110,7 +118,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     let idx = 0
     let col = 0
     
-    let ypos = new Array( config.columns).fill(config.padding[0])
+    let ypos = new Array( config.columns).fill(config.padding[0] + config.spacing[0])
 
     for( const d of items ){
         let y = ypos[col]
@@ -122,6 +130,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
             maxHeight: 400,
             width: fullWidth, 
             padding: config.itemPadding, 
+            placeholder: options.placeholder !== false,
             imageCallback: options.imageCallback})
         if( node ){
             g.add(node)
@@ -135,17 +144,24 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
         if( idx === config.columns){
             idx = 0
             col = 0
-            x = config.padding[3]
+            x = config.padding[3] + config.spacing[1]
         }
     }
     const height = ypos.reduce((a,c)=>c > a ? c : a, 0) + config.padding[0] + config.padding[2] 
+    config.height = height + config.spacing[0]
+
+    if( options.getConfig){
+        g.destroy()
+        return config
+    }
+
     r.height( height )
-    g.height( height )
+    g.height( config.height)
 
     return g
 })
 registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive, options = {})=>{
-    const config = {itemSize: 30, columns: 5, minColumns: 5, spacing: [2,2], itemPadding: [2,2,2,2], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    const config = {itemSize: 30, columns: 3, minColumns: 3, spacing: [2,2], itemPadding: [2,2,2,2], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     if( !options.list ){
         return undefined
     }
@@ -156,8 +172,18 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive,
     const fullHeight = config.itemSize + config.itemPadding[0] + config.itemPadding[2]
     const fullWidth = config.itemSize + config.itemPadding[1] + config.itemPadding[3]
 
+
+    const calcWidth = ((config.columns + 1) * config.spacing[1]) + (config.columns * fullWidth) + config.padding[1] + config.padding[3]
+
+    if( calcWidth > config.width ){
+        config.columns = Math.max(1, ((config.width - config.padding[1] + config.padding[3]) - config.spacing[1]) / (config.itemSize + config.spacing[1]))
+    }else{
+        config.width = calcWidth
+    }
+
     config.rows = Math.ceil( options.list.length / config.columns )
-    config.width ||= ((config.columns - 1) * config.spacing[1]) + (config.columns * fullWidth) + config.padding[1] + config.padding[3]
+    
+    //config.width ||= ((config.columns - 1) * config.spacing[1]) + (config.columns * fullWidth) + config.padding[1] + config.padding[3]
     config.height ||= ((config.rows - 1) * config.spacing[0]) + (config.rows * fullHeight) + config.padding[0] + config.padding[2]
 
     if( options.getConfig){
@@ -174,8 +200,8 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive,
         width: width,
         height: height,
     })
-    let x = config.padding[3]
-    let y = config.padding[0]
+    let x = config.padding[3] + config.spacing[1]
+    let y = config.padding[0] + config.spacing[0]
 
     const items = options.list
 
@@ -198,6 +224,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive,
             height: fullHeight, 
             width: fullWidth, 
             padding: config.itemPadding, 
+            placeholder: options.placeholder !== false,
             imageCallback: options.imageCallback})
         if( node ){
             g.add(node)
@@ -207,7 +234,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive,
         idx++
         if( idx === config.columns){
             idx = 0
-            x = config.padding[3]
+            x = config.padding[3] + config.spacing[1]
             y += fullHeight + config.spacing[0]
             if( (y + fullHeight) > height){
                 break
@@ -248,6 +275,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primiti
             y: y, 
             height: fullHeight, 
             width: width - config.itemPadding[1] - config.itemPadding[3], 
+            placeholder: options.placeholder !== false,
             padding: config.itemPadding, imageCallback: options.imageCallback})
         if( node ){
             g.add(node)
@@ -288,7 +316,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
             size: config.itemSize,
             center: true,
             imageCallback: options.imageCallback,
-            placeholder: false//true
+            placeholder: options.placeholder !== false
         })
         g.add( logo )
 
@@ -378,7 +406,7 @@ registerRenderer( {type: "default", configs: "default"}, (primitive, options = {
             //shadowBlur: 4,
         })
         g.add(r)
-        const t = new Konva.Text({
+        const t = new CustomText({
             x: config.padding[3],
             y: config.padding[3],
             fontSize: 16,
@@ -388,6 +416,9 @@ registerRenderer( {type: "default", configs: "default"}, (primitive, options = {
             wrap: true,
             width: availableWidth,
         })
+        
+        t.attrs.refreshCallback = options.imageCallback
+
         let h = t.height()
         if( availableHeight ){
             if( h > availableHeight ){
@@ -401,8 +432,7 @@ registerRenderer( {type: "default", configs: "default"}, (primitive, options = {
         let totalheight = h + config.padding[0] + config.padding[2] + idHeight
 
         if( config.showId ){
-
-            const idText = new Konva.Text({
+            const idText = new CustomText({
                 x: config.padding[3],
                 y: totalheight - config.padding[2] - config.idSize ,
                 fontSize: config.idSize,
@@ -411,6 +441,7 @@ registerRenderer( {type: "default", configs: "default"}, (primitive, options = {
                 wrap: true,
                 width: availableWidth,
             })
+            idText.attrs.refreshCallback = options.imageCallback
             g.add(idText)
         }
 
@@ -453,7 +484,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
             size: Math.min(availableHeight, availableWidth),
             center: true,
             imageCallback: options.imageCallback,
-            placeholder: true
+            placeholder: options.placeholder !== false
         })
         g.add( logo )
 
@@ -473,10 +504,9 @@ export function finalizeImages( node, options ){
 
 
 function imageHelper(url, options){
-        const image = new CustomImage( {placeholder: true, url: url, x: options.x ?? 0, y: options.y ?? 0, width: options.size, height: options.size, name: options.placeholder ? "img_ph" : undefined})
+        const image = new CustomImage( {url: url, x: options.x ?? 0, y: options.y ?? 0, width: options.size, height: options.size, placeholder: options.placeholder, name: options.placeholder ? "img_ph" : undefined})
 
         if(options.imageCallback){
-          //  options.imageCallback(image)
             image.attrs.refreshCallback = ()=>options.imageCallback(image)
         }
 
@@ -498,27 +528,26 @@ export function renderMatrix( primitive, list, options ){
 
     const columnSize = new Array(columnExtents.length).fill(0)
     const rowSize = new Array(rowExtents.length).fill(0)
-    let rIdx = 0
     const cells = []
-
+    
     const referenceIds = list.map(d=>d.primitive.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
     if( referenceIds.length > 1){
         console.log(`Multiple types in list, selecting first`)
     }
 
-
+    let itemColsByColumn = new Array(columnExtents.length).fill(0)
+    
+    let rIdx = 0
     for(const row of rowExtents){
         let cIdx = 0
         for(const column of columnExtents){
-            //const subList = list.filter((item)=>item.column === column.idx && item.row === row.idx)
             const subList = list.filter((item)=>item.column === (column?.idx ?? column) && item.row === (row?.idx ?? row)).map(d=>d.primitive)
             const itemLength = subList.length 
             const itemCols = Math.floor( Math.sqrt( itemLength) )
             const itemRows = Math.ceil(itemLength / itemCols)
 
-            const config = RenderSetAsKonva( primitive, subList, {config: "grid", referenceId: referenceIds[0], renderConfig:{columns: itemCols, rows: itemRows, minColumns: 3}, getConfig: true} )
-            columnSize[cIdx] = config.width > columnSize[cIdx] ? config.width : columnSize[cIdx]
-            rowSize[rIdx] = config.height > rowSize[rIdx] ? config.height : rowSize[rIdx]
+
+            itemColsByColumn[cIdx] = Math.max(itemColsByColumn[cIdx], itemCols)
 
             cells.push({
                 cIdx, rIdx,
@@ -527,25 +556,38 @@ export function renderMatrix( primitive, list, options ){
                 list: subList,
                 itemLength,
                 itemCols,
-                itemRows,
-                config
+                itemRows
             })
             cIdx++
         }
         rIdx++
     }
 
-    let textPadding = [3,3,3,3]
-    let headerHeight = 40
+
+    console.log(itemColsByColumn)
+
+
+    for(const cell of cells){
+        const config = RenderSetAsKonva( primitive, cell.list, {config: "grid", referenceId: referenceIds[0], renderConfig:{columns: itemColsByColumn[cell.cIdx], rows: cell.itemRows}, getConfig: true} )
+        columnSize[cell.cIdx] = config.width > columnSize[cell.cIdx] ? config.width : columnSize[cell.cIdx]
+        rowSize[cell.rIdx] = config.height > rowSize[cell.rIdx] ? config.height : rowSize[cell.rIdx]
+
+        cell.config = config
+    }
+    console.log(rowSize)
+
+    let headerScale = Math.max(1, Math.max(columnSize.reduce((a,c)=>a+c, 0) / 2000 , rowSize.reduce((a,c)=>a+c, 0) / 3000 ))
+    let headerFontSize = 12 * headerScale
+    let textPadding = new Array(4).fill(headerFontSize * 0.3 )
+    let headerHeight = headerFontSize * 2
     let headerTextHeight = headerHeight - textPadding[0] - textPadding[2]
 
-    let headerFontSize = 12
     const columnLabels = columnExtents.map((d,idx)=>{
         const cellConfig = cells.find(d=>d.cIdx === idx)?.config
         const text = new Konva.Text({
             fontFamily: "system-ui",
-            fontSize: 12,
-            text: d.label,
+            fontSize: headerFontSize,
+            text: d.label ?? "",
             align:"center",
             wrap: true,
             verticalAlign:"middle",
@@ -581,7 +623,7 @@ export function renderMatrix( primitive, list, options ){
 
     if( showRowheaders ){
         const longestPairs = rowExtents.map(d=>{
-            const words = d.label.split(" ")
+            const words = (d.label  ?? "").split(" ")
             const coupleLength = words.map((d,i,a)=> i > 0 ? a[i-1] + " " + d : undefined ).filter(d=>d)
             return coupleLength.reduce((a,c)=>c.length > a.length ? c : a, "" )
         }).reduce((a,c)=>c.length > a.length ? c : a, "" )
@@ -592,8 +634,8 @@ export function renderMatrix( primitive, list, options ){
             const cellConfig = cells.find(d=>d.rIdx === idx)?.config
             const text = new Konva.Text({
                 fontFamily: "system-ui",
-                fontSize: 12,
-                text: textWidth ? d.label : longestPairs,
+                fontSize: headerFontSize,
+                text: textWidth ? (d.label  ?? "") : longestPairs,
                 wrap: true,
                 align:"center",
                 verticalAlign:"middle",
@@ -606,7 +648,7 @@ export function renderMatrix( primitive, list, options ){
                 textWidth = text.width()
                 headerWidth = textWidth + textPadding[1] + textPadding[3] + cellConfig.padding[3] + cellConfig.padding[1]
                 text.width(textWidth)
-                text.text( d.label )
+                text.text( d.label  ?? "")
             }
             return text
         })
@@ -658,7 +700,21 @@ export function renderMatrix( primitive, list, options ){
 
 
     for( const cell of cells){
-        const c = RenderSetAsKonva( primitive, cell.list, {primitiveClick: options.primitiveClick,id: `${cell.cIdx}-${cell.rIdx}`, config: "grid", referenceId: referenceIds[0], imageCallback: options.imageCallback, renderConfig:{width: columnSize[cell.cIdx], height: rowSize[cell.rIdx], columns: cell.itemCols, rows: cell.itemRows, minColumns: 3}} )
+        const c = RenderSetAsKonva( primitive, cell.list, 
+            {
+                primitiveClick: options.primitiveClick,
+                id: `${cell.cIdx}-${cell.rIdx}`, 
+                config: "grid", 
+                referenceId: referenceIds[0], 
+                placeholder: options.placeholder !== false, 
+                imageCallback: options.imageCallback, 
+                renderConfig:{
+                    width: columnSize[cell.cIdx], 
+                    height: rowSize[cell.rIdx], 
+                    columns: itemColsByColumn[cell.cIdx], 
+                    rows: cell.itemRows
+                }
+            })
         c.x(columnX[cell.cIdx] )
         c.y(columnY[cell.rIdx] )
         cell.node = c
@@ -667,13 +723,19 @@ export function renderMatrix( primitive, list, options ){
 
     for(let rIdx = 0; rIdx < rowExtents.length; rIdx++){
         const thisRow = cells.filter(d=>d.rIdx === rIdx)
-        const maxHeight = thisRow.map(d=>d.node.attrs.height).reduce((a,c)=>c > a ? c : a,0 )
+        const maxHeightCell = thisRow.reduce((a,c)=>c.node.attrs.height > a.node.attrs.height ? c : a )
+        const maxHeight = maxHeightCell.node.attrs.height
+        const bg = maxHeightCell.node.find('.background')?.[0]
+        const maxHeightBg = bg ? bg.attrs.height : undefined
+
         for(const d of thisRow ){
             if( d.node.attrs.height < maxHeight){
-                const bg = d.node.find('.background')?.[0]
                 d.node.attrs.height = maxHeight
-                if( bg ){
-                    bg.attrs.height = maxHeight
+                if( maxHeightBg ){
+                    const bg = d.node.find('.background')?.[0]
+                    if( bg ){
+                        bg.attrs.height = maxHeightBg
+                    }
                 }
             }
         }

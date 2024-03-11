@@ -1,5 +1,6 @@
 import pptxgen from "pptxgenjs";
 import Konva from "konva";
+import CustomImage from "./CustomImage";
 
 /*
 export async function exportKonvaToPptx( konva ){
@@ -84,7 +85,7 @@ export async function exportKonvaToPptx( stage, pptx ){
         if (konvaNode instanceof Konva.Text) {
             const fontSize = konvaNode.fontSize() * fontScale
 
-            let text = konvaNode.textArr.map(d=>d.text).join(fragmentJoin)
+            let text = konvaNode.textArr.reduce((a,d)=>a + (d.lastInParagraph ? d.text + "\n" : d.text + " "), "")
 
             slide.addText(text, {
                 x: x * scale,
@@ -121,7 +122,7 @@ export async function exportKonvaToPptx( stage, pptx ){
                     fill: toHex(konvaNode.fill()),
                 });
             }
-        } else if (konvaNode instanceof Konva.Image) {
+        } else if (konvaNode instanceof Konva.Image || konvaNode instanceof CustomImage) {
             // Handle image
             let imgDataUrl = konvaNode.toDataURL();
             slide.addImage({

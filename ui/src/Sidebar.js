@@ -2,6 +2,7 @@ import { PrimitiveCard } from './PrimitiveCard'
 import { Transition } from '@headlessui/react'
 import { useState } from 'react'
 import {
+    PlayIcon,
   PlusIcon as PlusIconOutline,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
@@ -14,12 +15,14 @@ import PrimitivePicker from './PrimitivePicker'
 import { VFImage } from './VFImage'
 import useDataEvent from './CustomHook'
 import CardGrid from './CardGrid'
+import { InputPopup } from './InputPopup'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
 export function Sidebar({primitive, ...props}) {
+    const [manualInputPrompt, setManualInputPrompt] = useState(false)
     const [showDeletePrompt, setShowDeletePrompt] = useState(false)
     const [showUnlinkPrompt, setShowUnlinkPrompt] = useState(false)
     const [showLink, setShowLink] = useState(false)
@@ -193,7 +196,7 @@ export function Sidebar({primitive, ...props}) {
         
         const categoryType = items.map(d=>d.metadata).filter((d,i,a)=>d&& a.findIndex(d2=>d2.id==d.id) ===i)
         const nestedActions = categoryType.map(d=>d.actions?.filter(d=>d.collectionAction || d.showInCollection)).flat() ?? []
-
+        const callbackProcessor = ()=>{}
 
         infoPaneContent = <div className='p-4 space-y-2'>
             <p className='text-lg'>{items.length} items</p>
@@ -210,6 +213,37 @@ export function Sidebar({primitive, ...props}) {
                     </div>}
                     <PrimitiveCard primitive={segment} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
                 </> 
+            }
+            {nestedActions.length > 0&& <PrimitiveCard.CardMenu 
+                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
+                            custom={nestedActions.map(d=>{
+                                const doAction = async (options)=>{
+                                    await MainStore().doPrimitiveAction( 
+                                        d.collectionAction ? items[0] : primitive, 
+                                        d.collectionAction ? d.key : "auto_cascade", 
+                                        {cascade_key: d.collectionAction ?  undefined : d.key, ids: items?.map(d=>d.id), ...options},
+                                        callbackProcessor
+                                        )
+                                }
+                                return {
+                                    ...d,
+                                    action: async ()=>{
+                                        if( d.actionFields){
+                                            setManualInputPrompt({
+                                                primitive: primitive,
+                                                fields: d.actionFields,
+                                                confirm: async (inputs)=>await doAction( inputs )
+                                            })
+                                        }else{
+                                            await doAction()
+                                        }
+
+                                    }
+                                }
+                            })} 
+                            size={10}
+                        />
+
             }
             {!segment && <button
                 type="button"
@@ -270,6 +304,7 @@ export function Sidebar({primitive, ...props}) {
 
     return (
         <>
+    {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
     {!infoPane && showLink && <PrimitivePicker target={isMulti ? primitive : [primitive]} root={isMulti ? primitive[0].task : primitive.task} path='results' callback={linkTo} setOpen={setShowLink} referenceId={resultIds} />}
     {infoPane && showLink && <PrimitivePicker setOpen={setShowLink} {...showLink} />}
     {showUnlinkPrompt && <ConfirmationPopup title="Confirm unlink" message={showUnlinkPrompt} confirmColor='indigo' confirmText='Unlink' confirm={unlinkFromScope} cancel={()=>setShowUnlinkPrompt(false)}/>}

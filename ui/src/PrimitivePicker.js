@@ -172,6 +172,7 @@ const SearchPanel = (props)=>{
   let lastGroup = undefined
 
         return (
+              <>
               <Combobox 
                 defaultValue={props.root}
                 onChange={props.selected}>
@@ -254,6 +255,17 @@ const SearchPanel = (props)=>{
                   </>
                 )}}
               </Combobox>
+              {props.allowAll && <div className='p-2'>
+                                    <button
+                                      type="button"
+                                      onClick={()=>props.selected(filteredPrimitives)}
+                                      className="w-fit rounded-md bg-gray-100 py-2 px-3 text-sm text-gray-400 shadow-sm hover:bg-indigo-500 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                                    >
+                                      Select all {filteredPrimitives.length} items
+                                    </button>
+                                    </div>
+              }
+              </>
         )
 }
 
