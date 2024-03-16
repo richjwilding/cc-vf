@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import logger from 'morgan';
 import indexRouter from './routes/index';
 import apiRouter from './routes/api';
+import publishedRouter from './routes/published';
 import passport from 'passport';
 import cookieSession from 'cookie-session';
 import bodyParser from 'body-parser'
@@ -96,6 +97,8 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '../public')));
 
+
+app.use('/published', publishedRouter);
 
 app.get('/google/login',
   passport.authenticate('google', {

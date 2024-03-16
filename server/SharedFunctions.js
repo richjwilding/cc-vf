@@ -5,9 +5,9 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
 import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn, findPeopleFromLinkedIn, fetchLinkedInProfile, addPersonFromProxyCurlData, searchPosts, liPostExtractor, updateFromProxyCurlData} from './linkedin_helper'
 import { enrichCompanyFunding, extractAcquisitionsFromCrunchbase, extractArticlesFromCrunchbase, lookupCompanyByName, pivotFromCrunchbase, resolveAndCreateCompaniesByName, resolveCompaniesByName, resolveCompanyByNames } from './crunchbase_helper';
-import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList, processAsSingleChunk} from './openai_helper';
+import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList, processAsSingleChunk, generateImage} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
-import { buildEmbeddingsForPrimitives, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLPlainText, getDocumentAsPlainText, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, removeDocument, replicateURLtoStorage, writeTextToFile } from './google_helper';
+import { buildEmbeddingsForPrimitives, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLPlainText, getDocumentAsPlainText, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, removeDocument, replicateURLtoStorage, uploadDataToBucket, writeTextToFile } from './google_helper';
 import { SIO } from './socket';
 import EnrichPrimitive from './enrich_queue';
 import QueueAI from './ai_queue';
@@ -20,6 +20,7 @@ import { indexDocument } from './DocumentSearch';
 import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
 import Embedding from './model/Embedding';
+import { buildPage } from './htmlexporter';
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -1676,10 +1677,12 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     process = process.replaceAll('{information}', info)
                     process = process.replaceAll('{field_list}', field_list)
 
-
+                    
                     let outputFields = Object.keys(action.resultFields).map(d=>`a '${d}' field containing ${action.resultFields[d].prompt}`)
-
-
+                    console.log(process)
+                    console.log(outputFields)
+                    
+                    
                     const result = await processAsSingleChunk( process, {
                         outputFields: outputFields.concat(trackFields),
                         debug:true
@@ -1714,9 +1717,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                     console.log(`Need to nest`)
 
                                     let value = d[p]
-                                    if( typeof(value) === "object" && !Array.isArray(value)){
+                                    /*if( typeof(value) === "object" && !Array.isArray(value)){
                                         value = JSON.stringify(value)
-                                    }
+                                    }*/
                                     for(const d of [value].flat()){
                                         nestObjects.push( {
                                             resultCategoryId: action.resultFields[p].resultCategoryId,
@@ -1743,13 +1746,14 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                         continue
                                     }
                                     let value = d[p]
-                                    if( typeof(value) === "object" && !Array.isArray(value)){
+                                    /*if( typeof(value) === "object" && !Array.isArray(value)){
                                         value = JSON.stringify(value)
-                                    }
+                                    }*/
                                     node[lastField] = value
                                 }
                             }
 
+                            
                             const newPrim = await createPrimitive({
                                 workspaceId: primitive.workspaceId,
                                 paths:['origin', `results.${resultSet}`],
@@ -1759,7 +1763,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                             if( newPrim ){
 
                                 for( const d of primsToLink){
-                                    await addRelationship(d, newPrim.id, "link")
+                                    if( d ){
+                                        await addRelationship(d, newPrim.id, "link")
+                                    }
                                 }
                                 for(const d of nestObjects){
                                     const resultSet = 0
@@ -1780,6 +1786,38 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         }
                     }
 
+                }
+            }
+            if( command === "export_page"){
+                const result = await buildPage( primitive )
+                console.log(result)
+            }
+            if( command === "build_image"){
+                const style = action.image_style ?? "Create a high-contrast abstract image with a fluid, dynamic pattern from a single geomteric shapes in various shades of high contrast green and #00d967 as the accent color on a dark background, intended for use as a website hero image. The design should be modern and elegant, not too busy, suitable for a professional service website, evoking a sense of expert knowledge and precision. The image should be clean and not too busy"
+
+                let value = decodePath(primitive,action.field ?? "title")
+                if( action.asList ){
+                    value = (Array.isArray(value) ? value : value.split("\n")).map((d,i)=>`${i+1}). ${d}`).join("\n")
+                }
+                let doMulti = Array.isArray(value)
+                if( doMulti ){
+                    value = value.map(d=>d.image_prompt)
+                }
+                
+                let idx = 0
+                for(const value of [value].flat()){
+                    const prompt = style + value
+                    const response = await generateImage( prompt, {size: action.image_size ?? primitive.referenceParameters?.image_size })
+                    if( response.success ){
+                        let tag = action.image_tag ?? primitive.referenceParameters?.image_tag ?? ""
+                        if( doMulti ){
+                            tag += "_" + idx
+                        }
+                        console.log(`Got image data`)
+                        await uploadDataToBucket( response.data, primitive.id, 'published_images', tag)
+                        console.log(`done`, primitive.id + tag)
+                        idx++
+                    }
                 }
             }
             if( command === "finance_signals"){
@@ -3164,10 +3202,19 @@ export async function buildContext(primitive, category){
 
     let out = ""
     for(const d of Object.keys(category.ai.process.context.fields ?? [])){
-        if( primitive.referenceParameters?.[d] ){
-            let header = category.ai?.process?.context.fields[d]
+        const source = category.ai?.process?.context.fields[d]
+        if( source instanceof Object){
+            let header = source.title
+            const [children] = await getDataForAction( primitive, {referenceId: source.referenceId, target: "children", field: "title"})
+            if( children && children.length > 0){
+                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>`${source.prefix ?? ""}${i} ${d.title}`).join("\n")
+            }
 
-            out += header?.length > 0 ? `${header}: ${primitive.referenceParameters[d]}\n` : `${primitive.referenceParameters[d]}\n`
+        }else{
+            if( primitive.referenceParameters?.[d] ){
+                let header = source
+                out += header?.length > 0 ? `${header}: ${primitive.referenceParameters[d]}\n` : `${primitive.referenceParameters[d]}\n`
+            }
         }
     }
     return out.length === 0 ? undefined : out
@@ -3214,4 +3261,16 @@ export async function executeConcurrently(list, process, cancelCheck, stopCheck,
     await Promise.all(activePromises);
 
     return {results, cancelled}
+}
+
+export function decodePath(node, path){
+    const parts = path.split(".")
+    const last = parts.pop()
+    for(const d of parts){
+        node = node[d]
+        if(!node){
+            return undefined
+        }
+    }
+    return node[last]
 }

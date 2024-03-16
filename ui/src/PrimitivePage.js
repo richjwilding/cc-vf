@@ -37,6 +37,7 @@ import CoCreatedLogo from './CoCreatedLogo';
 import PrimitiveReport from './PrimitiveReport';
 import PrimtiveReportViewer from './PrimitiveReportViewer';
 import MapViewer from './MapViewer';
+import BoardViewer from './BoardViewer';
 
 
 let mainstore = MainStore()
@@ -87,7 +88,7 @@ export function PrimitivePage({primitive, ...props}) {
     const [activePrim, setActivePrim] = useState(primitive.id)
     const [plainText, setPlainText] = useState()
     const resultViewer = useRef(null)
-    const [showWorkingPane, setShowWorkingPaneReal] = useState()
+    const [showWorkingPane, setShowWorkingPaneReal] = useState( )
     const [componentView, setComponentView] = useState(null)
     const [showAIPopup, setShowAIPopup] = useState(null)
     const cvRef = useRef()
@@ -98,15 +99,15 @@ export function PrimitivePage({primitive, ...props}) {
         if( val === 'assessment_table'){
           return true
         } 
-        if( val === 'map' || val === 'evidence' || val === "report"){
+        if( val === 'map' || val === 'evidence' || val === "report" ){
           return true
         } 
         if( val.type === "result"){
           return true
         }
       }
-      if( primitive.clusters ){
-        //return true
+      if( primitive.type === "board" ){
+        return true
       }
       return false
     }
@@ -372,6 +373,7 @@ export function PrimitivePage({primitive, ...props}) {
       )
     }
 
+    console.log(showWorkingPane)
   return (
     <>
       <div 
@@ -576,6 +578,7 @@ export function PrimitivePage({primitive, ...props}) {
                         closeButton={()=>setShowWorkingPane()}
                       
                       />}
+                    {showWorkingPane === "board" && <BoardViewer primitive={primitive}/>}
                     {(showWorkingPane instanceof Object && showWorkingPane.type === "result" )  && 
                       <CollectionViewer 
                           closeButton={()=>setShowWorkingPane()}

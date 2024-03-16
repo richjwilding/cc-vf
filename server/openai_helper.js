@@ -977,6 +977,63 @@ export async function analyzeText2(text, options = {}){
 
     return {success: true, response: out}
 }
+export async function generateImage(prompt, options = {}, tries = 3){
+    if( !prompt || prompt.length === 0){
+        return {success: false}
+    }
+
+    const configuration = new Configuration({
+        apiKey: process.env.OPEN_API_KEY,
+      });
+    const openai = new OpenAIApi(configuration)
+
+    const sizes = {
+            "linkedin_profile_image": "400x400",
+            "linkedin_cover_image": "1584x396",
+            "linkedin_post_image": "1200x627",
+            "google_ads_display_image": "1200x628",
+            "google_ads_banner_image": "728x90",
+            "website_hero_image": "1200x627",
+            "website_carousel_image": "512x512"
+    }
+
+    const size = sizes[options.size] ?? "1024x1024"
+    
+    try{
+        let fullprompt = "I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS:" + prompt
+        console.log(`Build image `, fullprompt)
+
+        const response = await openai.createImage({
+            model: "dall-e-3",
+            prompt: fullprompt,
+            size: size,
+            response_format: "b64_json"
+        });
+        console.log(response?.data)
+
+        if( response && response.data){
+
+            const parsedJson = response.data.data[0].b64_json
+            const base64Image = parsedJson.split(';base64,').pop();
+            const imageBuffer = Buffer.from(base64Image, 'base64');
+
+            const newPrompt = response.data.data[0].revised_prompt ?? fullprompt
+
+            return {success: true, data: imageBuffer, prompt:  newPrompt, updatedPrompt: newPrompt !== fullprompt}
+        }
+        return {success: false}
+    }catch(error){
+        console.log(`error in generateImage`)
+        console.log(error)
+        if( tries > 0){
+            console.log(`open_ai_helper: got error - sleep and will retry`)
+            await new Promise(r => setTimeout(r, 2000));                    
+            return await generateImage( prompt, options, tries - 1)
+        }
+        return {success: false}
+    }
+    
+}
 export async function analyzeText(text, options = {}){
     if( !text || text === "" || !options.prompts || options.prompts.length === 0){return {success:false}}
 

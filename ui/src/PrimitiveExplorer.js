@@ -1,5 +1,5 @@
 import MainStore from './MainStore';
-import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState } from 'react';
 import { ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ClipboardDocumentIcon, DocumentArrowDownIcon, FunnelIcon, MagnifyingGlassIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { PrimitiveCard } from './PrimitiveCard';
 //import html2canvas from 'html2canvas';
@@ -95,7 +95,8 @@ const encodeFilter = (option, idx, value)=>{
     }
 
 
-export default function PrimitiveExplorer({primitive, ...props}){
+//export default function PrimitiveExplorer({primitive, ...props}){
+const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...props}, exportRef){
 
     const [selectedCategoryIds, setSelectedCategoryIds] = React.useState( props.allowedCategoryIds )
     const [layerSelection, setLayerSelection] = React.useState(primitive?.referenceParameters?.explore?.layer ?? 0)//axisOptions.length > 1 ? 1 : 0)
@@ -692,7 +693,43 @@ export default function PrimitiveExplorer({primitive, ...props}){
                 return {labels: labels, bucket_min: mins, bucket_max: max}
             },
             "number": (field)=>{
-                const bucketCount = 5
+                const bucketCount = 10
+                const hasValues = interim.filter(d=>d[field]).sort((a,b)=>a[field] - b[field])
+
+                const totalItems = hasValues.length 
+                const itemsPerBucket = Math.ceil(totalItems / bucketCount)
+                
+                let bucket = 0, count = 0
+                const mins = []
+                const max = []
+                const mapped =  {}
+
+                let labels =  new Array(bucketCount).fill(0).map((_,i)=>`Bucket ${i}`)
+                let last = undefined
+                hasValues.forEach(d=>{
+                    mapped[d.primitive.id] = bucket
+                    if( count === 0){
+                        mins[bucket ] = d[field]
+                    }else{
+                        max[bucket ] = d[field]
+                    }
+                    count++                    
+                    if( count === itemsPerBucket){
+                        count = 0
+                        bucket++
+                    }
+                })
+
+                labels = labels.map((d,i)=>`${mins[i]} - ${max[i]}`)
+
+                interim.forEach((d)=>{
+                    d.old = d[field]
+                    d[field] = labels[mapped[d.primitive.id]]
+                })
+                return {labels: labels, bucket_min: mins, bucket_max: max}
+            },
+            "number_even": (field)=>{
+                const bucketCount = 10
                 const hasValues = interim.filter(d=>d[field])
                 const maxValue = hasValues.reduce((a,c)=>c[field] > a ? c[field] : a, 0)
                 const minValue = hasValues.reduce((a,c)=>c[field] < a ? c[field] : a, Infinity)
@@ -1855,6 +1892,27 @@ export default function PrimitiveExplorer({primitive, ...props}){
 
     }
 
+    const dataForCanvas = ()=>{
+        return {id: primitive.id, title: `${primitive.title} - #${primitive.plainId}`, items: (stageOptions)=>renderMatrix(
+            primitive, 
+            list, {
+                columnExtents: columnExtents, 
+                rowExtents: 
+                rowExtents, 
+                ...stageOptions
+            })}
+    }
+
+    useImperativeHandle(exportRef, () => {
+        return {
+            dataForCanvas
+        };
+      }, []);
+
+    if( props.embed ){
+        return <></>
+    }
+
 
     let selectionForCategory = selectedBox?.infoPane?.filters ? primitive.filterItems(list.map(d=>d.primitive), selectedBox.infoPane.filters).map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i) : undefined
 
@@ -1959,7 +2017,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
                             render={[{id: primitive.id, items: (stageOptions)=>renderMatrix(
                                                                 primitive, 
                                                                 list, {
-                                                                    _primitiveClick: (id)=>alert(id),
                                                                     columnExtents: columnExtents, 
                                                                     rowExtents: 
                                                                     rowExtents, 
@@ -2230,4 +2287,6 @@ export default function PrimitiveExplorer({primitive, ...props}){
         </div>
     }
     return exploreView
-}
+})
+
+export default PrimitiveExplorer

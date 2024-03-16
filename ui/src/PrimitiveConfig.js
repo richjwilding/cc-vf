@@ -89,9 +89,16 @@ const PrimitiveConfig = {
             needCategory:true,
             defaultReferenceId: 92
         },
+        "board": {
+            needCategory:true,
+            defaultReferenceId: 102
+        },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance", "concept"],
+    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance", "concept", "board"],
     pageview:{
+        "board":{
+            defaultWide: "board" 
+        },
         "report":{
             defaultWide: "report" 
         },

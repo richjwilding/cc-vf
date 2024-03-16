@@ -575,6 +575,11 @@ let mainstore = MainStore()
       const align = (props.leftAlign || item.type === "long_string") ? "" : "text-end"
       const clamp = item.type === "long_string" && !props.disableClamp ? "line-clamp-[10]" : ""
       
+      if(item.value instanceof Object){
+        
+        return <p>{JSON.stringify( item.value )}</p>
+      }
+
       return <EditableTextField
         {...props} 
         submitOnEnter={true} 

@@ -56,38 +56,103 @@ class CustomText extends Text {
     if( this.textWidth === 0){
         return
     }
-    const w = this.getWidth()
-    const h = this.getHeight()
 
-    this.pcache = new SceneCanvas({
+    if( !this._cachedHeight ){
+      this._cachedHeight = this.height()
+    }
+    let w = this.attrs.width//this.width()
+    let h = this._cachedHeight
+
+    //const w = this.getWidth()
+    //const h = this.getHeight()
+
+    /*this.pcache = new SceneCanvas({
       width: w * this.scaleRatio ,
       height: h * this.scaleRatio,
       pixelRatio: 1
-    })
+    })*/
+
+      this.pcache = document.createElement('canvas');
+      this.pcache.width = w * this.scaleRatio;
+      this.pcache.height = h * this.scaleRatio;
+      this.pcache._canvas_context = this.pcache.getContext('2d');
+
+
+      this.pcache.style.padding = '0';
+      this.pcache.style.margin = '0';
+      this.pcache.style.border = '0';
+      this.pcache.style.position = 'absolute';
+      this.pcache.style.top = '0';
+      this.pcache.style.left = '0';
+
+
     this.uWidth = this.pcache.width
     this.uHeight = this.pcache.height
-    this.pcache._canvas_context = this.pcache._canvas.getContext("2d")    
+
+    this.fontCache = this._getContextFont()
+    this.pcache._canvas_context.font = this.fontCache
+    this.pcache._canvas_context.textBaseline = MIDDLE
+    this.pcache._canvas_context.textAlign = LEFT
   }
+
+
+  renderText(){
+    var textArr = this.textArr,
+    textArrLen = textArr.length;
+
+  if (!this.text()) {
+    return;
+  }
+    var padding = this.padding(),
+      fontSize = this.fontSize(),
+      lineHeightPx = this.lineHeight() * fontSize,
+      n,
+      translateY = lineHeightPx / 2 ;
+
+    const context = this.pcache._canvas_context
+    context.font =this.fontCache
+    this.pcache._canvas_context.textBaseline = MIDDLE
+    
+    this.pcache._canvas_context.fillStyle = this.attrs.fill
+
+    let py = []
+    for (n = 0; n < textArrLen; n++) {
+      var lineTranslateX = padding;
+      var lineTranslateY = padding;
+      var obj = textArr[n],
+        text = obj.text
+
+        context.fillText(text, lineTranslateX, translateY + lineTranslateY)
+        py.push([text, lineTranslateX, translateY + lineTranslateY])
+
+        if (textArrLen > 1) {
+          translateY += lineHeightPx;
+        }
+      }
+      this.textHasBeenRenderedToCache = { text, lineTranslateX, translateY, fontSize, lineHeightPx, textArrLen, py}
+  }
+
   refreshCache(){
     const isFirst = !this.pcache
     if( isFirst ){
         this._buildPrivateCache()
     }
     if(this.pcache){
-        const ctx = this.pcache.getContext()
+        const ctx = this.pcache._canvas_context
         if( this.newScale){
-            const rw = this.getWidth()
-            const rh = this.getHeight()
+            const rw = this.attrs.width//this.getWidth()
+            const rh = this._cachedHeight//this.getHeight()
             const w = this.newScale * rw
             const h = this.newScale * rh
             if( w > 0 && h > 0){
                 let doResize = w > this.pcache.width || h > this.pcache.height
                 if( doResize ){
-                    this.pcache.setSize( w, h)
+                    this.pcache.width = w//setSize( w, h)
+                    this.pcache.height = h
                 }
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
                 ctx.scale( this.newScale ?? 1, this.newScale ?? 1)
-                
+
                 if( !doResize ){
                     ctx.fillStyle = "white"
                     ctx.fillRect(0,0, rw + 1, rh + 1)
@@ -95,12 +160,12 @@ class CustomText extends Text {
 
                 this.uWidth = w 
                 this.uHeight = h
-                
+
                 this.lastScale = this.newScale
                 this.newScale = undefined
             }
         }
-        super._sceneFunc( ctx )
+        this.renderText(  )
         this.refreshRequested = false
         if( isFirst ){
             this.requestRefresh()
@@ -109,9 +174,14 @@ class CustomText extends Text {
   }
   destroy(){
     if( this.pcache ){
-      Util.releaseCanvas( this.pcache )
+      //Util.releaseCanvas( this.pcache )
+      this.pcache.width = 0
+      this.pcache.height = 0
     }
     super.destroy()
+  }
+  _useBufferCanvas() {
+    return false
   }
 
     
@@ -131,16 +201,22 @@ class CustomText extends Text {
     }
     
   }
-
-  _sceneFunc(context) {
+  getScale(){
     let scale = 1
     let parent = this.parent
     while (parent) {
-      scale *= parent.scale()?.x
+      scale *= parent.attrs.scaleX ?? 1
       parent = parent.parent
     }
-    let w = this.width()
-    let h = this.height()
+    return scale
+
+  }
+
+  _sceneFunc(context) {
+    let scale = this.getScale()
+
+    let w = this.attrs.width//this.width()
+    let h = this._cachedHeight
     let fh = this.attrs.fontSize
     if( !this.pcache){
         this.requestRefresh()
@@ -160,16 +236,15 @@ class CustomText extends Text {
             }
         }
     }else{
-        if( this.pcache._canvas.width > 0 && this.pcache._canvas.height > 0){
+        if( this.pcache.width > 0 && this.pcache.height > 0){
             const ratio = (scale / (this.lastScale ?? 1)) 
-            if( this.lastScale === undefined  || ratio < this.rescaleMin || ratio > this.rescaleMax){
+            if( ratio < this.rescaleMin || ratio > this.rescaleMax){
                 this.newScale = scale
                 this.requestRefresh()
             }
             
             if( this.pcache ){
-                //context.drawImage(this.pcache._canvas, 0, 0, w, h)
-                context.drawImage(this.pcache._canvas, 0, 0, this.uWidth, this.uHeight, 0, 0, w, h)
+                context.drawImage(this.pcache, 0, 0, this.uWidth, this.uHeight, 0, 0, w, h)
             }
         }
     }

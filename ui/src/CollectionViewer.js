@@ -152,7 +152,7 @@ export default function CollectionViewer({primitive, category, ...props}){
         list = [primitive]
     }else{
         if( props.nested ){
-            list = primitive.type === "activity" ? primitive.primitives.results.descendants : primitive.primitives.descendants
+            list = primitive.type === "activity" ? primitive.primitives.results.strictDescendants : primitive.primitives.strictDescendants
             if( props.nestedTypes ){
                 const types = [props.nestedTypes].flat()
                 list = list.filter((d)=>types.includes( d.type ) )
@@ -164,9 +164,9 @@ export default function CollectionViewer({primitive, category, ...props}){
         }else{        
             if( descend ){
                 if( category.resultCategoryId ){
-                    list = primitive.primitives.descendants.filter((d)=>d.referenceId === category.resultCategoryId)
+                    list = primitive.primitives.strictDescendants.filter((d)=>d.referenceId === category.resultCategoryId)
                 }else if( category.type ){
-                    list = primitive.primitives.descendants.filter((d)=>d.type === category.type)
+                    list = primitive.primitives.strictDescendants.filter((d)=>d.type === category.type)
                 }
                 if( list ){
                     list = MainStore().uniquePrimitives( list )

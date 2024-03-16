@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "npm run prod",
-    "build": "npm-run-all clean transpile alias",
+    "build": "npm-run-all clean transpile alias && cp -r server/templates dist-server/",
     "server": "node ./dist-server/bin/www",
     "server-debug": "node --inspect ./dist-server/bin/www",
     "dev": "NODE_ENV=development npm-run-all build server-debug ",
@@ -50,6 +50,7 @@
     "dayjs": "^1.11.7",
     "debug": "~2.6.9",
     "dotenv": "^16.0.3",
+    "ejs": "^3.1.9",
     "express": "~4.16.1",
     "googleapis": "^112.0.0",
     "gpt-3-encoder": "^1.1.4",

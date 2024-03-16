@@ -854,6 +854,35 @@ export async function decodeBase64ImageToStorage(data, id, bucketName){
     return true
 
 }
+export async function uploadDataToBucket(imageBuffer, id, bucketName, postfix){
+    try{
+        console.log(`storing`)
+        if(!id || !bucketName){return false}
+        const storage = new Storage({
+            projectId: process.env.GOOGLE_PROJECT_ID,
+        });
+        
+        const bucket = storage.bucket(bucketName);
+
+        const fullId = postfix ? `${id}_${postfix}` : id
+
+        const file = bucket.file(fullId)
+        if( (await file.exists())[0] ){
+            await file.delete()
+        }
+        
+        await storage.bucket(bucketName).file(fullId).save(imageBuffer, {
+            metadata: {
+              contentType: 'image/png',
+            },
+          });
+        
+    }catch(error){
+        console.log(`Error on replicateURLtoStorage`, url, fullId, bucketName)
+    }
+    return true
+
+}
 export async function replicateURLtoStorage(url, id, bucketName){
     try{
 
@@ -1497,7 +1526,7 @@ export async function queryGoogleSERP(keywords, options = {}){
     let target = options.count ?? 20
     let maxPage = options.maxPage ?? 8
     let results = []
-    let timeFrame = "last_year"
+    let timeFrame //= "last_year"
 
     const doLookup = async (term, lookupOptions )=>{
         try{
@@ -1508,6 +1537,9 @@ export async function queryGoogleSERP(keywords, options = {}){
             let hasResults = false
             let nTerm = (options.titleOnly? "intitle:" : "") + term
             let query = options.prefix ? options.prefix + " " + nTerm  : nTerm
+            if( options.site ){
+                query += ` site:${options.site}`
+            }
     
             console.log(searchOptions, query)
 
@@ -1584,6 +1616,7 @@ export async function queryGoogleSERP(keywords, options = {}){
 
             let lookup = options.override ? {links: [{title:"test", snippet: options.override.snippet, url: options.override.url}]} : (await fetchLinksFromWebQuery(query, searchOptions))
             if( lookup && lookup.links ){
+                hasResults = true
                 let exec = await executeConcurrently( lookup.links, processItem, options.cancelCheck, ()=> count >= target)
                 cancelled = exec?.cancelled
             }

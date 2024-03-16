@@ -122,16 +122,34 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
 
     for( const d of items ){
         let y = ypos[col]
-        const node = RenderPrimitiveAsKonva( d, {
-            config: "default", 
-            x: x, 
-            y: y, 
-            onClick: options.primitiveClick,
-            maxHeight: 400,
-            width: fullWidth, 
-            padding: config.itemPadding, 
-            placeholder: options.placeholder !== false,
-            imageCallback: options.imageCallback})
+        let node
+        
+        if( options.cachedNodes ){
+            node = options.cachedNodes.children.find(d2=>d2.attrs.id === d.id)
+            if( node ){
+                node.remove()
+                node.attrs.placeholder = options.placeholder !== false
+                node.children.forEach(d=>{
+                    if(d.className === "CustomImage"|| d.className === "CustomText"){
+                        d.attrs.refreshCallback = options.imageCallback
+                    }
+
+                })
+            }
+        }
+        if( !node ){
+            node = RenderPrimitiveAsKonva( d, {
+                config: "default", 
+                x: x, 
+                y: y, 
+                onClick: options.primitiveClick,
+                maxHeight: 400,
+                width: fullWidth, 
+                padding: config.itemPadding, 
+                placeholder: options.placeholder !== false,
+                imageCallback: options.imageCallback
+            })
+        }
         if( node ){
             g.add(node)
             ypos[col] += config.spacing[0] + (node.attrs.height ?? 0)
@@ -151,8 +169,12 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     config.height = height + config.spacing[0]
 
     if( options.getConfig){
-        g.destroy()
+        config.cachedNodes = g
         return config
+    }else{
+        if( options.cachedNodes ){
+            options.cachedNodes.destroy()
+        }
     }
 
     r.height( height )
@@ -479,9 +501,11 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
     if( g ){
 
         const logo = imageHelper( `/api/image/${primitive.id}`, {
-            x: config.padding[3],
-            y: config.padding[0],
-            size: Math.min(availableHeight, availableWidth),
+            x: 0,
+            y: 0,
+            padding: config.padding,
+            width: config.width,
+            height: config.height,
             center: true,
             imageCallback: options.imageCallback,
             placeholder: options.placeholder !== false
@@ -504,7 +528,7 @@ export function finalizeImages( node, options ){
 
 
 function imageHelper(url, options){
-        const image = new CustomImage( {url: url, x: options.x ?? 0, y: options.y ?? 0, width: options.size, height: options.size, placeholder: options.placeholder, name: options.placeholder ? "img_ph" : undefined})
+        const image = new CustomImage( {url: url, x: options.x ?? 0, y: options.y ?? 0, padding: options.padding, width: options.width ?? options.size, height: options.height ?? options.size, placeholder: options.placeholder, name: options.placeholder ? "img_ph" : undefined})
 
         if(options.imageCallback){
             image.attrs.refreshCallback = ()=>options.imageCallback(image)
@@ -522,7 +546,8 @@ export function renderMatrix( primitive, list, options ){
 
     const g = new Konva.Group({
         name: "view",
-        x:0,y:0
+        x:options.x ?? 0,
+        y:options.y ?? 0
     })
 
 
@@ -565,7 +590,6 @@ export function renderMatrix( primitive, list, options ){
 
 
     console.log(itemColsByColumn)
-
 
     for(const cell of cells){
         const config = RenderSetAsKonva( primitive, cell.list, {config: "grid", referenceId: referenceIds[0], renderConfig:{columns: itemColsByColumn[cell.cIdx], rows: cell.itemRows}, getConfig: true} )
@@ -713,7 +737,8 @@ export function renderMatrix( primitive, list, options ){
                     height: rowSize[cell.rIdx], 
                     columns: itemColsByColumn[cell.cIdx], 
                     rows: cell.itemRows
-                }
+                },
+                cachedNodes: cell.config.cachedNodes
             })
         c.x(columnX[cell.cIdx] )
         c.y(columnY[cell.rIdx] )

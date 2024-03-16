@@ -60,7 +60,8 @@ class CustomImage extends Shape {
       const img = new Image();
   
       img.onload = () => {
-          let targetWidth = this.attrs.width * this.maxScale * this.scaleRatio, targetHeight = this.attrs.height  * this.maxScale * this.scaleRatio
+          let padding = this.attrs.padding ?? [0,0,0,0]
+          let targetWidth = (this.attrs.width - padding[1] - padding[3]) * this.maxScale * this.scaleRatio, targetHeight = (this.attrs.height - padding[0] - padding[2])  * this.maxScale * this.scaleRatio
           
           const targetRatio = targetWidth / targetHeight
 
@@ -207,7 +208,10 @@ class CustomImage extends Shape {
         }
       }
     }
-    context.drawImage(this.pcache._canvas, 0, 0, width, height)
+    let padding = this.attrs.padding ?? [0,0,0,0]
+    context._context.fillStyle = "white"
+    context.fillRect(0,0,width,height)
+    context.drawImage(this.pcache._canvas, padding[1], padding[0], width - (padding[1] + padding[3]), height - (padding[0] + padding[2]))
 
   }
 
