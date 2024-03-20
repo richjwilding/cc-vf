@@ -367,7 +367,7 @@ let mainstore = MainStore()
       }else if( item.type === "category_field"){
         const task = props.primitive.task
 
-        const defaultConfig = task.metadata.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
+        const defaultConfig = task?.metadata?.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
         let sourceMeta
 
         let _target = props.primitive?.referenceParameters?.target ? props.primitive.referenceParameters?.target : defaultConfig?.target

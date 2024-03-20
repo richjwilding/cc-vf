@@ -534,7 +534,7 @@ export async function nestedItems(primitive){
 }
 export async function multiPrimitiveAtOrginLevel( list, level, relationship = "origin"){
     const cache = {}
-    if( level === 0){
+    if( level === 0 || level === undefined){
         return list
     }
 
@@ -675,14 +675,51 @@ async function getDataForImport( source, cache = {} ){
                         const setToCheck = (thisSet || list)
                         let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
 
-                        if( filter.value !== undefined){
+                        if( filter.min_value !== undefined && filter.max_value !== undefined){
+                                const temp = []
+                                let idx = 0
+                                for(const d of setToCheck){
+                                    const value = lookups[idx]?.referenceParameters?.[filter.param]
+                                    if( invert ^ (value >= filter.min_value && value <= filter.max_value)) {
+                                        temp.push(d)
+                                    }
+                                    idx++
+                                }
+                                thisSet = temp
+                        }else if( filter.min_value !== undefined ){
+                                const temp = []
+                                let idx = 0
+                                for(const d of setToCheck){
+                                    if( invert ^ lookups[idx]?.referenceParameters?.[filter.param] >= filter.min_value) {
+                                        temp.push(d)
+                                    }
+                                    idx++
+                                }
+                                thisSet = temp
+                        }else if( filter.max_value !== undefined ){
+                                const temp = []
+                                let idx = 0
+                                for(const d of setToCheck){
+                                    if( invert ^ lookups[idx]?.referenceParameters?.[filter.param] <= filter.max_value) {
+                                        temp.push(d)
+                                    }
+                                    idx++
+                                }
+                                thisSet = temp
+                        }else{
                             const temp = []
                             let idx = 0
                             let toCheck = filter.value
-                            const isArray = Array.isArray( toCheck )
+
+                            let isArray = Array.isArray( toCheck )
                             if( isArray ){
                                 toCheck = filter.value.map(d=>d === null ? undefined : d)
                             }
+                            if( toCheck === undefined){
+                                toCheck = [undefined, null]
+                                isArray = true
+                            }
+
                             for(const d of setToCheck){
                                 if( isArray ){
                                     
@@ -697,42 +734,6 @@ async function getDataForImport( source, cache = {} ){
                                 idx++
                             }
                             thisSet = temp
-                        }
-                        if( filter.min_value !== undefined && filter.max_value !== undefined){
-                                const temp = []
-                                let idx = 0
-                                for(const d of setToCheck){
-                                    const value = lookups[idx]?.referenceParameters?.[filter.param]
-                                    if( invert ^ (value >= filter.min_value && value <= filter.max_value)) {
-                                        temp.push(d)
-                                    }
-                                    idx++
-                                }
-                                thisSet = temp
-                        }
-                        else{
-                            if( filter.min_value !== undefined ){
-                                const temp = []
-                                let idx = 0
-                                for(const d of setToCheck){
-                                    if( invert ^ lookups[idx]?.referenceParameters?.[filter.param] >= filter.min_value) {
-                                        temp.push(d)
-                                    }
-                                    idx++
-                                }
-                                thisSet = temp
-                            }
-                            if( filter.max_value !== undefined ){
-                                const temp = []
-                                let idx = 0
-                                for(const d of setToCheck){
-                                    if( invert ^ lookups[idx]?.referenceParameters?.[filter.param] <= filter.max_value) {
-                                        temp.push(d)
-                                    }
-                                    idx++
-                                }
-                                thisSet = temp
-                            }
                         }
                     }
                     if( filter.type === "parent" ){

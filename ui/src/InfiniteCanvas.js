@@ -428,7 +428,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             let x = 0, y = 0
             for( const set of renderList){
-                if( props.primitive.frames?.[set.id] ){
+                if( props.primitive?.frames?.[set.id] ){
                     x = props.primitive.frames[set.id].x
                     y = props.primitive.frames[set.id].y
                 }

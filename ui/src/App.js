@@ -16,6 +16,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import ConfirmationPopup from './ConfirmationPopup';
 import PrimitivePicker from './PrimitivePicker';
 import { InputPopup } from './InputPopup';
+import CollectionUtils from './CollectionHelper';
 
 library.add(fas, faLinkedin)
 
@@ -24,6 +25,7 @@ library.add(fas, faLinkedin)
 
 let mainstore = MainStore()
 window.mainstore = mainstore
+window.utils = CollectionUtils
 
 window.mainstore_tests = MainStoreTests
 

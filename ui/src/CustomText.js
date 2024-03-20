@@ -59,7 +59,7 @@ class CustomText extends Text {
 
     if( !this._cachedHeight ){
       this._cachedHeight = this.height()
-    }
+   }
     let w = this.attrs.width//this.width()
     let h = this._cachedHeight
 

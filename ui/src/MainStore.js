@@ -8,6 +8,20 @@ import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 import { unpack, pack } from 'msgpackr';
 
+ export function uniquePrimitives(list){
+        const ids = new Set();
+        return list.filter((p) => {
+            if (p === undefined) {
+             //   console.warn(`undefined primitive`);
+                return false;
+            }
+            if (ids.has(p.id)) {
+                return false;
+            }
+            ids.add(p.id);
+            return true;
+        });
+    };
 
 function areArraysEqualIgnoreOrder(arr1, arr2) {
     // Check if both arrays have the same length
@@ -1163,20 +1177,6 @@ function MainStore (prims){
     if( !prims ){
         instance = obj
     }
-    const uniquePrimitives = (list) => {
-        const ids = new Set();
-        return list.filter((p) => {
-            if (p === undefined) {
-             //   console.warn(`undefined primitive`);
-                return false;
-            }
-            if (ids.has(p.id)) {
-                return false;
-            }
-            ids.add(p.id);
-            return true;
-        });
-    };
     obj.uniquePrimitives = uniquePrimitives
     const equalRelationships = (or1,or2)=>{
         if( or1 === or2){
@@ -1567,19 +1567,22 @@ function MainStore (prims){
                                 const match = candidates.filter(d=> {
                                     const thisMatch = d.filters.filter(d2 => {
                                         console.log(`Checking`)
-                                        const thisSet = filters.find(ip=> Object.keys(d2).filter(k=>k !== "id").reduce((a,c)=>{
-                                            let res = false
-                                            if( d2[c] instanceof Object){
-                                                if( Array.isArray(d2[c]) ){
-                                                    res = areArraysEqualIgnoreOrder( d2[c], ip[c])
+                                        const thisSet = filters.find(ip=>{
+                                            const allKeys = [...Object.keys(d2), ...Object.keys(ip)].filter((d,i,a)=>d!== "id" && a.indexOf(d)===i)
+                                            return allKeys.reduce((a,c)=>{
+                                                let res = false
+                                                if( d2[c] instanceof Object){
+                                                    if( Array.isArray(d2[c]) ){
+                                                        res = areArraysEqualIgnoreOrder( d2[c], ip[c])
+                                                    }else{
+                                                        throw `Param ${c} not processed`
+                                                    }
                                                 }else{
-                                                    throw `Param ${c} not processed`
+                                                    res = (d2[c] === ip[c]) 
                                                 }
-                                            }else{
-                                                res = (d2[c] === ip[c]) 
-                                            }
-                                            console.log(" - ", res)
-                                            return res && a}, true))
+                                                console.log(" - ", res)
+                                                return res && a}, true)
+                                            })
                                             console.log(`Result = `, thisSet)
                                             return thisSet
                                     })
@@ -1630,7 +1633,6 @@ function MainStore (prims){
                                             
                                         }
                                     }
-                                    //thisSet = (thisSet || list).filter(d=>d.originAtLevel(filter.pivot).parentPrimitiveIds.includes(filter.value)) 
                                 }else if( filter.type === "not_category_level1"){
                                     const hits = [filter.value].flat()
                                     thisSet = notCat1( thisSet || list, hits, filter)
@@ -1640,24 +1642,20 @@ function MainStore (prims){
                                     if( filter.map !== undefined){
                                         if( Array.isArray(filter.map)){
                                             thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes(d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceId))
-                                            //thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes(d.originAtLevel(filter.pivot).referenceId))
                                         }else{
                                             thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceId === filter.map)
-                                            //thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceId === filter.map)
                                         }
                                     }
                                 }else if( filter.type === "title"){
                                     if( filter.value !== undefined){
                                         if( Array.isArray(filter.value)){
                                             thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.title))
-                                            //thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.originAtLevel(filter.pivot).title))
                                         }else{
                                             thisSet = (thisSet || list).filter(d=>invert ^ filter.value === d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.title)
-                                            //thisSet = (thisSet || list).filter(d=>invert ^ filter.value === d.originAtLevel(filter.pivot).title)
                                         }
                                     }
                                 }else if( filter.type === "parameter"){
-                                    if( filter.value !== undefined){
+                                    //if( filter.value !== undefined){
                                         if( Array.isArray(filter.value)){
                                             thisSet = (thisSet || list).filter(d=>{
                                                 let r = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param]
@@ -1669,22 +1667,19 @@ function MainStore (prims){
                                         }else{
                                             thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] == filter.value)
                                         }
-                                    }
+                                    //}
                                     if( filter.min_value !== undefined && filter.max_value !== undefined){
                                             thisSet = (thisSet || list).filter(d=>{
-                                                //const value = d.originAtLevel(filter.pivot).referenceParameters?.[filter.param]
-                                                const value = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param]
+                                                const value = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] ?? 0
                                                 return invert ^ (value >= filter.min_value && value <= filter.max_value)
                                             })
                                     }
                                     else{
                                         if( filter.min_value !== undefined ){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] >= filter.min_value)
-                                            //thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] >= filter.min_value)
+                                            thisSet = (thisSet || list).filter(d=>invert ^ ((d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] ?? 0) >= filter.min_value))
                                         }
                                         if( filter.max_value !== undefined ){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] <= filter.max_value)
-                                            //thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).referenceParameters?.[filter.param] <= filter.max_value)
+                                            thisSet = (thisSet || list).filter(d=>invert ^ ((d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] ?? 0) <= filter.max_value))
                                         }
                                     }
                                 }

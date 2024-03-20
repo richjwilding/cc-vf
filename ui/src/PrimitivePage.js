@@ -38,6 +38,7 @@ import PrimitiveReport from './PrimitiveReport';
 import PrimtiveReportViewer from './PrimitiveReportViewer';
 import MapViewer from './MapViewer';
 import BoardViewer from './BoardViewer';
+import HierarchyNavigator from './HierarchyNavigator';
 
 
 let mainstore = MainStore()

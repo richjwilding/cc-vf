@@ -81,7 +81,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     }
     const fullWidth = config.itemSize + config.itemPadding[1] + config.itemPadding[3]
 
-    const calcWidth = ((config.columns + 1) * config.spacing[1]) + (config.columns * fullWidth) + config.padding[1] + config.padding[3]
+    const calcWidth = ((Math.max(1, config.columns)  + 1) * config.spacing[1]) + (Math.max(1, config.columns) * fullWidth) + config.padding[1] + config.padding[3]
 
     if( calcWidth > config.width ){
         config.columns = Math.max(1, ((config.width - config.padding[1] + config.padding[3]) - config.spacing[1]) / (config.itemSize + config.spacing[1]))
@@ -165,7 +165,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
             x = config.padding[3] + config.spacing[1]
         }
     }
-    const height = ypos.reduce((a,c)=>c > a ? c : a, 0) + config.padding[0] + config.padding[2] 
+    const height = Math.max(ypos.reduce((a,c)=>c > a ? c : a, 0) + config.padding[0] + config.padding[2], config.minHeight ?? 0)
     config.height = height + config.spacing[0]
 
     if( options.getConfig){
@@ -187,20 +187,26 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive,
     if( !options.list ){
         return undefined
     }
-
-    if( config.minColumns) {
-        config.columns = Math.max(config.minColumns, config.columns)
-    }
     const fullHeight = config.itemSize + config.itemPadding[0] + config.itemPadding[2]
     const fullWidth = config.itemSize + config.itemPadding[1] + config.itemPadding[3]
+
+    let minColumns = config.minColumns
+
+    if( config.minWidth ){
+        minColumns = Math.max(1, Math.floor(((config.minWidth - config.padding[1] - config.padding[3]) - config.spacing[1]) / (fullWidth + config.spacing[1])))
+    }
+
+    if( minColumns) {
+        config.columns = Math.max(minColumns, config.columns)
+    }
+
 
 
     const calcWidth = ((config.columns + 1) * config.spacing[1]) + (config.columns * fullWidth) + config.padding[1] + config.padding[3]
 
-    if( calcWidth > config.width ){
-        config.columns = Math.max(1, ((config.width - config.padding[1] + config.padding[3]) - config.spacing[1]) / (config.itemSize + config.spacing[1]))
-    }else{
+    if( !config.width || calcWidth > config.width ){
         config.width = calcWidth
+        config.columns = Math.max(1, ((config.width - config.padding[1] - config.padding[3]) - config.spacing[1]) / (fullWidth + config.spacing[1]))
     }
 
     config.rows = Math.ceil( options.list.length / config.columns )
@@ -566,13 +572,12 @@ export function renderMatrix( primitive, list, options ){
     for(const row of rowExtents){
         let cIdx = 0
         for(const column of columnExtents){
-            const subList = list.filter((item)=>item.column === (column?.idx ?? column) && item.row === (row?.idx ?? row)).map(d=>d.primitive)
+            const subList = list.filter((item)=>(Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx) && (Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive)
             const itemLength = subList.length 
             const itemCols = Math.floor( Math.sqrt( itemLength) )
-            const itemRows = Math.ceil(itemLength / itemCols)
-
 
             itemColsByColumn[cIdx] = Math.max(itemColsByColumn[cIdx], itemCols)
+
 
             cells.push({
                 cIdx, rIdx,
@@ -580,8 +585,7 @@ export function renderMatrix( primitive, list, options ){
                 row: row,
                 list: subList,
                 itemLength,
-                itemCols,
-                itemRows
+                itemCols
             })
             cIdx++
         }
@@ -589,61 +593,77 @@ export function renderMatrix( primitive, list, options ){
     }
 
 
-    console.log(itemColsByColumn)
 
+    const minWidth = {29: 120}[referenceIds[0]] ?? 300
     for(const cell of cells){
-        const config = RenderSetAsKonva( primitive, cell.list, {config: "grid", referenceId: referenceIds[0], renderConfig:{columns: itemColsByColumn[cell.cIdx], rows: cell.itemRows}, getConfig: true} )
-        columnSize[cell.cIdx] = config.width > columnSize[cell.cIdx] ? config.width : columnSize[cell.cIdx]
-        rowSize[cell.rIdx] = config.height > rowSize[cell.rIdx] ? config.height : rowSize[cell.rIdx]
+        const config = RenderSetAsKonva( primitive, cell.list, {config: "grid", referenceId: referenceIds[0], renderConfig:{columns: itemColsByColumn[cell.cIdx], minWidth: minWidth}, getConfig: true} )    
+        
+        itemColsByColumn[cell.cIdx] = Math.max(itemColsByColumn[cell.cIdx], config.columns)
+        
+        columnSize[cell.cIdx] = Math.max( config.width > columnSize[cell.cIdx] ? config.width : columnSize[cell.cIdx], minWidth)
+        rowSize[cell.rIdx] = Math.max( config.height > rowSize[cell.rIdx] ? config.height : rowSize[cell.rIdx], 30)
 
         cell.config = config
     }
-    console.log(rowSize)
 
     let headerScale = Math.max(1, Math.max(columnSize.reduce((a,c)=>a+c, 0) / 2000 , rowSize.reduce((a,c)=>a+c, 0) / 3000 ))
-    let headerFontSize = 12 * headerScale
+    let headerFontSize = Math.min(12 * headerScale, 120)
     let textPadding = new Array(4).fill(headerFontSize * 0.3 )
     let headerHeight = headerFontSize * 2
     let headerTextHeight = headerHeight - textPadding[0] - textPadding[2]
 
+    rowSize.forEach((d,i)=>{if(d < headerHeight){
+        rowSize[i] = headerHeight
+    }})
+
+    let adjustedFont = false
+
     const columnLabels = columnExtents.map((d,idx)=>{
         const cellConfig = cells.find(d=>d.cIdx === idx)?.config
+        
+        const longestWord = (d.label ?? "").split(" ").reduce((a,c)=>a.length > c.length ? a : c, 0)
+        const colWidth = columnSize[idx] - textPadding[1] - textPadding[3] - cellConfig.padding[3] - cellConfig.padding[1] 
+
         const text = new Konva.Text({
             fontFamily: "system-ui",
             fontSize: headerFontSize,
-            text: d.label ?? "",
+            text: longestWord,
             align:"center",
             wrap: true,
             verticalAlign:"middle",
             x: cellConfig.padding[3] + textPadding[3],
             y: cellConfig.padding[0] + textPadding[0],
-            width: columnSize[idx] - textPadding[1] - textPadding[3] - cellConfig.padding[3] - cellConfig.padding[1] ,
+            width: colWidth,
             height: "auto"
         })
+
+        while( text.measureSize(longestWord).width > colWidth && headerFontSize > 6){
+            headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
+            text.fontSize( headerFontSize )
+        } 
+        text.text( d.label ?? "" )  
+
         return text
     })
 
     function isColumnHeaderOverflowing(labels, height){
         return labels.filter(d=>d.height() > height).length >0
     }
+    function isRowHeaderOverflowing(labels, heights){
+        return labels.filter((d,i)=>d.height() > heights[i]).length >0
+    }
     
     let recalc = false
+    let recalcRow = false
     while( isColumnHeaderOverflowing( columnLabels, headerTextHeight) && headerFontSize > 6){
-        headerFontSize = headerFontSize - 0.25
+        headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
         columnLabels.forEach(d=>d.fontSize(headerFontSize))
         recalc = true
     }
-    if( recalc ){
-        headerTextHeight = columnLabels.reduce((a,c)=>c.height() > a ? c.height() : a, 0)
-        headerHeight = headerTextHeight + textPadding[0] + textPadding[2] 
-    }
-    columnLabels.forEach(d=>d.height(headerTextHeight))
-    let headerPadding = cells[0].config.padding[0]
-
-    const columnY = rowSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), headerHeight + headerPadding))
 
     let showRowheaders = rowExtents.length > 1 || rowExtents[0]?.label?.length > 0
     let headerWidth = 0
+    let rowLabels
 
     if( showRowheaders ){
         const longestPairs = rowExtents.map(d=>{
@@ -654,8 +674,10 @@ export function renderMatrix( primitive, list, options ){
         console.log(`Longest pair = `, longestPairs)
 
         let textWidth 
-        const rowLabels = rowExtents.map((d,idx)=>{
+        let rowHeights = []
+        rowLabels = rowExtents.map((d,idx)=>{
             const cellConfig = cells.find(d=>d.rIdx === idx)?.config
+            rowHeights[idx] = rowSize[idx] - textPadding[0] - textPadding[2] - cellConfig.padding[0] - cellConfig.padding[2]
             const text = new Konva.Text({
                 fontFamily: "system-ui",
                 fontSize: headerFontSize,
@@ -665,7 +687,6 @@ export function renderMatrix( primitive, list, options ){
                 verticalAlign:"middle",
                 x: cellConfig.padding[3] + textPadding[3],
                 y: cellConfig.padding[0] + textPadding[0],
-                height: rowSize[idx] - textPadding[0] - textPadding[2] - cellConfig.padding[0] - cellConfig.padding[2] ,
                 width: textWidth ? textWidth : "auto"
             })
             if( !textWidth ){
@@ -677,7 +698,27 @@ export function renderMatrix( primitive, list, options ){
             return text
         })
 
+        while( isRowHeaderOverflowing( rowLabels, rowHeights) && headerFontSize > 6){
+            headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
+            rowLabels.forEach(d=>d.fontSize(headerFontSize))
+            recalcRow = true
+        }
+        if( recalcRow ){
+            columnLabels.forEach(d=>d.fontSize(headerFontSize))
+        }
+
    
+    }
+    if( recalc || recalcRow ){
+        headerTextHeight = columnLabels.reduce((a,c)=>c.height() > a ? c.height() : a, 0)
+        headerHeight = headerTextHeight + textPadding[0] + textPadding[2] 
+    }
+    columnLabels.forEach(d=>d.height(headerTextHeight))
+    let headerPadding = cells[0].config.padding[0]
+
+    const columnY = rowSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), headerHeight + headerPadding))
+    
+    if( showRowheaders ){
         rowExtents.forEach((header,idx)=>{
             const cellConfig = cells.find(d=>d.rIdx === idx)?.config
             const group = new Konva.Group({
@@ -695,10 +736,13 @@ export function renderMatrix( primitive, list, options ){
                 fill:'#f3f4f6'
             })
             group.add(bg)
+            rowLabels[idx].y( cellConfig.padding[0] + textPadding[0] + (((rowSize[idx] - cellConfig.padding[0] - textPadding[0] - cellConfig.padding[2] - textPadding[2]) - rowLabels[idx].height()) / 2))
             group.add(rowLabels[idx])
             g.add(group)
         })
     }
+
+
     const columnX = columnSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), headerWidth ))
 
     columnExtents.forEach((header,idx)=>{
@@ -734,7 +778,8 @@ export function renderMatrix( primitive, list, options ){
                 imageCallback: options.imageCallback, 
                 renderConfig:{
                     width: columnSize[cell.cIdx], 
-                    height: rowSize[cell.rIdx], 
+                    height: rowSize[cell.rIdx] , 
+                    minHeight: rowSize[cell.rIdx] - cell.config.padding[0] - cell.config.padding[2],
                     columns: itemColsByColumn[cell.cIdx], 
                     rows: cell.itemRows
                 },
