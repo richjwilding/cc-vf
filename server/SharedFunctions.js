@@ -7,7 +7,7 @@ import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn
 import { enrichCompanyFunding, extractAcquisitionsFromCrunchbase, extractArticlesFromCrunchbase, lookupCompanyByName, pivotFromCrunchbase, resolveAndCreateCompaniesByName, resolveCompaniesByName, resolveCompanyByNames } from './crunchbase_helper';
 import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList, processAsSingleChunk, generateImage} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
-import { buildEmbeddingsForPrimitives, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLPlainText, getDocumentAsPlainText, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, removeDocument, replicateURLtoStorage, uploadDataToBucket, writeTextToFile } from './google_helper';
+import { buildEmbeddingsForPrimitives, decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLPlainText, fetchURLScreenshot, getDocumentAsPlainText, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, removeDocument, replicateURLtoStorage, uploadDataToBucket, writeTextToFile } from './google_helper';
 import { SIO } from './socket';
 import EnrichPrimitive from './enrich_queue';
 import QueueAI from './ai_queue';
@@ -626,10 +626,8 @@ async function getDataForImport( source, cache = {} ){
             }
             if( source.referenceParameters?.descend ){
                 console.log(`NEED TO DESCEND`)
-                items = await primitiveDescendents( items )
+                items = uniquePrimitives([items, await primitiveDescendents( items )].flat())
                 console.log( "After descend ", items.length)
-                
-                console.log( list.length)
             }
             if( source.referenceParameters?.referenceId ){
                 items = items.filter(d=>d.referenceId === source.referenceParameters.referenceId) 
@@ -977,6 +975,8 @@ export async function getDataForProcessing(primitive, action, source, options = 
         }
     }else if(target === "all_descend"){
         list = await primitiveDescendents(source, type, {fullDocument:true, paths: ["origin", "auto", "ref", "link"]})
+    }else if(target === "link"){
+        list = await primitiveDescendents(source, type, {fullDocument:true, paths: ["link"]})
     }else if(target === "children"){
         list = startList || await primitiveChildren(source)
     }else if(target === "evidence"){
@@ -1066,6 +1066,22 @@ export async function getDataForProcessing(primitive, action, source, options = 
     }
     
     if( field){
+        if( field === "context" ){
+            const hasContext = list.filter(d=>d.referenceParameters?.context).length > 0
+            if( !hasContext ){
+                const out = [], listOut = []
+                for(const d of list){
+                    const context = await buildContext(d)
+                    if( context ){
+                        listOut.push(d)
+                        out.push( context )
+                    }
+                }
+                console.log(`+++++ For context HAD ${list.length} now ${listOut.length} +++++`)
+                return [listOut, out]
+            }
+
+        }
 
         const param = field.slice(0,6) === "param." ? field.slice(6) : undefined
         
@@ -1558,7 +1574,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 const baseId = action.baseCategoryId || PrimitiveConfig.typeConfig["view"].defaultReferenceId 
                 
                 if(  referenceId === undefined ){
-                    throw `Cant add view to ${primitive.id}`
+                    //throw `Cant add view to ${primitive.id}`
                 }
 
                 const paths = ['origin']
@@ -1605,6 +1621,19 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                     await dispatchControlUpdate(primitive.id, "referenceParameters", updated)
                     console.log(updated)
+                }
+            }
+            if( command === "screenshot"){
+                if( primitive.referenceId === 100){
+                    const protocol = "https"//req.protocol;
+                    const host = "venture-fundamentals.ue.r.appspot.com"//req.get('host'); // Includes hostname and port if applicable
+                    const url = `${protocol}://${host}/published/renderPage/${primitive.id}`;
+                    const result = await fetchURLScreenshot( url )
+                    if( result ){
+                        if( result.data){
+                            await decodeBase64ImageToStorage(result.data, primitive.id, "cc_vf_images", result.type)
+                        }
+                    }
                 }
             }
             if( command === "generate"){
@@ -1794,7 +1823,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 console.log(result)
             }
             if( command === "build_image"){
-                const style = action.image_style ?? "Create a high-contrast abstract image with a fluid, dynamic pattern from a single geomteric shapes in various shades of high contrast green and #00d967 as the accent color on a dark background, intended for use as a website hero image. The design should be modern and elegant, not too busy, suitable for a professional service website, evoking a sense of expert knowledge and precision. The image should be clean and not too busy"
+                const concept = (await primitiveListOrigin( [primitive], "hierarchy", undefined, "ALL", PrimitiveConfig.Constants["CONCEPT"]))?.[0]
+                
+                const style = concept?.referenceParameters?.image_style ?? primitive.referenceParameters?.image_style ?? action.image_style ?? "Create a high-contrast abstract image with a fluid, dynamic pattern from a single geomteric shapes in various shades of high contrast green and #00d967 as the accent color on a dark background, intended for use as a website hero image. The design should be modern and elegant, not too busy, suitable for a professional service website, evoking a sense of expert knowledge and precision. The image should be clean and not too busy"
 
                 let value = decodePath(primitive,action.field ?? "title")
                 if( action.asList ){
@@ -1808,7 +1839,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 let idx = 0
                 for(const value of [value].flat()){
                     const prompt = style + value
-                    const response = await generateImage( prompt, {size: action.image_size ?? primitive.referenceParameters?.image_size })
+                    const response = await generateImage( prompt, {size: action.aspect ?? primitive.referenceParameters?.aspect })
                     if( response.success ){
                         let tag = action.image_tag ?? primitive.referenceParameters?.image_tag ?? ""
                         if( doMulti ){

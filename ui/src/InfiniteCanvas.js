@@ -2,7 +2,7 @@ import { Stage, Layer, Text, Rect, Group, FastLayer} from 'react-konva';
 import Konva from 'konva';
 import { Children, cloneElement, forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGesture } from '@use-gesture/react';
-import { RenderPrimitiveAsKonva, finalizeImages } from './RenderHelpers';
+import { RenderPrimitiveAsKonva, finalizeImages, renderToggle } from './RenderHelpers';
 import { exportKonvaToPptx } from './PptHelper';
 import MainStore from './MainStore';
 
@@ -69,9 +69,37 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const layerRef = useRef()
     const myState = useRef()
 
-    const chunkWidth = 600
-    const chunkHeight = 600
+    const chunkWidth = 1200
+    const chunkHeight = 1200
 
+    const framePosition = (id)=>{
+        if(!myState.current?.frames){
+            return undefined
+        }
+        const list = id ? myState.current.frames.filter(d=>d.id === id)  : myState.current.frames
+
+
+        const mapped = list.map(d=>{
+            const tl = convertSceneCoordToScreen( d.x, d.y)
+            const br = convertSceneCoordToScreen( d.x + d.node.attrs.width, d.y + d.node.attrs.height)
+                
+            return {
+                scene:{
+                    x: d.x,
+                    y: d.y,
+                    width: d.node.attrs.width,
+                    height: d.node.attrs.height
+                },
+                viewport:{
+                    l: tl[0],
+                    t: tl[1],
+                    r: br[0],
+                    b: br[1]
+                }
+            }
+        })
+        return id ? mapped[0] : mapped
+    }
     const exportToPptx = ()=>{
         console.log(`EXPORTING`)
 
@@ -82,7 +110,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
     useImperativeHandle(ref, () => {
         return {
-            exportToPptx
+            exportToPptx,
+            framePosition,
+            size: ()=>[myState.current.width,myState.current.height],
+            refreshFrame
         };
       }, []);
 
@@ -109,7 +140,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         const delay = 1 +(Math.random() * 5)
 
         if(!myState.current.width || !myState.current.height){
-            console.log(`Wont refresh ${myState.current.rescaleList.length}`)
             setTimeout(() => {
                 refreshImages()
             }, delay)
@@ -120,18 +150,21 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             requestAnimationFrame(()=>{
                 let needUpdate = false
                 let steps = 200
+                let toProcess = myState.current.rescaleList.splice(0,steps)
+                //let nodes = []
                 for(let idx = 0; idx < steps; idx++){
-                    const d = myState.current.rescaleList[idx]
+                    const d = toProcess[idx]
                     if( d ){
                         d.queuedForRefresh = false
                         d.refreshCache()
-                        //d.draw()
                         needUpdate = true
+                        //nodes.push(d)
+                        d.draw()
                     }
                 }
-                myState.current.rescaleList = myState.current.rescaleList.slice(steps)
+                //myState.current.rescaleList = myState.current.rescaleList.slice(steps)
                 if( needUpdate ){
-                    stageRef.current.batchDraw()
+//                    stageRef.current.batchDraw()
                 }
                 if( myState.current.rescaleList.length > 0){
                     refreshImages()
@@ -407,6 +440,22 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
     }
 
+    function refreshFrame(id){
+        if( props.render){
+            const item = props.render.find(d=>d.id === id)
+            if( item ){
+                const x = props.primitive.frames[id].x ?? myState.current.frames?.[id]?.x
+                const y = props.primitive.frames[id].y ?? myState.current.frames?.[id]?.y
+
+                const frame = setupFrameForItems(id, item.title, item.items, x, y)
+                buildPositionCache(frame)
+                finalizeImages(stageRef.current, {imageCallback: processImageCallback})
+                alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
+                stageRef.current.batchDraw()
+            }
+        }
+    }
+
     useLayoutEffect(()=>{
         console.log(stageRef.current)
         var ctx = layerRef.current.getContext()._context;
@@ -514,6 +563,18 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     function calcPage(x,y){
         return [Math.floor(x / chunkWidth),  Math.floor(y / chunkHeight)]
     }
+    function areSetsEqual(set1, set2) {
+        if (set1.size !== set2.size) {
+          return false;
+        }
+        for (let item of set1) {
+          if (!set2.has(item)) {
+            return false;
+          }
+        }
+        return true;
+      }
+      
 
     function updateVisibility(x,y){
         
@@ -531,8 +592,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         let x2 = x + w
         let y2 = y + h
 
+        const lastRenderCount = myState.current.refreshCount
         myState.current.refreshCount = (myState.current.refreshCount ?? 0) + 1
 
+        let changed = 0
         if( enablePages ){
             let lastPages = enableNodePruning ? undefined : myState.current.lastRendered ?? []
             if( enableFlipping ){
@@ -616,12 +679,17 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 
                 
                 const activeNodes = []
-                
+                const newThisRender = []
+               // const activeNodeIds = new Set()
+                let newlyRendered = 0
+
                 vis = 0
                 let ax = x - frame.node.attrs.x
                 let ax2 = x2 - frame.node.attrs.x
                 let ay = y - frame.node.attrs.y
                 let ay2 = y2 - frame.node.attrs.y
+
+                
                 for( const d  of nodes){
                     let c = d.attrs
                     //let visible = (c.width * scale) > 10 && ((c.x + c.width) > x &&  c.x < x2 && (c.y + c.height) > y && c.y < y2)
@@ -633,6 +701,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         }
                         vis++
                         if( enableNodePruning ){
+                            if( lastRenderCount === undefined || (d.attrs._vis !== lastRenderCount)){
+                                newThisRender.push(d)
+                                newlyRendered++
+                            }
                             d.attrs._vis = myState.current.refreshCount
                             
                             if( d.attrs["_txc"] !== myState.current.transformCount){
@@ -645,8 +717,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         }
                     }
                 }
+                if( !frame.lastNodeIds){
+                    changed = changed > 1 ? changed : 1
+                }else if(newlyRendered  ){
+                    changed = 2
+                }
+
                 frame.lastNodes = activeNodes
-                
+                frame.thisRender = newThisRender
+
                 if( !props.board){
                     let showFrame = hidden > 0
                     frame.border.visible(showFrame)
@@ -657,6 +736,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
             //    console.log(`${frame.id} RENDERED ${vis} of ${nodes.length} candidates / ${myState.current.frames.map(d=>d.allNodes.length).reduce((a,c)=>a+c,0)}`)
             }
+            return changed
         }else{
             for( const d  of nodes){
                 let c = d.attrs
@@ -776,18 +856,28 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     doUpdate = true
                     myState.current.flipping.last.cx = cx
                     myState.current.flipping.last.cy = cy
-                    //console.log(`UPDATE CHUNK`)
                 }
             }
 
             if( doUpdate ){
                 myState.current.redrawingForZoomPan = true
-                updateVisibility(cx, cy)
+                let hasChanged = updateVisibility(cx, cy)
+
                 if( updateStagePosition ){
                     myState.current.transformCount = (myState.current.transformCount || 0) + 1
                     stageRef.current.position({x:-vx, y: -vy})
+                    stageRef.current.batchDraw()
+                }else if( hasChanged ){
+                    requestAnimationFrame(()=>{
+                        myState.current.frames.forEach((f)=>{
+                            if( f.thisRender){
+                                for(const d of f.thisRender){
+                                    d.draw()
+                                }
+                            }
+                        })
+                    })
                 }
-                stageRef.current.batchDraw()
                 myState.current.redrawingForZoomPan = false
             }
 
@@ -800,6 +890,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             myState.current.flipping.last.callScale = scale
 
             myState.current.viewport = {x: tx, y: ty, scale: scale}
+
+
             return myState.current.viewport
 
         }else{
@@ -808,6 +900,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             stageRef.current.y(y)
             updateVisibility(-x, -y)
             stageRef.current.batchDraw()
+            
             return {x:tx,y:ty, scale:scale}
         }
 
@@ -856,8 +949,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( !myState.current.dragging){
             return
         }
-        myState.current.dragging.stage.container().remove() 
-        myState.current.dragging.stage.remove()
+        let container = myState.current.dragging.stage.container()
+        myState.current.dragging.stage.destroy()
+        container.remove() 
         myState.current.dragging = undefined
 
 
@@ -883,8 +977,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 console.log(`started drag`, found?.[0], state)
                 const item = found[0]
                 if( item && !myState.current.dragging ){
+
+                    let frameSelect = myState.current.selected?.frame
+
                     clearHightlights()
-                    clearSelection()
+                    clearSelection()                    
+                    destroyFrameSelect()
+                    if( props.callbacks?.viewportWillMove){
+                        props.callbacks?.viewportWillMove(myState.current.viewport)
+                    }
                     
                     const isFrame = item.attrs.name === "frame"
                     
@@ -929,6 +1030,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
                     createDragging(clone, (dx * scale) + offsetForShadow, (dy * scale) + offsetForShadow, 8 )
+                    
+                    if( props.enableFrameSelection){
+                        myState.current.dragging.frameSelect = frameSelect
+                    }
 
                     myState.current.dragging.sourceItem = item
                     myState.current.dragging.isFrame = isFrame
@@ -982,7 +1087,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 
                 if(state.last){
                     const scale = restoreScale()
-                    myState.current.ignoreClick = true
+                    myState.current.ignoreClick = props.ignoreAfterDrag
                     if( myState.current.dragging.dropConfig && myState.current.dragging.dropZone){
                         myState.current.dragging.dropConfig.drop( myState.current.dragging.clone.attrs.id, myState.current.dragging.startZone.attrs.id, myState.current.dragging.dropZone.attrs.id )
                     }
@@ -1012,9 +1117,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             })
                         }
                     }
+                    if( props.enableFrameSelection && myState.current.dragging.frameSelect){
+                        createFrameSelect(myState.current.dragging.frameSelect[0])
+                    }
                     destroyDragging()
                     clearHightlights()
                     processHighlights(x,y)
+                    if( props.callbacks?.viewportCallback){
+                        props.callbacks?.viewportCallback(myState.current.viewport)
+                    }
                 }
             }
             return memo
@@ -1037,6 +1148,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const tx = ox - x
                             const ty = oy - y
                             memo = [myState.current.viewport?.x ?? 0, myState.current.viewport?.y ?? 0, tx, ty, myState.current.viewport?.scale ?? 1]
+
+                            if( props.callbacks?.viewportWillMove){
+                                props.callbacks?.viewportWillMove(myState.current.viewport)
+                            }
                         }
                         const oldScale = memo[4]
                         const thisScale = state.offset[0]
@@ -1048,6 +1163,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         const y = memo[3] - (ty * thisScale)
 
                         let updated = alignViewport(x,y, thisScale, state.last)
+                        if( state.last ){
+                            if( props.callbacks?.viewportCallback){
+                                props.callbacks?.viewportCallback(myState.current.viewport)
+                            }
+                        }
 
                         if( myState.current.dragging?.isFrame ){
                             const adjScale = thisScale / myState.current.dragging.startScale
@@ -1068,6 +1188,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                       //  state.event.preventDefault()
                         if( state.first || state.memo === undefined) {
                             clearHightlights()
+                            if( props.callbacks?.viewportWillMove){
+                                props.callbacks?.viewportWillMove(myState.current.viewport)
+                            }
                         }
                         
                         const x = (myState.current.viewport?.x ?? 0) - ((state.delta[0] ) * 3)
@@ -1079,6 +1202,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             let [px, py] = convertStageCoordToScene(state.event.layerX, state.event.layerY)
                             processHighlights(px,py)
                             myState.current.wasPanning = false
+                            if( state.last ){
+                                if( props.callbacks?.viewportCallback){
+                                    props.callbacks?.viewportCallback(myState.current.viewport)
+                                }
+                            }
                         }
 
                     }
@@ -1108,7 +1236,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
         )
 
-        function findTrackedNodesAtPosition(px,py, classes, includeFrame = false){
+        function findTrackedNodesAtPosition(px,py, classes, includeFrame = false, forClick){
             if( classes ){
                 classes = [classes].flat()
             }
@@ -1123,9 +1251,26 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         let y = py - frame.node.attrs.y
                         if( !checked.has(d._id) && d.attrs.x <= x && d.attrs.y <= y &&  (d.attrs.x + d.attrs.width) >= x && (d.attrs.y + d.attrs.height) >= y){
                             if( !classes || d.attrs.name?.split(" ").filter(d=>classes.includes(d)).length >0){
-                                found.push(d)
                                 hasFound = true
+                                let addMajor = true
+
+                                if( forClick ){
+                                    const clickables = d.children?.filter(d2=>d2.attrs.name?.split(" ").includes("clickable"))
+                                    if( clickables && clickables?.length){
+                                        for( const d2 of clickables ){
+                                            if( (d2.attrs.width * myState.current.viewport.scale) > 5 && (d2.attrs.height * myState.current.viewport.scale) > 5){
+                                                if( (d.attrs.x + d2.attrs.x) <= x && (d.attrs.y + d2.attrs.y) <= y &&  (d.attrs.x + d2.attrs.x + d2.attrs.width) >= x && (d.attrs.y + d2.attrs.y + d2.attrs.height) >= y){
+                                                    found.push(d2)
+                                                    addMajor = false
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 checked.add( d._id)
+                                if( addMajor ){
+                                    found.push(d)
+                                }
                             }
                         }
                     }
@@ -1316,7 +1461,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
             }
         }
-        function processClick(e){
+        async function processClick(e){
             if( myState.current.ignoreClick ){
                 myState.current.ignoreClick = false
                 return
@@ -1325,7 +1470,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             if( !props.selectable ){
                 return
             }
-            let found = findTrackedNodesAtPosition( x, y, Object.keys(props.selectable))
+            let found = findTrackedNodesAtPosition( x, y, Object.keys(props.selectable), undefined, true)
+            console.log(found)
             let doneClick = false
             for( const d of found){
                 if( d.attrs.onClick ){
@@ -1352,10 +1498,46 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             myState.current.selected[cls].push(d)
                             
                             leftNode(d, cls)
-                            addOverlay(d, "select", props.highlights?.[cls] ?? "border", colors.select)
+                            if( props.enableFrameSelection && cls === "frame" ){
+                                destroyFrameSelect()
+                                createFrameSelect( d )
+
+                            }else{
+                                addOverlay(d, "select", props.highlights?.[cls] ?? "border", colors.select)
+                            }
                             doneClick = true
                         }                        
-                        if( props.callbacks?.onClick?.[cls] ){
+                        if( cls === "_toggle"){
+                            const parent = d.findAncestor('Group')
+                            if(parent){
+                                const id = parent.attrs.id
+                                const toggleId = d.attrs.id
+                                const frameId = d.findAncestor('.frame')?.attrs.id
+                                if( props.callbacks?.onToggle ){
+                                    const status = await props.callbacks.onToggle(id, toggleId, frameId)
+                                    const frame =  myState.current.frames.find(d=>d.id === frameId)
+                                    console.log(status, frame)
+                                    if(frame){
+                                        const oldNode = frame.node.children.find(d=>d.attrs.id === id)
+                                        if( oldNode ){
+                                            console.log(status)
+                                            const newNode = renderToggle( status, 
+                                                d.attrs.x,
+                                                d.attrs.y,
+                                                d.attrs.width,
+                                                d.attrs.height,
+                                                d.attrs.id
+                                                )
+                                            
+                                            oldNode.add(newNode)
+                                            d.destroy()
+                                        }
+                                        oldNode.draw()
+                                    }
+                                }
+                            }
+                            doneClick = true
+                        }else if( props.callbacks?.onClick?.[cls] ){
                             const ids = myState.current.selected[cls].map(d=>d.attrs.id)
                             const result = props.callbacks?.onClick?.[cls]( ids.length > 1 ? ids : ids )
                             doneClick = true
@@ -1365,8 +1547,53 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             if(!doneClick){
                 clearSelection()
+                destroyFrameSelect()                
+                if( props.callbacks?.onClick?.frame ){
+                    props.callbacks.onClick.frame(undefined)
+
+                }
             }
             e.evt.stopPropagation()
+        }
+        function createFrameSelect(d){
+            if( myState.current.frameSelect){
+                throw "Dragging already present"
+                return
+            }            
+            myState.current.frameSelect = {
+                layer: new Konva.Layer()
+            }
+            stageRef.current.add(myState.current.frameSelect.layer)
+            const node = new Konva.Rect({x: d.attrs.x, y: d.attrs.y, width: d.attrs.width, height: d.attrs.height})
+            myState.current.frameSelect.layer.add(node)
+            myState.current.frameSelect.transformer = new Konva.Transformer({rotateEnabled:false, resizeEnabled: false})
+            myState.current.frameSelect.transformer.nodes([node])
+            myState.current.frameSelect.layer.add(myState.current.frameSelect.transformer)
+            stageRef.current.batchDraw()
+        }        
+        function destroyFrameSelect(){
+            if( myState.current.frameSelect){
+                myState.current.frameSelect.transformer.destroy()
+                myState.current.frameSelect.layer.destroy()
+                myState.current.frameSelect = undefined
+                stageRef.current.batchDraw()
+            }
+            
+        }        
+        function convertSceneCoordToScreen(fx, fy){
+            if( enableFlipping ){
+                const ox = -parseInt(myState.current.viewport?.x ?? 0);
+                const oy = -parseInt(myState.current.viewport?.y ?? 0);
+                const scale = myState.current.viewport?.scale ?? 1;
+              
+                let cx = fx * scale - ox;
+                let cy = fy * scale - oy;
+              
+                return [cx, cy];
+            }else{
+                throw "Not implemented"
+            }
+
         }
         function convertStageCoordToScene(cx, cy){
             if( enableFlipping ){

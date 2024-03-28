@@ -2,6 +2,7 @@ import Konva from "konva";
 import { Util } from 'konva/lib/Util'
 import CustomImage  from "./CustomImage";
 import CustomText from "./CustomText";
+import PrimitiveConfig from "./PrimitiveConfig";
 const typeMaps = {}
 const categoryMaps = {}
 
@@ -147,6 +148,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
                 width: fullWidth, 
                 padding: config.itemPadding, 
                 placeholder: options.placeholder !== false,
+                toggles: options.toggles,
                 imageCallback: options.imageCallback
             })
         }
@@ -182,18 +184,47 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
 
     return g
 })
+registerRenderer( {type: "categoryId", id: 100, configs: "set_grid"}, (primitive, options = {})=>{
+    const config = {itemWidth: 600, itemHeight: 1800, spacing: [2,2], itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {}), columns: 3}
+    return baseGridRender(options, config)
+})
 registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive, options = {})=>{
     const config = {itemSize: 30, columns: 3, minColumns: 3, spacing: [2,2], itemPadding: [2,2,2,2], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    return baseGridRender(options, config)
+})
+registerRenderer( {type: "categoryId", id: 101, configs: "set_grid"}, (primitive, options = {})=>{
+    const config = {itemWidth: 400, spacing: [2,2], itemPadding: [2,2,2,2], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    return baseGridRender(options, config)
+})
+registerRenderer( {type: "categoryId", id: 95, configs: "set_grid"},(primitive, options = {})=>{
+    const config = {itemWidth:555, spacing: [20,20], itemPadding: [2,2,2,2], padding: [5,5,5,5], ...(options.renderConfig ?? {}), height: undefined}
+
+    const concept_info = {}
+    for(const d of options.list){
+        const concept = d.findParentPrimitives({referenceId: [PrimitiveConfig.Constants["CONCEPT"]]})
+        if( concept ){
+            concept_info[d.id] = {id:concept[0].id, title: concept[0].title}
+        }
+    }
+
+
+    return baseGridRender({...options, extras: {concept_info}}, config)
+})
+function baseGridRender( options, config){
     if( !options.list ){
         return undefined
     }
-    const fullHeight = config.itemSize + config.itemPadding[0] + config.itemPadding[2]
-    const fullWidth = config.itemSize + config.itemPadding[1] + config.itemPadding[3]
+
+    const heightDefined = config.itemHeight || config.itemSize
+    
+    const fullHeight =  heightDefined ? (config.itemHeight ?? config.itemSize) + config.itemPadding[0] + config.itemPadding[2] : undefined
+    const fullWidth = (config.itemWidth ?? config.itemSize) + config.itemPadding[1] + config.itemPadding[3]
 
     let minColumns = config.minColumns
 
+
     if( config.minWidth ){
-        minColumns = Math.max(1, Math.floor(((config.minWidth - config.padding[1] - config.padding[3]) - config.spacing[1]) / (fullWidth + config.spacing[1])))
+        minColumns = Math.max(minColumns ?? 1, 1, Math.floor(((config.minWidth - config.padding[1] - config.padding[3]) - config.spacing[1]) / (fullWidth + config.spacing[1])))
     }
 
     if( minColumns) {
@@ -204,17 +235,24 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive,
 
     const calcWidth = ((config.columns + 1) * config.spacing[1]) + (config.columns * fullWidth) + config.padding[1] + config.padding[3]
 
-    if( !config.width || calcWidth > config.width ){
+    if( !config.columns ){
+        if( !config.width ){
+            config.columns = 1
+        }
+        config.columns = Math.floor(Math.max(1, ((config.width - config.padding[1] - config.padding[3]) - config.spacing[1]) / (fullWidth + config.spacing[1])))
+    }
+    if(!config.width || calcWidth > config.width ){
         config.width = calcWidth
-        config.columns = Math.max(1, ((config.width - config.padding[1] - config.padding[3]) - config.spacing[1]) / (fullWidth + config.spacing[1]))
+        config.columns = Math.floor(Math.max(1, ((config.width - config.padding[1] - config.padding[3]) - config.spacing[1]) / (fullWidth + config.spacing[1])))
     }
 
     config.rows = Math.ceil( options.list.length / config.columns )
     
-    //config.width ||= ((config.columns - 1) * config.spacing[1]) + (config.columns * fullWidth) + config.padding[1] + config.padding[3]
-    config.height ||= ((config.rows - 1) * config.spacing[0]) + (config.rows * fullHeight) + config.padding[0] + config.padding[2]
+    if( heightDefined ){
+        config.height ||= ((config.rows - 1) * config.spacing[0]) + (config.rows * fullHeight) + config.padding[0] + config.padding[2]
+    }
 
-    if( options.getConfig){
+    if( options.getConfig && config.height){
         return config
     }
     const width = config.width 
@@ -238,40 +276,57 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive,
         y: config.padding[0],
         width: config.width - config.padding[3] - config.padding[1],
         height: config.height - config.padding[0] - config.padding[2],
+        name: "background",
         fill: '#f9fafb'
     })
     g.add(r)
 
     let idx = 0
+    let columnYs = new Array( config.columns ).fill( y )
     for( const d of items ){
         const node = RenderPrimitiveAsKonva( d, {
             config: "default", 
             x: x, 
-            y: y, 
+            y: columnYs[ idx ], 
             onClick: options.primitiveClick,
             height: fullHeight, 
             width: fullWidth, 
             padding: config.itemPadding, 
             placeholder: options.placeholder !== false,
-            imageCallback: options.imageCallback})
-        if( node ){
-            g.add(node)
-        }
+            toggles: options.toggles,
+            imageCallback: options.imageCallback,
+            ...options.extras
+        })
+        
+        g.add(node)
+        let lastHeight = fullHeight ?? node.attrs.height
+        columnYs[idx] += lastHeight + config.spacing[0]
 
         x += fullWidth + config.spacing[1]
         idx++
         if( idx === config.columns){
             idx = 0
             x = config.padding[3] + config.spacing[1]
-            y += fullHeight + config.spacing[0]
-            if( (y + fullHeight) > height){
+            y = columnYs[idx]
+            if( heightDefined && (y + fullHeight) > height){
                 break
             }
         }
     }
 
+    if( !heightDefined ){
+        const mayY = Math.max(...columnYs) 
+        r.height( mayY)
+        g.height( mayY + config.padding[2])
+        config.height = mayY + config.padding[2]
+    }
+
+    if( options.getConfig ){
+        return config
+    }
+
     return g
-})
+}
 registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primitive, options = {})=>{
     const config = {width: 200, height: 200, itemSize: 30, itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
     if( options.getConfig){
@@ -400,15 +455,20 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
 })
 
 
-registerRenderer( {type: "default", configs: "default"}, (primitive, options = {})=>{
+registerRenderer( {type: "default", configs: "default"}, function renderFunc(primitive, options = {}){
     const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
     if( options.getConfig){
         return config
     }
 
+    let toggleWidth = 0
+    if( options.toggles){
+        toggleWidth = 26
+    }
+
     let idHeight = config.showId ?  20 : 0
     let availableWidth = config.width - config.padding[1] - config.padding[3]
-    let availableHeight = config.maxHeight !== undefined ? config.maxHeight - config.padding[0] - config.padding[2] - idHeight : undefined
+    let availableHeight = config.maxHeight !== undefined ? config.maxHeight - config.padding[0] - config.padding[2] - idHeight: undefined
     let ox = (options.x ?? 0) 
     let oy = (options.y ?? 0) 
 
@@ -429,14 +489,11 @@ registerRenderer( {type: "default", configs: "default"}, (primitive, options = {
             width: config.width,
             cornerRadius: 2,
             fill: 'white',
-           // shadowColor: "#aaa",
-            //shadowOffset: {x:1, y:1},
-            //shadowBlur: 4,
         })
         g.add(r)
         const t = new CustomText({
             x: config.padding[3],
-            y: config.padding[3],
+            y: config.padding[0],
             fontSize: 16,
             lineHeight: 1.5,
             text: primitive.title,
@@ -444,7 +501,6 @@ registerRenderer( {type: "default", configs: "default"}, (primitive, options = {
             wrap: true,
             width: availableWidth,
         })
-        
         t.attrs.refreshCallback = options.imageCallback
 
         let h = t.height()
@@ -455,9 +511,53 @@ registerRenderer( {type: "default", configs: "default"}, (primitive, options = {
             }
         }
         t.height(h)
-//        console.log(h)
         g.add(t)
-        let totalheight = h + config.padding[0] + config.padding[2] + idHeight
+
+
+        let fy = 0
+        if( primitive.referenceId === 101 ){
+            const fields = [[["Description", primitive.referenceParameters?.description]], Object.keys(primitive.referenceParameters?.features ?? {}).map(d=>[d,`${primitive.referenceParameters.features[d]}`])].flat()
+            fy = h + config.padding[0] + config.padding[2] + 8
+            for(const d of fields){
+                const t1 = new CustomText({
+                    x: config.padding[3],
+                    y: fy,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    text: d[0],
+                    fill: '#334155',
+                    wrap: true,
+                    width: availableWidth * 0.25,
+                })
+                const t2 = new CustomText({
+                    x: config.padding[3] + (availableWidth * 0.25) + 8,
+                    y: fy,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    text: d[1],
+                    fill: '#334155',
+                    wrap: true,
+                    width: (availableWidth * 0.75) - 8,
+                })
+                t1.attrs.refreshCallback = options.imageCallback
+                t2.attrs.refreshCallback = options.imageCallback
+                g.add(t1)
+                g.add(t2)
+                fy += Math.max(t1.height(), t2.height()) + 4
+            }
+
+        }
+
+
+        let totalheight = fy + h + config.padding[0] + config.padding[2] + idHeight
+
+        if( options.toggles ){
+            const active = Object.values(options.toggles)[0][primitive.id]
+            const startX = availableWidth + config.padding[3] - toggleWidth + 2
+            const startY = totalheight - config.padding[2] - config.idSize
+            g.add( renderToggle(active, startX, startY, toggleWidth, config.idSize, Object.keys(options.toggles)[0]))
+        }
+
 
         if( config.showId ){
             const idText = new CustomText({
@@ -467,7 +567,7 @@ registerRenderer( {type: "default", configs: "default"}, (primitive, options = {
                 text: `${primitive.displayType} #${primitive.plainId}`,
                 fill: '#94a3b8',
                 wrap: true,
-                width: availableWidth,
+                width: availableWidth - toggleWidth,
             })
             idText.attrs.refreshCallback = options.imageCallback
             g.add(idText)
@@ -482,6 +582,214 @@ registerRenderer( {type: "default", configs: "default"}, (primitive, options = {
     return g
 })
 
+export function renderToggle(active, startX, startY, toggleWidth, height, id){
+    const g = new Konva.Group({
+        x: startX, 
+        y: startY, 
+        width: toggleWidth, 
+        name: "_toggle clickable",
+        height: height,
+        id: id
+    })
+
+    const r = height * 0.75 * 0.5
+    const gap = (height * 0.25 * 0.5)
+    const toggleCore = new Konva.Circle({
+        x: active ? toggleWidth - gap - r : gap + r,
+        y:  gap + r,
+        radius: r,
+        fill: active ? '#4ade80' : '#e2e8f0'
+    })
+    g.add(toggleCore)
+    const toggleBase = new Konva.Rect({
+        x: 0,
+        y: 0,
+        cornerRadius: 10,
+        stroke: active ? '#4ade80' : '#e2e8f0',
+        width: toggleWidth,
+        height: height,
+    })
+    g.add(toggleBase)
+    return g
+
+}
+
+registerRenderer( {type: "categoryId", id: 95, configs: "default"}, (primitive, options = {})=>{
+    const config = {width: 555, height: 800, padding: [10,10,10,10], ...options}
+    if( options.getConfig){
+        return config
+    }
+
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        height: config.height,
+        onClick: options.onClick,
+        name:"inf_track primitive inf_keep"
+    })
+    const bg = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.width,
+        height: config.height,
+        fill: "#ffffff"
+
+    })
+    g.add( bg )
+    if( options.concept_info?.[primitive.id]){
+
+        const logo = imageHelper( `/published/image/${options.concept_info[primitive.id]?.id}`, {
+            size: 48,
+            x: config.padding[3] + 12,
+            y: config.padding[0] + 6,
+            center: true,
+            imageCallback: options.imageCallback,
+            placeholder: options.placeholder !== false
+        })
+        g.add( logo )
+        const conceptText = new Konva.Text({
+            x: config.padding[3] + 68,
+            y: config.padding[0] + 8,
+            fontSize:14,
+            fontStyle:"bold",
+            width: config.width - config.padding[3] - config.padding[1] - 24,
+            text: options.concept_info[primitive.id]?.title
+        })
+        g.add( conceptText )
+    }
+    const concept2Text = new Konva.Text({
+        x: config.padding[3] + 68,
+        y: config.padding[0] + 8 + 16,
+        fontSize:12,
+        lineHeight:1.2,
+        width: config.width - config.padding[3] - config.padding[1] - 24,
+        fill: "#7e8184",
+        text: "1,264 followers\nPromoted"
+    })
+    g.add( concept2Text )
+    const subheading = new Konva.Text({
+        x: config.padding[3] + 12,
+        y: 64,
+        fontSize:14,
+        width: config.width - config.padding[3] - config.padding[1],
+        wrap: true,
+        text: primitive.referenceParameters?.subheadline
+    })
+    g.add( subheading )
+    const image = imageHelper( `/published/image/${primitive.id}`, {
+        x: 0,
+        y: subheading.attrs.y + subheading.height() + 8,
+        padding: [0,0,0,0],
+        width: 555,
+        height: 300,
+        center: true,
+        imageCallback: options.imageCallback,
+        fit: "cover",
+        placeholder: options.placeholder !== false,
+        maxScale: 1,
+        scaleRatio: 4
+
+    })
+    g.add( image )
+    const headingText = new Konva.Text({
+        x: config.padding[3] + 12,
+        y: 380,
+        y: image.attrs.y + image.height() + 12,
+        fontSize:14,
+        fontStyle:"bold",
+        width: config.width - config.padding[3] - config.padding[1] - 24,
+        wrap: true,
+        text: primitive.referenceParameters?.headline
+    })
+    const urlText = new Konva.Text({
+        x: config.padding[3] + 12,
+        y: 380,
+        y: image.attrs.y + image.height() + 12 + headingText.height() +8 ,
+        fontSize:12,
+        width: config.width - config.padding[3] - config.padding[1] - 24,
+        fill: "#7e8184",
+        wrap: true,
+        text: primitive.referenceParameters?.url ?? "www.homepage.io"
+    })
+    const textBg = new Konva.Rect({
+        x: 0,
+        y: image.attrs.y + image.height(),
+        width: config.width,
+        height: headingText.height() + 36 + urlText.height(),
+        fill: "#edf3f8"
+
+    })
+    let footerHeight = 0
+
+    if( options.toggles ){
+        footerHeight = 30
+        let toggleWidth = 26
+        const active = Object.values(options.toggles)[0][primitive.id]
+        const startX = config.width - config.padding[3] - config.padding[1] - 24 + config.padding[3] - toggleWidth + 2
+        const startY = textBg.attrs.y + textBg.attrs.height + 10 
+        g.add( renderToggle(active, startX, startY, toggleWidth, 14, Object.keys(options.toggles)[0]))
+    }
+
+    g.add( textBg )
+    g.add( headingText )
+    g.add( urlText )
+    g.height( textBg.attrs.y + textBg.attrs.height + footerHeight)
+    bg.height( textBg.attrs.y + textBg.attrs.height + footerHeight)
+
+    return g
+
+
+})
+
+registerRenderer( {type: "categoryId", id: 100, configs: "default"}, (primitive, options = {})=>{
+    const config = {width: 600, height: 1800, padding: [10,10,10,10], ...options}
+    if( options.getConfig){
+        return config
+    }
+
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        height: config.height,
+        onClick: options.onClick,
+        name:"inf_track primitive inf_keep"
+    })
+    if( g ){
+
+        const logo = imageHelper( `/api/image/${primitive.id}`, {
+            x: 0,
+            y: 0,
+            padding: config.padding,
+            width: config.width,
+            height: config.height,
+            center: true,
+            imageCallback: options.imageCallback,
+            placeholder: options.placeholder !== false,
+            maxScale: 1,
+            scaleRatio: 4
+
+        })
+        g.add( logo )
+
+    }
+    return g
+
+
+})
 registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, options = {})=>{
     const config = {width: 80, height: 80, padding: [10,10,10,10], ...options}
     if( options.getConfig){
@@ -534,7 +842,16 @@ export function finalizeImages( node, options ){
 
 
 function imageHelper(url, options){
-        const image = new CustomImage( {url: url, x: options.x ?? 0, y: options.y ?? 0, padding: options.padding, width: options.width ?? options.size, height: options.height ?? options.size, placeholder: options.placeholder, name: options.placeholder ? "img_ph" : undefined})
+        const image = new CustomImage( {
+            url: url, 
+            ...options,
+            x: options.x ?? 0, 
+            y: options.y ?? 0, 
+            padding: options.padding, 
+            width: options.width ?? options.size, 
+            height: options.height ?? options.size, 
+            placeholder: options.placeholder, 
+            name: options.placeholder ? "img_ph" : undefined})
 
         if(options.imageCallback){
             image.attrs.refreshCallback = ()=>options.imageCallback(image)
@@ -567,7 +884,20 @@ export function renderMatrix( primitive, list, options ){
     }
 
     let itemColsByColumn = new Array(columnExtents.length).fill(0)
-    
+
+    let toggleMap
+    if( options.toggles ){
+        for(const d of Object.keys(options.toggles)){
+            toggleMap ||= {}
+            toggleMap[d] = {}
+            for(const d2 of list){
+                if( d2[d] !== "_N_" ){
+                    toggleMap[d][d2.primitive.id] = d2[d]?.[0]
+                }
+            }
+        }        
+    }
+
     let rIdx = 0
     for(const row of rowExtents){
         let cIdx = 0
@@ -596,7 +926,7 @@ export function renderMatrix( primitive, list, options ){
 
     const minWidth = {29: 120}[referenceIds[0]] ?? 300
     for(const cell of cells){
-        const config = RenderSetAsKonva( primitive, cell.list, {config: "grid", referenceId: referenceIds[0], renderConfig:{columns: itemColsByColumn[cell.cIdx], minWidth: minWidth}, getConfig: true} )    
+        const config = RenderSetAsKonva( primitive, cell.list, {config: "grid", toggles: toggleMap, referenceId: referenceIds[0], renderConfig:{columns: itemColsByColumn[cell.cIdx], minWidth: minWidth}, getConfig: true} )    
         
         itemColsByColumn[cell.cIdx] = Math.max(itemColsByColumn[cell.cIdx], config.columns)
         
@@ -624,17 +954,19 @@ export function renderMatrix( primitive, list, options ){
         const longestWord = (d.label ?? "").split(" ").reduce((a,c)=>a.length > c.length ? a : c, 0)
         const colWidth = columnSize[idx] - textPadding[1] - textPadding[3] - cellConfig.padding[3] - cellConfig.padding[1] 
 
-        const text = new Konva.Text({
+        const text = new CustomText({
             fontFamily: "system-ui",
             fontSize: headerFontSize,
             text: longestWord,
             align:"center",
             wrap: true,
             verticalAlign:"middle",
+            bgFill:"#f3f4f6",
             x: cellConfig.padding[3] + textPadding[3],
             y: cellConfig.padding[0] + textPadding[0],
             width: colWidth,
-            height: "auto"
+            height: "auto",
+            refreshCallback: options.imageCallback
         })
 
         while( text.measureSize(longestWord).width > colWidth && headerFontSize > 6){
@@ -678,16 +1010,18 @@ export function renderMatrix( primitive, list, options ){
         rowLabels = rowExtents.map((d,idx)=>{
             const cellConfig = cells.find(d=>d.rIdx === idx)?.config
             rowHeights[idx] = rowSize[idx] - textPadding[0] - textPadding[2] - cellConfig.padding[0] - cellConfig.padding[2]
-            const text = new Konva.Text({
+            const text = new CustomText({
                 fontFamily: "system-ui",
                 fontSize: headerFontSize,
                 text: textWidth ? (d.label  ?? "") : longestPairs,
                 wrap: true,
                 align:"center",
+                bgFill:"#f3f4f6",
                 verticalAlign:"middle",
                 x: cellConfig.padding[3] + textPadding[3],
                 y: cellConfig.padding[0] + textPadding[0],
-                width: textWidth ? textWidth : "auto"
+                width: textWidth ? textWidth : "auto",
+                refreshCallback: options.imageCallback
             })
             if( !textWidth ){
                 textWidth = text.width()
@@ -766,8 +1100,8 @@ export function renderMatrix( primitive, list, options ){
         g.add(group)
     })
 
-
     for( const cell of cells){
+
         const c = RenderSetAsKonva( primitive, cell.list, 
             {
                 primitiveClick: options.primitiveClick,
@@ -775,7 +1109,8 @@ export function renderMatrix( primitive, list, options ){
                 config: "grid", 
                 referenceId: referenceIds[0], 
                 placeholder: options.placeholder !== false, 
-                imageCallback: options.imageCallback, 
+                imageCallback: options.imageCallback,
+                toggles: toggleMap,
                 renderConfig:{
                     width: columnSize[cell.cIdx], 
                     height: rowSize[cell.rIdx] , 
@@ -816,7 +1151,5 @@ export function renderMatrix( primitive, list, options ){
     g.height( g.find(()=>true).map(d=>d.y() + d.height()).reduce((a,c)=>c > a ? c : a, 0))
 
     return g
-
-
 
 }

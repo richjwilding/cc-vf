@@ -7,6 +7,7 @@ import AssessmentAnalyzer from "./AssessmentAnalyzer";
 import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 import { unpack, pack } from 'msgpackr';
+import CollectionUtils from "./CollectionHelper";
 
  export function uniquePrimitives(list){
         const ids = new Set();
@@ -1605,9 +1606,16 @@ function MainStore (prims){
 
                             const notCat1 = (list, hits, filter)=>{
                                 const invert = filter.invert ?? false
-                                const l1Hits = hits.map(d=>obj.primitive(d)?.primitives?.allCategory).flat().map(d=>d.id)
-                                return list.filter(d=>invert ^ !d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0)
-                                //return list.filter(d=>invert ^ !d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0)
+                                const l1Hits = hits.map(d=>obj.primitive(d)?.primitives?.allCategory).flat().filter(d=>d).map(d=>d.id)
+                                if( l1Hits.length === 0){
+                                    return list
+                                }
+                                return list.filter(d=>{
+                                    const parents = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)
+                                    const result = parents.reduce((a,d)=>a && d.parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length === 0, true)
+                                    return invert ^ result
+                                })
+                                //return list.filter(d=>{invert ^ !d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0)
                             }
 
                             for( const filter of filters){
@@ -1698,18 +1706,24 @@ function MainStore (prims){
                             let type = primitive.referenceParameters?.type 
                             const target = primitive.referenceParameters?.target || "children"
                             const referenceId = primitive.referenceParameters?.referenceId 
+                            const constrainIds = primitive.primitives.params?.constrain_parent_chain.allIds
+
+                            console.log(constrainIds)
                             
                             if(target === "descend"){
-                                list = source.primitives.descendants
-                                console.warn("CHECK IF  DONE")
+                                list = source.primitives.strictDescendants
                             }else if(target === "all_descend"){
                                 list = source.primitives.descendants
                             }else if(target === "ref"){
                                 list = source.primitives.ref.uniqueAllItems
+                            }else if(target === "link"){
+                                list = source.primitives.link.uniqueAllItems
                             }else if(target === "children"){
-                                list = source.primitives.uniqueAllItems
+                                list = source.primitives.origin.uniqueAllItems
                             }else if(target === "items"){
                                 list = source.itemsForProcessing
+                            }else if( target === "hierarchy"){
+                                list = source.findParentPrimitives({referenceId: referenceId ? [referenceId] : undefined, type: type ? [type] : undefined, first: true})
                             }
                             
                             if( type ){
@@ -1721,6 +1735,11 @@ function MainStore (prims){
                             
                             if( list === undefined){
                                 return []
+                            }
+                            if( constrainIds.length > 0){
+                                const validIds = obj.primitive(constrainIds[0]).itemsForProcessing.map(d=>d.id)
+                                
+                                list = list.filter(d=>validIds.includes(d.id))
                             }
                             
                             return list
@@ -1790,19 +1809,35 @@ function MainStore (prims){
                                     let config
                                     
                                     config = receiver.referenceParameters?.importConfig?.filter(d=>d.id === source.id)
+                                    
+                                    
                                     //console.log(`For ${received.plainId} - ${list.length} and ${config?.length} configs to scan`)
 
                                     if( config && config.length > 0){
-                                        let filterOut = []
+                                        let filterOut
                                         for(const set of config ){
-                                            let thisSet = receiver.filterItems(list, set.filters)
-                                            if( thisSet ){
-                                                filterOut = filterOut.concat( thisSet )
+                                            if( set.filters ){
+                                                filterOut ||= []
+                                                let thisSet = receiver.filterItems(list, set.filters)
+                                                if( thisSet ){
+                                                    filterOut = filterOut.concat( thisSet )
+                                                }
                                             }
                                         }
-                                        list = filterOut
+                                        list = filterOut ?? list
+                                        for(const set of config ){
+                                            if( set.referenceId ){
+                                                console.log(`Descend after import`)
+                                                list = uniquePrimitives( list.map(d=>d.primitives.filter(d=>d.referenceId === set.referenceId)).flat())
+                                            }
+                                        }
                                     }
                                     fullList = fullList.concat(list) 
+                                }
+                                if(receiver.type === "view" && !options.ignoreFinalViewFilter){
+                                    const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
+                                    fullList = uniquePrimitives(fullList)
+                                    fullList = receiver.filterItems(fullList, viewFilters)
                                 }
                                 if( (options?.pivot !== false) && receiver.referenceParameters?.pivot){
                                     fullList = uniquePrimitives(fullList)
@@ -1997,6 +2032,30 @@ function MainStore (prims){
                 if( prop === "displayType"){
                     return d.type.charAt(0).toUpperCase() + d.type.slice(1)
                 }
+                if( prop === "context"){
+                    const category = receiver.metadata
+                    if( !category?.ai?.process?.context){
+                        return undefined
+                    }
+                    let out = ""
+                    for(const d of Object.keys(category.ai.process.context.fields ?? [])){
+                        const source = category.ai?.process?.context.fields[d]
+                        if( source instanceof Object){
+                            let header = source.title
+                            const children = receiver.primitives.uniqueAllItems.fitler(d=>d.referenceId === source.referenceId)
+                            if( children && children.length > 0){
+                                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>`${source.prefix ?? ""}${i} ${d.title}`).join("\n")
+                            }
+
+                        }else{
+                            if( receiver.referenceParameters?.[d] ){
+                                let header = source
+                                out += header?.length > 0 ? `${header}: ${receiver.referenceParameters[d]}\n` : `${receiver.referenceParameters[d]}\n`
+                            }
+                        }
+                    }
+                    return out.length === 0 ? undefined : out
+                }
                 if( prop === "findRouteToParent"){
                     return function(target){
                         const ids = {}
@@ -2027,7 +2086,7 @@ function MainStore (prims){
                     }
                 }
                 if( prop === "findParentPrimitives"){
-                    return function(options = {type: undefined, first: false}){
+                    return function(options = {type: undefined, referenceId: undefined, first: false}){
                         const ids = {}
                         const scatter = (list)=>{
                             if( list === undefined){ return []}
@@ -2047,10 +2106,14 @@ function MainStore (prims){
                         let current = scatter( [receiver] )
                         
                         while( current.length > 0){
-                            if( options.type === undefined ){
+                            if( options.type === undefined && options.referenceId === undefined){
                                 found = [...found, ...current]
-                            }else{
+                            }else if(options.type === undefined){
+                                found = [...found, ...current.filter((p)=>options.referenceId.includes(p.referenceId))]                        
+                            }else if(options.referenceId === undefined){
                                 found = [...found, ...current.filter((p)=>options.type.includes(p.type))]                        
+                            }else{
+                                found = [...found, ...current.filter((p)=>(options.referenceId.length === 0 || options.referenceId.includes(p.referenceId)) && (options.type.length === 0 || options.type.includes(p.type)))]                        
                             }
                             if( options.first && found.length > 0 ){
                                 return found

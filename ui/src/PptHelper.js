@@ -51,8 +51,8 @@ export async function exportKonvaToPptx( stage, pptx ){
         }
     }
 
-    const scale = Math.min( widthInInches / maxX, heightInInches / maxY )
-    const fontScale = scale * 72 // 0.95
+    const gScale = Math.min( widthInInches / maxX, heightInInches / maxY )
+    const fontScale = gScale * 72 // 0.95
 
     const stageNode = stage.container()
     if( stageNode.style.backgroundColor && stageNode.style.backgroundColor !== ""){
@@ -76,22 +76,25 @@ export async function exportKonvaToPptx( stage, pptx ){
         let h = '#' + (r.r.toString(16).padStart(2, '0')) + (r.g.toString(16).padStart(2, '0')) + (r.b.toString(16).padStart(2, '0'))
         return h
     }
-    function processNode( konvaNode, ox = 0, oy = 0 ){
-        const x = ox + konvaNode.x()
-        const y = oy + konvaNode.y()
-        let fragmentJoin = " " // "\n"
-
+    function processNode( konvaNode, ox = 0, oy = 0, pScale = 1 ){
+        
+        const x = ox + (konvaNode.x() * pScale)
+        const y = oy + (konvaNode.y() * pScale)
+        
+        let thisScale = konvaNode.scale()?.x ?? 1
+        thisScale *= pScale
+        let scale = gScale
 
         if (konvaNode instanceof Konva.Text) {
-            const fontSize = konvaNode.fontSize() * fontScale
+            const fontSize = konvaNode.fontSize() * fontScale * thisScale
 
             let text = konvaNode.textArr.reduce((a,d)=>a + (d.lastInParagraph ? d.text + "\n" : d.text + " "), "")
 
             slide.addText(text, {
                 x: x * scale,
                 y: y * scale,
-                w: konvaNode.width() * scale,
-                h: konvaNode.height() * scale,
+                w: konvaNode.width() * scale * thisScale,
+                h: konvaNode.height() * scale * thisScale,
                 bold: konvaNode.fontStyle() === "bold",
                 lineSpacing: konvaNode.lineHeight() * fontSize,
                 italic: konvaNode.fontStyle() === "italic",
@@ -102,23 +105,23 @@ export async function exportKonvaToPptx( stage, pptx ){
                 fontSize: fontSize.toFixed(3),
                 color: toHex(konvaNode.fill()),
             });
-        } else if (konvaNode instanceof Konva.Rect) {
+        } else if (konvaNode instanceof Konva.Rect ) {
             // Handle rectangle
             if( konvaNode.cornerRadius() > 0 ){
                 slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, {
                     x: x * scale,
                     y: y * scale,
-                    w: konvaNode.width() * scale,
-                    h: konvaNode.height() * scale,
-                    rectRadius: konvaNode.cornerRadius() * scale,
+                    w: konvaNode.width() * scale * thisScale,
+                    h: konvaNode.height() * scale * thisScale,
+                    rectRadius: konvaNode.cornerRadius() * scale * thisScale,
                     fill: toHex(konvaNode.fill()),
                 });
             }else{
                 slide.addShape(pptx.shapes.RECTANGLE, {
                     x: x * scale,
                     y: y * scale,
-                    w: konvaNode.width() * scale,
-                    h: konvaNode.height() * scale,
+                    w: konvaNode.width() * scale * thisScale,
+                    h: konvaNode.height() * scale * thisScale,
                     fill: toHex(konvaNode.fill()),
                 });
             }
@@ -129,9 +132,10 @@ export async function exportKonvaToPptx( stage, pptx ){
                 data: imgDataUrl,
                 x: x * scale,
                 y: y * scale,
-                w: konvaNode.width() * scale,
-                h: konvaNode.height() * scale
+                w: konvaNode.width() * scale * thisScale,
+                h: konvaNode.height() * scale * thisScale
             });
+            console.log(`img ${konvaNode.width() * scale * thisScale} ${konvaNode.height() * scale * thisScale}`)
         } else if (konvaNode instanceof Konva.Line) {
             const points = konvaNode.points();
             const nodes = []
@@ -156,16 +160,16 @@ export async function exportKonvaToPptx( stage, pptx ){
             console.log(outNodes)
 
             slide.addShape(pptx.shapes.CUSTOM_GEOMETRY, {
-                x: (x + l) * scale,
-                y: (y + t) * scale,
-                w: sx * scale,
-                h: sy * scale ,
+                x: (x * scale) + (l * scale * thisScale),
+                y: (y * scale) + (t * scale * thisScale),
+                w: sx * scale * thisScale,
+                h: sy * scale * thisScale,
                 line: { color: toHex(konvaNode.stroke()), width: konvaNode.strokeWidth() },
                 points: outNodes
             });
         } else if (konvaNode instanceof Konva.Group) {
             for(const child of konvaNode.children){
-                processNode(child, x, y )
+                processNode(child, x, y, thisScale  )
             }
         }
     }

@@ -15,23 +15,31 @@ class CustomImage extends Shape {
   static placeholderImagePromise = null; // Store the promise here
 
   constructor(attrs) {
+    const defaults = {
+      maxScale: 10,
+      scaleRatio: 2,
+      rescaleMax: 1.5,
+      rescaleMin: 0.14}
+    
     super(attrs);
-    this.maxScale = 10
-    this.scaleRatio = 2
-    this.rescaleMax = 1.5
-    this.rescaleMin = 0.14
-
+    for( const k in defaults){
+      this[k] = attrs[k] ?? defaults[k]
+    }
 
 
     if( !this.attrs.placeholder ){
-      this._buildPrivateCache()
-      if( this.attrs.url ){
-        this.fetchAndCreateImageBitmap( ).then(()=>{
-          console.log(`loaded`)
-          if(this.attrs.refreshCallback ){
-            this.attrs.refreshCallback()
-          }
-        })
+      if( this.attrs.cloneFrom){
+        this.cloneImage(this.attrs.cloneFrom)
+      }else{
+        this._buildPrivateCache()
+
+        if( this.attrs.url ){
+          this.fetchAndCreateImageBitmap( ).then(()=>{
+            if(this.attrs.refreshCallback ){
+              this.attrs.refreshCallback()
+            }
+          })
+        }
       }
     }
     
@@ -54,6 +62,11 @@ class CustomImage extends Shape {
 
   }
 
+  cloneImage(cache){
+    this.pcache = cache
+    this.isClone = true
+    //this.pcache._canvas_context.drawImage(this.maxImage, 0, 0, this.pcache.width, this.pcache.height);
+  }
 
   fetchAndCreateImageBitmap() {
     return new Promise((resolve, reject) => {
@@ -61,40 +74,72 @@ class CustomImage extends Shape {
   
       img.onload = () => {
           let padding = this.attrs.padding ?? [0,0,0,0]
-          let targetWidth = (this.attrs.width - padding[1] - padding[3]) * this.maxScale * this.scaleRatio, targetHeight = (this.attrs.height - padding[0] - padding[2])  * this.maxScale * this.scaleRatio
+          let aWidth = this.attrs.width - padding[1] - padding[3]
+          let aHeight = (this.attrs.height - padding[0] - padding[2]) 
+          let targetWidth = aWidth * this.maxScale * this.scaleRatio, targetHeight = aHeight * this.maxScale * this.scaleRatio
           
           const targetRatio = targetWidth / targetHeight
 
-          if(img.width > img.height){
-            if(img.width < targetWidth){
-              targetWidth = img.width
-              targetHeight = targetWidth / targetRatio
+          let sy = 0, sx =0
+          let sWidth = img.width
+          let sHeight = img.height
+          let newWidth, newHeight
+
+          if( this.attrs.fit === "cover"){
+            if(img.width >= img.height){
+                sHeight = img.width / targetRatio
+                sy = (img.height - sHeight) / 2
+            }else{
+                sWidth = img.height * targetRatio
+                sx = (img.width - sWidth) / 2
             }
+            newWidth = targetWidth
+            newHeight = targetHeight
           }else{
-            if(img.height < targetHeight){
-              targetHeight = img.height
-              targetWidth = targetHeight * targetRatio
+            if(img.width > img.height){
+              if(img.width < targetWidth){
+                targetWidth = img.width
+                targetHeight = targetWidth / targetRatio
+              }
+            }else{
+              if(img.height < targetHeight){
+                targetHeight = img.height
+                targetWidth = targetHeight * targetRatio
+              }
             }
+            const imgScale = Math.min( targetWidth / img.width, targetHeight / img.height)
+            newWidth = img.width * imgScale
+            newHeight = img.height * imgScale
           }
 
-          const imgScale = Math.min( targetWidth / img.width, targetHeight / img.height)
-          let newWidth = img.width * imgScale
-          let newHeight = img.height * imgScale
+
 
           const xOffset = (targetWidth - newWidth) / 2;
           const yOffset = (targetHeight - newHeight) / 2;
 
+          this.activeScale = Math.min(targetWidth / aWidth, targetHeight / aHeight )
       
 
           this.maxImage = document.createElement('canvas');
-          this.maxImage.width = targetWidth
-          this.maxImage.height = targetHeight
+          this.maxImage.width = this.attrs.width * this.activeScale
+          this.maxImage.height = this.attrs.height * this.activeScale
+
+
 
           let ctx = this.maxImage.getContext("2d")
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0,0,targetWidth, targetHeight);
-          ctx.drawImage(img, xOffset, yOffset, newWidth, newHeight);
-          this.refreshCache()
+
+          if( xOffset !== 0 || yOffset !== 0 || newWidth !== targetWidth || newHeight !== targetHeight ){
+            this.needsFill = true
+          }
+          //if( this.needsFill ){
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0,0,this.maxImage.width, this.maxImage.height)
+          //}
+
+          ctx.drawImage(img, sx,sy, sWidth,sHeight, xOffset + (this.activeScale * padding[3]), yOffset + (this.activeScale * padding[0]), newWidth, newHeight);
+          if(this.attrs.refreshCallback ){
+            this.attrs.refreshCallback()
+          }
         
         resolve(); // Indicate that the image has been successfully loaded and drawn
 
@@ -110,18 +155,27 @@ class CustomImage extends Shape {
     this.pcache = new SceneCanvas({
       width: this.getWidth() * this.scaleRatio ,
       height: this.getHeight() * this.scaleRatio,
+      pixelRatio: 1
     })
     this.pcache._canvas_context = this.pcache._canvas.getContext("2d")    
 
     
-    if( !this.maxImage ){
+    if( !this.maxImage && !this.cloneFrom){
       CustomImage.ensurePlaceholderReady().then(() => {
           if( !this.maxImage ){
-          this.pcache._canvas_context.drawImage(CustomImage.placeholderImage, 0, 0, this.pcache.width, this.pcache.height);
+            const w = Math.max(Math.min(this.pcache.width, 200),CustomImage.placeholderImage.width)
+            const h = CustomImage.placeholderImage.height / CustomImage.placeholderImage.width * w
+            let x = (this.pcache.width - w)/2
+            let y = (this.pcache.height - h)/2
+          this.pcache._canvas_context.drawImage(CustomImage.placeholderImage, x, y, w, h);
         }
       });
     }
     
+  }
+  clone(){
+    const newItem = super.clone({url:undefined, cloneFrom: this.pcache})
+    return newItem
   }
 
 
@@ -157,14 +211,28 @@ class CustomImage extends Shape {
         //     console.time("drwa")
         const width = this.getWidth();
         const height = this.getHeight();
-        this.pcache.width = this.pcache._canvas.width = width * this.newScale * this.scaleRatio;
-        this.pcache._canvas.style.width = width + 'px';
-        
-        this.pcache.height = this.pcache._canvas.height = height * this.newScale * this.scaleRatio;
-        this.pcache._canvas.style.height = height + 'px';
-        
-        this.lastScale = this.newScale
-        this.newScale = undefined
+
+
+        let sWidth = width * this.newScale * this.scaleRatio
+        let sHeight = height * this.newScale * this.scaleRatio
+        if( sHeight > 30000 || sWidth > 30000 || (sWidth * sHeight) > 16000000){
+          this.lastScale = this.newScale
+          this.newScale = undefined
+          return
+        }else{
+
+          this.pcache._canvas.width = sWidth
+          this.pcache._canvas.height = sHeight
+
+          this.pcache.width = sWidth
+          this.pcache._canvas.style.width = width + 'px';
+          
+          this.pcache.height = sHeight
+          this.pcache._canvas.style.height = height + 'px';
+          
+          this.lastScale = this.newScale
+          this.newScale = undefined
+        }
       }
       this.pcache._canvas_context.drawImage(this.maxImage, 0, 0, this.pcache.width, this.pcache.height);
     }
@@ -172,11 +240,13 @@ class CustomImage extends Shape {
 
   destroy(){
     if( this.pcache ){
-      Util.releaseCanvas( this.pcache )
-      if( this.maxImage ){
-        this.maxImage.width = 0
-        this.maxImage.height = 0
+      if(!this.isClone){
+        Util.releaseCanvas( this.pcache )
       }
+      if( this.maxImage ){
+          this.maxImage.width = 0
+          this.maxImage.height = 0
+        }
     }
     return Shape.prototype.destroy.call(this);
   }
@@ -208,10 +278,11 @@ class CustomImage extends Shape {
         }
       }
     }
-    let padding = this.attrs.padding ?? [0,0,0,0]
-    context._context.fillStyle = "white"
-    context.fillRect(0,0,width,height)
-    context.drawImage(this.pcache._canvas, padding[1], padding[0], width - (padding[1] + padding[3]), height - (padding[0] + padding[2]))
+    /*if( this.needsFill ){
+      context._context.fillStyle = "white"
+      context.fillRect(0,0,width,height)
+    }*/
+    context.drawImage(this.pcache._canvas, 0, 0 , width, height)
 
   }
 

@@ -319,7 +319,7 @@ export async function buildCategories(list, options = {} ){
                     ? {"role": "user", "content": `Provide the result as a json object with an array called "summaries" with each  summary as a string. Do not put anything other than the raw json object in the response .`}
                     : {"role": "user", "content": `Provide the result as a json object with an array called "categories" with each entry being a string containing the category. Do not put anything other than the raw json object in the response .`},
             ],
-            {field: options.themes ? "summaries" : "categories", engine: options.engine})
+            {field: options.themes ? "summaries" : "categories", engine: options.engine, ...options})
     if( Object.hasOwn(interim, "success")){
         console.log(interim)
         return interim
@@ -988,16 +988,9 @@ export async function generateImage(prompt, options = {}, tries = 3){
     const openai = new OpenAIApi(configuration)
 
     const sizes = {
-            "linkedin_profile_image": "400x400",
-            "linkedin_cover_image": "1584x396",
-            "linkedin_post_image": "1200x627",
-            "google_ads_display_image": "1200x628",
-            "google_ads_banner_image": "728x90",
-            "website_hero_image": "1200x627",
-            "website_carousel_image": "512x512"
     }
 
-    const size = sizes[options.size] ?? "1024x1024"
+    let size = {"wide": "1792x1024", "square":"1024x1024", "tall":"1024x1792"}[options.size] 
     
     try{
         let fullprompt = "I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS:" + prompt

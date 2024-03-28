@@ -164,9 +164,17 @@ export default function CollectionViewer({primitive, category, ...props}){
         }else{        
             if( descend ){
                 if( category.resultCategoryId ){
-                    list = primitive.primitives.strictDescendants.filter((d)=>d.referenceId === category.resultCategoryId)
+                    list = [
+                        primitive.primitives.strictDescendants.filter((d)=>d.referenceId === category.resultCategoryId),
+                        primitive.primitives.results ? primitive.primitives.results[category.id].map((d)=>d).filter((d)=>d.referenceId === category.resultCategoryId) : [],
+                        primitive.primitives.link.filter((d)=>d.referenceId === category.resultCategoryId)
+                    ].flat()
                 }else if( category.type ){
-                    list = primitive.primitives.strictDescendants.filter((d)=>d.type === category.type)
+                    list = [
+                        primitive.primitives.strictDescendants.filter((d)=>d.type === category.type),
+                        primitive.primitives.results ? primitive.primitives.results[category.id].map((d)=>d).filter((d)=>d.type === category.type) : [],
+                        primitive.primitives.link.filter((d)=>d.type === category.type)
+                    ]
                 }
                 if( list ){
                     list = MainStore().uniquePrimitives( list )

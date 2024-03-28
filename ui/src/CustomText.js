@@ -86,8 +86,14 @@ class CustomText extends Text {
       this.pcache.style.left = '0';
 
 
+      this.attrs.bgFill = this.attrs.bgFill || "white"
+
+
     this.uWidth = this.pcache.width
     this.uHeight = this.pcache.height
+
+    this.pcache._canvas_context.fillStyle = this.attrs.bgFill 
+    this.pcache._canvas_context.fillRect(0,0,  this.uWidth, this.uHeight)
 
     this.fontCache = this._getContextFont()
     this.pcache._canvas_context.font = this.fontCache
@@ -115,21 +121,21 @@ class CustomText extends Text {
     
     this.pcache._canvas_context.fillStyle = this.attrs.fill
 
+    let alignCenter = this.attrs.align === "center"
     let py = []
     for (n = 0; n < textArrLen; n++) {
       var lineTranslateX = padding;
       var lineTranslateY = padding;
       var obj = textArr[n],
         text = obj.text
+        let offset = alignCenter ? (this.attrs.width - obj.width)/2 : 0
 
-        context.fillText(text, lineTranslateX, translateY + lineTranslateY)
-        py.push([text, lineTranslateX, translateY + lineTranslateY])
+        context.fillText(text, lineTranslateX + offset, translateY + lineTranslateY)
 
         if (textArrLen > 1) {
           translateY += lineHeightPx;
         }
       }
-      this.textHasBeenRenderedToCache = { text, lineTranslateX, translateY, fontSize, lineHeightPx, textArrLen, py}
   }
 
   refreshCache(){
@@ -153,9 +159,12 @@ class CustomText extends Text {
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
                 ctx.scale( this.newScale ?? 1, this.newScale ?? 1)
 
-                if( !doResize ){
-                    ctx.fillStyle = "white"
-                    ctx.fillRect(0,0, rw + 1, rh + 1)
+                if( !doResize && !this.attrs.bgFill){
+                    ctx.clearRect(0,0, rw + 5, rh + 5)
+                }
+                if( this.attrs.bgFill){
+                  ctx.fillStyle = this.attrs.bgFill 
+                  ctx.fillRect(0,0,  rw + 5, rh + 5)
                 }
 
                 this.uWidth = w 
@@ -224,16 +233,18 @@ class CustomText extends Text {
     if( !this.pcache || fh * scale < 6){
         let showLines = fh * scale > 2.5
         let ctx = context
-        ctx.fillStyle = showLines ? "white" : "#eaeaea"
-        ctx.fillRect(0,0,  w + 1, h + 1)
-
         if( showLines){
             ctx.fillStyle = "#eaeaea"
             let y = 0, step = this.lineHeight() * fh 
+            let alignCenter = this.attrs.align === "center"
             for(const d of this.textArr){
-                ctx.fillRect(0, y, d.width , fh )
+                let offset = alignCenter ? (this.attrs.width - d.width)/2 : 0
+                ctx.fillRect(offset, y, d.width - 1 , fh - 1)
                 y += step
             }
+        }else{
+          ctx.fillStyle = "#eaeaea"
+          ctx.fillRect(0,0,  w - 1, h - 1)
         }
     }else{
         if( this.pcache.width > 0 && this.pcache.height > 0){

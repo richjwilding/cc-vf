@@ -615,6 +615,8 @@ export async function importGoogleDoc(id, fileId, req, pdf = true){
                 }
                 throw new Error("NOT AUTHROIZED")
             }
+            console.log("Error in importGoogleDoc", id, fileId)
+            console.log(err)
         }
         return undefined
     }
@@ -820,7 +822,7 @@ export async function getGoogleAdKeywordIdeas(keywords, req){
     }); // Handling errors
 }
 
-export async function decodeBase64ImageToStorage(data, id, bucketName){
+export async function decodeBase64ImageToStorage(data, id, bucketName, type = "image/jpeg"){
     
     try{
 
@@ -832,7 +834,7 @@ export async function decodeBase64ImageToStorage(data, id, bucketName){
             projectId: process.env.GOOGLE_PROJECT_ID,
         });
 
-        const dataPrefix = 'data:image/jpeg;base64,';
+        const dataPrefix = `data:${type};base64,`;
         const base64Data = data.replace(dataPrefix, '');
 
         const buffer = Buffer.from(base64Data, 'base64');
@@ -844,7 +846,7 @@ export async function decodeBase64ImageToStorage(data, id, bucketName){
         }
         
         await file.save(buffer, {
-            metadata: { contentType: 'image/jpeg' },
+            metadata: { contentType: type },
         });
         console.log('Upload successful');
     }catch(error){
@@ -1945,6 +1947,34 @@ export async function fetchURLAsTextAlternative( url, options = {} ){
 
 }
 
+export async function fetchURLScreenshot( url ){
+    try {
+
+        const params = 
+            {
+                'url': url,
+                'apikey': process.env.ZENROWS_KEY,
+                "js_render": "true",
+                "json_response": true,
+                "return_screenshot": "true"
+            }
+
+        const cUrl = `https://api.zenrows.com/v1/?${new URLSearchParams(params).toString() }`
+        const response = await fetch(cUrl,{
+            method: 'GET'
+        })
+        if(response.status !== 200){
+            console.log(response)
+            return undefined
+        }
+        const data = await response.json()
+        return data?.screenshot
+        
+    }catch(error){
+        console.log(`Error in fetchUrlScreenshot`)
+        console.log(error)
+    }    
+}
 export async function fetchURLPlainText( url, asArticle = false ){
     try{
 

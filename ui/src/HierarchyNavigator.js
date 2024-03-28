@@ -24,8 +24,13 @@ export default function HierarchyNavigator(props) {
 
     let colors = props.major ? "bg-blue-600 border-blue-50  text-white hover:bg-ccgreen-700 focus:ring-blue-500 focus:ring-offset-gray-100" : "bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-ccgreen-500 focus:ring-ccgreen-500"
 
-    let node = props.items ?? []
-    if( path ){
+    function getNodes(){
+        return typeof(props.items) === "function" ? props.items() : props.items ?? []
+    }
+
+    let selectedItemId = () => typeof(props.selectedItemId) === "function" ? props.selectedItemId() : props.selectedItemId
+    let node = getNodes()
+    if(customOpen && path ){
         let idx = 0
         while(idx < path.length){
             node = node.nested[path[idx]]
@@ -35,19 +40,22 @@ export default function HierarchyNavigator(props) {
     const setMenu = (state)=>{
         if( state ){
             let path = undefined
-            if( props.selectedItemId && props.items){
+            let nodes = getNodes()
+            if( props.selectedItemId && nodes){
                 const unpack = (node)=>{
                     return [node.items, Object.values(node.nested ?? {}).map(d=>unpack(d))].flat(Infinity).filter(d=>d)
                 }
-                const allItems = unpack(props.items)
-                console.log(allItems)
+                const allItems = unpack(nodes)
                 
-                path = allItems.find(d=>d.id === props.selectedItemId)?.relationship
+                const id = selectedItemId()
+                path = allItems.find(d=>d.id === id)?.relationship
             }
             setPath( path )
         }
         setCustomOpen( state )
     }
+
+    const align = (typeof(props.align) === "function" ? props.align() : props.align) 
 
   return (
     <Menu as="div" className="relative inline-block text-left ml-auto">
@@ -76,7 +84,7 @@ export default function HierarchyNavigator(props) {
         leaveFrom="transform opacity-100 scale-100"
         leaveTo="transform opacity-0 scale-95"
       >
-        <Menu.Items static className="absolute right-0 z-10 mt-2 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+        <Menu.Items static className={`absolute ${align === "right" ? "left-8" : "right-0"} z-10 mt-2 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none`}>
         {path && path.length > 0 && <div >
                                         <Menu.Item>
                                         {({ active }) => (
@@ -88,16 +96,18 @@ export default function HierarchyNavigator(props) {
                                             }}
                                             className={classNames(
                                                 active ? 'bg-ccgreen-700 text-white' : 'bg-ccgreen-50  text-gray-700',
-                                                'rounded-t-md justify-end group flex items-center px-4 pt-2 pb-1.5 text-sm font-semibold'
+                                                'rounded-t-md group flex items-center px-4 pt-2 pb-1.5 text-sm font-semibold',
+                                                align === "right" ? "justify-start" : "justify-end"
                                             )}
                                             >
+                                            {align === "right" && <ChevronLeftIcon className="mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />}
                                              {node.category.title}
-                                            <ChevronRightIcon className="mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />
+                                             {align !== "right" && <ChevronRightIcon className="mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />}
                                             </a>
                                         )}
                                         </Menu.Item>
         </div>}
-        {node.items && <div className="py-1">
+        {node?.items && <div className="py-1">
             {node.items.map(d=>(<Menu.Item>
                                         {({ active }) => (
                                             <a
@@ -109,11 +119,12 @@ export default function HierarchyNavigator(props) {
                                             onClick={(e)=>{
                                                 if( props.action ){
                                                     props.action(d) 
+                                                    setCustomOpen(false)
                                                 }
                                             }}
                                             >
                                              {d.title}
-                                             {props.selectedItemId === d.id && <span
+                                             {selectedItemId() === d.id && <span
                                                                         className={classNames(
                                                                             'inset-y-0 items-center ml-auto text-ccgreen-700',
                                                                             active ? 'bg-ccgreen-700 text-white' : 'text-ccgreen-700',
@@ -125,7 +136,7 @@ export default function HierarchyNavigator(props) {
                                         )}
                                         </Menu.Item>))}
           </div>}
-          {node.nested && <div className="py-1">
+          {node?.nested && <div className="py-1">
             {Object.values(node.nested).map(d=>(<Menu.Item>
               {({ active }) => (
                 <a
@@ -136,11 +147,13 @@ export default function HierarchyNavigator(props) {
                 }}
                   className={classNames(
                     active ? 'bg-ccgreen-700 text-white' : 'text-gray-900',
-                    'group flex items-center pl-2 pr-2 py-2 text-sm'
+                    'group flex items-center pr-2 py-2 text-sm',
+                    align === "right" ? "pl-4" : "pl-2"
                   )}
                 >
-                  <ChevronLeftIcon className="mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />
+                  {align !== "right" && <ChevronLeftIcon className="mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />}
                   {d.category.title}
+                  {align === "right" && <ChevronRightIcon className="ml-auto mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />}
                 </a>
               )}
             </Menu.Item>))}

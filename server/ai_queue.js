@@ -12,6 +12,7 @@ import PrimitiveParser from "./PrimitivesParser";
 import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 import agglo from "agglo";
 import { distance } from "agglo/lib/metrics";
+import debug from "debug";
 
 
 let instance
@@ -926,8 +927,10 @@ export default function QueueAI(){
             }
             if( job.data.mode === "mark_categories" || job.data.mode === "categorize" ){
                 try{
-                    
                     const source = await Primitive.findOne({_id: job.data.targetId})
+                    if( !source ){
+                        reyurn
+                    }
                     let [list, data] = await getDataForProcessing(primitive, job.data.action, source)
                     console.log(`got ${list.length} / ${data.length} from ${source.id} - ${source.title}`)
                     if( job.data.action.scope ){
@@ -938,6 +941,18 @@ export default function QueueAI(){
                         }
                         console.log(`Filtered to ${list.length} for scope`)
                     }
+                    const targetCatIds = list.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
+                    if( targetCatIds.length > 0){
+                        console.log(`Multiple referenceIds - using first ${targetCatIds[0]}`)
+                    }
+                    const targetCatgeory = await Category.findOne({id: targetCatIds[0]})
+                    let targetConfig
+                    if( targetCatgeory ){
+                        const parts = primitive.referenceParameters?.field.split(".")
+                        const lastField = parts.pop()
+                        targetConfig = targetCatgeory.ai?.categorize?.[lastField]
+                    }
+
 
                     
                     if( list !== undefined && data.length > 0){
@@ -962,11 +977,19 @@ export default function QueueAI(){
                                         }
                                     }
                                 }else{                            
+                                    
+                                    
+                                    let types = targetConfig?.build?.type ?? primitive.referenceParameters?.dataTypes ?? action.dataTypes
+                                    let theme = primitive.referenceParameters?.theme ?? targetConfig?.build?.theme ?? action.theme
+                                    
                                     catData = await buildCategories( data, {
                                         count: primitive.referenceParameters?.count || action.count || 8,
-                                        types: primitive.referenceParameters?.dataTypes || action.dataTypes, 
-                                        themes: primitive.referenceParameters?.theme || action.theme, 
-                                        engine:  primitive.referenceParameters?.engine || action.engine} )
+                                        types: types, 
+                                        themes: theme, 
+                                        engine:  primitive.referenceParameters?.engine || action.engine,
+                                        debug: true,
+                                        debug_content: true}
+                                        )
                                 }
                                 if( catData.success && catData.categories){
                                     console.log(catData.categories)
@@ -1321,13 +1344,17 @@ export default function QueueAI(){
                                         catId++
                                     }
                                 }else{
+                                    let types = targetConfig?.mark?.type
+                                    let focus = primitive.referenceParameters?.focus ?? targetConfig?.mark?.theme ??primitive.referenceParameters?.cat_theme
+
                                     categoryAlloc = await categorize(data, categoryList, {
                                         matchPrompt:primitive.referenceParameters?.matchPrompt, 
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
                                         engine:  primitive.referenceParameters?.engine || action.engine,
                                         rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
                                         batch: primitive.referenceParameters?.batch ?? action.batch ?? 80,
-                                        focus: primitive.referenceParameters?.focus ?? primitive.referenceParameters?.cat_theme,
+                                        types: types,
+                                        focus: focus,
                                         temperature: 0.85,
                                         debug: true,
                                         debug_content: true

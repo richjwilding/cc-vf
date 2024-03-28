@@ -83,6 +83,9 @@
     "socket.io-redis": "^6.1.1",
     "yahoo-finance2": "^2.9.0"
   },
+  "overrides": {
+    "stream-shift": "1.0.2"
+  },
   "babel": {
     "presets": [
       "@babel/preset-env"

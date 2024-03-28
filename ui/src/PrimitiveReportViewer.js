@@ -12,6 +12,7 @@ import Panel from "./Panel";
 import PrimitiveReport from "./PrimitiveReport";
 import { exportKonvaToPptx } from "./PptHelper";
 import pptxgen from "pptxgenjs";
+import CollectionUtils from "./CollectionHelper";
 
 
 
@@ -36,8 +37,13 @@ export default function PrimtiveReportViewer({primitive, ...props}){
     if( primitive.plainId === 273341){
         list = mainstore.primitive("65cc980a98d8dcc176818703").primitives.allCategory
     }else {
-        const source = primitive.primitives.params.source?.length > 0 ? primitive.primitives.params.source.allItems[0] : primitive.task
-        list = source ? source.primitives.descendants.filter(d=>d.referenceId === targetResultCategoryId) : []
+        if( primitive.primitives.params.source?.length> 0 ){
+            const source = primitive.primitives.params.source.allItems[0] 
+            list = source.itemsForProcessing
+        }else{
+            const source = primitive.primitives.params.source?.length > 0 ? primitive.primitives.params.source.allItems[0] : primitive.task
+            list = source ? source.primitives.descendants.filter(d=>d.referenceId === targetResultCategoryId) : []
+        }
     }
 
     function setSelectedElement(e){

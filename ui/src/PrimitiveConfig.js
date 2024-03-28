@@ -1,4 +1,9 @@
+
 const PrimitiveConfig = {
+    "Constants":{
+    LIVE_FILTER: 103,
+    CONCEPT: 92
+    },
     "metadata":{
         "hypothesis": {
             icon: "LightBulbIcon",

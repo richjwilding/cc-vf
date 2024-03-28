@@ -20,39 +20,13 @@ import ListGraph from './ListGraph';
 import InfiniteCanvas from './InfiniteCanvas';
 import HierarchyNavigator from './HierarchyNavigator';
 import CollectionUtils from './CollectionHelper';
+import PrimitiveConfig from './PrimitiveConfig';
 
 
 const mainstore = MainStore()
 
 
-const encodeFilter = (option, val, invert)=>{
-    if( val instanceof Object && !Array.isArray(val)){
-        if( val.bucket_min !== undefined || val.bucket_max !== undefined ){
-        }else{
-            val = val.idx
-        }
-    }
-
-    if( option?.type === "category"){
-        if( val === "_N_" || (val.length === 1 && val[0] === "_N_") ){
-            return {type: "not_category_level1", value: option.primitiveId, pivot: option.access, invert, sourcePrimId: option.primitiveId}
-        }
-        return {type: "parent", value: val, pivot: option.access, relationship: option.relationship, invert, sourcePrimId: option.primitiveId}
-    }else if( option?.type === "question" ){
-        return {type: option.type, subtype: option.subtype, map: [val].flat(), pivot: option.access, relationship: option.relationship,  invert}
-    }else if( option?.type === "type"){
-        return {type: option.type, subtype: option.subtype, map: [val].flat().map(d=>parseInt(d)), pivot: option.access, relationship: option.relationship, invert}
-    }else if( option?.type === "title"){
-        return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
-    }else if( option.type === "parameter"){
-        if( val?.bucket_min  !== undefined ){
-            return  {type: "parameter", param: option.parameter, min_value: val.bucket_min, max_value: val.bucket_max, pivot: option.access, relationship: option.relationship, invert}
-        }else{
-            return  {type: "parameter", param: option.parameter, value: val, pivot: option.access, relationship: option.relationship, invert}
-        }
-    } 
-    return undefined
-}
+const encodeFilter = CollectionUtils.encodeExploreFilter
 
     const getExploreFilters = (primitive, axisOptions)=>{
         const filters = primitive.referenceParameters?.explore?.filters
@@ -112,6 +86,8 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
     const [experiment, setExperiment] = React.useState( [178135,278794, 161258, 257045, 164523].includes(primitive.plainId) )
 
     let cancelRender = false
+
+
 
     const restoreState = ()=>{
         const [translateX = 0, translateY = 0] = gridRef.current.style.transform.match(/translate\((.*?)\)/)?.[1]?.split(',') || [];
@@ -181,9 +157,9 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
                 if( props.types ){
                     const types = [props.types].flat()
-                    list = primitive.itemsForProcessing.filter((d)=>types.includes(d.type) )
+                    list = primitive.itemsForProcessingWithOptions(undefined, {ignoreFinalViewFilter:true}).filter((d)=>types.includes(d.type) )
                 }else{
-                    list = primitive.itemsForProcessing
+                    list = primitive.itemsForProcessingWithOptions(undefined, {ignoreFinalViewFilter:true})
                 }
             }
         }
@@ -270,7 +246,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
     
 
-    const [axisOptions, viewFilters] = useMemo(()=>{
+    const [axisOptions, viewFilters, liveFilters] = useMemo(()=>{
         const labelled = CollectionUtils.axisFromCollection( items, primitive ).map(d=>{
             const out = {...d}
             if( d.relationship ){
@@ -301,8 +277,11 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         const filters = getExploreFilters( primitive, labelled )
         console.log(filters)
 
+        const liveFilters = CollectionUtils.findLiveFilters( labelled)
+        console.log(liveFilters)
 
-        return [labelled, filters]
+
+        return [labelled, filters, liveFilters]
     }, [primitive.id,  update, layerSelection, importantOnly])
 
 
@@ -311,7 +290,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
     let [fullList, baseFilters, extentMap] = React.useMemo(()=>{
 
         
-        let {data: interim, extents} = CollectionUtils.mapCollectionByAxis( items, axisOptions[colSelection], axisOptions[rowSelection], viewFilters.map(d=>axisOptions[d.option]), viewPivot )
+        let {data: interim, extents} = CollectionUtils.mapCollectionByAxis( items, axisOptions[colSelection], axisOptions[rowSelection], viewFilters.map(d=>axisOptions[d.option]), liveFilters, viewPivot )
         let baseFilters = []
 
         if( viewFilters && viewFilters.length > 0){
@@ -329,8 +308,6 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                 }
             }
         }
-
-
 
         return [interim, baseFilters, extents]
     },[colSelection, rowSelection, update, updateRel, primitive.id, layerSelection, viewPivot])
@@ -1093,45 +1070,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
     const updateAxis = async ( axis, idx )=>{
         const item = axisOptions[idx]
-        const fullState = {
-            type: item.type,
-            access: item.access,
-            relationship: item.relationship
-        }
-        if( item.type === "none"){
-            primitive.setField(`referenceParameters.explore.axis.${axis}`, null)
-        }else if( item.type === "category"){
-            if( primitive.referenceParameters ){
-                primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
-                let toRemove = primitive.primitives.axis[axis].allItems.filter(d=>d.id)
-                let already = false
-
-                if( toRemove.find(d=>d.id === item.category.id)){
-                    already = true
-                    toRemove = toRemove.filter(d=>d.id !== item.category.id)
-                }
-                
-                console.log(`removeing old ${toRemove.length}`)
-                for(const old of toRemove){
-                    console.log(`-- ${old.plainId} / ${old.id}`)
-                    await primitive.removeRelationship( old, `axis.${axis}`)
-                }
-                if( !already ){
-                    console.log(`++ ${item.category.plainId} / ${item.category.id}`)
-                    await primitive.addRelationship( item.category, `axis.${axis}`)
-                }
-            }
-        }else if( item.type === "question"){
-            if( primitive.referenceParameters ){
-                fullState.subtype = item.subtype
-            }
-        }else if( item.type === "parameter"){
-            if( primitive.referenceParameters ){
-                fullState.parameter = item.parameter
-            }
-        }
-        primitive.setField(`referenceParameters.explore.axis.${axis}`, fullState)
-       // primitive.setField(`referenceParameters.explore.filter.${axis}`, [])
+        await CollectionUtils.setPrimitiveAxis(primitive, item, axis)
         if( axis === "column"){
             storeCurrentOffset()
             setColSelection( idx )
@@ -1152,13 +1091,13 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
     const columnOverride = props.compare ? 3 : undefined
 
 
-    const updateAxisFilter = (item, mode, setAll)=>{
+    const updateAxisFilter = (item, mode, setAll, axisExtents)=>{
         let axis, filter, setter
         console.log(item, mode, setAll)
 
         const axisSetter = (filter, path)=>{
             if( primitive.referenceParameters ){
-                const keys = Object.keys(filter).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : d).filter(d=>filter[d])
+                const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : d).filter(d=>filter[d])
                 console.log(keys)
                 primitive.setField(path, keys)
             }
@@ -1180,19 +1119,17 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                 setColFilter(filter)
                 axisSetter(filter, `referenceParameters.explore.axis.${mode}.filter`)
             }
-        }else if(mode instanceof Object){
-            axis = axisOptions[viewFilters[mode.id].option]
+        }else{
+            axis = axisOptions[viewFilters[mode].option]
             if( axis ){
-                filter = primitive.referenceParameters?.explore?.filters?.[ mode.id ]?.filter?.reduce((a,c)=>{a[c === null ? undefined : c]=true;return a},{}) || {}
+                filter = primitive.referenceParameters?.explore?.filters?.[ mode]?.filter?.reduce((a,c)=>{a[c === null ? undefined : c]=true;return a},{}) || {}
                 setter = ( filter )=>{
-                    console.log(`WILL UPDATE ${mode.id}`, filter) 
-                    axisSetter(filter, `referenceParameters.explore.filters.${mode.id}.filter`)
+                    console.log(`WILL UPDATE ${mode}`, filter) 
+                    axisSetter(filter, `referenceParameters.explore.filters.${mode}.filter`)
                     forceUpdate()
                 }
             }
 
-        }else{
-            throw "HUH"
         }
 
 
@@ -1200,7 +1137,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         filter = filter || {}
         if(setAll){
             if( item ){
-                filter = axis.order?.reduce((a,c)=>{a[c] = true;return a},{})
+                filter = axisExtents?.reduce((a,c)=>{a[c.idx] = true;return a},{})
             }else{
                 filter = {}
             }
@@ -1387,10 +1324,11 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                     </div>
                 {experiment && <InfiniteCanvas 
                             ref={canvas}
-                            update={update + updateRel + updateExtent}
+                            update={update + "." + updateRel + "." + updateExtent}
                             updateOld={update}
                             updateRel={updateRel}
                             updateExtent={updateExtent}
+                            ignoreAfterDrag
                             highlights={{
                                 "primitive":"border",
                                 "cell":"background"
@@ -1423,6 +1361,26 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                 }
                             }}
                             callbacks={{
+                                onToggle:async (primitiveId, toggle)=>{
+                                    console.log(`Will toggle ${toggle} on ${primitiveId}`)
+                                    if( toggle && primitiveId){
+                                        const axisValue = extentMap[toggle].filter(d=>d.idx !== "_N_")?.[0]
+                                        const target = mainstore.primitive(primitiveId)
+                                        const category = mainstore.primitive(axisValue.idx)
+                                        let status
+                                        if( target && category ){
+                                            const currentState = target.parentPrimitiveIds.includes(category.id)
+                                            if( currentState ){
+                                                await category.removeRelationship(target,"ref")
+                                                status = false
+                                            }else{
+                                                await category.addRelationship(target,"ref")
+                                                status = true
+                                            }
+                                        }
+                                        return status
+                                    }
+                                },
                                 onClick:{
                                     primitive:(id)=>{
                                         mainstore.sidebarSelect(id)
@@ -1451,7 +1409,12 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                                                 list, {
                                                                     columnExtents: columnExtents, 
                                                                     rowExtents: rowExtents, 
-                                                                    ...stageOptions
+                                                                    ...stageOptions,
+                                                                    toggles: Object.keys(extentMap).reduce((a,c)=>{
+                                                                        if(c.match(/liveFilter/)){
+                                                                            a[c] = extentMap[c]
+                                                                        }
+                                                                        return a}, {})
                                                                 })}]}
                 />}
                 {!experiment &&<div 
@@ -1628,7 +1591,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         const sets = [
             {selection: "column", mode: "column", title: "Columns", setter: setColFilter, list: colFilter},
             {selection: "row", mode: "row", title: "Rows", setter: setRowFilter, list: rowFilter},
-            ...viewFilters.map((d,idx)=>({selection:  `filterGroup${idx}`, title: `Filter by ${axisOptions[d.option]?.title}`, deleteIdx: idx, mode: {mode: "view", id: d.id}, list: d.filter}))
+            ...viewFilters.map((d,idx)=>({selection:  `filterGroup${idx}`, title: `Filter by ${axisOptions[d.option]?.title}`, deleteIdx: idx, mode: idx, list: d.filter}))
         ]
         sets.forEach(set=>{
             const axis = extentMap[set.selection]
@@ -1646,14 +1609,14 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                             <button
                                 type="button"
                                 className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                                onClick={()=>updateAxisFilter(false, set.mode, true)}
+                                onClick={()=>updateAxisFilter(false, set.mode, true, axis)}
                             >
                                 Select all
                             </button>
                             <button
                                 type="button"
                                 className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                                onClick={()=>updateAxisFilter(true, set.mode, true)}
+                                onClick={()=>updateAxisFilter(true, set.mode, true, axis)}
                             >
                                 Clear all
                             </button>

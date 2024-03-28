@@ -1,71 +1,62 @@
     import React, { useEffect } from 'react';
   export default function EditableTextField ({item, ...props}){
-    const [editing, setEditing] = React.useState(props.editing)
+    const [editing, setEditing] = React.useState(false)
     const editBox = React.useRef()
-    const editAny = React.useRef()
     const editOld = React.useRef()
-    const parentRow = React.useRef()
     const [errors, setErrors] = React.useState(false)
-
-    React.useEffect(()=>{
-        const localEditing = props.editing === undefined ? editing : props.editing 
-        if( editBox.current && localEditing){
-            editBox.current.focus()
-
-            const range = document.createRange();
-            range.selectNodeContents(editBox.current );
-            const sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-
-            editAny.current = false
-            editOld.current = editBox.current.textContent.trim()
-        }
-        if( editing !== localEditing){
-            setEditing(localEditing)
-        }
-    }, [props.editing, editing])
-
-    const stopEdit = props.stopEditing 
-      ? ()=>{
-            const sel = window.getSelection();
-            sel.removeAllRanges();
-        props.stopEditing(editBox.current)
-      }
-      : (()=>setEditing(false))
-    const cancelEdit = ()=>{
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        editBox.current.textContent = editOld.current
-        stopEdit()
-    }
 
     const keyHandler = (e)=>{
       e.stopPropagation()
-      if(e.key === "Enter"){
-        if( !editAny.current ){
+
+      if( !editing ){          
+        if(e.key === "Enter"){
           e.preventDefault()
+          editBox.current.focus()
+
+          const range = document.createRange();
+          range.selectNodeContents(editBox.current );
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+
+          editOld.current = editBox.current.textContent.trim()
+
+          setEditing(true)
+
+          return
+        }
+        if( e.key === "Tab"){
+          return
+        }
+        e.preventDefault()
+      }else{
+        if(e.key === "Enter"){
+          if( props.submitOnEnter ){
+            e.preventDefault()
+            toggleEditing()
+            return
+          }        
+        }
+        if( e.key === "Escape"){
+          e.stopPropagation();
+          e.preventDefault();
           cancelEdit()
           return
         }
-        if( props.submitOnEnter ){
-          e.preventDefault()
-          toggleEditing()
-          return
-        }        
-      }
-      if( e.key === "Escape"){
-        e.stopPropagation();
-        e.preventDefault();
-        cancelEdit()
-        return
-      }
 
-      editAny.current = true
+      }
 
     }
+
+
+    const cancelEdit = ()=>{
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      editBox.current.textContent = editOld.current
+      setEditing(false)
+    }
+
     const toggleEditing = ()=>{
-      if( editing ){
         let newText = editBox.current.textContent.trim()
         if( editOld.current !== newText ){
           editOld.current = newText
@@ -77,10 +68,7 @@
             }
           }
         }      
-        stopEdit()
-      }else{
-        setEditing(true)
-      }
+        cancelEdit()
     }
 
     const showAsEmpty = props.value === undefined || props.value === null || props.value === ""
@@ -90,25 +78,25 @@
         <>
         <div
           ref={editBox} 
-          contentEditable={editing}
-          onClick={props.doubleClickToEdit ? undefined : props.editable instanceof Function ? props.editable : props.editable === true ? ()=>setEditing(true) :undefined}
-          onDoubleClick={props.doubleClickToEdit ? props.editable instanceof Function ? props.editable : props.editable === true ? ()=>setEditing(true) :undefined : undefined}
-          onKeyDown={editing ? keyHandler : undefined}
-          onBlur={editing ? toggleEditing : undefined}
-          tabIndex={editing ? 1 : -1}
+          contentEditable={props.editable && editing}
+          onKeyDown={props.editable ? keyHandler : undefined}
+          onClick={props.editable && editing ? undefined : ()=>setEditing(true)}
+          onBlur={props.editable ? toggleEditing : undefined}
+          tabIndex={1}
           suppressContentEditableWarning={true}
           className={[
             'place-items-center outline-none',
-            props.border ? "border border-gray-200 rounded-md" : "none",
+            props.border ? "border border-gray-200 rounded-md" : "",
             !props.compact && !editing ? "p-1 min-h-[2em]" : "",
             props.fieldClassName || '',
             props.compact ? "" : "px-1 py-1",
             props.fieldClassName && props.fieldClassName.search("text-") > -1 ? "" :props.secondary ? "text-gray-400" : "text-gray-800",
             showPlaceholder ? "italic" : "",
             showAsEmpty ? "italic text-gray-600" : "",
-            !editing ? props.clamp : "",
-            editing && !errors ? "px-1 bg-gray-50 focus:outline-none focus:ring-1  focus:ring-blue-500" : "",
-            editing && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
+            props.editable && !editing ? props.clamp : "",
+            props.editable && !editing && !errors ? "px-1 focus:bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-200" : "",
+            props.editable && editing && !errors ? "px-1 bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-500" : "",
+            props.editable && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
           ].join(" ")}
           >
           {props.value || ((props.editable && editing) ? undefined : props.default) || props.placeholder  }

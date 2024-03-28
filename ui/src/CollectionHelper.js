@@ -1,4 +1,5 @@
 import MainStore, { uniquePrimitives } from "./MainStore"
+import PrimitiveConfig from "./PrimitiveConfig"
 import { roundCurrency } from "./RenderHelpers"
 
 
@@ -30,7 +31,9 @@ class CollectionUtils{
             if( d.relationship ){
                 node = findPath(node, d.relationship, d)
             }
-            node.category ||= d.category
+            if( d.type !== "category"){
+                node.category ||= d.category
+            }
             node.items ||= []
             node.items.push(d)
         }
@@ -45,11 +48,11 @@ class CollectionUtils{
         function findCategories( list, access = 0, relationship ){
             const catIds = {}
             for(const category of list){
-            if( category.referenceId === 53){
-                catIds[category.id] = category.primitives.params.source?.allUniqueCategory?.[0] ?? undefined
-            }else{
-                catIds[category.id] = category
-            }
+                if( category.referenceId === 53){
+                    catIds[category.id] = category.primitives.params.source?.allUniqueCategory?.[0] ?? undefined
+                }else{
+                    catIds[category.id] = category
+                }
             }
             return Object.values(catIds).map((d)=>{
                 if( !d){
@@ -63,13 +66,14 @@ class CollectionUtils{
                     type: "category",
                     primitiveId: d.id,
                     category: d,
+                    isLive: d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"],
                     /*order: ["_N_",options.map((d)=>d.id)].flat(),
                     values:["_N_",options.map((d)=>d.id)].flat(),
                     labels:["None", options.map((d)=>d.title)].flat(),*/
                     title: `Category: ${d.title}`,
                     allowMove: !relationship && access === 0 && (!viewPivot || (viewPivot.depth === 0 || viewPivot === 0)),
-                    relationship: d.referenceParameters.pivotBy ?? relationship,
-                    access: d.referenceParameters?.pivot ?? access
+                    relationship: relationship, //d.referenceParameters.pivotBy ?? relationship,
+                    access: access//d.referenceParameters?.pivot ?? access
                 }
             }).filter(d=>d)
         }
@@ -154,8 +158,15 @@ class CollectionUtils{
 
 
         if( primitive ){
+            let baseCategories = uniquePrimitives([
+                ...primitive.primitives.allUniqueCategory, 
+                ...primitive.findParentPrimitives({type:"view"}).map(d=>d.primitives.allUniqueCategory).flat(),
+                ...uniquePrimitives(items.map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()).map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()
+            ])
 
-            const baseCategories = primitive.primitives.allUniqueCategory
+            out = out.concat( findCategories( baseCategories ) )
+
+            /*const baseCategories = primitive.primitives.allUniqueCategory
             out = out.concat( findCategories( baseCategories ) )
             if( primitive.referenceParameters?.explore?.importCategories !== false){
                 let nodes = [primitive]
@@ -175,7 +186,7 @@ class CollectionUtils{
                         nodes = thisSet.flat()
                     }
                 }while(updated)
-            }
+            }*/
         } 
 
         if( items ){
@@ -184,14 +195,21 @@ class CollectionUtils{
             const expandOrigin = (nodes, count = 0, relationshipChain = "origin")=>{
                 let out = []
                     let origins = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel(Array.isArray(relationshipChain) ? relationshipChain.slice(-1)[0] : relationshipChain,1)).flat(Infinity).filter((d)=>d)) 
+
+
+
                     let path = [relationshipChain].flat()
                     let last = path.pop()
                     if( origins.length > 0){
                         const referenceIds = origins.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
                         for(const d of referenceIds){
+
                             const theseOrigins = origins.filter(d2=>d2.referenceId === d) 
                             
                             let cont = [...path,`${last}:${d}`]
+
+                            let originCategories = uniquePrimitives(uniquePrimitives(origins.filter(d2=>d2.referenceId === d).map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()).map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat())
+                            out = out.concat( findCategories( originCategories, count + 1, cont ) )
 
                             out = out.concat( txParameters( theseOrigins, count + 1, cont ) )
                             out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, last]))
@@ -218,6 +236,7 @@ class CollectionUtils{
                         
                         out.push( {type: 'question', subtype:"search", map:mapped, title: `Source search`, access: count, relationship: path, values: values, order: values, labels: labels})
                     }
+
 
                     return out
             }
@@ -356,8 +375,9 @@ class CollectionUtils{
         if( axis.type === "none"){
             out = {labels: axis.labels, values: [{idx: undefined, label: ""}], order: axis.order}
         }else if( axis.type === "category"){
+            const subCats = MainStore().primitive(axis.primitiveId).primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, label:d.title})) ?? []
             out = {
-                values: MainStore().primitive(axis.primitiveId).primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, label:d.title})) ?? [],
+                values: [{idx: "_N_", label: "None"}, ...subCats],
             }
         }else{
             const parser = bucket[axis.passType]
@@ -372,12 +392,12 @@ class CollectionUtils{
             values: out.values.map(d=>({...d, idx: d.idx, label: Array.isArray( d.label ) ? d.label.join(", ") : d.label}))
         }
     }
-    static mapCollectionByAxis(list, column, row, others, viewPivot){
+    static mapCollectionByAxis(list, column, row, others, liveFilters, viewPivot){
         const _pickProcess = ( option )=>{
             if( option ){
                 if( option.type === "category"){
                     return (p)=>{
-                        let candidates = option.relationship ? [p] : p.relationshipAtLevel(option.relationship, option.access)
+                        let candidates = option.relationship ? p.relationshipAtLevel(option.relationship, option.access) : [p]
                         let matches = candidates.flatMap(d=>d.parentPrimitives.filter(d=>d.parentPrimitiveIds.includes(option.primitiveId))).filter(d=>d)
                         if( matches.length > 0 ){
                             return uniquePrimitives(matches).map(d=>d.id)
@@ -470,6 +490,10 @@ class CollectionUtils{
                 ...((others ?? []).reduce((a,d,idx)=>{
                     a[`filterGroup${idx}` ] = _pickProcess(d)(p) || undefined
                     return a
+                },{})),
+                ...((liveFilters ?? []).reduce((a,d,idx)=>{
+                    a[`liveFilter${idx}` ] = _pickProcess(d)(p) || undefined
+                    return a
                 },{}))
             }
         })
@@ -479,6 +503,10 @@ class CollectionUtils{
             row: row ? this.axisExtents(interim, row, "row").values : [],
             ...((others  ?? []).reduce((a,d,idx)=>{
                 a[`filterGroup${idx}` ] = this.axisExtents( interim, d, `filterGroup${idx}`).values
+                return a
+            },{})),
+            ...((liveFilters  ?? []).reduce((a,d,idx)=>{
+                a[`liveFilter${idx}` ] = this.axisExtents( interim, d, `liveFilter${idx}`).values
                 return a
             },{}))
         }
@@ -597,36 +625,148 @@ class CollectionUtils{
         if( axisName === "column" || axisName === "row"){
             axis = primitive.referenceParameters?.explore?.axis?.[axisName]
         }else{
-            axis = primitive.referenceParameters?.explore?.filters?.find(d=>d.track === axisName)
+            axis = primitive.referenceParameters?.explore?.filters?.[ axisName]
         }
         if( axis ){
             if( ["question", "parameter", "title", "type"].includes(axis.type)){
-                return {filter: {},...axis, passType: this.passTypeMap[axis.type] ?? "raw"}
+                return {filter: [],...axis, passType: this.passTypeMap[axis.type] ?? "raw"}
             }
-            const connectedPrim = isNaN(axis) ? primitive.primitives.axis[axisName].allIds[0] : primitive.referenceParameters.explore.filters[axisName].sourcePrimId
+            const connectedPrim = isNaN(axisName) ? primitive.primitives.axis[axisName].allIds[0] : primitive.referenceParameters.explore.filters[axisName].sourcePrimId            
             if( connectedPrim ){
-                return {filter: {}, ...axis, primitiveId: connectedPrim}
+                return {filter: [], ...axis, primitiveId: connectedPrim}
             }
         }
-        return {type: "none", filter: {}}
+        return {type: "none", filter: []}
 
     }
+    static async setPrimitiveAxis(primitive, item, axisName){
+        let target
+        if( axisName === "column" || axisName === "row"){
+            target =`referenceParameters.explore.axis.${axisName}`
+        }else{
+            target = `referenceParameters.explore.filters.${axisName}`
+        }
+        const fullState = {
+            type: item.type,
+            access: item.access,
+            relationship: item.relationship?.map(d=>d?.split(":")[0])
+        }
+        if( item.type === "none"){
+            primitive.setField(target, null)
+            return
+        }else if( item.type === "category"){
+            if( primitive.referenceParameters ){
+                primitive.setField(target, fullState)
+                let toRemove = primitive.primitives.axis[axisName].allItems.filter(d=>d.id)
+                let already = false
+
+                if( toRemove.find(d=>d.id === item.category.id)){
+                    already = true
+                    toRemove = toRemove.filter(d=>d.id !== item.category.id)
+                }
+                
+                for(const old of toRemove){
+                    await primitive.removeRelationship( old, `axis.${axisName}`)
+                }
+                if( !already ){
+                    await primitive.addRelationship( item.category, `axis.${axisName}`)
+                }
+            }
+        }else if( item.type === "question"){
+            if( primitive.referenceParameters ){
+                fullState.subtype = item.subtype
+            }
+        }else if( item.type === "parameter"){
+            if( primitive.referenceParameters ){
+                fullState.parameter = item.parameter
+            }
+        }
+        primitive.setField(target, fullState)
+    
+    }
+    static equalRelationshipForFilter(or1, or2, ignoreType = true){
+        if( or1 === or2){
+            return true
+        }
+        let r1 = [or1].flat()
+        let r2 = [or2].flat()
+
+        if( ignoreType ){
+            r1 = r1.map(d=>d?.split(':')[0])
+            r2 = r2.map(d=>d?.split(':')[0])
+        }
+    
+        if(r1.length !== r2.length){
+            return false
+        }
+        const setR2 = new Set(r2);
+
+        return r1.every(element => setR2.has(element));
+
+    }
+    static findLiveFilters(axisOptions){
+        return axisOptions.filter(d=>d.isLive && (!d.relationship || [d.relationship].flat().length === 0))
+    }
     static findAxisItem(primitive, axis, axisOptions){
-        if( primitive ){
+        if( primitive && axisOptions){
             const struct =  isNaN(axis) ?  primitive.referenceParameters?.explore?.axis?.[axis] : primitive.referenceParameters?.explore?.filters?.[axis]
             if( struct ){
                 if(struct.type === "parameter" ){
-                    return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && MainStore().equalRelationships(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                    return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }else if(struct.type === "question" ){
-                    return axisOptions.find(d=>d.type === struct.type &&  MainStore().equalRelationships(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
+                    return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
                 }else if(struct.type === "title"  || struct.type === "type" ){
-                    return axisOptions.find(d=>d.type === struct.type &&  MainStore().equalRelationships(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                    return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }
                 const connectedPrim = isNaN(axis) ? primitive.primitives.axis[axis].allIds[0] : primitive.referenceParameters.explore.filters[axis].sourcePrimId
-                return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && MainStore().equalRelationships(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+                return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
             }
             return 0
         }
+    }
+    static convertCollectionFiltersToImportFilters(source){
+        return [
+            "column",
+            "row",
+            (source.referenceParameters?.explore?.filters ?? []).map((d,i)=>i)
+        ].map(d=>this.primitiveAxis(source,d)).filter(d=>d).map(d=>this.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
+    }
+    static encodeExploreFilter(option, val, invert){
+        if( !val || val.length === 0){
+            return undefined
+        }
+
+        if( val instanceof Object && !Array.isArray(val)){
+            if( val.bucket_min !== undefined || val.bucket_max !== undefined ){
+            }else{
+                val = val.idx
+            }
+        }
+
+        if( option?.type === "category"){
+            if( val === "_N_" || (val.length === 1 && val[0] === "_N_") ){
+                return {type: "not_category_level1", value: option.primitiveId, pivot: option.access, invert, sourcePrimId: option.primitiveId, relationship: option.relationship}
+            }
+            if( val === "_N_"){
+                val = undefined
+            }else if(Array.isArray(val)){
+                val = val.map(d=>d === "_N_" ? undefined : d)
+            }
+            return {type: "parent", value: val, pivot: option.access, relationship: option.relationship, invert, sourcePrimId: option.primitiveId}
+        }else if( option?.type === "question" ){
+            return {type: option.type, subtype: option.subtype, map: [val].flat(), pivot: option.access, relationship: option.relationship,  invert}
+        }else if( option?.type === "type"){
+            return {type: option.type, subtype: option.subtype, map: [val].flat().map(d=>parseInt(d)), pivot: option.access, relationship: option.relationship, invert}
+        }else if( option?.type === "title"){
+            return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
+        }else if( option.type === "parameter"){
+            if( val?.bucket_min  !== undefined ){
+                return  {type: "parameter", param: option.parameter, min_value: val.bucket_min, max_value: val.bucket_max, pivot: option.access, relationship: option.relationship, invert}
+            }else{
+                return  {type: "parameter", param: option.parameter, value: val, pivot: option.access, relationship: option.relationship, invert}
+            }
+        } 
+        return undefined
     }
 }
 

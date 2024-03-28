@@ -308,8 +308,6 @@ let mainstore = MainStore()
             }
           }
         }
-        console.log(list)
-        console.log(item)
 
         return <MyCombo 
           disabled={item.locked}
@@ -396,6 +394,10 @@ let mainstore = MainStore()
           })
         }
 
+        if( item.includeContext){
+          list.push({key: "context", title: "Context"})
+        }
+
         let index = list.findIndex((d)=>item.value === d.key)
         if( index === -1 ){
          // index = list.findIndex((d)=>defaultConfig.field === d.key)
@@ -430,7 +432,7 @@ let mainstore = MainStore()
         return <EditableResourceField
                 {...props} 
                 onSelect={(value)=>{
-                    return props.primitive.setParameter(item.key, value ? value : null)
+                //    return props.primitive.setParameter(item.key, value ? value : null)
                 }}
                   value = {item.value}
             />
@@ -576,8 +578,28 @@ let mainstore = MainStore()
       const clamp = item.type === "long_string" && !props.disableClamp ? "line-clamp-[10]" : ""
       
       if(item.value instanceof Object){
-        
-        return <p>{JSON.stringify( item.value )}</p>
+        if( Array.isArray(item.value)){
+          item.value = JSON.stringify( item.value)
+
+        }else{
+          return <div className='grid grid-cols-2 w-full' style={{gridTemplateColumns:"min-content auto"}}>
+                {Object.keys(item.value).map(d=>{
+                  return <>
+                    <div className='p-1 border-b broder-gray-200'>{d}</div>
+                      <EditableTextField
+                        {...props} 
+                        submitOnEnter={true} 
+                        value={item.value[d]} 
+                        callback={props.callback ? props.callback : (value)=>{
+                          return props.primitive.setParameter(`${item.key}.${d}`, value, false, true)
+                        }}
+                        className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
+                        fieldClassName='border-b broder-gray-200'
+                        />
+                  </>
+                })}
+              </div>
+        }
       }
 
       return <EditableTextField
@@ -912,17 +934,8 @@ const Banner = function({primitive, ...props}){
 }
 const Parameters = function({primitive, ...props}){
 
-  const [listEditable, setListEditable] = React.useState(props.editing)
-  const [editing, setEditing] = React.useState()
   const [eventTracker, updateForEvent] = React.useReducer( (x)=>x+1, 0)
   const callbackId = React.useRef(null)
-
-  React.useEffect(()=>{
-    setListEditable(props.editing)
-    if( !props.editing ){
-      setEditing(null)
-    }
-  }, [props.editing])
 
   React.useEffect(()=>{
     if( !props.noEvents ){
@@ -968,8 +981,10 @@ const Parameters = function({primitive, ...props}){
   let details = fields.map((k)=>{
     let config = parameters[k]
     if( !config ){
-      if( Array.isArray(source[k]) || typeof(source[k]) === "object" ){
+      if( Array.isArray(source[k]) ){
         return {type: "string", title: `${k} (auto)`, value: source[k].length + " items\n" + JSON.stringify(source[k]), key: k}
+      }else  if( typeof(source[k]) === "object" ){
+        return {type: "string", title: `${k} (auto)`, value: source[k], key: k}
       }else{
         return {type: "string", title: `${k} (auto)`, value: source[k], key: k}
       }
@@ -997,6 +1012,7 @@ const Parameters = function({primitive, ...props}){
     details = details.filter((item)=>item.value || !item.extra) 
   }
 
+  /*
   const listKeyHandler = (e, idx)=>{
     if(e.key === "Enter"){
       e.preventDefault()
@@ -1013,7 +1029,7 @@ const Parameters = function({primitive, ...props}){
   const stopEditing = (element)=>{
     element?.parentElement?.focus()
     setEditing( null )
-  }
+  }*/
 
   if( details.length === 0 ){
     return <></>
@@ -1025,21 +1041,21 @@ const Parameters = function({primitive, ...props}){
   return (
     details.map((item, idx)=>(
       <div 
+      tabIndex={-1}
         key={idx} 
-        tabIndex={listEditable ? 1 : undefined}
-        onClick={listEditable ? ()=>setEditing(idx) : undefined}
-        onKeyDown={listEditable ? (e)=>listKeyHandler(e,idx) : undefined}
+       // onClick={listEditable ? ()=>setEditing(idx) : undefined}
+       // onKeyDown={listEditable ? (e)=>listKeyHandler(e,idx) : undefined}
         className={[
           "flex text-sm place-items-start",
           props.compactList ? "" : "py-2",
-          listEditable ? "hover:bg-gray-50 hover:outline-indigo-500" : "",
+          true ? "hover:bg-gray-50 hover:outline-indigo-500" : "",
           props.className || ""
         ].join(" ")}
         >
         {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
         {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
           ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
-          : <RenderItem editing={editing === idx} stopEditing={stopEditing} primitive={primitive} compact={props.compact} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+          : <RenderItem editing editable primitive={primitive} compact={props.compact} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
         }
         {props.inline && (idx < (details.length - 1)) && <p className='pl-1 text-slate-400'>•</p> }
       </div>
