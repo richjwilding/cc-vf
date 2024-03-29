@@ -4,15 +4,6 @@ import { roundCurrency } from "./RenderHelpers"
 
 
 class CollectionUtils{
-    static passTypeMap = {
-        "type": "origin_type",
-        "options": "raw",
-        "title": "raw",
-        "currency": "currency",
-        "funding": "funding",
-        "contact": "contact",
-        "boolean": "boolean",
-    }
     static axisToHierarchy(axisList, options = {}){
         const out = {}
         function findPath(node, path, d){
@@ -609,7 +600,7 @@ class CollectionUtils{
         }
         if( axis ){
             if( ["question", "parameter", "title", "type"].includes(axis.type)){
-                return {filter: [],...axis, passType: this.passTypeMap[axis.type] ?? "raw"}
+                return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
             }
             const connectedPrim = isNaN(axisName) ? primitive.primitives.axis[axisName].allIds[0] : primitive.referenceParameters.explore.filters[axisName].sourcePrimId            
             if( connectedPrim ){
@@ -709,44 +700,7 @@ class CollectionUtils{
             "column",
             "row",
             (source.referenceParameters?.explore?.filters ?? []).map((d,i)=>i)
-        ].map(d=>this.primitiveAxis(source,d)).filter(d=>d).map(d=>this.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
-    }
-    static encodeExploreFilter(option, val, invert){
-        if( !val || val.length === 0){
-            return undefined
-        }
-
-        if( val instanceof Object && !Array.isArray(val)){
-            if( val.bucket_min !== undefined || val.bucket_max !== undefined ){
-            }else{
-                val = val.idx
-            }
-        }
-
-        if( option?.type === "category"){
-            if( val === "_N_" || (val.length === 1 && val[0] === "_N_") ){
-                return {type: "not_category_level1", value: option.primitiveId, pivot: option.access, invert, sourcePrimId: option.primitiveId, relationship: option.relationship}
-            }
-            if( val === "_N_"){
-                val = undefined
-            }else if(Array.isArray(val)){
-                val = val.map(d=>d === "_N_" ? undefined : d)
-            }
-            return {type: "parent", value: val, pivot: option.access, relationship: option.relationship, invert, sourcePrimId: option.primitiveId}
-        }else if( option?.type === "question" ){
-            return {type: option.type, subtype: option.subtype, map: [val].flat(), pivot: option.access, relationship: option.relationship,  invert}
-        }else if( option?.type === "type"){
-            return {type: option.type, subtype: option.subtype, map: [val].flat().map(d=>parseInt(d)), pivot: option.access, relationship: option.relationship, invert}
-        }else if( option?.type === "title"){
-            return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
-        }else if( option.type === "parameter"){
-            if( val?.bucket_min  !== undefined ){
-                return  {type: "parameter", param: option.parameter, min_value: val.bucket_min, max_value: val.bucket_max, pivot: option.access, relationship: option.relationship, invert}
-            }else{
-                return  {type: "parameter", param: option.parameter, value: val, pivot: option.access, relationship: option.relationship, invert}
-            }
-        } 
-        return undefined
+        ].map(d=>this.primitiveAxis(source,d)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
     }
 }
 

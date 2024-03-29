@@ -26,7 +26,7 @@ import PrimitiveConfig from './PrimitiveConfig';
 const mainstore = MainStore()
 
 
-const encodeFilter = CollectionUtils.encodeExploreFilter
+const encodeFilter = PrimitiveConfig.encodeExploreFilter
 
     const getExploreFilters = (primitive, axisOptions)=>{
         const filters = primitive.referenceParameters?.explore?.filters

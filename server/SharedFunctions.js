@@ -538,7 +538,7 @@ export async function nestedItems(primitive){
 export async function multiPrimitiveAtOrginLevel( list, level, relationship = "origin"){
     const cache = {}
     if( level === 0 || level === undefined){
-        return list
+        return list.map(d=>[d])
     }
 
     let inc = 1
@@ -611,6 +611,230 @@ export async function multiPrimitiveAtOrginLevel( list, level, relationship = "o
 
 }
 
+async function filterItems(list, filters){
+    let thisSet = undefined
+    for(const filter of filters ){
+        console.log(filter)
+        const invert = filter.invert ?? false
+        let doCat1Check = false
+        
+        if( filter.type === "title"){
+            if( filter.value !== undefined){
+                const temp = []
+
+                const check = [filter.value].flat()
+                const setToCheck = (thisSet || list)
+                console.log(`Filter ref type `, check, invert)
+                let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
+                
+                let idx = 0
+                for(const d of setToCheck){
+                    if( invert ^ check.includes( lookups[idx]?.[0]?.title) ){
+                        temp.push( d )
+                    }
+                    idx++
+                }
+                thisSet = temp
+            }
+        }
+        if( filter.type === "parameter"){
+            const setToCheck = (thisSet || list)
+            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
+
+            if( filter.min_value !== undefined && filter.max_value !== undefined){
+                    const temp = []
+                    let idx = 0
+                    for(const d of setToCheck){
+                        const value = lookups[idx]?.[0]?.referenceParameters?.[filter.param]
+                        if( invert ^ (value >= filter.min_value && value <= filter.max_value)) {
+                            temp.push(d)
+                        }
+                        idx++
+                    }
+                    thisSet = temp
+            }else if( filter.min_value !== undefined ){
+                    const temp = []
+                    let idx = 0
+                    for(const d of setToCheck){
+                        if( invert ^ lookups[idx]?.[0]?.referenceParameters?.[filter.param] >= filter.min_value) {
+                            temp.push(d)
+                        }
+                        idx++
+                    }
+                    thisSet = temp
+            }else if( filter.max_value !== undefined ){
+                    const temp = []
+                    let idx = 0
+                    for(const d of setToCheck){
+                        if( invert ^ lookups[idx]?.[0]?.referenceParameters?.[filter.param] <= filter.max_value) {
+                            temp.push(d)
+                        }
+                        idx++
+                    }
+                    thisSet = temp
+            }else{
+                const temp = []
+                let idx = 0
+                let toCheck = filter.value
+
+                let isArray = Array.isArray( toCheck )
+                if( isArray ){
+                    toCheck = filter.value.map(d=>d === null ? undefined : d)
+                }
+                if( toCheck === undefined){
+                    toCheck = [undefined, null]
+                    isArray = true
+                }
+
+                for(const d of setToCheck){
+                    if( isArray ){
+                        
+                        if( invert ^ toCheck.includes(lookups[idx]?.[0]?.referenceParameters?.[filter.param])) {
+                            temp.push(d)
+                        }
+                    }else{
+                        if( invert ^ lookups[idx]?.[0]?.referenceParameters?.[filter.param] === toCheck) {
+                            temp.push(d)
+                        }
+                    }
+                    idx++
+                }
+                thisSet = temp
+            }
+        }
+        if( filter.type === "parent" ){
+
+
+            const temp = []
+            let hitList = [filter.value].flat()
+            if( hitList.includes(undefined) || hitList.includes(null)){
+                hitList = hitList.filter(d=>d !== undefined && d !== null )
+                doCat1Check = true
+            }
+            const setToCheck = (thisSet || list)
+
+            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
+            
+            let idx = 0
+            for(const d of setToCheck){
+                if( invert ^ Object.keys(lookups[idx]?.[0]?.parentPrimitives ?? {}).filter(d=>hitList.includes(d)).length > 0){
+                    temp.push( d )
+                }
+                idx++
+            }
+            thisSet = temp
+        }
+        if( filter.type === "not_category_level1" || doCat1Check){
+            console.log(`WARNING - USING OLD primitiveOriginAtLevel`)
+            const hits = doCat1Check ? [filter.sourcePrimId] : [filter.value].flat()
+            let l1Hits = []
+            for( const d of hits){
+                l1Hits = l1Hits.concat( (await primitiveChildren(await Primitive.findOne({_id: d}), "category") ).map(d=>d.id))
+            }
+
+
+            const setToCheck = (thisSet || list)
+
+            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
+
+            const temp = []
+            let idx = 0
+            for(const d of setToCheck){
+                let allParents = lookups[idx].map(d=>Object.keys(d.parentPrimitives ?? {})).flat()
+                let found =  allParents.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length === 0
+                if( invert ^ found){
+                    temp.push( d )
+                }
+                idx++
+            }
+            thisSet = temp
+        }
+        if( filter.type === "type"){
+            const temp = []
+            if( filter.map !== undefined){
+                const check = [filter.map].flat()
+                const setToCheck = (thisSet || list)
+                console.log(`Filter ref type `, check, invert)
+                let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot)
+                
+                let idx = 0
+                for(const d of setToCheck){
+                    if( invert ^ check.includes( lookups[idx]?.[0]?.referenceId) ){
+                        temp.push( d )
+                    }
+                    idx++
+                }
+            }
+            thisSet = temp
+        }
+        if( filter.type === "question"){
+            const temp = []
+            const promptCache = {}
+            const questionCache = {}
+            const serachCache = {}
+
+            const setToCheck = (thisSet || list)
+            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
+            console.log(`Set = ${setToCheck.length} / Lookups = ${lookups.length}`)
+
+            let idx = 0
+            for(const d of (thisSet || list)){
+            let item = lookups[idx]?.[0]
+                if( item ){
+                    let add = false
+                    if( filter.subtype == "question"){
+                        let promptId, prompt
+                        const pCheck = Object.keys(item.parentPrimitives).map(d=>promptCache[d] ? d : undefined).filter(d=>d)
+                        if(pCheck.length > 0 ){
+                            promptId = pCheck[0]
+                        }else{
+                            prompt = (await primitiveParentsOfType(item, "prompt"))?.[0]
+                            promptId = prompt?.id
+                            promptCache[promptId] = true
+                        }
+                        if( promptId ){
+                            let question = questionCache[promptId]
+                            if( question === undefined ){
+                                const question = (await primitiveParentsOfType(prompt, "question"))?.[0]
+                                questionCache[promptId] = {id: question.id}
+                            }
+                        
+                            if( question ){
+                                if( filter.map.includes( question.id)){
+                                    add = true
+                                }
+                            }
+                            
+                        }
+                    }
+                    if( filter.subtype == "search"){
+                        let search = Object.keys( item.parentPrimitives ?? {}).filter(d=>serachCache[d])?.[0]
+                        let id = search
+                        if( !search){
+                            search = (await primitiveParentsOfType(item, "search"))?.[0]
+                            id = search?.id
+                        }
+                        if( search ){
+                            serachCache[id] = true
+                            if( filter.map.includes( id )){
+                                add = true
+                            }
+                        }
+                    }
+                    if( invert ^ add ){
+                        temp.push(d)
+                    }
+
+                }
+                idx++
+            }
+            thisSet = temp
+        }
+        console.log(`-- This set has ${thisSet.length} items for ${filter.type}`)
+    }
+    return thisSet || list
+}
+
 async function getDataForImport( source, cache = {} ){
     let fullList = []
     console.log(`Importing from other sources of ${source.plainId} / ${source.id}`)
@@ -669,244 +893,8 @@ async function getDataForImport( source, cache = {} ){
             console.log(`GOT ${config.length} configs to scan`)
             for(const set of config ){
                 if( set.filters ){
-                    let thisSet = undefined
-                    for(const filter of set.filters ){
-                        console.log(filter)
-                        const invert = filter.invert ?? false
-                        let doCat1Check = false
-                        
-                        if( filter.type === "title"){
-                            if( filter.value !== undefined){
-                                const temp = []
-
-                                const check = [filter.value].flat()
-                                const setToCheck = (thisSet || list)
-                                console.log(`Filter ref type `, check, invert)
-                                let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
-                                
-                                let idx = 0
-                                for(const d of setToCheck){
-                                    if( invert ^ check.includes( lookups[idx]?.[0]?.title) ){
-                                        temp.push( d )
-                                    }
-                                    idx++
-                                }
-                                thisSet = temp
-                            }
-                        }
-                        if( filter.type === "parameter"){
-                            const setToCheck = (thisSet || list)
-                            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
-
-                            if( filter.min_value !== undefined && filter.max_value !== undefined){
-                                    const temp = []
-                                    let idx = 0
-                                    for(const d of setToCheck){
-                                        const value = lookups[idx]?.[0]?.referenceParameters?.[filter.param]
-                                        if( invert ^ (value >= filter.min_value && value <= filter.max_value)) {
-                                            temp.push(d)
-                                        }
-                                        idx++
-                                    }
-                                    thisSet = temp
-                            }else if( filter.min_value !== undefined ){
-                                    const temp = []
-                                    let idx = 0
-                                    for(const d of setToCheck){
-                                        if( invert ^ lookups[idx]?.[0]?.referenceParameters?.[filter.param] >= filter.min_value) {
-                                            temp.push(d)
-                                        }
-                                        idx++
-                                    }
-                                    thisSet = temp
-                            }else if( filter.max_value !== undefined ){
-                                    const temp = []
-                                    let idx = 0
-                                    for(const d of setToCheck){
-                                        if( invert ^ lookups[idx]?.[0]?.referenceParameters?.[filter.param] <= filter.max_value) {
-                                            temp.push(d)
-                                        }
-                                        idx++
-                                    }
-                                    thisSet = temp
-                            }else{
-                                const temp = []
-                                let idx = 0
-                                let toCheck = filter.value
-
-                                let isArray = Array.isArray( toCheck )
-                                if( isArray ){
-                                    toCheck = filter.value.map(d=>d === null ? undefined : d)
-                                }
-                                if( toCheck === undefined){
-                                    toCheck = [undefined, null]
-                                    isArray = true
-                                }
-
-                                for(const d of setToCheck){
-                                    if( isArray ){
-                                        
-                                        if( invert ^ toCheck.includes(lookups[idx]?.[0]?.referenceParameters?.[filter.param])) {
-                                            temp.push(d)
-                                        }
-                                    }else{
-                                        if( invert ^ lookups[idx]?.[0]?.referenceParameters?.[filter.param] === toCheck) {
-                                            temp.push(d)
-                                        }
-                                    }
-                                    idx++
-                                }
-                                thisSet = temp
-                            }
-                        }
-                        if( filter.type === "parent" ){
-
-
-                            const temp = []
-                            let hitList = [filter.value].flat()
-                            if( hitList.includes(undefined) || hitList.includes(null)){
-                                hitList = hitList.filter(d=>d !== undefined && d !== null )
-                                doCat1Check = true
-                            }
-                            const setToCheck = (thisSet || list)
-
-                            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
-                            if( source.plainId === 303072){
-                                console.log(hitList.length, lookups.length)
-                            }
-                            
-                            let idx = 0
-                            for(const d of setToCheck){
-                                if( invert ^ Object.keys(lookups[idx]?.[0]?.parentPrimitives ?? {}).filter(d=>hitList.includes(d)).length > 0){
-                                    temp.push( d )
-                                }
-                                idx++
-                            }
-                            thisSet = temp
-                        }
-                        if( filter.type === "not_category_level1" || doCat1Check){
-                            console.log(`WARNING - USING OLD primitiveOriginAtLevel`)
-                            const hits = doCat1Check ? [filter.sourcePrimId] : [filter.value].flat()
-                            let l1Hits = []
-                            for( const d of hits){
-                                l1Hits = l1Hits.concat( (await primitiveChildren(await Primitive.findOne({_id: d}), "category") ).map(d=>d.id))
-                            }
-
-
-                            const setToCheck = (thisSet || list)
-
-                            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
-
-                            const temp = []
-                            let idx = 0
-                            for(const d of setToCheck){
-                                let allParents = lookups[idx].map(d=>Object.keys(d.parentPrimitives ?? {})).flat()
-                                let found =  allParents.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length === 0
-                                if( invert ^ found){
-                                    temp.push( d )
-                                }
-                                idx++
-                                //let item = d
-                                /*if( filter.pivot > 0 ){
-                                    item = await Primitive.findOne({_id:  await primitiveOriginAtLevel(d, filter.pivot)})
-                                }
-                                if( item ){
-                                    let found = Object.keys(item.parentPrimitives ?? {}).filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0
-                                    if( invert ^ !found ){
-                                        temp.push(d)
-                                    }
-                                }*/
-                            }
-                            thisSet = temp
-                        }
-                        if( filter.type === "type"){
-                            const temp = []
-                            if( filter.map !== undefined){
-                                const check = [filter.map].flat()
-                                const setToCheck = (thisSet || list)
-                                console.log(`Filter ref type `, check, invert)
-                                let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot)
-                                
-                                let idx = 0
-                                for(const d of setToCheck){
-                                    if( invert ^ check.includes( lookups[idx]?.[0]?.referenceId) ){
-                                        temp.push( d )
-                                    }
-                                    idx++
-                                }
-                            }
-                            thisSet = temp
-                        }
-                        if( filter.type === "question"){
-                            const temp = []
-                            const promptCache = {}
-                            const questionCache = {}
-                            const serachCache = {}
-
-                            const setToCheck = (thisSet || list)
-                            let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
-                            console.log(`Set = ${setToCheck.length} / Lookups = ${lookups.length}`)
-
-                            let idx = 0
-                            for(const d of (thisSet || list)){
-                            let item = lookups[idx]?.[0]
-                                if( item ){
-                                    let add = false
-                                    if( filter.subtype == "question"){
-                                        let promptId, prompt
-                                        const pCheck = Object.keys(item.parentPrimitives).map(d=>promptCache[d] ? d : undefined).filter(d=>d)
-                                        if(pCheck.length > 0 ){
-                                            promptId = pCheck[0]
-                                        }else{
-                                            prompt = (await primitiveParentsOfType(item, "prompt"))?.[0]
-                                            promptId = prompt?.id
-                                            promptCache[promptId] = true
-                                        }
-                                        if( promptId ){
-                                            let question = questionCache[promptId]
-                                            if( question === undefined ){
-                                                const question = (await primitiveParentsOfType(prompt, "question"))?.[0]
-                                                questionCache[promptId] = {id: question.id}
-                                            }
-                                        
-                                            if( question ){
-                                                if( filter.map.includes( question.id)){
-                                                    add = true
-                                                }
-                                            }
-                                            
-                                        }
-                                    }
-                                    if( filter.subtype == "search"){
-                                        let search = Object.keys( item.parentPrimitives ?? {}).filter(d=>serachCache[d])?.[0]
-                                        let id = search
-                                        if( !search){
-                                            search = (await primitiveParentsOfType(item, "search"))?.[0]
-                                            id = search?.id
-                                        }
-                                        if( search ){
-                                            serachCache[id] = true
-                                            if( filter.map.includes( id )){
-                                                add = true
-                                            }
-                                        }
-                                    }
-                                    if( invert ^ add ){
-                                        temp.push(d)
-                                    }
-
-                                }
-                                idx++
-                            }
-                            thisSet = temp
-                        }
-                        console.log(`-- This set has ${thisSet.length} items for ${filter.type}`)
-                    }
-                    if( thisSet ){
-                        filterOut = (filterOut ?? []).concat( thisSet )
-                    }else{
-                        filterOut = (filterOut ?? []).concat( list )
-                    }
+                    let thisSet = await filterItems( list, set.filters)
+                    filterOut = (filterOut ?? []).concat( thisSet ?? list)
                 }
             }
             list = filterOut ?? list
@@ -920,6 +908,14 @@ async function getDataForImport( source, cache = {} ){
         }
         fullList = fullList.concat(list)
     }
+
+    if(source.type === "view" ){
+        const viewFilters = getBaseFilterForView( source )
+        console.log(viewFilters)
+        fullList = await filterItems( fullList, viewFilters)
+
+    }
+    
     console.log(`Import pivot = ` + source.referenceParameters?.pivot )
     if( source.referenceParameters?.pivot && source.referenceParameters.pivot > 0){            
         fullList = await primitiveListOrigin( fullList, source.referenceParameters.pivot, ["result", "entity"])
@@ -927,6 +923,32 @@ async function getDataForImport( source, cache = {} ){
     let out = uniquePrimitives(fullList)
     console.log(`IMPORT FROM ${source.plainId} = ${out.length}`)
     return out
+}
+export function getBaseFilterForView( primitive){
+    return [
+            "column",
+            "row",
+            (primitive.referenceParameters?.explore?.filters ?? []).map((d,i)=>i)
+        ].map(d=>primitiveAxis(primitive,d)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
+}
+function primitiveAxis( primitive, axisName){
+    let axis 
+    if( axisName === "column" || axisName === "row"){
+        axis = primitive.referenceParameters?.explore?.axis?.[axisName]
+    }else{
+        axis = primitive.referenceParameters?.explore?.filters?.[ axisName]
+    }
+    if( axis ){
+        if( ["question", "parameter", "title", "type"].includes(axis.type)){
+            return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
+        }
+        const connectedPrim = isNaN(axisName) ? primitive.primitives?.axis?.[axisName]?.[0] : primitive.referenceParameters?.explore.filters?.[axisName]?.sourcePrimId            
+        if( connectedPrim ){
+            return {filter: [], ...axis, primitiveId: connectedPrim}
+        }
+    }
+    return {type: "none", filter: []}
+
 }
 export async function primitiveOriginAtLevel( primitive, pivot ){
     let node = primitive
