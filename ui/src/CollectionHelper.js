@@ -403,26 +403,6 @@ class CollectionUtils{
                             return uniquePrimitives(matches).map(d=>d.id)
                         }
                         return "_N_"
-                    
-                        //candidates = MainStore().uniquePrimitives(candidates.map(d=>d.parentPrimitives).flat())
-
-                        /*
-                        let item = p
-                        let candidates = [p]
-                        
-                        for(let i = 0; i < option.access; i++ ){
-                            candidates = MainStore().uniquePrimitives(candidates.map(d=>d.parentPrimitives).flat())
-                        }
-                        
-                        item = candidates.filter(d=>d.parentPrimitiveIds.filter(d=>option.order.includes(d)).length > 0)?.[0]
-
-                        if( !item ){return "_N_"}//}undefined}
-
-                        const matches = item.parentPrimitiveIds.map((d)=>option.order?.indexOf(d)).filter((d,i,a)=>d !== -1 && a.indexOf(d)===i).sort()
-                        if( matches.length === 0){
-                            return "_N_"
-                        }
-                        return matches.map(d=>option.order[d])*/
                     }
                 }else if( option.type === "contact"){
                     return (d)=>d.origin.referenceParameters?.contactId

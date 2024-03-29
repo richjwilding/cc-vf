@@ -75,7 +75,15 @@ import { RenderSetAsKonva } from './RenderHelpers';
                         if( parts.length > 0 ){
                             node = node.referenceParameters
                         }
-                        out.push( node?.[lastField] )
+                        let t = node?.[lastField]
+                        if( t instanceof Object ){
+                            if(Array.isArray(d)){
+                                t = d.join("\n")
+                            }else{
+                                t = t.map(d3=>Object.keys(d3).map(d2=>`${d2}: ${d3[d2]}`).join("\n")).join("\n")
+                            }
+                        }
+                        out.push( t)
                     }
                     text = (content?.caption ? content?.caption + "\n\n" : "") + out.join("\n")
                 }

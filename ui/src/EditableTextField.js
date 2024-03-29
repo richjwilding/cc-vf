@@ -2,7 +2,6 @@
   export default function EditableTextField ({item, ...props}){
     const [editing, setEditing] = React.useState(false)
     const editBox = React.useRef()
-    const editOld = React.useRef()
     const [errors, setErrors] = React.useState(false)
 
     const keyHandler = (e)=>{
@@ -19,9 +18,7 @@
           sel.removeAllRanges();
           sel.addRange(range);
 
-          editOld.current = editBox.current.textContent.trim()
-
-          setEditing(true)
+          startEditing()
 
           return
         }
@@ -48,18 +45,24 @@
 
     }
 
+    const startEditing = ()=>{
+      editBox.current.setAttribute("_org", editBox.current.textContent.trim())
+      setEditing(true)
+    }
+
 
     const cancelEdit = ()=>{
       const sel = window.getSelection();
       sel.removeAllRanges();
-      editBox.current.textContent = editOld.current
+      editBox.current.textContent = editBox.current.getAttribute("_org") 
       setEditing(false)
     }
 
     const toggleEditing = ()=>{
+      let editOld = editBox.current.getAttribute("_org") 
         let newText = editBox.current.textContent.trim()
-        if( editOld.current !== newText ){
-          editOld.current = newText
+        if( editOld !== newText ){
+          editBox.current.setAttribute("_org", newText)
           if( props.callback ){
             if( !props.callback( newText ) ){
               editBox.current.focus()
@@ -80,7 +83,7 @@
           ref={editBox} 
           contentEditable={props.editable && editing}
           onKeyDown={props.editable ? keyHandler : undefined}
-          onClick={props.editable && editing ? undefined : ()=>setEditing(true)}
+          onClick={props.editable && editing ? undefined : ()=>startEditing()}
           onBlur={props.editable ? toggleEditing : undefined}
           tabIndex={1}
           suppressContentEditableWarning={true}

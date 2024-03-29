@@ -193,7 +193,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive,
     return baseGridRender(options, config)
 })
 registerRenderer( {type: "categoryId", id: 101, configs: "set_grid"}, (primitive, options = {})=>{
-    const config = {itemWidth: 400, spacing: [2,2], itemPadding: [2,2,2,2], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    const config = {itemWidth: 360, spacing: [2,2], itemPadding: [2,2,2,2], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     return baseGridRender(options, config)
 })
 registerRenderer( {type: "categoryId", id: 95, configs: "set_grid"},(primitive, options = {})=>{
@@ -516,21 +516,31 @@ registerRenderer( {type: "default", configs: "default"}, function renderFunc(pri
 
         let fy = 0
         if( primitive.referenceId === 101 ){
-            const fields = [[["Description", primitive.referenceParameters?.description]], Object.keys(primitive.referenceParameters?.features ?? {}).map(d=>[d,`${primitive.referenceParameters.features[d]}`])].flat()
+            const fields = [[["Description", "Description: " + primitive.referenceParameters?.description], ["Pricing", "Pricing: $" +primitive.referenceParameters?.price_month + "/mo"]],Object.keys(primitive.referenceParameters?.features ?? {}).map(d=>[d,`${primitive.referenceParameters.features[d]}`])].flat()
+            const showFieldName = false
             fy = h + config.padding[0] + config.padding[2] + 8
             for(const d of fields){
-                const t1 = new CustomText({
-                    x: config.padding[3],
-                    y: fy,
-                    fontSize: 12,
-                    lineHeight: 1.5,
-                    text: d[0],
-                    fill: '#334155',
-                    wrap: true,
-                    width: availableWidth * 0.25,
-                })
+                if(d[1] === "FALSE"){
+                    continue
+                }
+                let h = 0
+                if( showFieldName ){
+                    const t1 = new CustomText({
+                        x: config.padding[3],
+                        y: fy,
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        text: d[0],
+                        fill: '#334155',
+                        wrap: true,
+                        width: availableWidth * 0.25,
+                    })
+                    t1.attrs.refreshCallback = options.imageCallback
+                    g.add(t1)
+                    h = t1.height()
+                }
                 const t2 = new CustomText({
-                    x: config.padding[3] + (availableWidth * 0.25) + 8,
+                    x: config.padding[3] + (showFieldName ? (availableWidth * 0.25) + 8 : 0),
                     y: fy,
                     fontSize: 12,
                     lineHeight: 1.5,
@@ -539,11 +549,9 @@ registerRenderer( {type: "default", configs: "default"}, function renderFunc(pri
                     wrap: true,
                     width: (availableWidth * 0.75) - 8,
                 })
-                t1.attrs.refreshCallback = options.imageCallback
                 t2.attrs.refreshCallback = options.imageCallback
-                g.add(t1)
                 g.add(t2)
-                fy += Math.max(t1.height(), t2.height()) + 4
+                fy += Math.max(h, t2.height()) + 4
             }
 
         }

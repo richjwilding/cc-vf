@@ -244,13 +244,16 @@ export async function buildPage(primitive){
         let result = ejs.render(template, {data:{
             color_scheme:"emerald",
             title: await concept?.title,
+            page_title: primitive.title,
             hero_title: primitive.referenceParameters?.hero_text,
             hero_text: primitive.referenceParameters?.hero_overview,
+            logo_list: [`/published/image/${concept?.id}_logo`],
+            icon_image: `/published/image/${concept?.id}`,
             hero_image: `/published/image/${primitive.id}`,
             screenshot: `/published/image/${primitive.id}_hiw`,
-            use_cases: primitive.referenceParameters?.use_cases,
-            benefits: primitive.referenceParameters?.benefits,
-            how_it_works: primitive.referenceParameters?.how_it_works,
+            use_cases: primitive.referenceParameters?.use_cases ?? [],
+            benefits: primitive.referenceParameters?.benefits ?? [],
+            how_it_works: primitive.referenceParameters?.how_it_works ?? [],
             pricing: pricing_grid.slice(0),
             currency: undefined
             }
