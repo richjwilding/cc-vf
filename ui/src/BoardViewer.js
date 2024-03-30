@@ -16,6 +16,8 @@ export default function BoardViewer({primitive,...props}){
     const canvas = useRef({})
     const myState = useRef({})
     const menu = useRef({})
+    const colButton = useRef({})
+    const rowButton = useRef({})
 
     const list = primitive.primitives.allUniqueView
 
@@ -95,20 +97,12 @@ export default function BoardViewer({primitive,...props}){
         }
     }
 
-    let activeView
-    let axisOptions = []
-    let viewConfigs = []
-    let viewPivotOptions = []
-    let colSelection = 0
-    let rowSelection = 0
     let selectedColIdx = 0
     let selectedRowIdx = 0
     let showPane = 0
     let colFilter = 0
     let rowFilter = 0
-    let viewPivot = 0
 
-    function updateViewMode(){}
     function setShowPane(){}
     async function updateAxis(axisName, axis){
         if( myState?.activeBoard ){
@@ -118,7 +112,6 @@ export default function BoardViewer({primitive,...props}){
             canvas.current.refreshFrame( myState.activeBoardId, renderView(myState.activeBoard))
         }
     }
-    function updateViewPivot(){}
 
     let boardUpdateTimer
 
@@ -205,7 +198,9 @@ export default function BoardViewer({primitive,...props}){
                     updateMenuPosition(canvas.current.framePosition(myState.activeBoardId)?.viewport )
                     if( menu.current ){
                         menu.current.style.visibility = "unset"
-        }
+                        rowButton.current?.refocus()
+                        colButton.current?.refocus()
+                    }
                 }, instant ? 0 : 300)
             }
         }
@@ -228,8 +223,8 @@ export default function BoardViewer({primitive,...props}){
     return <>
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
         {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
-            <HierarchyNavigator noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
-            <HierarchyNavigator noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
+            <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
+            <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
             <DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "filter" ? setShowPane(false) : setShowPane("filter")} className={`hover:text-ccgreen-800 hover:shadow-md ${rowFilter || colFilter ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
         </div>}
         <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>

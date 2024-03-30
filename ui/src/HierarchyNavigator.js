@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, forwardRef, useImperativeHandle, useReducer, useRef, useState } from 'react'
 import { Menu, Transition } from '@headlessui/react'
 import {
   ArchiveBoxIcon,
@@ -18,8 +18,9 @@ function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
-export default function HierarchyNavigator(props) {
+const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
     const [path,setPath] = useState(undefined)
+    const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [customOpen, setCustomOpen] = useState(false);
 
     let colors = props.major ? "bg-blue-600 border-blue-50  text-white hover:bg-ccgreen-700 focus:ring-blue-500 focus:ring-offset-gray-100" : "bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-ccgreen-500 focus:ring-ccgreen-500"
@@ -28,6 +29,31 @@ export default function HierarchyNavigator(props) {
         return typeof(props.items) === "function" ? props.items() : props.items ?? []
     }
 
+    function alignPath(){
+      let path = undefined
+      let nodes = getNodes()
+      if( props.selectedItemId && nodes){
+          const unpack = (node)=>{
+              return [node.items, Object.values(node.nested ?? {}).map(d=>unpack(d))].flat(Infinity).filter(d=>d)
+          }
+          const allItems = unpack(nodes)
+          
+          const id = selectedItemId()
+          path = allItems.find(d=>d.id === id)?.relationship
+          console.log(id,path)
+      }
+      setPath( path )
+    }
+
+    useImperativeHandle(ref, () => {
+        return {
+          refocus:()=>{
+            alignPath()
+            forceUpdate()
+          }
+        };
+      }, []);
+      
     let selectedItemId = () => typeof(props.selectedItemId) === "function" ? props.selectedItemId() : props.selectedItemId
     let node = getNodes()
     if(customOpen && path ){
@@ -37,25 +63,17 @@ export default function HierarchyNavigator(props) {
             idx++
         }
     }
+
+
     const setMenu = (state)=>{
         if( state ){
-            let path = undefined
-            let nodes = getNodes()
-            if( props.selectedItemId && nodes){
-                const unpack = (node)=>{
-                    return [node.items, Object.values(node.nested ?? {}).map(d=>unpack(d))].flat(Infinity).filter(d=>d)
-                }
-                const allItems = unpack(nodes)
-                
-                const id = selectedItemId()
-                path = allItems.find(d=>d.id === id)?.relationship
-            }
-            setPath( path )
+          alignPath()
         }
         setCustomOpen( state )
     }
 
     const align = (typeof(props.align) === "function" ? props.align() : props.align) 
+    console.log(customOpen)
 
   return (
     <Menu as="div" className="relative inline-block text-left ml-auto">
@@ -74,7 +92,6 @@ export default function HierarchyNavigator(props) {
             {props.icon || props.title }
         </Menu.Button>
       </div>
-
       <Transition
         as={Fragment}
         enter="transition ease-out duration-100"
@@ -163,4 +180,5 @@ export default function HierarchyNavigator(props) {
     </>
     </Menu>
   )
-}
+})
+export default HierarchyNavigator
