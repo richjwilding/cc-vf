@@ -180,7 +180,7 @@ const PrimitiveConfig = {
             return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
         }else if( option.type === "parameter"){
             if( val?.bucket_min  !== undefined ){
-                return  {type: "parameter", param: option.parameter, min_value: val.bucket_min, max_value: val.bucket_max, pivot: option.access, relationship: option.relationship, invert}
+                return  {type: "parameter", param: option.parameter, value: {idx: val.idx, min_value: val.bucket_min, max_value: val.bucket_max}, pivot: option.access, relationship: option.relationship, invert}
             }else{
                 return  {type: "parameter", param: option.parameter, value: val, pivot: option.access, relationship: option.relationship, invert}
             }

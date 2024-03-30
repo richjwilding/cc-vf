@@ -629,7 +629,9 @@ async function filterItems(list, filters){
                 
                 let idx = 0
                 for(const d of setToCheck){
-                    if( invert ^ check.includes( lookups[idx]?.[0]?.title) ){
+                    const titles = lookups[idx].map(d=>d.title)
+                    const pass = check.filter(d=>titles.includes(d)).length > 0
+                    if( invert ^ pass ){
                         temp.push( d )
                     }
                     idx++
@@ -641,37 +643,26 @@ async function filterItems(list, filters){
             const setToCheck = (thisSet || list)
             let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
 
-            if( filter.min_value !== undefined && filter.max_value !== undefined){
-                    const temp = []
-                    let idx = 0
-                    for(const d of setToCheck){
-                        const value = lookups[idx]?.[0]?.referenceParameters?.[filter.param]
-                        if( invert ^ (value >= filter.min_value && value <= filter.max_value)) {
+            if( filter.is_range){
+                const ranges = [filter.value].flat()
+
+                const temp = []
+                let idx = 0
+                for(const d of setToCheck){
+                    const values = lookups[idx].map(d=>d.referenceParameters?.[filter.param]).filter(d=>d)
+
+                    if( values.length){
+                        let pass = false
+                        for( const range of ranges){
+                            pass ||= values.reduce((a,c)=>a || (c >= (range.min_value ?? -Infinity) && c <= (range.max_value ?? Infinity)), false)
+                        }
+                        if( invert ^ pass) {
                             temp.push(d)
                         }
-                        idx++
                     }
-                    thisSet = temp
-            }else if( filter.min_value !== undefined ){
-                    const temp = []
-                    let idx = 0
-                    for(const d of setToCheck){
-                        if( invert ^ lookups[idx]?.[0]?.referenceParameters?.[filter.param] >= filter.min_value) {
-                            temp.push(d)
-                        }
-                        idx++
-                    }
-                    thisSet = temp
-            }else if( filter.max_value !== undefined ){
-                    const temp = []
-                    let idx = 0
-                    for(const d of setToCheck){
-                        if( invert ^ lookups[idx]?.[0]?.referenceParameters?.[filter.param] <= filter.max_value) {
-                            temp.push(d)
-                        }
-                        idx++
-                    }
-                    thisSet = temp
+                    idx++
+                }
+                thisSet = temp
             }else{
                 const temp = []
                 let idx = 0
@@ -685,17 +676,11 @@ async function filterItems(list, filters){
                     toCheck = [undefined, null]
                     isArray = true
                 }
+                toCheck = [toCheck].flat()
 
                 for(const d of setToCheck){
-                    if( isArray ){
-                        
-                        if( invert ^ toCheck.includes(lookups[idx]?.[0]?.referenceParameters?.[filter.param])) {
-                            temp.push(d)
-                        }
-                    }else{
-                        if( invert ^ lookups[idx]?.[0]?.referenceParameters?.[filter.param] === toCheck) {
-                            temp.push(d)
-                        }
+                    if( invert ^ lookups[idx].reduce((r,d)=>r || toCheck.includes(d.referenceParameters?.[filter.param]), false)){
+                        temp.push(d)
                     }
                     idx++
                 }
@@ -717,7 +702,8 @@ async function filterItems(list, filters){
             
             let idx = 0
             for(const d of setToCheck){
-                if( invert ^ Object.keys(lookups[idx]?.[0]?.parentPrimitives ?? {}).filter(d=>hitList.includes(d)).length > 0){
+               // if( invert ^ Object.keys(lookups[idx]?.[0]?.parentPrimitives ?? {}).filter(d=>hitList.includes(d)).length > 0){
+                if (invert ^ lookups[idx].some(item => Object.keys(item?.parentPrimitives ?? {}).some(key => hitList.includes(key)))) {
                     temp.push( d )
                 }
                 idx++
@@ -725,7 +711,6 @@ async function filterItems(list, filters){
             thisSet = temp
         }
         if( filter.type === "not_category_level1" || doCat1Check){
-            console.log(`WARNING - USING OLD primitiveOriginAtLevel`)
             const hits = doCat1Check ? [filter.sourcePrimId] : [filter.value].flat()
             let l1Hits = []
             for( const d of hits){
@@ -759,7 +744,8 @@ async function filterItems(list, filters){
                 
                 let idx = 0
                 for(const d of setToCheck){
-                    if( invert ^ check.includes( lookups[idx]?.[0]?.referenceId) ){
+                    //if( invert ^ check.includes( lookups[idx]?.[0]?.referenceId) ){
+                    if( invert ^ lookups[idx].reduce((r,d)=>r || check.includes(d.referenceId), false)){
                         temp.push( d )
                     }
                     idx++
@@ -779,8 +765,13 @@ async function filterItems(list, filters){
 
             let idx = 0
             for(const d of (thisSet || list)){
-            let item = lookups[idx]?.[0]
-                if( item ){
+                //let item = lookups[idx]?.[0]
+                //if( item ){
+                    if( d.id === "659592cd8597d2cc99a85913"){
+                        console.log(lookups[idx], idx)
+                    }
+                let pass = false
+                for(const item of lookups[idx]){
                     let add = false
                     if( filter.subtype == "question"){
                         let promptId, prompt
@@ -795,7 +786,7 @@ async function filterItems(list, filters){
                         if( promptId ){
                             let question = questionCache[promptId]
                             if( question === undefined ){
-                                const question = (await primitiveParentsOfType(prompt, "question"))?.[0]
+                                question = (await primitiveParentsOfType(prompt, "question"))?.[0]
                                 questionCache[promptId] = {id: question.id}
                             }
                         
@@ -821,10 +812,10 @@ async function filterItems(list, filters){
                             }
                         }
                     }
-                    if( invert ^ add ){
-                        temp.push(d)
-                    }
-
+                    pass ||= add
+                }
+                if( invert ^ pass ){
+                    temp.push(d)
                 }
                 idx++
             }
@@ -910,8 +901,15 @@ async function getDataForImport( source, cache = {} ){
     }
 
     if(source.type === "view" ){
-        const viewFilters = getBaseFilterForView( source )
-        console.log(viewFilters)
+        const viewFilters = getBaseFilterForView( source ).map(d=>{
+            if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
+                return {
+                    ...d,
+                    is_range: true
+                }
+            }
+            return d
+        })
         fullList = await filterItems( fullList, viewFilters)
 
     }

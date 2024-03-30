@@ -26,6 +26,20 @@ import PrimitiveConfig from './PrimitiveConfig';
 const mainstore = MainStore()
 
 
+function decodeFilter(filter, extents){
+    if( !filter){
+        return filter
+    }
+    return filter.reduce((a,c)=>{
+        if( c instanceof Object ){
+            a[c.idx] = c
+        }else{
+            a[c === null ? undefined : c] = true
+        }
+        return a
+    }, {}) 
+
+} 
 const encodeFilter = PrimitiveConfig.encodeExploreFilter
 
     const getExploreFilters = (primitive, axisOptions)=>{
@@ -34,7 +48,8 @@ const encodeFilter = PrimitiveConfig.encodeExploreFilter
             option: findAxisItem(primitive, idx, axisOptions), 
             id: idx, 
             track: filter.track,
-            filter: filter?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) ?? {}
+            //filter: filter?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) ?? {}
+            filter: decodeFilter(filter?.filter) ?? []
         })) : []
 
     }
@@ -264,12 +279,14 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
             const rowSelect =  findAxisItem(primitive, "row", labelled)
             {
                 setColSelection(colSelect )
-                const filter = primitive.referenceParameters?.explore?.axis?.column?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
+                //const filter = primitive.referenceParameters?.explore?.axis?.column?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
+                const filter = decodeFilter(primitive.referenceParameters?.explore?.axis?.column?.filter)
                 setColFilter(filter)
             }
             {
                 setRowSelection(rowSelect)
-                const filter = primitive.referenceParameters?.explore?.axis?.row?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
+                //const filter = primitive.referenceParameters?.explore?.axis?.row?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) 
+                const filter = decodeFilter(primitive.referenceParameters?.explore?.axis?.row?.filter)
                 setRowFilter(filter)
             }
             cancelRender = true
@@ -1068,9 +1085,9 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         forceUpdateNested()
     }
 
-    const updateAxis = async ( axis, idx )=>{
+    const updateAxis = async ( axis, idx, extents )=>{
         const item = axisOptions[idx]
-        await CollectionUtils.setPrimitiveAxis(primitive, item, axis)
+        await CollectionUtils.setPrimitiveAxis(primitive, item, axis, extents)
         if( axis === "column"){
             storeCurrentOffset()
             setColSelection( idx )
@@ -1097,8 +1114,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
         const axisSetter = (filter, path)=>{
             if( primitive.referenceParameters ){
-                const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : d).filter(d=>filter[d])
-                console.log(keys)
+                const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] instanceof Object ? filter[d] : filter[d] ? d : undefined ).filter(d=>d)
                 primitive.setField(path, keys)
             }
             forceUpdateExtent()
@@ -1122,7 +1138,8 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         }else{
             axis = axisOptions[viewFilters[mode].option]
             if( axis ){
-                filter = primitive.referenceParameters?.explore?.filters?.[ mode]?.filter?.reduce((a,c)=>{a[c === null ? undefined : c]=true;return a},{}) || {}
+                //filter = primitive.referenceParameters?.explore?.filters?.[ mode]?.filter?.reduce((a,c)=>{a[c === null ? undefined : c]=true;return a},{}) || {}
+                filter = decodeFilter(primitive.referenceParameters?.explore?.filters?.[ mode]?.filter)
                 setter = ( filter )=>{
                     console.log(`WILL UPDATE ${mode}`, filter) 
                     axisSetter(filter, `referenceParameters.explore.filters.${mode}.filter`)
@@ -1135,20 +1152,32 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
         storeCurrentOffset()
         filter = filter || {}
+
+        const encodeMap = axisExtents.reduce((a,item)=>{
+            if(item.bucket_min !== undefined || item.bucket_max !== undefined ){
+                a[item.idx] = {min_value: item.bucket_min, max_value: item.bucket_max, idx: item.idx}
+            }else{
+                a[item.idx] = true
+            }
+            return a
+        },{})
+
+
         if(setAll){
             if( item ){
-                filter = axisExtents?.reduce((a,c)=>{a[c.idx] = true;return a},{})
+                //filter = axisExtents?.reduce((a,c)=>{a[c.idx] = true;return a},{})
+                filter = encodeMap
             }else{
                 filter = {}
             }
         }else{
-            filter[item] = !filter[item]
+            if(filter[item]){
+                filter[item] = undefined
+            }else{
+                filter[item] = encodeMap[item]
+            }
         }
         setter( filter )
-
-        console.log( mode, filter ? Object.keys(filter).filter(d=>filter[d]).join("-") : "" )
-
-
         
     }
     const deleteViewFilter = (idx)=>{
@@ -1297,8 +1326,8 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                 <div ref={experiment ? undefined : targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain relative'>
         {props.closeButton ?? ""}
                     <div key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 top-32 p-1.5 flex flex-col place-items-start space-y-2'>
-                        {!props.compare && <HierarchyNavigator noBorder icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[colSelection]?.id} action={(d)=>updateAxis("column", d.id)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {!props.compare && <HierarchyNavigator noBorder icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[rowSelection]?.id} action={(d)=>updateAxis("row", d.id)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {!props.compare && <HierarchyNavigator noBorder icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[colSelection]?.id} action={(d)=>updateAxis("column", d.id, columnExtents)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {!props.compare && <HierarchyNavigator noBorder icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[rowSelection]?.id} action={(d)=>updateAxis("row", d.id, rowExtents)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && layers && layers.length > 1 && <DropdownButton noBorder icon={<HeroIcon icon='Layers' className='w-5 h-5'/>} items={layers} flat placement='left-start' portal showTick selectedItemIdx={layers[layerSelection] ? layerSelection :  0} setSelectedItem={updateLayer} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${layerSelection > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && viewConfigs && <DropdownButton noBorder icon={<HeroIcon icon='Eye' className='w-5 h-5'/>} items={viewConfigs} flat placement='left-start' portal showTick selectedItemIdx={activeView} setSelectedItem={updateViewMode} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${activeView > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && viewPivotOptions && <DropdownButton noBorder icon={<HeroIcon icon='TreeStruct' className='w-5 h-5'/>} items={viewPivotOptions} flat placement='left-start' portal showTick selectedItemIdx={viewPivot} setSelectedItem={updateViewPivot} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${viewPivot > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
@@ -1394,7 +1423,6 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                                 filters: [
                                                     encodeFilter( axisOptions[colSelection], columnExtents[cIdx] ),
                                                     encodeFilter( axisOptions[rowSelection], rowExtents[rIdx] ),
-                                                    ...baseFilters
                                                 ].filter(d=>d)
                                             }
                                             MainStore().sidebarSelect( primitive, {
@@ -1475,7 +1503,6 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                     filters: [
                                         encodeFilter( colOption, columnExtents[cIdx] ),
                                         encodeFilter( rowOption, rowExtents[rIdx] ),
-                                        ...baseFilters
                                     ].filter(d=>d)
                                 }
                                 const thisKey = `${column?.idx}-${row?.idx}-${update}-${updateNested}-${updateExtent}`
@@ -1631,7 +1658,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                     name="comments"
                                     type="checkbox"
                                     checked={!(set.list && set.list[d.idx])}
-                                    onChange={()=>updateAxisFilter(d.idx, set.mode)}
+                                    onChange={()=>updateAxisFilter(d.idx, set.mode, false, axis)}
                                     className="accent-ccgreen-700"
                                 />
                                     <p className={`p-2 ${set.list && set.list[d.idx] ? "text-gray-500" : ""}`}>{d.label}</p>

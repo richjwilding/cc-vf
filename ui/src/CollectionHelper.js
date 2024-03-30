@@ -212,20 +212,26 @@ class CollectionUtils{
                     const questions = uniquePrimitives(uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "prompt").map(d => d.origin))
                     if( questions.length > 0 ){
 
-                        const labels = questions.map(d=>d.title)
+                        /*const labels = questions.map(d=>d.title)
                         const values = questions.map(d=>d.id)
                         const mapped = questions.map(d=>d.primitives.allPrompt.map(d2=>[d2.id, d.id])).flat()
+                        */
+                        const values = questions.map(d=>({idx: d.id, label: d.title, map: d.primitives.allPrompt.map(d2=>d2.id) }))
                         
-                        out.push( {type: 'question', subtype:"question", map:mapped, title: `Source question`, access: count, relationship: path, values: values, order: values, labels: labels})
+                        out.push( {type: 'question', subtype:"question", values, title: `Source search`, access: count, relationship: path, passType: "question"})
+                        //out.push( {type: 'question', subtype:"question", values:mapped, title: `Source question`, access: count, relationship: path, values: values, order: values, labels: labels})
                     }
                     const search = uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "search")
                     if( search.length > 0 ){
 
-                        const labels = search.map(d=>d.title)
+                        /*const labels = search.map(d=>d.title)
                         const values = search.map(d=>d.id)
-                        const mapped = search.map(d=>[d.id, d.id])
+                        const mapped = search.map(d=>[d.id, d.id])*/
+
+                        const values = search.map(d=>({idx: d.id, label: d.title, map: [d.id, d.id]}))
                         
-                        out.push( {type: 'question', subtype:"search", map:mapped, title: `Source search`, access: count, relationship: path, values: values, order: values, labels: labels})
+                        out.push( {type: 'question', subtype:"search", values, title: `Source search`, access: count, relationship: path, passType: "question"})
+                        //out.push( {type: 'question', subtype:"search", values:mapped, title: `Source search`, access: count, relationship: path, values: values, order: values, labels: labels, passType: "raw"})
                     }
 
 
@@ -244,6 +250,11 @@ class CollectionUtils{
     }
     static axisExtents(interim, axis, field){
         const bucket = {
+            "question":(field)=>{
+                //let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
+                //return {labels: out, order: out, values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
+                return {values: [{idx: "_N_", label: "None"},...axis.values]}
+            },
             "raw":(field)=>{
                 let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
                 return {labels: out, order: out, values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
@@ -269,7 +280,7 @@ class CollectionUtils{
                 return {labels: labels, order: ids, values: ids.map((d,i)=>({idx: d, label: labels[i]}))}
             },
             "funding": (field)=>{
-                const brackets = [0,100000,500000,1000000,5000000,15000000,50000000,100000000,200000000,500000000,1000000000]
+                const brackets = [0,100000,500000,1000000,5000000,15000000,50000000,100000000,200000000,500000000,1000000000,10000000000,100000000000]
                 const labels = brackets.map((d,i,a)=>i === 0 ? "Unknown" : `${roundCurrency(a[i-1])} - ${roundCurrency(d)}`)
                 const mins = brackets.map((d,i,a)=>i === 0 ? undefined : a[i-1])
                 const max = brackets.map((d,i,a)=>d)
@@ -279,7 +290,7 @@ class CollectionUtils{
                 return {labels: labels, order: labels, values: labels.map((d,i)=>({idx: d, label: d, bucket_min: mins[i], bucket_max: max[i]}))}
             },
             "currency": (field)=>{
-                const brackets = [0,100000,500000,1000000,5000000,15000000,50000000,100000000,200000000,500000000,1000000000]
+                const brackets = [0,100000,500000,1000000,5000000,15000000,50000000,100000000,200000000,500000000,1000000000,10000000000,100000000000]
                 const labels = brackets.map((d,i,a)=>`${roundCurrency(i > 0 ? a[i-1] : 0)} - ${roundCurrency(d)}`)
 
                 const mins = brackets.map((d,i,a)=>i === 0 ? 0 : a[i-1])
@@ -414,8 +425,10 @@ class CollectionUtils{
                         let item = d
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
                         if( !item ){return undefined}
-                        const hits = option.map.filter(d2=>d.parentPrimitiveIds.includes(d2[0]))
-                        return hits.map(d=>d[1]).filter((d,i,a)=>a.indexOf(d)===i)[0]
+                        //const hits = option.values.filter(d2=>d.parentPrimitiveIds.includes(d2[0]))
+                        //return hits.map(d=>d[1]).filter((d,i,a)=>a.indexOf(d)===i)[0]
+                        let out = option.values.filter(d2=>d.parentPrimitiveIds.filter(d3=>d2.map.includes(d3)).length > 0).map(d2=>d2.idx)?.[0]
+                        return out ?? "_N_"
                     }
                 }else if( option.type === "parameter"){
                     if( option.parameterType === "options"){
@@ -445,6 +458,7 @@ class CollectionUtils{
                             value = parseFloat(value)
                         }
                         if( option.parameterType === "boolean"){
+                            return (value === undefined || value === false) ? value : true
                         }
                         return value
                     }
@@ -610,7 +624,7 @@ class CollectionUtils{
         return {type: "none", filter: []}
 
     }
-    static async setPrimitiveAxis(primitive, item, axisName){
+    static async setPrimitiveAxis(primitive, item, axisName, extents){
         let target
         if( axisName === "column" || axisName === "row"){
             target =`referenceParameters.explore.axis.${axisName}`
@@ -626,31 +640,25 @@ class CollectionUtils{
             primitive.setField(target, null)
             return
         }else if( item.type === "category"){
-            if( primitive.referenceParameters ){
-                primitive.setField(target, fullState)
-                let toRemove = primitive.primitives.axis[axisName].allItems.filter(d=>d.id)
-                let already = false
+            primitive.setField(target, fullState)
+            let toRemove = primitive.primitives.axis[axisName].allItems.filter(d=>d.id)
+            let already = false
 
-                if( toRemove.find(d=>d.id === item.category.id)){
-                    already = true
-                    toRemove = toRemove.filter(d=>d.id !== item.category.id)
-                }
-                
-                for(const old of toRemove){
-                    await primitive.removeRelationship( old, `axis.${axisName}`)
-                }
-                if( !already ){
-                    await primitive.addRelationship( item.category, `axis.${axisName}`)
-                }
+            if( toRemove.find(d=>d.id === item.category.id)){
+                already = true
+                toRemove = toRemove.filter(d=>d.id !== item.category.id)
+            }
+            
+            for(const old of toRemove){
+                await primitive.removeRelationship( old, `axis.${axisName}`)
+            }
+            if( !already ){
+                await primitive.addRelationship( item.category, `axis.${axisName}`)
             }
         }else if( item.type === "question"){
-            if( primitive.referenceParameters ){
-                fullState.subtype = item.subtype
-            }
+            fullState.subtype = item.subtype
         }else if( item.type === "parameter"){
-            if( primitive.referenceParameters ){
-                fullState.parameter = item.parameter
-            }
+            fullState.parameter = item.parameter
         }
         primitive.setField(target, fullState)
     

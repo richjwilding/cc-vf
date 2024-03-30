@@ -1663,32 +1663,26 @@ function MainStore (prims){
                                         }
                                     }
                                 }else if( filter.type === "parameter"){
-                                    //if( filter.value !== undefined){
-                                        if( Array.isArray(filter.value)){
+                                    let values = [filter.value].flat()
+                                    let isRange = values?.[0]?.min_value !== undefined || values?.[0]?.max_value !== undefined
+                                    if( !isRange){
+                                        thisSet = (thisSet || list).filter(d=>{
+                                            let r = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param]
+                                            if( r === null){
+                                                r = undefined
+                                            }
+                                            return invert ^ values.includes(r)
+                                        })
+                                    }else{
                                             thisSet = (thisSet || list).filter(d=>{
-                                                let r = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param]
-                                                if( r === null){
-                                                    r = undefined
+                                                const toCheck = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.map(d=>d.referenceParameters?.[filter.param]).filter(d=>d)
+                                                if( toCheck.length === 0){
+                                                    return false
                                                 }
-                                                return invert ^ filter.value.includes(r)
+                                                return invert ^ toCheck.reduce((r,v)=>{
+                                                    return r || values.reduce((a,c)=>a || (v >= (c.min_value ?? -Infinity) && v <= (c.max_value ?? Infinity)), false)
+                                                }, false)
                                             })
-                                        }else{
-                                            thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] == filter.value)
-                                        }
-                                    //}
-                                    if( filter.min_value !== undefined && filter.max_value !== undefined){
-                                            thisSet = (thisSet || list).filter(d=>{
-                                                const value = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] ?? 0
-                                                return invert ^ (value >= filter.min_value && value <= filter.max_value)
-                                            })
-                                    }
-                                    else{
-                                        if( filter.min_value !== undefined ){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ ((d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] ?? 0) >= filter.min_value))
-                                        }
-                                        if( filter.max_value !== undefined ){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ ((d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param] ?? 0) <= filter.max_value))
-                                        }
                                     }
                                 }
                             }
@@ -1749,8 +1743,8 @@ function MainStore (prims){
                         return receiver.itemsForProcessingWithOptions()
                     }
                     if( prop === "itemsForProcessingWithFilter"){
-                        return (f)=>{
-                            let items = receiver.itemsForProcessingWithOptions()
+                        return (f,o)=>{
+                            let items = receiver.itemsForProcessingWithOptions(undefined, o)
                             if( f && f.length > 0){ 
                                 return receiver.filterItems( items, f)
                             }else{
