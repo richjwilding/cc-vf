@@ -490,7 +490,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                         </div>
                         <Panel collapsable open={false}>
                             <div className="w-full flex-col text-xs my-2 space-y-1">
-                                <PrimitiveCard.Parameters primitive={d} editing leftAlign compactList className="text-xs text-slate-500" fullList />
+                                <PrimitiveCard.Parameters primitive={d} editing leftAlign inline compactList className="text-xs text-slate-500" fullList />
                             </div>
                             <span className="text-gray-400 text-xs">#{d.plainId}  {d.metadata.title ?? "Search"}</span>
                         </Panel>

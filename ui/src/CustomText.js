@@ -5,7 +5,6 @@ import { Util } from "konva/lib/Util";
 import { getBooleanValidator, getNumberOrAutoValidator, getNumberValidator, getStringValidator } from "konva/lib/Validators";
 import { Text } from "konva/lib/shapes/Text";
 
-
 var AUTO = 'auto',
   //CANVAS = 'canvas',
   CENTER = 'center',
@@ -57,9 +56,6 @@ class CustomText extends Text {
         return
     }
 
-    if( !this._cachedHeight ){
-      this._cachedHeight = this.height()
-   }
     let w = this.attrs.width//this.width()
     let h = this._cachedHeight
 
@@ -89,6 +85,7 @@ class CustomText extends Text {
       this.attrs.bgFill = this.attrs.bgFill || "white"
 
 
+      this.lastScale = 1
     this.uWidth = this.pcache.width
     this.uHeight = this.pcache.height
 
@@ -99,6 +96,7 @@ class CustomText extends Text {
     this.pcache._canvas_context.font = this.fontCache
     this.pcache._canvas_context.textBaseline = MIDDLE
     this.pcache._canvas_context.textAlign = LEFT
+
   }
 
 
@@ -138,12 +136,17 @@ class CustomText extends Text {
       }
   }
 
+  
   refreshCache(){
     const isFirst = !this.pcache
     if( isFirst ){
         this._buildPrivateCache()
     }
     if(this.pcache){
+        if((this.newScale ?? this.lastScale) === this.lastRenderScale)
+        {
+          return
+        }
         const ctx = this.pcache._canvas_context
         if( this.newScale){
             const rw = this.attrs.width//this.getWidth()
@@ -151,7 +154,7 @@ class CustomText extends Text {
             const w = this.newScale * rw
             const h = this.newScale * rh
             if( w > 0 && h > 0){
-                let doResize = w > this.pcache.width || h > this.pcache.height
+                let doResize = true // w > this.pcache.width || h > this.pcache.height
                 if( doResize ){
                     this.pcache.width = w//setSize( w, h)
                     this.pcache.height = h
@@ -175,6 +178,7 @@ class CustomText extends Text {
             }
         }
         this.renderText(  )
+        this.lastRenderScale = this.lastScale
         this.refreshRequested = false
         if( isFirst ){
             this.requestRefresh()
@@ -199,6 +203,7 @@ class CustomText extends Text {
     this.scaleRatio = 1
     this.rescaleMax = 1.5
     this.rescaleMin = 0.5
+    this._cachedHeight = this.height()
   }
 
   requestRefresh(){
@@ -227,10 +232,15 @@ class CustomText extends Text {
     let w = this.attrs.width//this.width()
     let h = this._cachedHeight
     let fh = this.attrs.fontSize
-    if( !this.pcache){
+
+    let ph = !this.pcache
+    const tooSmall = fh * scale < 6
+
+    if( ph && !tooSmall){
         this.requestRefresh()
     }
-    if( !this.pcache || fh * scale < 6){
+    if( ph || tooSmall){
+
         let showLines = fh * scale > 2.5
         let ctx = context
         if( showLines){
@@ -248,7 +258,7 @@ class CustomText extends Text {
         }
     }else{
         if( this.pcache.width > 0 && this.pcache.height > 0){
-            const ratio = (scale / (this.lastScale ?? 1)) 
+            const ratio = (scale / (this.lastScale )) 
             if( ratio < this.rescaleMin || ratio > this.rescaleMax){
                 this.newScale = scale
                 this.requestRefresh()

@@ -777,7 +777,7 @@ export async function fetchCompanyProfileFromLinkedIn( primitive ){
         const query = new URLSearchParams({ 
             "resolve_numeric_id":false,
             "categories": "exclude",
-            "funding_data": "exclude",
+            "funding_data": "include",
             "extra":"exclude",
             "exit_data":"exclude",
             "acquisitions":"exclude",
@@ -815,6 +815,7 @@ export async function fetchCompanyProfileFromLinkedIn( primitive ){
                 locations: data.locations,
                 industry: data.industry,
                 updates: data.updates,
+                funding_data:data.funding_data,
                 tagline: data.tagline
             }
             primitive.set("linkedInData", linkedInData)

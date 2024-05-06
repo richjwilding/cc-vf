@@ -11,7 +11,7 @@ import { buildEmbeddingsForPrimitives, decodeBase64ImageToStorage, extractURLsFr
 import { SIO } from './socket';
 import EnrichPrimitive from './enrich_queue';
 import QueueAI from './ai_queue';
-import QueueDocument, { mergeDataQueryResult } from './document_queue';
+import QueueDocument, { extractEvidenceFromFragmentSearch, mergeDataQueryResult } from './document_queue';
 //import silhouetteScore from '@robzzson/silhouette';
 import { localeData } from 'moment';
 import Parser from '@postlight/parser';
@@ -310,21 +310,10 @@ export async function fetchPrimitive(id){
     return (await fetchPrimitives(id))?.[0]
 }
 
-export async function primitivePrimitives(primitive, path, types){
+export async function primitivePrimitives(primitive, path, types, deleted = false){
     if( path.slice(0, 11 ) != "primitives."){
         path = "primitives." + path
     }
-    
-    /*let list = await Primitive.find({
-        $and:[
-            {
-                [`parentPrimitives.${primitive._id.toString()}`]: {$in: [path]}
-            },
-            { deleted: {$exists: false}}
-        ]
-    })
-
-    const idCheck = list.map(d=>d.id).sort().join("-")*/
     let node = primitive
     let notPresent = false
     for( const hop of path.split(".") ){
@@ -341,17 +330,8 @@ export async function primitivePrimitives(primitive, path, types){
     let list = await Primitive.find({
         $and:[
             {_id: {$in: node}},
-            { deleted: {$exists: false}}
+            { deleted: {$exists: deleted}}
         ]}) ?? []
-
-    /*const thisIds = node.sort().join("")
-    if(thisIds === idCheck ){
-        console.log(`**** IDS ARE THE SAME`)
-    }else{
-        console.log(`---- IDS ARE MISMATCH`)
-
-    }*/
-
 
     if( types ){
         const a = [types].flat()
@@ -701,12 +681,20 @@ async function filterItems(list, filters){
             let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
             
             let idx = 0
-            for(const d of setToCheck){
-               // if( invert ^ Object.keys(lookups[idx]?.[0]?.parentPrimitives ?? {}).filter(d=>hitList.includes(d)).length > 0){
-                if (invert ^ lookups[idx].some(item => Object.keys(item?.parentPrimitives ?? {}).some(key => hitList.includes(key)))) {
-                    temp.push( d )
+            if( filter.sourcePrimId){
+                for(const d of setToCheck){
+                    if (invert ^ lookups[idx].some(item => Object.keys(item?.parentPrimitives ?? {}).some(key => hitList.includes(key)))) {
+                        temp.push( d )
+                    }
+                    idx++
                 }
-                idx++
+            }else{
+                for(const d of setToCheck){
+                    if (invert ^ lookups[idx].some(item => hitList.includes(item.id))) {
+                        temp.push( d )
+                    }
+                    idx++
+                }
             }
             thisSet = temp
         }
@@ -1488,21 +1476,60 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
             }
             if( actionKey === "auto_summarize"){
-                summary = await summarizeMultiple( toProcess, {...config, focus: options.focus, debug: true, debug_content:true})
-                if( summary && summary.summary ){
-                    let result = summary.summary
+                let result
+                if( primitive.referenceParameters?.content?.group){
+                    const major = (await primitiveChildren( source, "category"))?.[0]
+                    if( major ){
+                        console.log(`Got major category = ${major.title}`)
+                        const segments = await primitiveChildren(major, "category")
+                        for( const segment of segments){
+                            const idxList = items.map((d,i)=>Object.keys(d.parentPrimitives).includes(segment.id) ? i : undefined).filter(d=>d)
+                            const set = idxList.map(d=>toProcess[d])
+                            console.log(`-- ${segment.title} : ${idxList.length} of ${items.length}`)
+                            if( set.length > 0){
+                                summary = await summarizeMultiple( set, {...config, focus: segment.title, debug: true, debug_content:true})
+                                if( summary && summary.summary ){
+                                    let part = summary.summary
+                                    part = part.replace(/\\n/g, '\n');
+                                    part = part.replace(/\n+/g, '\n');
+                                    part = part.replace(/^\s*\d+\)?\.?\s*/gm, '');
 
-                    result = result.replace(/\\n/g, '\n');
-                    result = result.replace(/\n+/g, '\n');
-                    result = result.replace(/^\s*\d+\)?\.?\s*/gm, '');
-                    if( primitive.referenceParameters?.asList ?? options.asList ){
+                                    result ||= ""
+                                    result += `${segment.title}\n${part}\n\n`
+                                }
+                            }
 
-                    }else{
-                        result = result.trim().replace(/\n/g, '\n\n');                 
+                        }
                     }
+                    if(result){
+                        const streamline = await processPromptOnText(result,{
+                            opener: "here is a summary i had an AI produce, i like the headline but some of the content is repetitive.",
+                            prompt: "Produce a new coherent summary with each section being a similar length to the original but remove any duplication from the sections - ensuring content is aligned only to the most relevant section. Keep the original headlines and ensuring no nuance is lost",
+                            output: "Provid the output as a json object with a field called 'results' containing the new sumamry as a string with suitable linebreaks to deliniate sections",
+                            engine: "gpt4p",
+                            debug: true,
+                            debug_content:true
+                        })
+                        if( streamline && streamline.output){
+                            result = streamline.output?.[0]
+                        }
+                    }
+                }else{
+                    summary = await summarizeMultiple( toProcess, {...config, focus: options.focus, debug: true, debug_content:true})
+                    if( summary && summary.summary ){
+                        result = summary.summary
 
-                    return result
+                        result = result.replace(/\\n/g, '\n');
+                        result = result.replace(/\n+/g, '\n');
+                        result = result.replace(/^\s*\d+\)?\.?\s*/gm, '');
+                        if( primitive.referenceParameters?.asList ?? options.asList ){
+
+                        }else{
+                            result = result.trim().replace(/\n/g, '\n\n');                 
+                        }
+                    }
                 }
+                return result
             }
         }
         return undefined
@@ -1726,8 +1753,14 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 const context = action.useContext ? (await buildContext(primitive, category)) : action.context_fields?.map(d=>convertParam(category, primitive, d)).filter(d=>d).join("\n")
                 const resultSet = category.resultCategories?.find((d2)=>d2.resultCategoryId == action.resultCategoryId)?.id
 
-                if( !category || !resultCategory || resultSet === undefined){
-                    throw `Generate is missing details ${category !== undefined} ${resultCategory !== undefined} ${resultSet !== undefined}`
+                if( !category || (action.updateSelf !== true && !resultCategory) || (action.updateSelf !== true && resultSet === undefined)){
+                    if( action.test ){
+                        console.log(`Action would fail....`)
+                        console.log( `Generate is missing details ${category !== undefined} ${resultCategory !== undefined} ${resultSet !== undefined}`)
+
+                    }else{
+                        throw `Generate is missing details ${category === undefined} ${resultCategory === undefined} ${action.updateSelf !== true}  ${resultSet === undefined}`
+                    }
                 }
 
                 let info = ""
@@ -1735,7 +1768,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 let id_map = {}
                 for(const d of action.inputs){
                     const inputCategory = await Category.findOne({id: d.referenceId})
-                    const resultSet = category.resultCategories.find((d2)=>d2.resultCategoryId == d.referenceId)?.id
+                    //const resultSet = category.resultCategories.find((d2)=>d2.resultCategoryId == d.referenceId)?.id
 
                     id_map[d.plural] = []
                     const [items, _] = await getDataForProcessing( primitive, {target: d.target ?? "all_descend", referenceId: d.referenceId, action_override: true})
@@ -1765,7 +1798,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
                 let process = action.generator
-                if( context.length >0 && info.length >0 && process){
+                if(  process){
 
 
                     const trackFields = active_fields.map(d=>`a '${d}_ids' field containing an array listing the numerical ids of all ${d}s factored into this item`)
@@ -1774,28 +1807,78 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     let field_list = active_fields.length > 0 ? active_fields.join(", ") + `, and ${lastField}` : lastField
 
                     process = process.replaceAll('{title}', primitive.title)
-                    process = process.replaceAll('{context}', context)
-                    process = process.replaceAll('{information}', info)
+                    if( context?.length > 0){
+                        process = process.replaceAll('{context}', context)
+                    }
+                    if( info?.length > 0){
+                        process = process.replaceAll('{information}', info)
+                    }
+                    if( primitive.referenceParameters?.focus?.length > 0){
+                        process = process.replaceAll('{focus}', primitive.referenceParameters?.focus)
+                    }
                     process = process.replaceAll('{field_list}', field_list)
 
                     
                     let outputFields = Object.keys(action.resultFields).map(d=>`a '${d}' field containing ${action.resultFields[d].prompt}`)
                     console.log(process)
                     console.log(outputFields)
-                    
-                    
-                    const result = await processAsSingleChunk( process, {
-                        outputFields: outputFields.concat(trackFields),
-                        debug:true
-                    } )
-                    if( result.success){
+
+                    let preprocess
+                    let result
+                    if(action.preGenerator ){
+                        let preProcess = action.preGenerator
+                        if( context?.length > 0){
+                            preProcess = preProcess.replaceAll('{context}', context)
+                        }
+                        let preFields = Object.keys(action.preFields).map(d=>`a '${d}' field containing ${action.preFields[d].prompt}`)
+                        const preResult = await processAsSingleChunk( preProcess, {
+                            outputFields: preFields,
+                            debug:true
+                        } )
+                        if( !preResult.success){
+                            console.log(preResult)
+                            throw `Couldnt do pre-process`
+                        }
+                        preprocess = preResult.results.map((d,i)=>`Stage ${i+1}. ${d.title}: ${d.description}`).join("\n") + "\n\n"
+                        console.log(preprocess)
+                        
+                        result = {
+                            success: true,
+                            results: []
+                        }
+
+                        for(const thisStage of preResult.results){
+                            if( result.results.length > 0){continue}
+                            const thisProcess = process.replaceAll('{preprocess}', `${thisStage.title} - ${thisStage.description}`)
+                            const thisResult = await processAsSingleChunk( thisProcess, {
+                                outputFields: outputFields.concat(trackFields),
+                                output:  `Provide the result as a json object with an array called results${action.resultPrefix ? " " + action.resultPrefix : ""}.`, 
+                                debug:true
+                            } )
+                            if( thisResult.success ){
+                                console.log(thisResult.results[0])
+                                result.results = result.results.concat( thisResult.success )
+                            }
+                        }
+                    }else{
+                        result = await processAsSingleChunk( process, {
+                            outputFields: outputFields.concat(trackFields),
+                            output:  `Provide the result as a json object with an array called results${action.resultPrefix ? " " + action.resultPrefix : ""}.`, 
+                            debug:true
+                        } )
+                    }
+                    if( action.test ){
+                        console.log(result?.results)
+                        throw "Test done"
+                    }
+                    if( result?.success){
                         for(const d of result.results){
                             console.log(d)
                             const newData = {
                                 referenceParameters:{}, 
                                 referenceId: action.resultCategoryId,
-                                type: resultCategory.primitiveType,
-                                title: `New ${category.title}`
+                                type: resultCategory?.primitiveType,
+                                title: `New ${resultCategory?.title}`
                             }
 
                             let primsToLink = []
@@ -1854,34 +1937,41 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                 }
                             }
 
-                            
-                            const newPrim = await createPrimitive({
-                                workspaceId: primitive.workspaceId,
-                                paths:['origin', `results.${resultSet}`],
-                                parent: primitive.id,
-                                data: newData
-                            })
-                            if( newPrim ){
+                            let newPrim
+                            if( action.updateSelf ){
+                                console.log(`will do update now`)
+                                console.log( newData)
+                                await dispatchControlUpdate(primitive.id, "referenceParameters", {...(primitive.referenceParameters ?? {}), ...newData.referenceParameters})
+                            }else{
 
-                                for( const d of primsToLink){
-                                    if( d ){
-                                        await addRelationship(d, newPrim.id, "link")
-                                    }
-                                }
-                                for(const d of nestObjects){
-                                    const resultSet = 0
-                                    console.log(`SHOULD CHECK NEST POSITION`)
-                                    await createPrimitive({
-                                        workspaceId: primitive.workspaceId,
-                                        paths:['origin', `results.${resultSet}`],
-                                        parent: newPrim.id,
-                                        data: {
-                                            type: "evidence",
-                                            referenceId: d.resultCategoryId,
-                                            title: d.title
-                                        }
-                                    })
+                                const newPrim = await createPrimitive({
+                                    workspaceId: primitive.workspaceId,
+                                    paths:['origin', `results.${resultSet}`],
+                                    parent: primitive.id,
+                                    data: newData
+                                })
+                                if( newPrim ){
                                     
+                                    for( const d of primsToLink){
+                                        if( d ){
+                                            await addRelationship(d, newPrim.id, "link")
+                                        }
+                                    }
+                                    for(const d of nestObjects){
+                                        const resultSet = 0
+                                        console.log(`SHOULD CHECK NEST POSITION`)
+                                        await createPrimitive({
+                                            workspaceId: primitive.workspaceId,
+                                            paths:['origin', `results.${resultSet}`],
+                                            parent: newPrim.id,
+                                            data: {
+                                                type: "evidence",
+                                                referenceId: d.resultCategoryId,
+                                                title: d.title
+                                            }
+                                        })
+                                        
+                                    }
                                 }
                             }
                         }
@@ -2219,6 +2309,10 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             if( command === "custom_query"){
                 await QueueDocument().doDataQuery( primitive, {...action, ...options})
+            }
+            if( command === "evidence_from_query"){
+                //await QueueDocument().extractEvidenceFromFragmentSearch( primitive, {...action, ...options})
+                await extractEvidenceFromFragmentSearch( primitive, {...action, ...options})
             }
             if( primitive.type === "result" ){
                 if( command === "questions"){
@@ -3300,6 +3394,23 @@ export async function filterEntitiesByTopics( list, topics, key = "description")
 export async function buildContext(primitive, category){
     category = category ?? await Category.findOne({id: primitive.referenceId})
     if( !category || !category.ai?.process?.context){
+        if( primitive.type === "evidence"){
+            if( primitive.referenceParameters?.quote){
+                return `${category.title}: ${receiver.title}\nQuote:"${primitive.referenceParameters?.quote.replaceAll(/\n/g,". ")}"`
+            }
+            const origin = await primitiveOriginAtLevel( primitive, 1 )
+            if( origin.referenceId === PrimitiveConfig.Constants.QUERY_RESULT ){                                
+                const parts = [
+                    origin.referenceParameters?.description ? `Context:${origin.referenceParameters?.description.replaceAll(/\n/g,". ")}` : undefined, 
+                    origin.referenceParameters?.quote ? `Quote:${origin.referenceParameters?.quote.replaceAll(/\n/g,". ")}` : undefined
+                ].filter(d=>d)
+                if( parts.length > 0){
+                    return `${category.title}: ${primitive.title}\n${parts.join("\n")}`
+                }
+            }
+            return primitive.title
+
+        }
         return undefined
     }
 
@@ -3308,15 +3419,20 @@ export async function buildContext(primitive, category){
         const source = category.ai?.process?.context.fields[d]
         if( source instanceof Object){
             let header = source.title
-            const [children] = await getDataForAction( primitive, {referenceId: source.referenceId, target: "children", field: "title"})
+            const [children, content] = await getDataForProcessing( primitive, {referenceId: source.referenceId, target: source.target ?? "children", field: source.field ?? "title"})
+            const showCount = children.length > 1
             if( children && children.length > 0){
-                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>`${source.prefix ?? ""}${i} ${d.title}`).join("\n")
+                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>`${source.prefix ?? ""}${showCount ? i : ""} ${content[i] ?? d.title}`).join("\n")
             }
 
         }else{
-            if( primitive.referenceParameters?.[d] ){
-                let header = source
-                out += header?.length > 0 ? `${header}: ${primitive.referenceParameters[d]}\n` : `${primitive.referenceParameters[d]}\n`
+            if( d === "title"){
+                out += source?.length > 0 ? `${source}: ${primitive.title}\n` : `${primitive.title}\n`
+            }else{
+                if( primitive.referenceParameters?.[d] ){
+                    let header = source
+                    out += header?.length > 0 ? `${header}: ${primitive.referenceParameters[d]}\n` : `${primitive.referenceParameters[d]}\n`
+                }
             }
         }
     }
@@ -3376,4 +3492,85 @@ export function decodePath(node, path){
         }
     }
     return node[last]
+}
+export async function recoverPrimitive( id, level = 0 ){
+    const primitive = await Primitive.findOne({_id: id})    
+
+    
+    if( primitive ){
+        console.log(`Restore ${primitive.id} / ${primitive.plainId}`)
+
+        const prim = await Primitive.findOneAndUpdate(
+            {
+                    "_id": new ObjectId(id),
+            }, 
+            {
+                $unset: { deleted: "" },
+            },
+            {new: true})
+        if( !prim ){
+            throw "Recover failed - stopping"
+        }
+            
+        if( level === 0){
+            for(const parent of Object.keys( primitive.parentPrimitives ?? {})){
+                for( const path of primitive.parentPrimitives[parent]){
+                    console.log(`Will restore node to ${parent} at ${path}`)
+                    await addRelationship( parent, id, path )
+                }
+            }
+        }
+
+        const children = await primitivePrimitives(primitive, 'primitives.origin', undefined, true)
+
+        console.log(`got ${children.length} to recover`)
+        for(const child of children){
+            console.log(`${"-".repeat(level + 1)} Recover child ${child.id}`)
+            await recoverPrimitive(child.id, level + 1)
+            await addRelationship( id, child.id, "origin" )
+        }
+
+        for(const rel of ["auto","ref","link"]){
+            const items = await primitivePrimitives(primitive, `primitives.${rel}`, undefined, false)
+            console.log(`For ${rel} for ${items.length}`)
+            for(const d of items){
+                console.log(`${"-".repeat(level + 1)} Will restore '${rel}' to ${d.id}`)
+                await addRelationship( id, d.id, rel )
+            }
+        }
+        
+    }
+}
+export async function doPurge(count ){
+    const targets = await Primitive.find({
+        deleted: true,
+    },{_id:1,plainId:1}).limit(count ?? 10)
+    console.log(`Got ${targets.length} items `)
+
+    for(const d of targets){
+        console.log('Remove from buckets')
+        let count = (await removeDocument( d.id))
+        count += (await removeDocument( d.id + "-background", "cc_vf_images"))
+        console.log(` -- removed ${count}`)
+        
+        {
+
+          const result = await Embedding.deleteMany({
+              foreignId: d.id,
+            })
+            console.log(`Deleted ${result.deletedCount} embeddings to remove for ${d.plainId}`)
+        }
+        {
+            const result = await ContentEmbedding.deleteMany({
+                foreignId: d.id,
+            })
+            console.log(`Deleted ${result.deletedCount} content embeddings to remove for ${d.plainId}`)
+        }
+        const result = await Primitive.deleteMany({
+            deleted: true,
+            _id: d.id})
+        console.log(`Deleted ${result.deletedCount} primitives ${d.plainId}`)
+    }
+
+
 }

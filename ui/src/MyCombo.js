@@ -89,7 +89,12 @@ export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
       {props.label && <Combobox.Label className="block text-sm font-medium leading-6 text-gray-900">{props.label}</Combobox.Label>}
       <div className="relative w-full">
         <Combobox.Input
-          className="w-full rounded-md border-0 bg-white py-1.5 pl-3 pr-10 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+          className={
+            [
+              props.small ? "text-xs leading-6 pl-2" : "py-1.5 pl-3 sm:text-sm sm:leading-6" ,
+              "w-full rounded-md border-0 bg-white pr-10 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600"
+            ].join(" ")
+          }
           onChange={(event) => setQuery(event.target.value)}
           displayValue={(item) => Array.isArray(item) ?  `${props.prefix || ""}${item.length} items` : props.items ? `${props.prefix || ""}${props.items.find((d)=>d?.id === item)?.title ?? "Select..."}` : ""}
         />

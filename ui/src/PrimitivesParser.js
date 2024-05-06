@@ -411,8 +411,12 @@ export default function PrimitiveParser(obj){
                             //const childrenIds = origin_only ? receiver.origin.uniqueAllIds : receiver.uniqueAllIds
                             let childrenIds 
                             if( origin_only ){
-                                if( target.origin ){
+                                if( target.origin && target.auto){
+                                    childrenIds = uniqueArray([Object.values(target.origin ), Object.values(target.auto)].flat(Infinity))
+                                }else if( target.origin){
                                     childrenIds = Object.values(target.origin ) 
+                                }else if( target.auto){
+                                    childrenIds = Object.values(target.auto ) 
                                 }else{
                                     if( first ){
                                         return []

@@ -363,8 +363,9 @@ export async function extractPlainTextFromPdf(id, req, inline){
     })
 }
 export async function removeDocument(id, bucket ){
-    const buckets = bucket ? [bucket] : ['cc_vf_documents', 'cc_vf_document_plaintext'];
+    const buckets = bucket ? [bucket] : ['cc_vf_documents', 'cc_vf_document_plaintext', 'cc_vf_images', 'published_images'];
     const storage = new Storage({projectId: process.env.GOOGLE_PROJECT_ID})
+    let removed = 0
     try{
         for( const bucketName of buckets){
             console.log(`removing document from ${bucketName}`)
@@ -372,8 +373,14 @@ export async function removeDocument(id, bucket ){
             if( bucket ){
                 const file = bucket.file(id);
                 if( file ){
-                    await file.delete({ignoreNotFound: true})
-                    console.log(`deleted`)
+                    /*await file.delete({ignoreNotFound: true})
+                    removed++
+                    console.log(`deleted`)*/
+                    const [response] = await file.delete({ignoreNotFound: true});
+                    if (response && response.statusCode === 204) {  // Status code 204 means 'No Content', which indicates successful deletion
+                        removed++;
+                        console.log('Deleted ', removed);
+                    }
                 }
             }
         }
@@ -381,6 +388,7 @@ export async function removeDocument(id, bucket ){
         console.log(error)
         return undefined
     }
+    return removed
 }
 
 export async function getDocument(id, req){
@@ -919,7 +927,7 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
 
         const params = { 
             "api_key": process.env.SCALESERP_KEY,
-            time_period: "last_month",
+            time_period: options.timeFrame ?? "last_year",
             page: page,
             "gl": options.country ?? "us",
             "q": query,

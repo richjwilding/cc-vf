@@ -16,7 +16,7 @@ export default function EditableResourceField ({...props}){
     const field = React.useRef()
 
     let cancelled = false
-    const stopEdit = ()=>props.stopEditing(field?.current) || (()=>setEditing(false))
+    const stopEdit = (()=>setEditing(false))
 
     const blur = (e)=>{
         if( e.target.contains(e.relatedTarget)){
@@ -32,7 +32,11 @@ export default function EditableResourceField ({...props}){
         }
     }
     const submit = ()=>{
-        props.onSelect( value ? {type: "google_drive", id: value.id} : undefined)
+        if( props.value?.id === value?.id ){
+            console.log('no change')
+        }else{
+            props.onSelect( value ? {type: "google_drive", id: value.id} : undefined)
+        }
     }
     const mainKeyHandler = (e)=>{
         if(!editing ){
@@ -87,7 +91,7 @@ export default function EditableResourceField ({...props}){
             setEditing(localEditing)
         }
         if( localEditing ){
-            field.current.focus()
+       //     field.current.focus()
         }
     }, [props.editing, editing])
 

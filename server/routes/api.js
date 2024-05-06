@@ -9,7 +9,7 @@ import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { buildEmbeddingsForPrimitives, getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
-import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive} from '../SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive, recoverPrimitive, doPurge} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
 import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
@@ -269,6 +269,28 @@ router.get('/categories', async function(req, res, next) {
         }
 
     })*/
+    router.get('/purge/:count', async function(req, res, next) {
+        try {
+            const count = req.params.count
+            await doPurge(count)
+            res.json({success: true})
+        }catch(err){
+            console.log(err)
+            res.json({error: err})
+
+        }
+    })
+    router.get('/primitive/:id/recover', async function(req, res, next) {
+        const primitiveId = req.params.id
+        try {
+            await recoverPrimitive(primitiveId)
+            res.json({success: true})
+        }catch(err){
+            console.log(err)
+            res.json({error: err})
+
+        }
+    })
     router.post('/primitive/:id/getDistances', async function(req, res, next) {
     const primitiveId = req.params.id
     const field = 'param.offerings'

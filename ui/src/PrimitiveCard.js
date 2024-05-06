@@ -68,7 +68,7 @@ let mainstore = MainStore()
           <dd className="text-gray-500 font-medium self-center">{thisVal ? "Yes" : "No"}</dd>
         )
       }else if( item.type === "list"){
-        const align = (props.leftAlign || item.type === "long_string") ? "" : "text-end"
+        const align = ""
         const clamp = item.type === "long_string" && !props.disableClamp ? "line-clamp-[10]" : ""
         return <EditableTextField
           {...props} 
@@ -150,7 +150,7 @@ let mainstore = MainStore()
         }
         
         for( const cat of available){
-          if( ["entity","evidence","result","category","query","activity"].includes(cat.primitiveType) ){
+          if( ["entity","evidence","result","category","query","activity","marketsegment"].includes(cat.primitiveType) ){
             list.push({title: cat.title, categoryId: cat.id, category: cat})
           }
         }                
@@ -432,7 +432,7 @@ let mainstore = MainStore()
         return <EditableResourceField
                 {...props} 
                 onSelect={(value)=>{
-                //    return props.primitive.setParameter(item.key, value ? value : null)
+                    return props.primitive.setParameter(item.key, value ? value : null)
                 }}
                   value = {item.value}
             />
@@ -487,11 +487,11 @@ let mainstore = MainStore()
         const thickness = item.type === "scale" ? 4 : 6
         const perc = parseInt(item.value) / 9
         const array = length * (1 - perc)
-        const color = item.color || ["#f472b6","#f87171","#fbbf24","#22d3ee","#4ade80"][Math.floor(perc * 5)]
+        const color = item.color || (["#f472b6","#f87171","#fbbf24","#22d3ee","#4ade80"][Math.floor(perc * 5)] ?? "#4ade80")
           return <div className='ml-auto relative'>
               <svg className={size}>
-                <circle cx='50%' cy='50%' r='40%' fill='none' stroke='#dedede' strokeWidth={thickness}/>
-                <circle className='origin-center	-rotate-90' cx='50%' cy='50%' r='40%' fill='none' stroke={color} strokeWidth={thickness} strokeDashoffset={array} strokeDasharray={length}/>
+                <circle cx='50%' cy='50%' r='40%' fill='none' stroke={perc === 1 ? color : '#dedede'} strokeWidth={thickness}/>
+                {perc < 1 && <circle className='origin-center	-rotate-90' cx='50%' cy='50%' r='40%' fill='none' stroke={color} strokeWidth={thickness} strokeDashoffset={array} strokeDasharray={length}/>}
               </svg>
               {item.type === "scale" && <p className='top-0 left-0 absolute text-center font-sm pt-0.5 w-full' style={{color: color}}>{item.value}</p>}
           </div>
@@ -500,7 +500,8 @@ let mainstore = MainStore()
                   items={item.options.map((d)=>{return {id: d, title: d}})}
                   selectedItem={item.value}
                   multiple={props.primitive?.metadata?.parameters?.[item.key]?.multi}
-                  className='ml-auto'
+                  className={props.leftAlign ? '' : 'ml-auto'}
+                  small={props.inline}
                   setSelectedItem={props.callback
                       ? (d)=>props.callback(d) 
                       : (d)=>{
@@ -1055,7 +1056,7 @@ const Parameters = function({primitive, ...props}){
         {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
         {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
           ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
-          : <RenderItem editing editable primitive={primitive} compact={props.compact} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+          : <RenderItem editing={props.editable ?? true} editable={props.editable ?? true} primitive={primitive} compact={props.compact} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
         }
         {props.inline && (idx < (details.length - 1)) && <p className='pl-1 text-slate-400'>•</p> }
       </div>
@@ -2053,19 +2054,19 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           props.inline ? `flex items-start justify-between space-x-1 w-max` : ``,
           props.fieldsInline ? `flex -ml-1 space-x-1 py-2` : ``, 
           ].join(" ")}>
-            <Parameters primitive={primitive} noEvents={props.noEvents} inline={props.inline || props.fieldsInline} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={fields} showTitles={props.fieldsInline === true} className='!py-1'/>
+            <Parameters primitive={primitive} editable={false} noEvents={props.noEvents} inline={props.inline || props.fieldsInline} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={fields} showTitles={props.fieldsInline === true} className='!py-1'/>
         </div>
       }
       {packedFields &&  (packedFields.length > 0) &&
         <div className='flex space-x-1 py-2'>
-            <Parameters primitive={primitive} noEvents={props.noEvents} inline={true} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={packedFields} showTitles={false} className='!py-1'/>
+            <Parameters primitive={primitive} editable={false} noEvents={props.noEvents} inline={true} compact={true} showAsSecondary={props.showAsSecondary} asMain={true} fields={packedFields} showTitles={false} className='!py-1'/>
             {packedFields.includes('title') && <p className='text-sm my-1' >{primitive.title}</p>}
         </div>
       }
 
         {props.showOriginInfo && 
           <div className='flex items-start space-x-1'>
-            <PrimitiveCard.Parameters primitive={props.origin || primitive.origin} inline={true} showAsSecondary={true} noEvents={props.noEvents}  compact={true} showTitles={false} fields={props.showOriginInfo} />
+            <PrimitiveCard.Parameters editable={false}  primitive={props.origin || primitive.origin} inline={true} showAsSecondary={true} noEvents={props.noEvents}  compact={true} showTitles={false} fields={props.showOriginInfo} />
           </div>}
         {showRelationships && <PrimitiveCard.Relationships primitive={primitive}/>}
           {props.showQuote === true && (primitive.quote || primitive.referenceParameters?.quote) && 

@@ -9,6 +9,7 @@ import CollectionUtils from "./CollectionHelper";
 import { RenderPrimitiveAsKonva, renderMatrix } from "./RenderHelpers";
 import HierarchyNavigator from "./HierarchyNavigator";
 import PrimitiveConfig from "./PrimitiveConfig";
+import FilterPane from "./FilterPane";
 
 export default function BoardViewer({primitive,...props}){
     const mainstore = MainStore()
@@ -170,7 +171,6 @@ export default function BoardViewer({primitive,...props}){
             let tc =Math.max(boardScreenPosition.t, 0)
             let bc =Math.min(boardScreenPosition.b, vSize[1])
             let top = (((bc - tc) / 2) - (menuHeight / 2)) + tc
-            console.log(top)
             if( top < 0){
                 top = offset
             }else if((top + menuHeight) + buffer > vSize[1]){
@@ -249,7 +249,7 @@ export default function BoardViewer({primitive,...props}){
                                 frameMove: (d)=>{
                                     const prim = MainStore().primitive(d.id)
                                     if(prim){
-                                        primitive.setField(`frames.${prim.id}`, {x: d.x, y: d.y})
+                                        primitive.setField(`frames.${prim.id}`, {x: d.x, y: d.y, s: d.s})
                                     }
                                 },
                                 onClick:{
@@ -298,6 +298,10 @@ export default function BoardViewer({primitive,...props}){
                             }}
                             render={boards.map(d=>renderView(d))}
                 />
+            <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
+                <FilterPane/>
+            </div>
+            
     </div>
     </>
 }

@@ -3,15 +3,19 @@ import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import { getDocumentAsPlainText, importDocument, locateQuote, removeDocument } from "./google_helper";
 import Primitive from "./model/Primitive";
-import { addRelationship, createPrimitive, dispatchControlUpdate, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
+import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, getDataForProcessing, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
 import Category from "./model/Category";
 import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
 import Contact from "./model/Contact";
 import ContentEmbedding from "./model/ContentEmbedding";
 import PrimitiveParser from "./PrimitivesParser";
 import { searchPosts } from "./linkedin_helper";
+import { fetchFragmentsForTerm } from "./DocumentSearch";
 
 const parser = PrimitiveParser()
+
+
+export const MAX_QUOTE_TEXT_DISTANCE_THRESHOLD = 0.2
 
 let instance
 
@@ -162,64 +166,26 @@ async function doDataQuery( options ) {
                     console.log(prompts)
                     if( prompts){
                         
-                        const fragments = {}
+                        let fragments = []
                         const threshold_min = primitive.referenceParameters?.thresholdMin ?? 0.85
                         const threshold_seek = primitive.referenceParameters?.thresholdSeek ?? 0.005
                         const searchTerms = primitive.referenceParameters?.candidateCount ?? 1000
                         const scanRatio = primitive.referenceParameters?.scanRatio ?? 0.15
                         const quote = primitive.referenceParameters?.quote ?? true
+                        const targetWords = primitive.referenceParameters?.words ?? "3 paragraphs each of 300-450 words and in a plain string format with appropriately escaped linebreaks"
                         for( const prompt of prompts ){
                             console.log(`Fetching for ${prompt}`)
-                            const emb = await buildEmbeddings( prompt )
-                            if( emb.success ){
-                                let matches = await ContentEmbedding.aggregate([
-                                    {"$vectorSearch": {
-                                        "queryVector": emb.embeddings,
-                                        "path": "embeddings",
-                                        "filter": {$and: serachScope},
-                                        "numCandidates": Math.min(searchTerms * 15, 10000),
-                                        "limit": searchTerms,
-                                        "index": "content_index",
-                                        }
-                                    },
-                                    {
-                                        "$project": {
-                                            "_id": 0,
-                                            "foreignId": 1,
-                                            "text": 1,
-                                            "part": 1,
-                                            "score": { $meta: "vectorSearchScore" }
-                                        }
-                                    }
-                                ])
-                                const totalMatches = matches.length
-                                console.log(`-- got ${totalMatches} matches`)
-
-                                if( totalMatches > 0){
-                                    let threshold = 1
-                                    const targetMatches = totalMatches * scanRatio
-                                    let amount
-                                    do{
-                                        threshold -= threshold_seek
-                                        amount = matches.reduce((a,c)=>a + (c.score > threshold ? 1 : 0),0)
-                                    }while( threshold > threshold_min && amount < targetMatches )
-
-                                    
-                                    matches = matches.filter(d=>d.score > threshold)
-                                    console.log(`-- got ${matches.length} matches`)
-                                    for( const d of matches){
-                                        const id = d.foreignId + "-" + d.part
-                                        fragments[id] = {id: d.foreignId, part: d.part, text: d.text}
-                                    }
-                                }
-                            }
+                            fragments = fragments.concat( await fetchFragmentsForTerm(prompt, {searchTerms, scanRatio, threshold_seek, threshold_min, serachScope}) )
                         }
                         console.log(`have ${Object.keys(fragments).length} fragments`)
+                        fragments = fragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id)===i)
+                        console.log(`have ${Object.keys(fragments).length} fragments`)
+
                         const fragmentList = Object.values( fragments )//.slice(132,270)
 
                         const fragmentText = fragmentList.map(d=>d.text)
                         const outPrompt = [
-                            `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have an 'answered' field indicating if this part contains an answer or if no answer was found, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words`,
+                            `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in ${targetWords}`,
                             quote ? `, a 'quote' field containing up to 50 words of the exact text used from the fragments` : undefined,
                             `, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.`,
                             (extraFields ?? "").length > 0 ? extraFields : undefined
@@ -227,7 +193,7 @@ async function doDataQuery( options ) {
 
                         const results = await processPromptOnText( fragmentText,{
                             opener: `Here is a list of numbered text fragments you can use to answer a question `,
-                            prompt: `Using only the information explcitly provided in the text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer but be concise in your phrasing and the level of detail.`,
+                            prompt: `Using only the information explcitly provided in the text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer.`,
                             //output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words, a 'quote' field containing up to 50 words of the exact text used from the fragments, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.${(extraFields ?? "").length > 0 ? extraFields + ", " : ""}`,
                             output: outPrompt,
                             engine: "gpt4p",
@@ -308,6 +274,26 @@ async function doDataQuery( options ) {
 
                             }else{
                                 final = results.output
+                            }
+                            if( options.consolidate){
+                                const partials = JSON.stringify(final.filter(d=>d.answered).map(d=>({partial: d.answer, ids: d.ids})))
+                                console.log(`Consolidating.....`, partials)
+                                const results = await processPromptOnText(partials ,{
+                                    opener: `Here is a JOSN structure holding partial responses to a question - each partial includes a 'partal' string and a list of ids in 'ids'`,
+                                    prompt: `Consolidate the partial responses based on the questions or topics they are answering to produce an answer to following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer but be concise in your phrasing and the level of detail.`,
+                                    output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was present in the partials, an 'answer' field containing a consolidated and comprehensive answer from those partials focussed on the same topic in ${targetWords}, an 'overview' field providing a 30-40 word summary of your consolidated answer, and an 'ids' field containing a consolidated list of ids from the partials used to form the consolidated answer`,
+                                    engine: "gpt4p",
+                                    no_num: false,
+                                    maxTokens: 60000,
+                                    temperature: 1,
+                                    markPass: true,
+                                    idField: "ids",
+                                    debug: true,
+                                //  debug_content: true,
+                                    field: "answer"
+                                })
+                                final = results.output?.filter(d=>d.answered)
+
                             }
 
                             for( const d of final){
@@ -936,11 +922,195 @@ export default function QueueDocument(){
     },
     {
         connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT },
-        settings: {
-                maxStalledCount: 0,
-                removeOnFail: true,
-                stalledInterval:300000
-        }
+        maxStalledCount: 0,
+        removeOnFail: true,
+        stalledInterval:300000
     });
     return instance
 }
+
+export async function extractEvidenceFromFragmentSearch( primitive, config){
+    const prompts = primitive.referenceParameters?.[config?.promptField]
+    console.log(prompts)
+    let fragments = []
+    if(prompts ){
+        const resultPaths = ['auto']
+
+        const resultCategoryId = config.resultCategoryId 
+        const resultCategory = await Category.findOne({id: resultCategoryId})
+        if( !resultCategory){
+            throw `Couldnt find resultCategory ${resultCategoryId}`
+        }
+        if( !resultCategory.ai?.extract){
+            throw `resultCategory ${resultCategoryId} missing ai.extract config`
+        }
+        const resultSet = await findResultSetForCategoryId( primitive, resultCategoryId)
+        if( resultSet === undefined && resultCategory.primitiveType !== "evidence"){
+            throw "No resultset found"
+        }
+        if( resultSet !== undefined ){
+            resultPaths.push(`results.${resultSet}`)
+        }
+
+        const serachScope = [{workspaceId: primitive.workspaceId}]
+        const threshold_min = primitive.referenceParameters?.thresholdMin ?? 0.85
+        const searchTerms = primitive.referenceParameters?.candidateCount ?? 1000
+        const scanRatio = primitive.referenceParameters?.scanRatio ?? 0.15
+
+        if( config.limit){
+            const [items, _] = await getDataForProcessing( primitive, {target: config.scope ?? "all_descend"})
+            console.log(`Scope limited to ${items.length}`)
+            const ids = items.map(d=>d.id)
+            serachScope.push({foreignId: {$in: ids}})
+            console.log(serachScope)
+        }
+
+        
+        fragments =  await fetchFragmentsForTerm(prompts, {serachScope,searchTerms, scanRatio, threshold_min}) 
+
+        console.log(`have ${fragments.length} fragments`)
+
+        const context = await buildContext( primitive ) 
+
+        const task = await primitiveTask(primitive)
+        let scope = `'${task.referenceParameters.focus} during ${primitive.title}'`// stage of ${task.referenceParameters.topics}`
+
+        function finalizeString(string){
+            return string
+                        .replaceAll('{scope}', scope)
+                        .replaceAll('{focus}', task.referenceParameters.focus)
+                        .replaceAll('{topic}', task.referenceParameters.topics)
+                        .replaceAll('{task_scope}', "the specified research area and focus")}
+
+        const prompt = finalizeString(resultCategory.ai.extract.prompt)
+        let output = `Provide the result as a json object with a field called 'results' containing an array of results with each entry `
+        
+
+        let resultFieldNames = []
+        if( resultCategory.ai.extract.responseFields ){
+            output += " having the following structure \{"
+            for(const k of Object.keys(resultCategory.ai.extract.responseFields) ){
+                const field = resultCategory.ai.extract.responseFields[k].target ?? k
+                output += `${field}: ${finalizeString(resultCategory.ai.extract.responseFields[k].prompt)},`
+                resultFieldNames.push(field )
+            }
+            output += "r: a 6 word justification of how the problem is relavent to the specified focus, i: the number of the text fragment the item was extracted from as an integer}"
+
+        }else{
+            output += " being a string with one of the results"
+        }
+
+
+        const result = await processPromptOnText( fragments.map(d=>d.text),{
+            opener: `I am researching the following:\nResearch area:${task.referenceParameters.topics}\nSpecific Focus: ${scope}\nHere is a set of text fragments i want you to analyze carefully:`,
+            //opener: "Here is a list of text fragments I want you to analyze:",
+            prompt: prompt,
+            output: output,
+            no_num: false,
+            engine: "gpt4p",
+            batch: 100,
+            temperature: 0.7,
+            debug:true
+        })
+        if( result?.success && result.output){
+            console.log(result.output)
+            for(const entry of result.output){
+                const idx = typeof(entry.i) === "string" ? parseInt(entry.i) : entry.i
+                const match = findQuoteLocation(fragments[idx].text, entry.quote )
+                console.log(match)
+                if( match.distance > MAX_QUOTE_TEXT_DISTANCE_THRESHOLD ){
+                    console.log(`Couldnt find quote`)
+                    console.log(entry.quote)
+                    console.log(fragments[idx].text)
+                }else{
+                    console.log( ` --- ${entry.title}`)
+
+                    const newPrim = await createPrimitive( {
+                        workspaceId: primitive.workspaceId,
+                        paths: resultPaths,
+                        parent: primitive.id,
+                        data:{
+                            type: resultCategory.primitiveType,
+                            referenceId: resultCategoryId,
+                            title: entry.title,
+                            referenceParameters: {
+                                quoted: true,
+                                quote: entry.quote,
+                                ...resultFieldNames.reduce((a,c)=>{a[c] = entry[c];return a},{})
+                            }
+                        }
+                    } )
+                    if( newPrim ){
+                        console.log(`Adding ref to ${fragments[idx].id}`)
+                        await  addRelationship(fragments[idx].id, newPrim.id, 'origin')
+                    }
+                }
+            }
+        }
+    }
+}
+
+function compareTwoStrings(first, second) {
+    //https://github.com/aceakash/string-similarity#readme
+	first = first.replace(/\s+/g, '')
+	second = second.replace(/\s+/g, '')
+
+	if (first === second) return 1; // identical or empty
+	if (first.length < 2 || second.length < 2) return 0; // if either is a 0-letter or 1-letter string
+
+	let firstBigrams = new Map();
+	for (let i = 0; i < first.length - 1; i++) {
+		const bigram = first.substring(i, i + 2);
+		const count = firstBigrams.has(bigram)
+			? firstBigrams.get(bigram) + 1
+			: 1;
+
+		firstBigrams.set(bigram, count);
+	};
+
+	let intersectionSize = 0;
+	for (let i = 0; i < second.length - 1; i++) {
+		const bigram = second.substring(i, i + 2);
+		const count = firstBigrams.has(bigram)
+			? firstBigrams.get(bigram)
+			: 0;
+
+		if (count > 0) {
+			firstBigrams.set(bigram, count - 1);
+			intersectionSize++;
+		}
+	}
+
+	return (2.0 * intersectionSize) / (first.length + second.length - 2);
+}
+
+export function findQuoteLocation(originalText, quote) {
+    originalText = originalText.trim().toLowerCase();
+    quote = quote.trim().toLowerCase();
+  
+    const words = originalText.split(' ');
+  
+    let bestMatch = { index: -1, distance: Infinity };
+    let window = quote.split(' ').length 
+    for(let buffer = 0; buffer < 10; buffer++ ){
+        for (let i = 0; i < words.length; i++) {
+            if( bestMatch.distance === 0){
+                continue
+            }
+            let testString = words.slice(i, i + window + buffer).join(' ');
+            
+            let distance = 1 - compareTwoStrings (testString, quote);
+            
+            if (distance < bestMatch.distance) {
+                bestMatch = { index: i, distance };
+            }
+        }
+    }
+
+    if( bestMatch.index >= 0){
+        let pos = words.slice(0, bestMatch.index).join(" ").length + 1
+        return {index: pos, distance: bestMatch.distance}
+    }
+    return undefined
+  
+  }

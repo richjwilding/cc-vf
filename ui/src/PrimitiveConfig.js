@@ -1,8 +1,10 @@
 
 const PrimitiveConfig = {
     "Constants":{
-    LIVE_FILTER: 103,
-    CONCEPT: 92
+        LIVE_FILTER: 103,
+        CONCEPT: 92,
+        QUERY_RESULT: 82
+
     },
     "metadata":{
         "hypothesis": {
@@ -99,7 +101,7 @@ const PrimitiveConfig = {
             defaultReferenceId: 102
         },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance", "concept", "board"],
+    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance", "concept", "board", "marketsegment"],
     pageview:{
         "board":{
             defaultWide: "board" 
@@ -108,8 +110,8 @@ const PrimitiveConfig = {
             defaultWide: "report" 
         },
         "segment":{
-            evidence: false,
-            viewer: true
+         //   evidence: false,
+          //  viewer: true
           //  defaultWide: {type: 'result', index: 0} 
         }
     },
@@ -160,6 +162,10 @@ const PrimitiveConfig = {
             }else{
                 val = val.idx
             }
+        }
+
+        if( option.passType === "indexed"){
+            return {type: "parent", value: val, pivot: option.access, relationship: option.relationship, invert}
         }
 
         if( option?.type === "category"){

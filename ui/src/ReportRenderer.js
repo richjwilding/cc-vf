@@ -87,6 +87,8 @@ import { RenderSetAsKonva } from './RenderHelpers';
                     }
                     text = (content?.caption ? content?.caption + "\n\n" : "") + out.join("\n")
                 }
+            }else{
+                text = source.title
             }
             if( text ){
                 return new CustomText({
@@ -202,10 +204,7 @@ export function renderScene(primitive, source, options){
 
             }
 
-            let content 
-            if( d.referenceParameters?.content ?? d.content){
-                content = renderElementContent(rInstance, source, d, options.refreshCallback)
-            }
+            let content = renderElementContent(rInstance, source, d, options.refreshCallback)
             if( content ){
                 content.attrs.id = "_content"
                 e.add(content)

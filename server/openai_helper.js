@@ -123,6 +123,7 @@ export async function summarizeMultiple(list, options = {} ){
             finalPrompt =  prompt + `.  Ensure the summary focus mainly on ${options.focus}.`
         }
     }
+    finalPrompt =  finalPrompt + `.  Use only the information i have provided to produce the summary`
     
     
     const interim = await processInChunk( list, 
@@ -752,8 +753,8 @@ async function executeAI(messages, options = {}){
         sleepBase = 20000
     }
     if( options.engine === "gpt4p" ){
-        console.log(`--- GPT 4 PREVIEW`)
-        model = "gpt-4-turbo-preview"
+        console.log(`--- GPT 4 Turbo`)
+        model = "gpt-4-turbo-2024-04-09"
         sleepBase = 20000
         response_format = { type: "json_object" }
     }

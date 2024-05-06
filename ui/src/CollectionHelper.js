@@ -58,9 +58,6 @@ class CollectionUtils{
                     primitiveId: d.id,
                     category: d,
                     isLive: d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"],
-                    /*order: ["_N_",options.map((d)=>d.id)].flat(),
-                    values:["_N_",options.map((d)=>d.id)].flat(),
-                    labels:["None", options.map((d)=>d.title)].flat(),*/
                     title: `Category: ${d.title}`,
                     allowMove: !relationship && access === 0 && (!viewPivot || (viewPivot.depth === 0 || viewPivot === 0)),
                     relationship: relationship, //d.referenceParameters.pivotBy ?? relationship,
@@ -107,11 +104,15 @@ class CollectionUtils{
 
             catIds.forEach((id)=>{
                 const category = MainStore().category(id)
-                if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query" || category.primitiveType === "evidence"){
-                    out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "raw"})
-                }
-                if( category ){
-                    process(category.parameters, category) //
+                if( category.primitiveType === "marketsegment"){
+                        out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "indexed"})
+                }else{
+                    if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query" || category.primitiveType === "evidence" ){
+                        out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "raw"})
+                    }
+                    if( category ){
+                        process(category.parameters, category) //
+                    }
                 }
             })
             p.map((d)=>d.origin && d.origin.childParameters ? d.origin.id : undefined).filter((d,idx,a)=>d && a.indexOf(d)===idx).forEach((d)=>{
@@ -240,6 +241,7 @@ class CollectionUtils{
             if( !options.excludeOrigin ){
                 out = out.concat( expandOrigin(items, 0, "origin") )
                 out = out.concat( expandOrigin(items, 0, "link") )
+                out = out.concat( expandOrigin(items, 0, "auto") )
             }
         }
         const final = out.filter((d, idx, a)=>{
@@ -254,6 +256,13 @@ class CollectionUtils{
                 //let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
                 //return {labels: out, order: out, values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
                 return {values: [{idx: "_N_", label: "None"},...axis.values]}
+            },
+            "indexed":(field)=>{
+                let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.findIndex(d2=>d2.value === v.value)===idx).sort((a,b)=>a.order - b.order)
+                interim.forEach(d=>{
+                    d[field] = d[field].idx
+                })
+                return {values: out.map((d,i)=>({idx: d.idx, label: d.value === undefined ? "None" : d.value}))}
             },
             "raw":(field)=>{
                 let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
@@ -418,6 +427,9 @@ class CollectionUtils{
                     return (p)=>{
                         let item = p
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                        if( option.passType === "indexed" ){
+                            return {order: (item?.referenceParameters?.step ?? item?.referenceParameters?.index), value: item?.title, idx: item.id}
+                        }
                         return item?.title
                     }
                 }else if( option.type === "question"){

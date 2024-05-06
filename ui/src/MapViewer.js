@@ -64,7 +64,7 @@ export default function MapViewer({primitive,...props}){
                     {list.map((d)=><PrimitiveCard variant={false} primitive={d} compact onClick={()=>setViewerPick(d)} showExpand onEnter={()=>mainstore.sidebarSelect(d)} className={d === viewerPick ? "!bg-ccgreen-100 !border-ccgreen-200 !border" : "!border !border-gray-50"}/>)}
                 </div>
                 {action && <div className='shrink-0 grow-0'>
-                    <Panel.MenuButton title="Export" className='w-full' action={()=>createView(action)}/>
+                    <Panel.MenuButton title="New map" className='w-full' action={()=>createView(action)}/>
                 </div>}
             </div>
         }

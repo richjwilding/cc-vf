@@ -464,8 +464,9 @@ export default function EnrichPrimitive(){
                                 const result = await categorize( urlMap, catList.map(d=>d.description),{
                                     longType: "items containing two fieds - a url of a weblink and the descriptive text for the link",
                                     matchPrompt: `For each item you must assess the best match with a category from the supplied list using information from the weblink and/or descriptive text, or determine if there is a not a strong match. Ignore any links that are most likely about shopping, purchasing, delivery, ecommerce listing or other ecommerce activities`,
-                                   // engine: "gpt4p",
+                                    engine: "gpt4p",
                                    // maxTokens: 80000,
+                                    debug_content: true,
                                     debug: true
                                 })
                                 if( result ){
@@ -498,7 +499,7 @@ export default function EnrichPrimitive(){
                         const pageCache = {}
 
                         const processPage = async (url, thisCategory)=>{
-                            if( thisCategory.ai === undefined ){
+                            if( thisCategory?.ai === undefined ){
                                 console.log(`Cant process category `, thisCategory)
                                 return 
                             }

@@ -9,6 +9,7 @@ import CustomText from './CustomText';
 import { renderElementContent, renderScene } from './ReportRenderer';
 
 let showBoundingBox = true
+let refreshTimeout = undefined
 
 const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, ...props}, ref){
     const stage = useRef()
@@ -22,10 +23,17 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
     const selectable = true
 
     const customCallback = (d)=>{
-                    d.refreshCache()
-                    if( stage.current ){
-                        stage.current.batchDraw()
-                    }
+        console.log(`customCallback `, d.pcache)
+        d.refreshCache()
+        if( refreshTimeout ){
+            clearTimeout(refreshTimeout)
+        }
+        refreshTimeout = setTimeout(() => {
+            if( stage.current ){
+                stage.current.batchDraw()
+            }
+            refreshTimeout = undefined
+        }, 50);
     }
 
 
@@ -156,6 +164,7 @@ const PrimitiveReport = forwardRef(function PrimitiveReport({primitive, source, 
             if( g ){
                 layer.current.add(g)
                 stage.current.batchDraw()
+                console.log(stage.current)
             }
         }
         return ()=>{

@@ -1633,12 +1633,19 @@ function MainStore (prims){
                                             hitList = hitList.filter(d=>d !== undefined && d !== null )
                                             thisSet = notCat1( thisSet || list, [filter.sourcePrimId], filter)
                                         }
-                                        if( !filter.relationship || filter.relationship === "origin" ){
-                                            
-                                            thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>hitList.includes(d)).length > 0)
+                                        if( filter.sourcePrimId){
+                                            if( !filter.relationship || filter.relationship === "origin" ){
+                                                thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>hitList.includes(d)).length > 0)
+                                            }else{
+                                                thisSet = (thisSet || list).filter(d=>invert ^ (d.relationshipAtLevel(filter.relationship,filter.pivot)?.[0]?.parentPrimitiveIds ?? []).filter(d=>hitList.includes(d)).length > 0)
+                                            }
                                         }else{
-                                            thisSet = (thisSet || list).filter(d=>invert ^ (d.relationshipAtLevel(filter.relationship,filter.pivot)?.[0]?.parentPrimitiveIds ?? []).filter(d=>hitList.includes(d)).length > 0)
-                                            
+                                            if( !filter.relationship || filter.relationship === "origin" ){
+                                                thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).id === d)
+                                            }else{
+                                                thisSet = (thisSet || list).filter(d=>invert ^ (d.relationshipAtLevel(filter.relationship,filter.pivot)?.map(d=>d.id) ?? []).filter(d=>hitList.includes(d)).length > 0)
+                                            }
+
                                         }
                                     }
                                 }else if( filter.type === "not_category_level1"){
@@ -2029,6 +2036,21 @@ function MainStore (prims){
                 if( prop === "context"){
                     const category = receiver.metadata
                     if( !category?.ai?.process?.context){
+                        if( receiver.type === "evidence"){
+                            if( receiver.referenceParameters?.quote){
+                                return `${category.title}: ${receiver.title}\nQuote:"${receiver.referenceParameters?.quote.replaceAll(/\n/g,". ")}"`
+                            }
+                            if( receiver.origin.referenceId === PrimitiveConfig.Constants.QUERY_RESULT ){                                
+                                const parts = [
+                                    receiver.origin.referenceParameters?.description ? `Context:${receiver.origin.referenceParameters?.description.replaceAll(/\n/g,". ")}` : undefined, 
+                                    receiver.origin.referenceParameters?.quote ? `Quote:${receiver.origin.referenceParameters?.quote.replaceAll(/\n/g,". ")}` : undefined
+                                ].filter(d=>d)
+                                if( parts.length > 0){
+                                    return `${category.title}: ${receiver.title}\n${parts.join("\n")}`
+                                }
+                            }
+                            return receiver.title
+                        }
                         return undefined
                     }
                     let out = ""
