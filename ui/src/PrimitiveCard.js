@@ -39,8 +39,9 @@ import MyCombo from './MyCombo';
 import { InputPopup } from './InputPopup';
 import TooggleButton from './ToggleButton';
 import CheckPill from './CheckPill';
+import SummaryCard from './SummaryCard';
 
-const ExpandArrow = function(props) {
+export const ExpandArrow = function(props) {
   return (
       <svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" {...props}>
         <path clipRule="evenodd" fillRule="evenodd" d="M15 3.75a.75.75 0 01.75-.75h4.5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0V5.56l-3.97 3.97a.75.75 0 11-1.06-1.06l3.97-3.97h-2.69a.75.75 0 01-.75-.75zM9.53 14.47A.75.75 0 019.53 15.53L5.56 19.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75v-4.5a.75.75 0 011.5 0v2.69l3.97-3.97a.75.75 0 011.06 0z" />
@@ -101,6 +102,14 @@ let mainstore = MainStore()
           }}/>)}</div>
       }else if( item.type === "primitive"){
         let base
+
+        const clear=()=>{
+          const picked =   props.primitive.primitives.params?.[item.key]
+          if( picked ){
+            props.primitive.removeRelationship(picked, `params.${item.key}`)
+          }
+        }
+
         const pick = ()=>{
           mainstore.globalPicker({
             root: undefined,
@@ -108,7 +117,6 @@ let mainstore = MainStore()
               if( props.callback ){
                 props.callback( pick.id )
               }else{
-
                 if( props.primitive){
                   props.primitive.addRelationship(pick, `params.${item.key}`)
                 }
@@ -120,13 +128,15 @@ let mainstore = MainStore()
           })
         }
         const pickedItem = props.callback ? mainstore.primitive(item.value) : props.primitive?.primitives?.params?.[item.key].allItems?.[0]
-        console.log(pickedItem)
         if( pickedItem ){
-          base = <PrimitiveCard micro primitive={pickedItem} compact onClick={pick}/>
+          base = <div className='flex space-x-1 ml-auto'>
+                    <PrimitiveCard micro primitive={pickedItem} compact onClick={pick}/>
+                    <Panel.MenuButton small action={clear} title={<TrashIcon className='grow-0 w-5 h-5 mr-1'/>} className='shrink-0'/>
+                  </div>
         }else{
           base = <Panel.MenuButton small action={pick} title={<div className='flex place-items-center justify-center text-gray-600 w-full'><MagnifyingGlassCircleIcon className='w-5 h-5 mr-1'/>Select item</div>} className='w-full'/>
         }
-        return <div className='w-full flex'>{base}</div>
+        return <div className='w-full flex '>{base}</div>
       }else if( item.type === "primitive_parent"){
         let base
         const pickedItem = props.primitive?.relationshipAtLevel(item.key,1)?.[0]
@@ -143,14 +153,14 @@ let mainstore = MainStore()
                 list.push({key: "none", title: "No items", categoryId: undefined, category: undefined})
         }
 
-        let available = mainstore.categories()
+        let available = item.referenceIds ? item.referenceIds.map(d=>mainstore.category(d)) : mainstore.categories()
         if( props.activeOnly ){
           const ids = props.primitive.primitives.descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
           available = available.filter(d=>ids.includes(d.id))
         }
         
         for( const cat of available){
-          if( ["entity","evidence","result","category","query","activity","marketsegment"].includes(cat.primitiveType) ){
+          if(item.referenceIds ||  ["entity","evidence","result","category","query","activity","marketsegment","detail"].includes(cat.primitiveType) ){
             list.push({title: cat.title, categoryId: cat.id, category: cat})
           }
         }                
@@ -170,11 +180,12 @@ let mainstore = MainStore()
 
         return <MyCombo 
           disabled={item.locked}
-          selectedItem={list.findIndex(d=>item.value === d.categoryId)} 
+          selectedItem={list.findIndex(d=>parseInt(item.value) === d.categoryId)} 
           setSelectedItem={setSource}
+          small={props.compact || props.inline}
           portal
           items={list.map((d, idx)=>{return {id:idx, ...d}})}
-            className='ml-auto w-full'
+            className={props.compact ? "" : 'ml-auto w-full'}
           />
       }else if( item.type === "category_source"){
         let list = []
@@ -372,7 +383,9 @@ let mainstore = MainStore()
         let _refId =  props.primitive.referenceParameters?.referenceId ?? defaultConfig?.referenceId
         console.log(_target)
 
-        if(_target === "evidence" || _target === "items"){
+        if( item.itemMeta ){
+          sourceMeta = props.primitive.itemsForProcessing?.[0]?.metadata
+        }else if(_target === "evidence" || _target === "items"){
           sourceMeta =  mainstore.category(_refId) 
         }else if(_target === "origin"){
           sourceMeta = props.primitive.origin
@@ -397,6 +410,9 @@ let mainstore = MainStore()
         if( item.includeContext){
           list.push({key: "context", title: "Context"})
         }
+        if( item.includeContent){
+          list.push({key: "full_content", title: "Content"})
+        }
 
         let index = list.findIndex((d)=>item.value === d.key)
         if( index === -1 ){
@@ -415,9 +431,10 @@ let mainstore = MainStore()
         return <MyCombo 
           selectedItem={index} 
           disabled={item.locked}
+          small={props.inline}
           setSelectedItem={setField}
           items={list.map((d, idx)=>{return {id:idx, ...d}})}
-          className='ml-auto'
+            className={props.leftAlign ? '' : 'ml-auto'}
           />
 
       }else if( item.type === "flag"){
@@ -663,7 +680,7 @@ let mainstore = MainStore()
           action: ()=>props.relatedTo.removeRelationship(primitive, props.relatedTo.metadata.isAggregation ? "" : "outcomes"),
           icon: TrashIcon,
           skip: (props.showUnlink === false || props.showUnlink === undefined) ? true : (props.relatedTo === undefined ) || (props.relatedTo && props.relatedTo.id === primitive.origin.id) || !(props.relatedTo && props.relatedTo?.primitives.includes(primitive))
-        },
+        }
         
       ]).concat(
         primitive.metadata?.actions
@@ -913,7 +930,7 @@ const Banner = function({primitive, ...props}){
         </div>
       }
       <div className='flex-grow w-full'>
-        <h1 className={`flex place-items-center text-lg ${!props.small && "md:text-2xl"} font-bold text-gray-900`}><p className='hidden xs:inline'> {primitive.displayType} #{primitive.plainId}</p>
+        <h1 className={`flex place-items-center text-lg ${!props.small && "md:text-2xl"} font-bold text-gray-900`}><p className='hidden xs:inline'>#{primitive.plainId} {primitive.title}</p>
           {props.showLink &&
             <button
                 type="button"
@@ -1039,6 +1056,21 @@ const Parameters = function({primitive, ...props}){
 
   let potentialTarget = fieldsBeingProcessed(primitive)
 
+  return <div 
+        style={{
+          gridTemplateColumns: props.showTitles === undefined || props.showTitles === true ? "minmax(min-content, 7rem) 1fr" : "1fr"
+        }}
+        className='grid gap-2 text-sm'>
+        {details.map((item, idx)=>(
+          <>
+            {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
+            {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
+              ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
+              : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+            }
+          </>))}
+  </div>
+
   return (
     details.map((item, idx)=>(
       <div 
@@ -1056,7 +1088,7 @@ const Parameters = function({primitive, ...props}){
         {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
         {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
           ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
-          : <RenderItem editing={props.editable ?? true} editable={props.editable ?? true} primitive={primitive} compact={props.compact} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+          : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
         }
         {props.inline && (idx < (details.length - 1)) && <p className='pl-1 text-slate-400'>•</p> }
       </div>
@@ -1706,6 +1738,9 @@ const Variant=({primitive, ...props})=>{
   }
   if( type === 'category' ){
     return <CategoryCard primitive={primitive} {...props}/>
+  }
+  if( type === 'summary' ){
+    return <SummaryCard primitive={primitive} {...props}/>
   }
   if( type === 'segment' ){
     return <SegmentCard primitive={primitive} {...props}/>

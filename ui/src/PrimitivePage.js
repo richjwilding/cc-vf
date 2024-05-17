@@ -39,6 +39,7 @@ import PrimtiveReportViewer from './PrimitiveReportViewer';
 import MapViewer from './MapViewer';
 import BoardViewer from './BoardViewer';
 import HierarchyNavigator from './HierarchyNavigator';
+import AnalysisPage from './AnalysisPage';
 
 
 let mainstore = MainStore()
@@ -107,7 +108,7 @@ export function PrimitivePage({primitive, ...props}) {
           return true
         }
       }
-      if( primitive.type === "board" ){
+      if( primitive.type === "board" || primitive.type==="working"){
         return true
       }
       return false
@@ -185,12 +186,6 @@ export function PrimitivePage({primitive, ...props}) {
       console.log({primitive: primitive, metric: id})
       setSelectedMetric({primitive: primitive, metric: id})
     }
-
-
-  const createResult = async( category, options = {}, open = false )=>{
-    alert('DEPRECTAE')
-
-  }
 
 
     let page = useRef()
@@ -373,8 +368,11 @@ export function PrimitivePage({primitive, ...props}) {
         </>
       )
     }
+  
+  if( primitive?.type === "working"){
+    return <AnalysisPage primitive={primitive}/>
+  }
 
-    console.log(showWorkingPane)
   return (
     <>
       <div 
@@ -443,7 +441,7 @@ export function PrimitivePage({primitive, ...props}) {
                   </Transition>
               }
 
-              {!fullScreenExplore && <section 
+              {!fullScreenExplore && false && <section 
                 key='notes'
                 className={[
                     'col-start-1 lg:col-span-2',
@@ -536,7 +534,7 @@ export function PrimitivePage({primitive, ...props}) {
                   </div>
                 </div>
               </section>}
-            {(hasDocumentViewer || showWorkingPane)  && 
+            {primitive?.type !== "working" && (hasDocumentViewer || showWorkingPane)  && 
               <div 
                   style={{minWidth:0, minHeight:0}} 
                   className={

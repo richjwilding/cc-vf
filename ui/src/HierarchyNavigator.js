@@ -29,6 +29,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
         return typeof(props.items) === "function" ? props.items() : props.items ?? []
     }
 
+    console.log(getNodes())
     function alignPath(){
       let path = undefined
       let nodes = getNodes()
@@ -73,7 +74,6 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
     }
 
     const align = (typeof(props.align) === "function" ? props.align() : props.align) 
-    console.log(customOpen)
 
   return (
     <Menu as="div" className="relative inline-block text-left ml-auto">
@@ -118,7 +118,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
                                             )}
                                             >
                                             {align === "right" && <ChevronLeftIcon className="mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />}
-                                             {node.category.title}
+                                             {node?.parent?.category?.title ?? "UNKNOWN"}
                                              {align !== "right" && <ChevronRightIcon className="mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />}
                                             </a>
                                         )}
@@ -169,7 +169,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
                   )}
                 >
                   {align !== "right" && <ChevronLeftIcon className="mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />}
-                  {d.category.title}
+                  {d.category?.title ?? "UNKNOWN"}
                   {align === "right" && <ChevronRightIcon className="ml-auto mr-1 h-5 w-5 text-gray-400 group-hover:text-white" aria-hidden="true" />}
                 </a>
               )}

@@ -1,7 +1,7 @@
 import Primitive from "./model/Primitive";
 import {createPrimitive, flattenPath, doPrimitiveAction, findResultSetForCategoryId, executeConcurrently, dispatchControlUpdate} from './SharedFunctions'
 import moment from 'moment';
-import { fetchLinksFromWebQuery, fetchURLPlainText, replicateURLtoStorage, writeTextToFile } from './google_helper';
+import { fetchLinksFromWebQuery, fetchURLPlainText, queryGoogleSERP, replicateURLtoStorage, writeTextToFile } from './google_helper';
 import { htmlToText } from "html-to-text";
 import Category from "./model/Category";
 import Parser from '@postlight/parser';
@@ -376,6 +376,7 @@ export async function pivotFromLinkedIn(primitive, force = false){
     return out
 
 }
+
 export async function enrichCompanyFromLinkedIn(primitive, force = false){
         let linkedInData = primitive.linkedInData
         if(force || !primitive.linkedin_done ){
@@ -687,6 +688,22 @@ export async function fetchLinkedInProfile( linkedin_profile_url, use_cache = "i
     return await response.json()
 }
 
+export async function findCompanyLIPage( primitive ){
+    if( primitive.referenceParameters?.url ){
+        return await findCompanyLIPageWithGoogle(primitive.title, primitive.referenceParameters?.url)
+    }
+}
+export async function findCompanyLIPageWithGoogle( title, url ){
+    const result = await fetchLinksFromWebQuery(`site:linkedin.com/company ${url}`, {count:5, timeFrame: ""})
+    if( result.links ){
+        let match = result.links.filter(d=>d.url.match(/.+\.linkedin\..*\/company\//) && (d.title.toLowerCase().match(title.toLowerCase()) || d.snippet.toLowerCase().match(title.toLowerCase())))?.[0]
+        if( match){
+            let id = match.url.match(/(.+\.linkedin\..*\/company\/[^\/]+)/)?.[1]
+            return id
+        }
+    }
+}
+
 export async function updateFromProxyCurlData( primitive ){
     const profileUrl = primitive.referenceParameters.profile
     if( profileUrl ){
@@ -763,6 +780,52 @@ export async function addPersonFromProxyCurlData( profile, url, resultCategoryId
     return newPrim
 }
 
+export async function fetchCompanyHeadcount( primitive ){
+    try{
+        let targetProfile = primitive.referenceParameters.linkedIn?.trim()
+
+        if( targetProfile === undefined || targetProfile === ""){
+            targetProfile = await findCompanyLIPage( primitive )
+            if( targetProfile ){
+                await dispatchControlUpdate( primitive.id, "referenceParameters.linkedIn", targetProfile)
+            }
+        }
+
+        if( targetProfile === undefined || targetProfile === ""){
+            console.log(`No LI profile`)
+            return {error: "no_profile"}
+        }
+        if( targetProfile.slice(0,8)!=="https://"){
+            targetProfile = "https://" + targetProfile
+        }
+        const query = new URLSearchParams({ 
+            "url": targetProfile,
+            "use_cache":"if-present"
+        }).toString()
+        const url = `https://nubela.co/proxycurl/api/linkedin/company/employees/count?${query}`
+        
+        console.log(`Doing proxycurl query`)
+        const response = await fetch(url,{
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
+            },
+        });
+        
+        if( response.status !== 200){
+            console.log(`Error from proxycurl`)
+            console.log(response)
+            return {error: response}
+        }
+        const data = await response.json();
+        if( data ){
+            await dispatchControlUpdate( primitive.id, "referenceParameters.employee_count", data.linkdb_employee_count)
+        }
+    }catch(error){
+        console.log(`Error in fetchCompanyHeadcount`)
+        console.log(error)
+    }
+}
 export async function fetchCompanyProfileFromLinkedIn( primitive ){
     try{
 

@@ -6,21 +6,23 @@ import { roundCurrency } from "./RenderHelpers"
 class CollectionUtils{
     static axisToHierarchy(axisList, options = {}){
         const out = {}
-        function findPath(node, path, d){
+        console.log(axisList)
+        function findPath(node, path, d, route){
             if( path.length === 0 || (path.length === 1 && d.type === "type")){
                 return node
             }
             node.nested ||= {}
             const next = path[0]
+            const running = [...route, next]
             if( !node.nested[next] ){
-                node.nested[next] = {path: d.relationship}
+                node.nested[next] = {path: running, parent: node}
             }
-            return findPath( node.nested[next], path.slice(1), d)
+            return findPath( node.nested[next], path.slice(1), d, running)
         }
         for(const d of axisList){
             let node = out
             if( d.relationship ){
-                node = findPath(node, d.relationship, d)
+                node = findPath(node, d.relationship, d, [])
             }
             if( d.type !== "category"){
                 node.category ||= d.category
@@ -151,8 +153,8 @@ class CollectionUtils{
 
         if( primitive ){
             let baseCategories = uniquePrimitives([
-                ...primitive.primitives.allUniqueCategory, 
-                ...primitive.findParentPrimitives({type:"view"}).map(d=>d.primitives.allUniqueCategory).flat(),
+                ...primitive.primitives.origin.allUniqueCategory, 
+                ...primitive.findParentPrimitives({type:"view"}).map(d=>d.primitives.origin.allUniqueCategory).flat(),
                 ...uniquePrimitives(items.map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()).map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()
             ])
 
@@ -192,6 +194,13 @@ class CollectionUtils{
 
                     let path = [relationshipChain].flat()
                     let last = path.pop()
+                    if( last === "auto"){
+                        const rejectList = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel("origin",1)).flat(Infinity).filter((d)=>d)).map(d=>d.id)
+                        const pre = origins.length
+                        origins = origins.filter(d=>!rejectList.includes(d.id))
+                        console.log(`Filtered out origin for auto from ${pre} to ${origins.length}`)
+
+                    }
                     if( origins.length > 0){
                         const referenceIds = origins.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
                         for(const d of referenceIds){
@@ -205,6 +214,9 @@ class CollectionUtils{
 
                             out = out.concat( txParameters( theseOrigins, count + 1, cont ) )
                             out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, last]))
+                            if( last !== "origin"){
+                                out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, "origin"]) )
+                            }
                             if( last !== "link"){
                                 out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, "link"]) )
                             }
@@ -219,20 +231,21 @@ class CollectionUtils{
                         */
                         const values = questions.map(d=>({idx: d.id, label: d.title, map: d.primitives.allPrompt.map(d2=>d2.id) }))
                         
-                        out.push( {type: 'question', subtype:"question", values, title: `Source search`, access: count, relationship: path, passType: "question"})
+                        out.push( {type: 'question', subtype:"question", values, title: `Source search`, category: questions[0].metadata, access: count, relationship: path, passType: "question"})
                         //out.push( {type: 'question', subtype:"question", values:mapped, title: `Source question`, access: count, relationship: path, values: values, order: values, labels: labels})
                     }
-                    const search = uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "search")
+                    const search = uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "search" && d.metadata)
                     if( search.length > 0 ){
-
-                        /*const labels = search.map(d=>d.title)
-                        const values = search.map(d=>d.id)
-                        const mapped = search.map(d=>[d.id, d.id])*/
-
-                        const values = search.map(d=>({idx: d.id, label: d.title, map: [d.id, d.id]}))
-                        
-                        out.push( {type: 'question', subtype:"search", values, title: `Source search`, access: count, relationship: path, passType: "question"})
-                        //out.push( {type: 'question', subtype:"search", values:mapped, title: `Source search`, access: count, relationship: path, values: values, order: values, labels: labels, passType: "raw"})
+                        const byCat = search.reduce((a,d)=>{
+                            a[d.metadata.id] ||= {items: [], category: d.metadata}
+                            a[d.metadata.id].items.push( d )
+                            return a
+                        },{})
+                        console.log(byCat)
+                        for(const d of Object.values(byCat)){
+                            const values = d.items.map(d=>({idx: d.id, label: `Search #${d.plainId}`, map: [d.id, d.id]}))
+                            out.push( {type: 'question', subtype:"search", values, title: `Source search`, access: count + 1, relationship: [...path, "origin"], passType: "question", category: d.category})
+                        }
                     }
 
 
@@ -245,7 +258,13 @@ class CollectionUtils{
             }
         }
         const final = out.filter((d, idx, a)=>{
-            return (d.type !== "category" ) || (d.type === "category" && a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access)) === idx)
+            if(d.type === "category"){
+                return a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access)) === idx
+            }
+            if(d.subtype === "search"){
+                return a.findIndex((d2)=>(d.access === d2.access) && mainstore.equalRelationships(d.relationship, d2.relationship)) === idx
+            }
+            return true
         })
         const labelled = final.map((d,idx)=>{return {id:idx, ...d}})
         return labelled
@@ -312,16 +331,28 @@ class CollectionUtils{
                 return {labels: labels, order: labels, values: labels.map((d,i)=>({idx: d, label: d, bucket_min: mins[i], bucket_max: max[i]}))}
             },
             "number": (field)=>{
-                const bucketCount = 10
+                let bucketCount = 10
+                //const hasValues = interim.filter(d=>d[field]).sort((a,b)=>a[field] - b[field])
+                const noValues = interim.filter(d=>d[field] === undefined)
                 const hasValues = interim.filter(d=>d[field]).sort((a,b)=>a[field] - b[field])
 
                 const totalItems = hasValues.length 
                 const itemsPerBucket = Math.ceil(totalItems / bucketCount)
                 
-                let bucket = 0, count = 0
+                let bucket = noValues.length === 0 ? 0 : 1, count = 0
                 const mins = []
                 const max = []
                 const mapped =  {}
+
+                if(noValues.length){
+                    noValues.forEach(d=>{
+                        mapped[d.primitive.id] = 0
+                    })
+                    mins[0] = "Unknown"
+                    max[0] = "Unknown"
+                    bucketCount += 1
+                }
+
 
                 let labels =  new Array(bucketCount).fill(0).map((_,i)=>`Bucket ${i}`)
                 let last = undefined
@@ -625,8 +656,11 @@ class CollectionUtils{
             axis = primitive.referenceParameters?.explore?.filters?.[ axisName]
         }
         if( axis ){
-            if( ["question", "parameter", "title", "type"].includes(axis.type)){
+            if( ["question", "title", "type"].includes(axis.type)){
                 return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
+            }
+            if( "parameter" === axis.type ){
+                return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.parameter] ?? "raw"}
             }
             const connectedPrim = isNaN(axisName) ? primitive.primitives.axis[axisName].allIds[0] : primitive.referenceParameters.explore.filters[axisName].sourcePrimId            
             if( connectedPrim ){
@@ -692,7 +726,12 @@ class CollectionUtils{
         }
         const setR2 = new Set(r2);
 
-        return r1.every(element => setR2.has(element));
+        if( !r1.every(element => setR2.has(element))){
+            return false
+        }
+        const setR1 = new Set(r1);
+        return r2.every(element => setR1.has(element));
+        //return r1.every(element => setR2.has(element));
 
     }
     static findLiveFilters(axisOptions){

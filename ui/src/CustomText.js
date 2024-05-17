@@ -49,6 +49,15 @@ var AUTO = 'auto',
   // cached variables
   attrChangeListLen = ATTR_CHANGE_LIST.length;
 
+var dummyContext;
+function getDummyContext() {
+    if (dummyContext) {
+        return dummyContext;
+    }
+    dummyContext = Util.createCanvasElement().getContext(CONTEXT_2D);
+    return dummyContext;
+}
+
 class CustomText extends Text {
 
   _buildPrivateCache(){
@@ -91,18 +100,217 @@ class CustomText extends Text {
 
     this.pcache._canvas_context.fillStyle = this.attrs.bgFill 
     this.pcache._canvas_context.fillRect(0,0,  this.uWidth, this.uHeight)
-
-    this.fontCache = this._getContextFont()
     this.pcache._canvas_context.font = this.fontCache
     this.pcache._canvas_context.textBaseline = MIDDLE
     this.pcache._canvas_context.textAlign = LEFT
 
+
   }
+  getHeight() {
+    if( this.attrs.withMarkdown ){
+      var isAuto = this.attrs.height === AUTO || this.attrs.height === undefined;
+      return isAuto
+      ? (this.textArr.slice(-1)?.[0]?.y ?? 0) + this.lineHeight()
+      : this.attrs.height;
+    }else{
+      return super.getHeight()
+    }
+  }
+  _addMDTextLine(line, metrics, indent, y, bold, large, bullet) {
+      const align = this.align();
+      if (align === JUSTIFY) {
+          line = line.trim();
+      }
+      return this.textArr.push({
+          text: line,
+          width: metrics.width,
+          ascent: metrics.ascent,
+          y: y,
+          bold: bold,
+          large: large,
+          bullet: bullet,
+          indent: indent,
+          lastInParagraph: false,
+      });
+  }
+  /*_getTextWidth(text) {
+      var letterSpacing = this.letterSpacing();
+      console.log(letterSpacing)
+      var length = text.length;
+      return (getDummyContext().measureText(text).width +
+          (length ? letterSpacing * (length - 1) : 0));
+  }*/
+  setFont
+  _getTextStats(text) {
+      const metrics = getDummyContext().measureText(text)
+      return {width: metrics.width, ascent: metrics.actualBoundingBoxAscent}
+  }
+_setTextData() {
+    this.fontCache = this._getContextFont()
+
+    let stem = this.fontCache.slice(this.fontCache.indexOf(" "))
+    this.standardFont = "normal" + stem
+    this.boldFont = "bold " + stem
+    this.headlineFont = "bold " + stem.replace(/(\d+)px/, (d)=>(parseInt(d) * 1.5) + "px")
+  if( !this.attrs.withMarkdown ){
+    return super._setTextData()
+  }
+  var lines = this.text().split('\n'), fontSize = +this.fontSize(), textWidth = 0, baseLineHeightPx = this.lineHeight() * fontSize, width = this.attrs.width, height = this.attrs.height, fixedWidth = width !== AUTO && width !== undefined, fixedHeight = height !== AUTO && height !== undefined, padding = this.padding(), maxWidth = width - padding * 2, maxHeightPx = height - padding * 2, currentHeightPx = 0, wrap = this.wrap(), shouldWrap = wrap !== NONE, wrapAtWord = wrap !== CHAR && shouldWrap, shouldAddEllipsis = this.ellipsis();
+  this.textArr = [];
+  
+  fixedHeight = false
+  getDummyContext().font = this.standardFont
+
+  var indentWidth = this._getTextStats("      ").width
+  var additionalWidth = shouldAddEllipsis ? this._getTextStats(ELLIPSIS).width : 0;
+  var translateY 
+
+  console.log(this.standardFont)
+  console.log(this.boldFont)
+
+  for (var i = 0, max = lines.length; i < max; ++i) {
+      var line = lines[i];
+      if( line.length === 0){
+        continue
+      }
+      let padding = 1
+      var startIndent = 0
+      if( line.trim().slice(0,2) === "- " ){
+        startIndent = indentWidth
+        line = line.slice(2)
+        padding = 0.25
+      }
+      
+      let indent = startIndent
+      const fragments = line.split("**")
+      console.log(line)
+      let bold = false
+      let advanced = false
+      let large = fragments.length === 3 && fragments[0].length === 0 && fragments[2].length === 0
+      
+      let lineHeightPx = large ? baseLineHeightPx * 1.5 : baseLineHeightPx
+
+      if( i > 0){
+        currentHeightPx += lineHeightPx * padding;
+      }
+      let idx = -1
+      let segment = 0
+      for( let line of fragments ){
+        idx++
+        
+
+
+        let thisBold = idx % 2 === 1
+        if( bold!= thisBold ){
+          bold = thisBold
+          getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : this.standardFont
+        }
+        if( line.length === 0){
+          continue
+        }
+        var drawBullet = (segment === 0) && (indent > 0)
+
+        segment++
+        
+        if( translateY === undefined){
+          translateY = lineHeightPx / 2 ;
+        }
+        var lineMetrics = this._getTextStats(line)
+        var lineWidth = lineMetrics.width + indent;
+        if (lineWidth > maxWidth) {
+          while (line.length > 0) {
+              var low = 0, high = line.length, match = '', matchWidth = 0;
+              while (low < high) {
+                  var mid = (low + high) >>> 1, substr = line.slice(0, mid + 1), substrWidth = this._getTextStats(substr).width + additionalWidth + indent
+                  if (substrWidth <= maxWidth) {
+                      low = mid + 1;
+                      match = substr;
+                      matchWidth = substrWidth;
+                  }
+                  else {
+                      high = mid;
+                  }
+              }
+              if (match) {
+                  let matchMetrics
+                  if (wrapAtWord) {
+                      var wrapIndex;
+                      var nextChar = line[match.length];
+                      var nextIsSpaceOrDash = nextChar === SPACE || nextChar === DASH;
+                      if (nextIsSpaceOrDash && matchWidth <= maxWidth) {
+                          wrapIndex = match.length;
+                      }
+                      else {
+                          wrapIndex =
+                              Math.max(match.lastIndexOf(SPACE), match.lastIndexOf(DASH)) +
+                                  1;
+                      }
+                      if (wrapIndex > 0) {
+                          low = wrapIndex;
+                          match = match.slice(0, low);
+                          matchMetrics = this._getTextStats(match)
+                          matchWidth = matchMetrics.width + indent;
+                      }
+                  }
+                  match = match.trimRight();
+                  this._addMDTextLine(match, matchMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet);
+                  indent = startIndent
+                  textWidth = Math.max(textWidth, matchWidth);
+                  currentHeightPx += lineHeightPx;
+                  advanced = true
+                  var shouldHandleEllipsis = this._shouldHandleEllipsis(currentHeightPx);
+                  if (shouldHandleEllipsis) {
+                      this._tryToAddEllipsisToLastLine();
+                      break;
+                  }
+                  line = line.slice(low);
+                  line = line.trimLeft();
+                  if (line.length > 0) {
+                      lineMetrics = this._getTextStats(line)
+                      lineWidth = lineMetrics.width + indent;
+                      if (lineWidth <= maxWidth) {
+                          this._addMDTextLine(line, lineMetrics, indent, currentHeightPx + translateY, bold, large);
+                          currentHeightPx += lineHeightPx;
+                          textWidth = Math.max(textWidth, lineWidth);
+                          break;
+                      }
+                  }
+              }
+              else {
+                  break;
+              }
+          }
+        }else {
+          this._addMDTextLine(line, lineMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet);
+          textWidth = Math.max(textWidth, lineWidth);
+          if (this._shouldHandleEllipsis(currentHeightPx + lineHeightPx) && i < max - 1) {
+            this._tryToAddEllipsisToLastLine();
+          }
+          indent = startIndent
+        }
+        indent = lineWidth
+      }
+      if( !advanced ){
+        currentHeightPx += lineHeightPx;
+      }
+      if (this.textArr[this.textArr.length - 1]) {
+          this.textArr[this.textArr.length - 1].lastInParagraph = true;
+      }
+      console.log(fixedHeight, currentHeightPx + lineHeightPx , maxHeightPx )
+      if (fixedHeight && currentHeightPx + lineHeightPx > maxHeightPx) {
+          break;
+      }
+  }
+  this.textHeight = fontSize;
+  this.textWidth = textWidth;
+}
 
 
   renderText(){
     var textArr = this.textArr,
     textArrLen = textArr.length;
+
+
 
   if (!this.text()) {
     return;
@@ -114,26 +322,53 @@ class CustomText extends Text {
       translateY = lineHeightPx / 2 ;
 
     const context = this.pcache._canvas_context
-    context.font =this.fontCache
     this.pcache._canvas_context.textBaseline = MIDDLE
     
     this.pcache._canvas_context.fillStyle = this.attrs.fill
 
     let alignCenter = this.attrs.align === "center"
     let py = []
-    for (n = 0; n < textArrLen; n++) {
-      var lineTranslateX = padding;
-      var lineTranslateY = padding;
-      var obj = textArr[n],
+    var lineTranslateX = padding;
+    var lineTranslateY = padding;
+
+    let bold = false, large = false
+    if( this.attrs.withMarkdown){
+      
+      context.font = this.standardFont
+
+      for (n = 0; n < textArrLen; n++) {
+        var obj = textArr[n], text = obj.text
+        if( bold !== obj.bold || large !== obj.large){
+          bold = obj.bold
+          large = obj.large
+          context.font = bold ? (obj.large ? this.headlineFont : this.boldFont) : this.standardFont
+        }
+        let offset = (alignCenter ? (this.attrs.width - obj.width)/2 : 0) + (obj.indent ?? 0)
+        
+        context.fillText(text, lineTranslateX + offset, obj.y)
+
+        if( obj.bullet ){
+          const r = obj.ascent / 6
+          context.beginPath();
+          context.arc(lineTranslateX + offset - (r * 4), obj.y, r, 0, Math.PI * 2, false);
+          context.closePath();
+          context.fill();
+        }
+      }
+    }else{
+      context.font =this.fontCache
+      for (n = 0; n < textArrLen; n++) {
+        var obj = textArr[n],
         text = obj.text
-        let offset = alignCenter ? (this.attrs.width - obj.width)/2 : 0
-
+        let offset = (alignCenter ? (this.attrs.width - obj.width)/2 : 0)
+        
         context.fillText(text, lineTranslateX + offset, translateY + lineTranslateY)
-
+        
         if (textArrLen > 1) {
           translateY += lineHeightPx;
         }
       }
+    }
   }
 
   
@@ -204,13 +439,14 @@ class CustomText extends Text {
     this.rescaleMax = 1.5
     this.rescaleMin = 0.5
     this._cachedHeight = this.height()
+
   }
 
   requestRefresh(){
     if(this.attrs.refreshCallback && !this.placeholder){
-        if( !this.refreshRequested ){
+        if( !this.refreshRequested || (performance.now() - this.refreshRequested > 100)){
             this.attrs.refreshCallback(this)
-            this.refreshRequested = true
+            this.refreshRequested = performance.now()
         }
     }
     

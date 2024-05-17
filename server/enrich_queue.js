@@ -2,7 +2,7 @@ import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import Primitive from "./model/Primitive";
-import { addRelationship, createPrimitive, dispatchControlUpdate, executeConcurrently, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
 import { enrichCompanyFromLinkedIn } from "./linkedin_helper";
 import { enrichFromCrunchbase, fetchCompanyDataFromCrunchbase, findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
 import Category from "./model/Category";
@@ -35,6 +35,15 @@ export default function EnrichPrimitive(){
         await instance.obliterate({ force: true });
         const newJobCount = await instance.count();
         console.log( newJobCount + " jobs in queue  (enrich)")
+    }
+
+    instance.addToQueue = (primitive, name, description, options)=>{
+            const field = `processing.${name}`
+            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text: description})
+            instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: name, options: options, field: field})
+    }
+    instance.fromURL = (primitive, options )=>{
+        instance.addToQueue( primitive, "url_as_detail", "Examining url", options )
     }
 
     instance.findArticles = (primitive, options )=>{
@@ -89,7 +98,7 @@ export default function EnrichPrimitive(){
     instance.enrichCompany = (primitive, source, force)=>{
         if( primitive.type === "entity"){
             dispatchControlUpdate(primitive.id, "processing.enrich", {state: "active", started: new Date(), targetFields: ['title', 'referenceParameters.url', 'referenceParameters.description', 'referenceParameters.industry']})
-            instance.add(`enrich_${primitive.id}_from_${source}` , {id: primitive.id, source: source, target: "entity", mode: "enrich", force: force})
+            instance.add(`enrich_${primitive.id}_from_${source}` , {id: primitive.id, source: source, target: "entity", mode: "enrich", force: force, field: "processing.enrich"})
         }
     }
     instance.pivotCompany = async (primitive, source, action)=>{
@@ -350,6 +359,210 @@ export default function EnrichPrimitive(){
         }
     }
 
+    async function processURLAsDetail(primitive, url, thisCategory, {detailPrimitive, resultSet, detailResultSet}, pageCache = {}){
+        console.log(`Processing page as ${thisCategory.id} - ${thisCategory.title} : ${url}`)
+        if( thisCategory?.ai === undefined ){
+            console.log(`Cant process category `, thisCategory)
+            return 
+        }
+        let pageResult = pageCache[url]
+        if( pageResult === undefined){
+            pageResult 
+            pageCache[url] = await fetchURLPlainText( url )
+            pageResult = pageCache[url]
+        }else{
+            console.log("REUSING PAGE FROM CHCHE")
+        }
+        if( pageResult ){
+            let pagePrimitive = detailPrimitive
+            const packExtractor = (extractor, primary = true)=>{
+                let extracts = ""
+                if( primary ){
+                    extracts = extractor.primary?.type + " (" + extractor.primary?.description + ")\nFor each " + extractor.primary?.type + " a descrption"
+                }else{
+                    extracts = extractor.primary?.type + ": A nested object detailing " + extractor.primary?.description  + " which contains the information included in these parenthesis ["
+                    
+                }
+                
+                if( extractor.extracts?.length > 0){
+
+                    extracts += " and also the following details where included: \n"
+                    extracts += extractor.extracts.map(d=>d.type + ": " + d.description).join("\n")
+                }
+
+
+                const fieldAsArray = extractor.extracts?.map(d=>d.fields?.join(","))
+                if( fieldAsArray ){
+
+                    let fields = "{" + (primary ? extractor.primary?.fields?.join(", ") : "")
+                    if(fieldAsArray.length > 1){
+                        let last
+                        if( !(extractor.nestedExtracts?.length > 0) ){
+                            last = fieldAsArray.pop()
+                        }
+                        fields += (primary ? " and the following subfields: " : "") + fieldAsArray.join(" - set this field to null if no relevant information is found,\n") 
+                        if( last ){
+                            fields += ",\n and " + last
+                        }
+                    }else{
+                        fields += (primary ? " and a field called " : "") + fieldAsArray[0] 
+                    }
+                    if( !primary ){
+                        extracts += "]"
+                    }
+                    return {extracts: extracts, fields: fields}
+                }
+                return undefined 
+            }
+
+            const pageText = pageResult.fullText
+            
+            const extractor = thisCategory.ai?.extraction
+            if( extractor ){
+
+                let packed
+                try{
+
+                    packed = packExtractor( extractor )
+                }catch(error){
+                    console.log("Error in processing ")
+                    console.log(error)
+                }
+                if( packed ){
+                    let extracts = extractor.opener + packed.extracts
+                    let fields = packed.fields
+                    
+                    if( extractor.nestedExtracts ){
+                        for( const nestedId of extractor.nestedExtracts){
+                            const nested = categories[nestedId]?.ai?.extraction
+                            if( nested ){
+                                const packedNested = packExtractor( nested, false )
+                                if( packedNested ){
+                                    extracts += "\n" + packedNested.extracts + "\n"
+                                    fields += ",\n'" + nested.field + "' containing an object with the fields within the following parenthesis " + packedNested.fields + "}"
+                                }
+                            }
+                        }
+                    }
+                    fields += "}"
+                    
+                    const company = primitive.title
+                    const results = await processPromptOnText( pageText,{
+                        opener: `here is the text from a webpage which details products from a company called ${company}:`,
+                        prompt: extracts,
+                        output: extractor.closer + "\n" + fields,
+                        engine: "gpt4p",
+                        field: extractor.field,
+                        "debug": true
+                    })
+
+                    if( results.success ){
+                        const buildAndCreate = async function( result, category, descend = true){
+                            const entry = {}
+                            const children = []
+                            for(const key in result){
+                                if(  result[key] === undefined ||  result[key] === null){
+                                    continue
+                                }
+                                if( Array.isArray(result[key]) ){
+                                    if( result[key].length === 0 ){
+                                        continue
+                                    }
+                                }else{
+                                    if(  result[key].trim && result[key].trim().length === 0 ){
+                                        continue
+                                    }
+                                }
+                                if( key === "title"){
+                                    entry.title = result[key]
+                                }else{
+                                    if( category.parameters[key]){
+                                        entry.referenceParameters = entry.referenceParameters ?? {} 
+                                        entry.referenceParameters[key] = result[key]
+                                    }else{
+                                        if( descend ){
+
+                                            console.log(`NO KEY MATCH ${key} - check nested`)
+                                            if( extractor.nestedExtracts ){
+                                                for( const nestedId of extractor.nestedExtracts){
+                                                    const nested = categories[nestedId]
+                                                    if( key === nested?.ai?.extraction?.field){
+                                                        console.log(`FOUND`)
+                                                        const child = await buildAndCreate( result[key], nested, false)
+                                                        if( child ){
+                                                            children.push( child )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if( Object.keys(entry).length > 0 ){
+                                console.log(`will create : `)
+                                console.log(entry)
+                                console.log(`${children.length} children`)
+
+                                if( pagePrimitive === undefined){
+                                    const newData = {
+                                        workspaceId: primitive.workspaceId,
+                                        parent: primitive.id,
+                                        paths: ['origin', `results.${resultSet.id}`],
+                                        data:{
+                                            title: pageResult.title ?? "Web page",
+                                            referenceParameters:{
+                                                url: url
+                                            },
+                                            type: "result",
+                                            referenceId: options.resultCategoryId
+                                        }
+                                    }
+                                    pagePrimitive = await createPrimitive( newData )
+                                    if( pagePrimitive === undefined ){
+                                        console.log( newData )
+                                        throw "Couldnt add page reaource"
+                                    }
+                                }
+
+                                const newData = {
+                                    workspaceId: primitive.workspaceId,
+                                    parent: pagePrimitive.id,
+                                    paths: ['origin', `results.${detailResultSet.id}`],
+                                    data:{
+                                        ...entry,
+                                        type: "detail",
+                                        referenceId: category.id
+                                    }
+                                }
+                                const newPrim = await createPrimitive( newData )
+                                console.log(`created ${newPrim?.plainId} / ${newPrim?.id}`)
+                                if( newPrim && children ){
+                                    for(const child of children){
+                                        await addRelationship( newPrim.id, child.id, 'ref')
+                                    }
+                                }
+                                return newPrim
+                            }else{
+                                console.log('NOT CREATING')
+                            }
+                        }
+                        
+                        for(const result of results.output){
+                            await buildAndCreate(result, thisCategory)
+                        }
+                    }
+                }
+                if( pagePrimitive === undefined ){
+                    console.log(`-- Processed URL did not trigger an extract ${url}`)
+                }
+            }else{
+                console.log("COULDNT GET PAGE")
+            }
+        }
+
+    }
+
     async function site_discovery_short(primitive, options){
         try{
             if( primitive.referenceParameters?.capabilities && options?.force !== true){
@@ -385,7 +598,6 @@ export default function EnrichPrimitive(){
                 console.log(results)
                 if( results.success ){
                     console.log("here")
-                    //for(const field of ["description","offerings", "customers", "capabilities", "markets"]){
                     for(const field of ["description","offerings", "customers", "capabilities"]){
                         const v = results.output?.[0]?.[field]
                         if(v){
@@ -497,214 +709,11 @@ export default function EnrichPrimitive(){
                         }
 
                         const pageCache = {}
-
-                        const processPage = async (url, thisCategory)=>{
-                            if( thisCategory?.ai === undefined ){
-                                console.log(`Cant process category `, thisCategory)
-                                return 
-                            }
-                            console.log(`Processing page as ${thisCategory.id} - ${thisCategory.title} : ${url}`)
-                            let pageResult = pageCache[url]
-                            if( pageResult === undefined){
-                                pageResult 
-                                pageCache[url] = await fetchURLPlainText( url )
-                                pageResult = pageCache[url]
-                            }else{
-                                console.log("REUSING PAGE FROM CHCHE")
-                            }
-                            if( pageResult ){
-                                let pagePrimitive = undefined
-                                const packExtractor = (extractor, primary = true)=>{
-                                    let extracts = ""
-                                    if( primary ){
-                                        extracts = extractor.primary?.type + " (" + extractor.primary?.description + ")\nFor each " + extractor.primary?.type + " a descrption"
-                                    }else{
-                                        extracts = extractor.primary?.type + ": A nested object detailing " + extractor.primary?.description  + " which contains the information included in these parenthesis ["
-                                        
-                                    }
-                                    
-                                    if( extractor.extracts?.length > 0){
-
-                                        extracts += " and also the following details where included: \n"
-                                        extracts += extractor.extracts.map(d=>d.type + ": " + d.description).join("\n")
-                                    }
-
-
-                                    const fieldAsArray = extractor.extracts?.map(d=>d.fields?.join(","))
-                                    if( fieldAsArray ){
-
-                                        let fields = "{" + (primary ? extractor.primary?.fields?.join(", ") : "")
-                                        if(fieldAsArray.length > 1){
-                                            let last
-                                            if( !(extractor.nestedExtracts?.length > 0) ){
-                                                last = fieldAsArray.pop()
-                                            }
-                                            fields += (primary ? " and the following subfields: " : "") + fieldAsArray.join(" - set this field to null if no relevant information is found,\n") 
-                                            if( last ){
-                                                fields += ",\n and " + last
-                                            }
-                                        }else{
-                                            fields += (primary ? " and a field called " : "") + fieldAsArray[0] 
-                                        }
-                                        if( !primary ){
-                                            extracts += "]"
-                                        }
-                                        return {extracts: extracts, fields: fields}
-                                    }
-                                    return undefined 
-                                }
-
-                                const pageText = pageResult.fullText
-                                
-                                const extractor = thisCategory.ai?.extraction
-                                if( extractor ){
-
-                                    let packed
-                                    try{
-
-                                        packed = packExtractor( extractor )
-                                    }catch(error){
-                                        console.log("Error in processing ")
-                                        console.log(erro)
-                                    }
-                                    if( packed ){
-                                        let extracts = extractor.opener + packed.extracts
-                                        let fields = packed.fields
-                                        
-                                        if( extractor.nestedExtracts ){
-                                            for( const nestedId of extractor.nestedExtracts){
-                                                const nested = categories[nestedId]?.ai?.extraction
-                                                if( nested ){
-                                                    const packedNested = packExtractor( nested, false )
-                                                    if( packedNested ){
-                                                        extracts += "\n" + packedNested.extracts + "\n"
-                                                        fields += ",\n'" + nested.field + "' containing an object with the fields within the following parenthesis " + packedNested.fields + "}"
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        fields += "}"
-                                        
-                                        const company = primitive.title
-                                        const results = await processPromptOnText( pageText,{
-                                            opener: `here is the text from a webpage which details products from a company called ${company}:`,
-                                            prompt: extracts,
-                                            output: extractor.closer + "\n" + fields,
-                                            engine: "gpt4p",
-                                            field: extractor.field,
-                                            "debug": true
-                                        })
-
-                                        if( results.success ){
-                                            const buildAndCreate = async function( result, category, descend = true){
-                                                const entry = {}
-                                                const children = []
-                                                for(const key in result){
-                                                    if(  result[key] === undefined ||  result[key] === null){
-                                                        continue
-                                                    }
-                                                    if( Array.isArray(result[key]) ){
-                                                        if( result[key].length === 0 ){
-                                                            continue
-                                                        }
-                                                    }else{
-                                                        if(  result[key].trim && result[key].trim().length === 0 ){
-                                                            continue
-                                                        }
-                                                    }
-                                                    if( key === "title"){
-                                                        entry.title = result[key]
-                                                    }else{
-                                                        if( category.parameters[key]){
-                                                            entry.referenceParameters = entry.referenceParameters ?? {} 
-                                                            entry.referenceParameters[key] = result[key]
-                                                        }else{
-                                                            if( descend ){
-
-                                                                console.log(`NO KEY MATCH ${key} - check nested`)
-                                                                if( extractor.nestedExtracts ){
-                                                                    for( const nestedId of extractor.nestedExtracts){
-                                                                        const nested = categories[nestedId]
-                                                                        if( key === nested?.ai?.extraction?.field){
-                                                                            console.log(`FOUND`)
-                                                                            const child = await buildAndCreate( result[key], nested, false)
-                                                                            if( child ){
-                                                                                children.push( child )
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                if( Object.keys(entry).length > 0 ){
-                                                    console.log(`will create : `)
-                                                    console.log(entry)
-                                                    console.log(`${children.length} children`)
-
-                                                    if( pagePrimitive === undefined){
-                                                        const newData = {
-                                                            workspaceId: primitive.workspaceId,
-                                                            parent: primitive.id,
-                                                            paths: ['origin', `results.${resultSet.id}`],
-                                                            data:{
-                                                                title: pageResult.title ?? "Web page",
-                                                                referenceParameters:{
-                                                                    url: url
-                                                                },
-                                                                type: "result",
-                                                                referenceId: options.resultCategoryId
-                                                            }
-                                                        }
-                                                        pagePrimitive = await createPrimitive( newData )
-                                                        if( pagePrimitive === undefined ){
-                                                            console.log( newData )
-                                                            throw "Couldnt add page reaource"
-                                                        }
-                                                    }
-
-                                                    const newData = {
-                                                        workspaceId: primitive.workspaceId,
-                                                        parent: pagePrimitive.id,
-                                                        paths: ['origin', `results.${detailResultSet.id}`],
-                                                        data:{
-                                                            ...entry,
-                                                            type: "detail",
-                                                            referenceId: category.id
-                                                        }
-                                                    }
-                                                    const newPrim = await createPrimitive( newData )
-                                                    console.log(`created ${newPrim?.plainId} / ${newPrim?.id}`)
-                                                    if( newPrim && children ){
-                                                        for(const child of children){
-                                                            await addRelationship( newPrim.id, child.id, 'ref')
-                                                        }
-                                                    }
-                                                    return newPrim
-                                                }else{
-                                                    console.log('NOT CREATING')
-                                                }
-                                            }
-                                            
-                                            for(const result of results.output){
-                                                await buildAndCreate(result, thisCategory)
-                                            }
-                                        }
-                                    }
-                                    if( pagePrimitive === undefined ){
-                                        console.log(`-- Processed URL did not trigger an extract ${url}`)
-                                    }
-                                }else{
-                                    console.log("COULDNT GET PAGE")
-                                }
-                            }
-                        }
                         console.log("here")
                         
                         for( const item of urlsToParse){
                             try{                                
-                                await processPage( item.url, categories[item.categoryId] )
+                                await processURLAsDetail( primitive, item.url, categories[item.categoryId], {resultSet: resultSet, detailResultSet: detailResultSet}, pageCache )
                             }catch( error ){
                                 console.log(`Error processing for site_discovery ${url}`)
                                 console.log(error)
@@ -720,6 +729,73 @@ export default function EnrichPrimitive(){
         let primitive = await Primitive.findOne({_id: job.data.id})
         const options = job.data.options
         if( primitive){
+            try{
+                if( job.data.mode === "site_discovery" ){
+                        await site_discovery( primitive, options)
+                }else if( job.data.mode === "generate_jtbd" ){
+                        await generate_jtbd( primitive, options)
+                }else if( job.data.mode === "site_discovery_short" ){
+                        await site_discovery_short( primitive, options)
+                }else if( job.data.mode === "url_as_detail" ){
+                    const pageCategory = await Category.findOne({id: primitive.referenceId})
+                    const parent = await fetchPrimitive( primitiveOrigin(primitive) )
+                    const category = (await Category.findOne({id: options.referenceId})).toJSON()
+                    const url = primitive.referenceParameters?.url
+                    console.log(`Entity = `, parent.plainId)
+                    console.log(`Primitive = `, primitive.plainId)
+                    console.log(`URL = `, url)
+                    console.log(`Cat = `, category)
+                    
+                    const detailResultSet = pageCategory?.resultCategories?.find(d=>d.type === "detail")
+                    
+                    if( parent && category && url){
+                        await processURLAsDetail( parent, url, category, {detailPrimitive: primitive, detailResultSet: detailResultSet} )
+                    }
+                }else if( job.data.mode === "site_summarize" ){
+                        const primitiveCategory = await Category.findOne({id: primitive.referenceId}) 
+                        const params = Object.keys(primitiveCategory.parameters ?? {}).filter(d=>primitiveCategory.parameters[d].detailId)
+                        for( const paramKey of params){
+                            const param = primitiveCategory.parameters[paramKey]
+                            await consolidate_details( primitive, {referenceId: param.detailId})
+                        }
+                        primitive = await Primitive.findOne({_id: job.data.id})
+                        await summarize_details( primitive )
+                }else if( job.data.mode === "find_articles" ){
+                    throw "DEPRECATED!!"
+                }else if( job.data.mode === "find_posts" ){
+                    await fetchPostsFromSocialSeracher( primitive, job.data.options )
+                }else if( job.data.mode === "search_company" ){
+                    await findOrganizationsFromCB( primitive, options )
+                }else if( job.data.mode === "enrich" ){
+                    console.log(`Processing enrichment for ${primitive.id}`)
+                    if( job.data.target === "entity" ){
+                        if( job.data.source === "linkedin" ){
+                            const result = await enrichCompanyFromLinkedIn( primitive, true)
+                            SIO.notifyPrimitiveEvent( primitive, result)
+                        }
+                        if( job.data.source === "crunchbase" ){
+                            const result = await enrichFromCrunchbase( primitive, true)
+                            SIO.notifyPrimitiveEvent( primitive, result)
+                        }
+                    }
+                }else if( job.data.mode === "pivot" ){
+                        console.log(`Processing pviot for ${primitive.id}`)
+                        if( job.data.target === "entity" ){
+                            if( job.data.source === "crunchbase" ){
+                                const newPrims = await pivotFromCrunchbase(primitive, job.data.action)
+                            }
+                        }
+                }
+                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+
+                if( job.data.parentId ){
+                    dispatchControlUpdate(job.data.parentId, job.data.field, null)
+                }
+            }catch(error){
+                console.log(`error in ${job.data.mode}`)
+                console.log(error)
+            }
+/*
             if( job.data.mode === "site_discovery" ){
                 try{
                     await site_discovery( primitive, options)
@@ -814,6 +890,7 @@ export default function EnrichPrimitive(){
                     dispatchControlUpdate(job.data.parentId, job.data.field, null)
                 }
             }
+            */
         }
         
     },

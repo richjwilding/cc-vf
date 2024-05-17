@@ -3,7 +3,8 @@ const PrimitiveConfig = {
     "Constants":{
         LIVE_FILTER: 103,
         CONCEPT: 92,
-        QUERY_RESULT: 82
+        QUERY_RESULT: 82,
+        GENERIC_SUMMARY: 109
 
     },
     "metadata":{
@@ -101,7 +102,7 @@ const PrimitiveConfig = {
             defaultReferenceId: 102
         },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance", "concept", "board", "marketsegment"],
+    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance", "concept", "board", "marketsegment", "working", "summary"],
     pageview:{
         "board":{
             defaultWide: "board" 
@@ -120,6 +121,9 @@ const PrimitiveConfig = {
             source: false,
             addToResult: "segment",
             addToItems: [42],
+        },
+        "evidence":{
+            showRefs: true
         }
     },
     stateInfo:{
@@ -148,6 +152,7 @@ const PrimitiveConfig = {
         "options": "raw",
         "title": "raw",
         "currency": "currency",
+        "employee_count": "number",
         "funding": "funding",
         "contact": "contact",
         "boolean": "boolean",

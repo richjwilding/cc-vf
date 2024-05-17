@@ -18,6 +18,7 @@ import csv from 'csv-parser';
 import { dispatchControlUpdate, executeConcurrently } from "./SharedFunctions";
 import { storeDocumentEmbeddings } from "./DocumentSearch";
 import * as cheerio from 'cheerio';
+import { fetchLinksFromWebDDGQuery } from "./ddg_helper";
 
 let adconfig = {}
 
@@ -171,7 +172,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
         fecthFromPdf = true
     }
 
-    if( true || forcePDF || fecthFromPdf || !((await file.exists())[0]) ){
+    if( forcePDF || fecthFromPdf || !((await file.exists())[0]) ){
         if( notes || fecthFromPdf || forcePDF){
             console.log(`----- EXTRACT FROM PDF`)
             const result = await extractPlainTextFromPdf( id, req )
@@ -380,6 +381,7 @@ export async function removeDocument(id, bucket ){
                     if (response && response.statusCode === 204) {  // Status code 204 means 'No Content', which indicates successful deletion
                         removed++;
                         console.log('Deleted ', removed);
+                        console.log('File not found or already deleted');
                     }
                 }
             }
@@ -989,78 +991,6 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
     
 }
 
-export async function fetchLinksFromWebDDGQuery(query, withNextPage = false, attempt = 3){
-    console.log(`go`)
-    try{
-        let qp = `q=${query}`
-        if( withNextPage instanceof Object  ){
-            qp = new URLSearchParams(withNextPage).toString()
-        }
-        console.log(qp)
-            const bUrl = `https://chrome.browserless.io/scrape?token=${process.env.BROWSERLESS_KEY}`
-            const response = await fetch(bUrl,{
-                method: 'POST',
-                headers: { 
-                    'Cache-Control': 'no-cache' ,
-                    'Content-Type': 'application/json' 
-                },
-                body:JSON.stringify({
-                    "url": `https://html.duckduckgo.com/html/?${qp}`,
-                    "elements": [
-                    {
-                        "selector": ".result__body > .result__title",
-                    },
-                    {
-                        "selector": ".result__body > .result__extras > .result__extras__url > .result__url"
-                    },
-                    {
-                        "selector": ".result__body > .result__snippet"
-                    },
-                        {
-                            "selector": '.nav-link > form > [type="hidden"]'
-                        }
-                    ]
-                })
-            })
-
-        const results = await response.json();
-        if( results && results.data?.[0]?.results){
-            const links = results.data[0].results.map((d, idx)=>{
-                    return {
-                        title: d.text,
-                        snippet: results.data?.[2]?.results?.[idx]?.text?.trim(),
-                        url: "https://" + results.data?.[1]?.results?.[idx]?.text?.trim()
-                    }
-                })
-                if( links.length === 0){
-                    console.log("GOT NO RESULTS")
-                    console.log(results)
-                    if( attempt > 0){
-                        console.log("retry")
-                        return await  fetchLinksFromWebQuery(query, withNextPage, attempt--) 
-                    }
-                }
-            if( withNextPage ){
-                const attributes = results.data?.[3]?.results?.map(d=>d.attributes)
-                const query = attributes.reduce((a,c)=>{
-                    a[c.find(d=>d.name === "name")?.value] = c.find(d=>d.name === "value")?.value
-                    return a
-                }, {})
-                return {
-                    nextPageQuery: query,
-                    links: links
-                }
-            }else{
-                return links
-            }
-        }
-        return []
-    }catch(error){
-        console.log(`Error in fetchLinksFromQebQuery`)
-        console.log(error)
-    }
-    return undefined
-}
 
 export async function extractTextFromFacebookPost(url){
     if( !url && !url.match(/^(https?:\/\/)?(www\.)?(facebook|fb)\.com\//)){
@@ -1195,8 +1125,12 @@ export async function extractTextFromFacebookPost(url){
         
 }
 export async function extractTranscriptFromVideo(url){
+    return (await fetchYTVideo(url))?.transcript
+}
+export async function fetchYTVideo(url){
     const isYoutube = url && url.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?([a-zA-Z0-9_-]+)/)
 
+    let title
     if( isYoutube ){
         const fetchFromYT = async (attempts = 3)=>{
             console.log(`Awaiting  page`)
@@ -1206,7 +1140,6 @@ export async function extractTranscriptFromVideo(url){
             
             const page = await browser.newPage()
             await page.goto(url);
-            console.log(`back`)
             await new Promise(r => setTimeout(r, 500));                    
             console.log(`continue`)
 
@@ -1222,6 +1155,7 @@ export async function extractTranscriptFromVideo(url){
             }
             
             await new Promise(r => setTimeout(r, 1000));                    
+            title = await page.title()
             
             const func = `() => {
                 const elements = document.querySelectorAll('div[class="segment style-scope ytd-transcript-segment-renderer"] yt-formatted-string');
@@ -1248,7 +1182,8 @@ export async function extractTranscriptFromVideo(url){
         }
         const out = await fetchFromYT()
 
-        return out
+        const videoId = url.match(/\/watch\?v=([^&]+)/)?.[1]
+        return {transcript: out, title: title, thumbnail: `https://img.youtube.com/vi/${videoId}/0.jpg`}
         
     }
     return undefined
@@ -1538,6 +1473,12 @@ export async function queryGoogleSERP(keywords, options = {}){
     let results = []
     let timeFrame //= "last_year"
 
+    let webQuery = options.engine === "ddg" ? fetchLinksFromWebDDGQuery : fetchLinksFromWebQuery
+    if( options.engine === "ddg" ){
+        maxPage = maxPage * 22
+        console.log(`maxPage raised to ${maxPage} for ddg`)
+    }
+
     const doLookup = async (term, lookupOptions )=>{
         try{
             if( lookupOptions === undefined){
@@ -1624,11 +1565,18 @@ export async function queryGoogleSERP(keywords, options = {}){
             }
 
 
-            let lookup = options.override ? {links: [{title:"test", snippet: options.override.snippet, url: options.override.url}]} : (await fetchLinksFromWebQuery(query, searchOptions))
+            let lookup = options.override ? {links: [{title:"test", snippet: options.override.snippet, url: options.override.url}]} : (await webQuery(query, searchOptions))
             if( lookup && lookup.links ){
                 hasResults = true
-                let exec = await executeConcurrently( lookup.links, processItem, options.cancelCheck, ()=> count >= target)
-                cancelled = exec?.cancelled
+                if( options.urlFilter){
+                    const oldCount = lookup.links.length
+                    lookup.links = lookup.links.filter(d=>d.url.indexOf(options.urlFilter) > -1)
+                    console.log(`URLs filtered to ${lookup.links.length} for ${options.urlFilter}`)
+                }
+                if( lookup.links.length > 1){
+                    let exec = await executeConcurrently( lookup.links, processItem, options.cancelCheck, ()=> count >= target)
+                    cancelled = exec?.cancelled
+                }
             }
             console.log(hasResults, count, target)
             if( !cancelled && (hasResults && count < target) ){
@@ -2003,12 +1951,12 @@ export async function fetchURLPlainText( url, asArticle = false ){
         const isYoutube = url && url.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?([a-zA-Z0-9_-]+)/)
         if( isYoutube ){
             console.log(`Fetch YT transcript`)
-            const transcript = await extractTranscriptFromVideo(url)
-            if( transcript){
-                const item = {}
-                item.fullText = transcript
-                item.description = transcript.split(" ").slice(0,400).join(" ")
-                console.log(item.description)
+            const videoDetails = await fetchYTVideo(url)
+            if( videoDetails){
+                const item = {title: videoDetails.title, fullText: videoDetails.transcript, image: videoDetails.thumbnail}
+                if( videoDetails.transcript ){
+                    item.description = videoDetails.transcript.split(" ").slice(0,400).join(" ")
+                }
                 return item
             }
             return undefined

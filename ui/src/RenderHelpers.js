@@ -455,6 +455,214 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
 })
 
 
+registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function renderFunc(primitive, options = {}){
+
+    const config = {showId: true, idSize: 14, width: 800, padding: [10,10,10,10], ...options}
+    if( options.getConfig){
+        return config
+    }
+
+    let toggleWidth = 0
+    if( options.toggles){
+        toggleWidth = 26
+    }
+
+    let idHeight = config.showId ?  20 : 0
+    let availableWidth = config.width - config.padding[1] - config.padding[3]
+    let availableHeight = config.maxHeight !== undefined ? config.maxHeight - config.padding[0] - config.padding[2] - idHeight: undefined
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        onClick: options.onClick,
+        name:"inf_track primitive"
+    })
+    if( g ){
+        const r = new Konva.Rect({
+            x: 0,
+            y: 0,
+            width: config.width,
+            cornerRadius: 2,
+            fill: 'white',
+        })
+        g.add(r)
+        const t = new CustomText({
+            x: config.padding[3],
+            y: config.padding[0],
+            fontSize: 16,
+            lineHeight: 1.5,
+            text: primitive.referenceParameters.summary,
+            withMarkdown: true,
+            fill: '#334155',
+            wrap: true,
+            width: availableWidth,
+        })
+        t.attrs.refreshCallback = options.imageCallback
+
+        let h = t.height()
+        if( availableHeight ){
+            if( h > availableHeight ){
+                t.ellipsis(true)
+                t.height( availableHeight )
+            }
+        }
+        t.height(h)
+        g.add(t)
+
+
+        let totalheight = h + config.padding[0] + config.padding[2] + idHeight
+
+        if( options.toggles ){
+            const active = Object.values(options.toggles)[0][primitive.id]
+            const startX = availableWidth + config.padding[3] - toggleWidth + 2
+            const startY = totalheight - config.padding[2] - config.idSize
+            g.add( renderToggle(active, startX, startY, toggleWidth, config.idSize, Object.keys(options.toggles)[0]))
+        }
+
+
+        if( config.showId ){
+            const idText = new CustomText({
+                x: config.padding[3],
+                y: totalheight - config.padding[2] - config.idSize ,
+                fontSize: config.idSize,
+                text: `${primitive.displayType} #${primitive.plainId}`,
+                fill: '#94a3b8',
+                wrap: true,
+                width: availableWidth - toggleWidth,
+            })
+            idText.attrs.refreshCallback = options.imageCallback
+            g.add(idText)
+        }
+
+        g.setAttrs({
+            width: config.width,
+            height: totalheight
+        })
+        r.height( totalheight )
+    }
+    return g
+})
+registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function renderFunc(primitive, options = {}){
+    const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
+    if( options.getConfig){
+        return config
+    }
+
+    let toggleWidth = 0
+    if( options.toggles){
+        toggleWidth = 26
+    }
+
+    let idHeight = config.showId ?  20 : 0
+    let availableWidth = config.width - config.padding[1] - config.padding[3]
+    let availableHeight = config.maxHeight !== undefined ? config.maxHeight - config.padding[0] - config.padding[2] - idHeight: undefined
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        onClick: options.onClick,
+        name:"inf_track primitive"
+    })
+    if( g ){
+        const r = new Konva.Rect({
+            x: 0,
+            y: 0,
+            width: config.width,
+            cornerRadius: 2,
+            fill: 'white',
+        })
+        g.add(r)
+
+
+        let imageHeight = 0
+        if( primitive.referenceParameters?.hasImg){
+            imageHeight = (config.width / 16 * 9) + 10
+            const img = imageHelper( `/api/image/${primitive.id}`, {
+                x: 0,
+                y: 0,
+                padding: config.padding,
+                width: config.width,
+                height: imageHeight,
+                center: true,
+                fit:"cover",
+                imageCallback: options.imageCallback,
+                placeholder: options.placeholder !== false,
+                maxScale: 1,
+                scaleRatio: 2
+                
+            })
+            g.add( img )
+        }
+
+        const t = new CustomText({
+            x: config.padding[3],
+            y: config.padding[0] + imageHeight,
+            fontSize: 16,
+            lineHeight: 1.5,
+            text: primitive.referenceParameters?.snippet ?? primitive.text,
+            fill: '#334155',
+            wrap: true,
+            width: availableWidth,
+        })
+        t.attrs.refreshCallback = options.imageCallback
+
+        let h = t.height()
+        if( availableHeight ){
+            if( h > availableHeight ){
+                t.ellipsis(true)
+                t.height( availableHeight )
+            }
+        }
+        t.height(h)
+        g.add(t)
+
+
+        let fy = 0
+
+        let totalheight = fy + h + config.padding[0] + config.padding[2] + idHeight + imageHeight
+
+        if( options.toggles ){
+            const active = Object.values(options.toggles)[0][primitive.id]
+            const startX = availableWidth + config.padding[3] - toggleWidth + 2
+            const startY = totalheight - config.padding[2] - config.idSize
+            g.add( renderToggle(active, startX, startY, toggleWidth, config.idSize, Object.keys(options.toggles)[0]))
+        }
+
+
+        if( config.showId ){
+            const idText = new CustomText({
+                x: config.padding[3],
+                y: totalheight - config.padding[2] - config.idSize ,
+                fontSize: config.idSize,
+                text: `${primitive.displayType} #${primitive.plainId}`,
+                fill: '#94a3b8',
+                wrap: true,
+                width: availableWidth - toggleWidth,
+            })
+            idText.attrs.refreshCallback = options.imageCallback
+            g.add(idText)
+        }
+
+        g.setAttrs({
+            width: config.width,
+            height: totalheight
+        })
+        r.height( totalheight )
+    }
+    return g
+})
 registerRenderer( {type: "default", configs: "default"}, function renderFunc(primitive, options = {}){
     const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
     if( options.getConfig){
@@ -933,8 +1141,24 @@ export function renderMatrix( primitive, list, options ){
 
 
     const minWidth = {29: 120}[referenceIds[0]] ?? 300
+
+    const baseRenderConfig = {
+                config: "grid", 
+                referenceId: referenceIds[0], 
+                placeholder: options.placeholder !== false, 
+                imageCallback: options.imageCallback,
+                toggles: toggleMap,
+    }
+
     for(const cell of cells){
-        const config = RenderSetAsKonva( primitive, cell.list, {config: "grid", toggles: toggleMap, referenceId: referenceIds[0], renderConfig:{columns: itemColsByColumn[cell.cIdx], minWidth: minWidth}, getConfig: true} )    
+        const config = RenderSetAsKonva( primitive, cell.list, 
+            {
+                ...baseRenderConfig,
+                renderConfig:{
+                    columns: itemColsByColumn[cell.cIdx], minWidth: minWidth
+                },
+                getConfig: true
+            } )    
         
         itemColsByColumn[cell.cIdx] = Math.max(itemColsByColumn[cell.cIdx], config.columns)
         
@@ -957,9 +1181,9 @@ export function renderMatrix( primitive, list, options ){
     let adjustedFont = false
 
     const columnLabels = columnExtents.map((d,idx)=>{
-        const cellConfig = cells.find(d=>d.cIdx === idx)?.config
+        const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding: [5,5,5,5]}
         
-        const longestWord = (d.label ?? "").split(" ").reduce((a,c)=>a.length > c.length ? a : c, 0)
+        const longestWord = `${(d.label ?? "")}`.split(" ").reduce((a,c)=>a.length > c.length ? a : c, 0)
         const colWidth = columnSize[idx] - textPadding[1] - textPadding[3] - cellConfig.padding[3] - cellConfig.padding[1] 
 
         const text = new CustomText({
@@ -985,6 +1209,7 @@ export function renderMatrix( primitive, list, options ){
 
         return text
     })
+    
 
     function isColumnHeaderOverflowing(labels, height){
         return labels.filter(d=>d.height() > height).length >0
@@ -1000,6 +1225,7 @@ export function renderMatrix( primitive, list, options ){
         columnLabels.forEach(d=>d.fontSize(headerFontSize))
         recalc = true
     }
+    columnLabels.forEach(d=>d.fontSize(headerFontSize))
 
     let showRowheaders = rowExtents.length > 1 || rowExtents[0]?.label?.length > 0
     let headerWidth = 0
@@ -1007,8 +1233,8 @@ export function renderMatrix( primitive, list, options ){
 
     if( showRowheaders ){
         const longestPairs = rowExtents.map(d=>{
-            const words = (d.label  ?? "").split(" ")
-            const coupleLength = words.map((d,i,a)=> i > 0 ? a[i-1] + " " + d : undefined ).filter(d=>d)
+            const words = `${(d.label  ?? "")}`.split(" ")
+            const coupleLength = [words, words.map((d,i,a)=> i > 0 ? a[i-1] + " " + d : undefined ).filter(d=>d)].flat()
             return coupleLength.reduce((a,c)=>c.length > a.length ? c : a, "" )
         }).reduce((a,c)=>c.length > a.length ? c : a, "" )
         console.log(`Longest pair = `, longestPairs)
@@ -1021,7 +1247,7 @@ export function renderMatrix( primitive, list, options ){
             const text = new CustomText({
                 fontFamily: "system-ui",
                 fontSize: headerFontSize,
-                text: textWidth ? (d.label  ?? "") : longestPairs,
+                text: textWidth ? (d.label  ?? "") : ` ${longestPairs} `,
                 wrap: true,
                 align:"center",
                 bgFill:"#f3f4f6",
@@ -1056,13 +1282,13 @@ export function renderMatrix( primitive, list, options ){
         headerHeight = headerTextHeight + textPadding[0] + textPadding[2] 
     }
     columnLabels.forEach(d=>d.height(headerTextHeight))
-    let headerPadding = cells[0].config.padding[0]
+    let headerPadding = cells[0]?.config.padding[0] ?? 0
 
     const columnY = rowSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), headerHeight + headerPadding))
     
     if( showRowheaders ){
         rowExtents.forEach((header,idx)=>{
-            const cellConfig = cells.find(d=>d.rIdx === idx)?.config
+            const cellConfig = cells.find(d=>d.rIdx === idx)?.config ?? {padding:[0,0,0,0]}
             const group = new Konva.Group({
                 name: "inf_track row_header",
                 x: 0,
@@ -1088,7 +1314,7 @@ export function renderMatrix( primitive, list, options ){
     const columnX = columnSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), headerWidth ))
 
     columnExtents.forEach((header,idx)=>{
-        const cellConfig = cells.find(d=>d.cIdx === idx)?.config
+        const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding:[0,0,0,0]}
         const group = new Konva.Group({
             name: "inf_track column_header",
             x: columnX[idx],
@@ -1112,13 +1338,9 @@ export function renderMatrix( primitive, list, options ){
 
         const c = RenderSetAsKonva( primitive, cell.list, 
             {
+                ...baseRenderConfig,
                 primitiveClick: options.primitiveClick,
                 id: `${cell.cIdx}-${cell.rIdx}`, 
-                config: "grid", 
-                referenceId: referenceIds[0], 
-                placeholder: options.placeholder !== false, 
-                imageCallback: options.imageCallback,
-                toggles: toggleMap,
                 renderConfig:{
                     width: columnSize[cell.cIdx], 
                     height: rowSize[cell.rIdx] , 

@@ -48,7 +48,7 @@ const Title = (props)=>(
                   className="h-4 w-4 invisible text-slate-300 group-hover/panel:visible hover:text-slate-500 " aria-hidden="true"
                   />)
               }
-              {props.collapsable && <ChevronRightIcon strokeWidth={2} className={`ml-1 w-5 h-5 ${props.open ? '-rotate-90 transform' : ''}`}/>}
+              {props.collapsable && <ChevronRightIcon strokeWidth={2} className={`${props.arrowClass ?? "ml-1 w-5 h-5"} ${props.open ? '-rotate-90 transform' : ''}`}/>}
             </h3>
 )
 

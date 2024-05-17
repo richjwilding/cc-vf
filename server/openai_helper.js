@@ -315,7 +315,8 @@ export async function buildCategories(list, options = {} ){
             [
                 options.themes 
                     ? {"role": "user", "content": `Summarize the ${options.themes} of each item in no more than 3 words`}
-                    : {"role": "user", "content": `Categorize each item into one of no more than ${options.count || 10} categories which covers the full list. Each category should be no more than 3 words.`},
+                    //: {"role": "user", "content": `Categorize each item into one of no more than ${options.count || 10} categories which covers the full list. Each category should be no more than 3 words.`},
+                    : {"role": "user", "content": `Build a set of ${options.count || 10} non overlapping categories which covers all entries in list. Each category should be no more than 3 words.`},
                 options.themes 
                     ? {"role": "user", "content": `Provide the result as a json object with an array called "summaries" with each  summary as a string. Do not put anything other than the raw json object in the response .`}
                     : {"role": "user", "content": `Provide the result as a json object with an array called "categories" with each entry being a string containing the category. Do not put anything other than the raw json object in the response .`},
@@ -343,7 +344,7 @@ export async function buildCategories(list, options = {} ){
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here is a list of categories: `}],
             [
-                {"role": "user", "content": `Rationalize this list into no more than ${options.count  || 10} items. Each category should be no more than 3 words.`},
+                {"role": "user", "content": `Rationalize this list into no more than ${options.count  || 10} categories being careful to not lose any nuance or detail, and ensuring the new categories do not overlap . Each category should be no more than 3 words.`},
                 {"role": "user", "content": `Provide the result as a json object  with an array of categories with each entry being a string containing the category. Do not put anything other than the raw json object in the response.`},
             ],
             {field: "categories", engine: options.engine})
@@ -752,9 +753,15 @@ async function executeAI(messages, options = {}){
         model = "gpt-4-0613"
         sleepBase = 20000
     }
-    if( options.engine === "gpt4p" ){
+    if( options.engine === "gpt4t" ){
         console.log(`--- GPT 4 Turbo`)
         model = "gpt-4-turbo-2024-04-09"
+        sleepBase = 20000
+        response_format = { type: "json_object" }
+    }
+    if( options.engine === "gpt4p" ){
+        console.log(`--- GPT 4o`)
+        model = "gpt-4o"
         sleepBase = 20000
         response_format = { type: "json_object" }
     }
@@ -836,7 +843,7 @@ async function executeAI(messages, options = {}){
 export  async function categorize(list, categories, options = {} ){
     const targetType = options.types || "item"
     //const match = options.matchPrompt || `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match. Only allocate items to groups if there is a strong rationale. If there is a strong match assign the ${targetType} to the most suitable category number - otherwise assign it -1`
-    const match = options.matchPrompt || `You must assess how strongly each of the provided numbered ${targetType} aligns with each of the provided numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} using a scale of "none", "potential", "clear", and then assign the numbered ${targetType} to the number of the category it best aligns with . Numbered ${targetType}s that do not have an explicit, strong or clear alignment to any category must be assigned to the number -1`
+    const match = options.matchPrompt || `You must assess how strongly each of the provided numbered ${targetType} aligns with each of the provided numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} using a scale of "none", "hardly", "somewhat", "likely", "clear", and then assign the numbered ${targetType} to the number of the category it best aligns with . Numbered ${targetType}s that do not have an explicit, strong or clear alignment to any category must be assigned to the number -1`
     let tokens = 12000
     if(options.engine === "gpt4"){
         tokens = 2000

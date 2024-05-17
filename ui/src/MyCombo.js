@@ -77,9 +77,10 @@ export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
                         </Combobox.Option>
                       ))}
                     </Combobox.Options>
-                ) : undefined
+                ) : <p>No items</p>
               ].filter(d=>d)
 
+              console.log(actualMenu)
 
   return (
     <Combobox 
@@ -99,7 +100,7 @@ export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
           displayValue={(item) => Array.isArray(item) ?  `${props.prefix || ""}${item.length} items` : props.items ? `${props.prefix || ""}${props.items.find((d)=>d?.id === item)?.title ?? "Select..."}` : ""}
         />
          {props.portal
-          ? <Float as="div" portal middleware={middleware} placement='right-end'>{actualMenu}</Float>
+          ? <Float as="div" portal middleware={middleware} placement='right-end'>{actualMenu }</Float>
           : actualMenu}
       </div>
     </Combobox>

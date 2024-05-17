@@ -27,7 +27,7 @@ export default function MapViewer({primitive,...props}){
     const [manualInputPrompt, setManualInputPrompt] = useState(false)
     const [filters, setFilters] = useState(false)
 
-    const list = primitive.primitives.allUniqueView
+    const list = primitive.primitives.origin.allUniqueView
 
     const createView = async( action = {} )=>{
         if(!action?.key){

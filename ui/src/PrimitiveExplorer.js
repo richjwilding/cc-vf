@@ -1354,6 +1354,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                 {experiment && <InfiniteCanvas 
                             ref={canvas}
                             update={update + "." + updateRel + "." + updateExtent}
+                            primitive={primitive}
                             updateOld={update}
                             updateRel={updateRel}
                             updateExtent={updateExtent}

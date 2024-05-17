@@ -2,7 +2,7 @@ import QueueManager from './base_queue';
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import Primitive from "./model/Primitive";
-import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask } from "./SharedFunctions";
+import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { queryPosts, searchLinkedInJobs } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
@@ -93,6 +93,19 @@ export default function QueryQueue(){
                         }
                     })
                     console.log(config)
+
+                    const nestCandidates = Object.keys(category.parameters).filter(d=>category.parameters[d].nestedSearch).map(d=>config[d] ? d : undefined).filter(d=>d)
+                    if( nestCandidates.length > 0 ){
+                        const task = await Primitive.findOne({_id: await primitiveTask( primitive ) })
+                        if( task ){
+                            for( const nest of nestCandidates){
+                                const items = await primitiveDescendents(task, undefined, {referenceId: category.parameters[nest].referenceCategoryId})
+                                console.log(`Got nested candidate ${nest} with ${items.length} items of ${category.parameters[nest].referenceCategoryId}`)
+                                
+                            }
+                        }
+                        throw "done"
+                    }
                     
                     
                     // Get query results
@@ -313,6 +326,17 @@ export default function QueryQueue(){
                         }
                         if( source.platform === "google" ){
                             await queryGoogleSERP( terms, callopts) 
+                        }
+                        if( source.platform === "linkedin_ddg" ){
+                            origin = origin ?? await Primitive.findOne({_id: oId})
+                            //const company = origin.referenceParameters?.linkedIn?.match(/linkedin\.com\/company\/(.+)\//i)?.[1]
+                            const company = origin.referenceParameters?.linkedIn?.match(/linkedin\.com\/company\/([^\/]+)(?=\/|$)/i)?.[1]
+                            console.log(`company = `, company)
+                            if( company ){
+                                const query = `site:linkedin.com/posts ${company}`
+                                const url = `linkedin.com/posts/${company}`
+                                await queryGoogleSERP( "", {...callopts, prefix: query,engine: "ddg", urlFilter: url}) 
+                            }
                         }
                         if( source.platform === "crunchbase" ){
                             if( source.type === "organization" ){

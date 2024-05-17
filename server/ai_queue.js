@@ -1360,7 +1360,7 @@ export default function QueueAI(){
                                         debug_content: true
                                     })
                                     for(const d of categoryAlloc){
-                                        if(d.alignment === 'potential'){
+                                        if(d.alignment === 'hardly'){
                                             d.potentialCategory = d.category
                                             d.category = -1
                                             console.log(`Override ${d.id} ${d.potentialCategory} > ${d.category}`)

@@ -31,6 +31,12 @@ export default function AIProcessButton({primitive, ...props}){
               console.warn("DEPRECATED")
             }
             props.process(primitive)
+        }else{
+          const action = primitive.metadata.actions.find(d=>d.key === (props.actionKey ?? props.active))
+          console.log(action)
+          if( action ){
+            MainStore().doPrimitiveAction(primitive, action.key)
+          }
         }
     }
     let active = false

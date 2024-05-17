@@ -236,11 +236,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 d.attrs['page'] = page
             }
         }
-        console.log(frame.maxCol, frame.maxRow)
         const [maxCol,maxRow] = calcPage( frame.node.width() * frame.scale, frame.node.height() * frame.scale)
         frame.maxCol = maxCol
         frame.maxRow  = maxRow
-        console.log(frame.maxCol, frame.maxRow)
     }
 
     function createFrame(options = {}){
@@ -457,9 +455,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( props.render){
             const item = props.render.find(d=>d.id === id)
             if( item ){
-                const x = props.primitive.frames[id].x ?? myState.current.frames?.[id]?.x
-                const y = props.primitive.frames[id].y ?? myState.current.frames?.[id]?.y
-                const s = props.primitive.frames[id].s ?? myState.current.frames?.[id]?.s
+                const x = props.primitive.frames?.[id].x ?? myState.current.frames?.[id]?.x
+                const y = props.primitive.frames?.[id].y ?? myState.current.frames?.[id]?.y
+                const s = props.primitive.frames?.[id].s ?? myState.current.frames?.[id]?.s
 
                 const frame = setupFrameForItems(id, item.title, item.items, x, y, s)
                 buildPositionCache(frame)
@@ -502,7 +500,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     s = props.primitive.frames[set.id].s
                 }
                 const frame = setupFrameForItems(set.id, set.title, set.items, x, y, s)
-                y += frame.node.attrs.height + 200
+                y += (frame.node.attrs.height * frame.node.attrs.scaleY) + 200
                 console.log(y)
 
             }
@@ -564,8 +562,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             for( const d of myState.current.frames){
                 minX = Math.min( minX, d.x )
                 minY = Math.min( minY, d.y )
-                maxX = Math.max( maxX, d.x + d.node.attrs.width )
-                maxY = Math.max( maxY, d.y + d.node.attrs.height)                
+                maxX = Math.max( maxX, d.x + (d.node.attrs.width * d.node.attrs.scaleX))
+                maxY = Math.max( maxY, d.y + (d.node.attrs.height * d.node.attrs.scaleY))
             }
             const w = (maxX - minX)
             const h = (maxY - minY)

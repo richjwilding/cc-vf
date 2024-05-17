@@ -154,7 +154,6 @@ function MainStore (prims){
                         const target = obj.primitive( entry.target)
                         if( parent && target){
                             if(parent.primitives.fromPath(entry.path)?.allIds.includes(entry.target)){
-                                console.log(`SKIP ADD - ALREADY THERE`)
                             }else{
                                 obj.triggerCallback("relationship_update", [entry.id, entry.target])
                                 parent.addRelationship(target, entry.path, true)
@@ -1793,7 +1792,7 @@ function MainStore (prims){
                                         if( !receiver.referenceParameters?.path && source.type === "segment"){
                                             items = source.nestedItems
                                         }else{
-                                            items = node.allItems
+                                            items = node.uniqueAllItems
                                         }
                                         if( receiver.referenceParameters?.descend ){
                                             items = items.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
@@ -1941,7 +1940,7 @@ function MainStore (prims){
                         return parents
                     }
                     if( prop === "parentPrimitiveIds"){
-                        return d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 ) : []
+                        return d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports")) : []
                     }
                     if( prop === "parentPrimitiveWithRelationship"){
                         return (rel)=>{
@@ -2058,9 +2057,12 @@ function MainStore (prims){
                         const source = category.ai?.process?.context.fields[d]
                         if( source instanceof Object){
                             let header = source.title
-                            const children = receiver.primitives.uniqueAllItems.fitler(d=>d.referenceId === source.referenceId)
+                            const children = receiver.primitives.uniqueAllItems.filter(d=>d.referenceId === source.referenceId)
                             if( children && children.length > 0){
-                                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>`${source.prefix ?? ""}${i} ${d.title}`).join("\n")
+                if( out.length > 0){
+                    out += ".\n"
+                }
+                                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>`${(source.prefix + " ") ?? ""}${i} - ${d.title}`).join("\n")
                             }
 
                         }else{

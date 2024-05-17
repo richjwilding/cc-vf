@@ -92,17 +92,17 @@
             props.border ? "border border-gray-200 rounded-md" : "",
             !props.compact && !editing ? "p-1 min-h-[2em]" : "",
             props.fieldClassName || '',
-            props.compact ? "" : "px-1 py-1",
+            props.compact ? "py-1" : "px-1 py-1",
             props.fieldClassName && props.fieldClassName.search("text-") > -1 ? "" :props.secondary ? "text-gray-400" : "text-gray-800",
             showPlaceholder ? "italic" : "",
             showAsEmpty ? "italic text-gray-600" : "",
             props.editable && !editing ? props.clamp : "",
-            props.editable && !editing && !errors ? "px-1 focus:bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-200" : "",
+            props.editable && !editing && !errors ? "focus:bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-200" : "",
             props.editable && editing && !errors ? "px-1 bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-500" : "",
             props.editable && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
           ].join(" ")}
           >
-          {props.value || ((props.editable && editing) ? undefined : props.default) || props.placeholder  }
+          {props.value ?? ((props.editable && editing) ? undefined : props.default) ?? props.placeholder ?? "Enter details" }
           </div>
           {props.icon && <div className='grow-0 place-items-center ml-1'>
             {props.icon}

@@ -43,57 +43,70 @@ export default function BoardViewer({primitive,...props}){
     const action = primitive.metadata?.actions?.find(d=>d.key === "build_generic_view")
 
     //const boards = [279897,290878, 294261, 303071,303073,302434, 303074, 303153].map(d=>mainstore.primitive(d))
-    const boards = primitive.primitives.allUniqueView
+    const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary]
 
     function prepareBoard(d){
-        const items = d.itemsForProcessing
-        const columnAxis = CollectionUtils.primitiveAxis(d, "column")
-        const rowAxis = CollectionUtils.primitiveAxis(d, "row")
+        if( d.type === "view"){
+            const items = d.itemsForProcessing
+            const columnAxis = CollectionUtils.primitiveAxis(d, "column")
+            const rowAxis = CollectionUtils.primitiveAxis(d, "row")
 
-        let viewFilters = d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
-        let filterApplyColumns = d.referenceParameters?.explore?.axis?.column?.filter ?? []
-        let filterApplyRows = d.referenceParameters?.explore?.axis?.row?.filter ?? []
-        let hideNull = d.referenceParameters?.explore?.hideNull
-        let viewPivot = d.referenceParameters?.explore?.viewPivot
+            let viewFilters = d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
+            let filterApplyColumns = d.referenceParameters?.explore?.axis?.column?.filter ?? []
+            let filterApplyRows = d.referenceParameters?.explore?.axis?.row?.filter ?? []
+            let hideNull = d.referenceParameters?.explore?.hideNull
+            let viewPivot = d.referenceParameters?.explore?.viewPivot
 
-        let liveFilters = d.primitives.allUniqueCategory.filter(d=>d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
-            return {
-                type: "category",
-                primitiveId: d.id,
-                category: d,
-                isLive: true,
-                title: `Category: ${d.title}`                
-            }
-        })
-        
-        let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columnAxis, rowAxis, viewFilters, liveFilters, viewPivot )
-        console.log(data)
-
-        let filtered = CollectionUtils.filterCollectionAndAxis( data, [
-            {field: "column", exclude: filterApplyColumns},
-            {field: "row", exclude: filterApplyRows},
-            ...viewFilters.map((d,i)=>{
-                return {field: `filterGroup${i}`, exclude: d.filter}
+            let liveFilters = d.primitives.allUniqueCategory.filter(d=>d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
+                return {
+                    type: "category",
+                    primitiveId: d.id,
+                    category: d,
+                    isLive: true,
+                    title: `Category: ${d.title}`                
+                }
             })
-        ], {columns: extents.column, rows: extents.row, hideNull})
-                    
-        myState[d.id].primitive = d
-        myState[d.id].list = filtered.data
-        myState[d.id].columns = filtered.columns
-        myState[d.id].rows = filtered.rows
-        myState[d.id].extents = extents
-        myState[d.id].toggles = Object.keys(extents).reduce((a,c)=>{
-                                                                if(c.match(/liveFilter/)){
-                                                                    a[c] = extents[c]
-                                                                }
-                                                                return a}, {})
+            
+            let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columnAxis, rowAxis, viewFilters, liveFilters, viewPivot )
+            console.log(data)
+
+            let filtered = CollectionUtils.filterCollectionAndAxis( data, [
+                {field: "column", exclude: filterApplyColumns},
+                {field: "row", exclude: filterApplyRows},
+                ...viewFilters.map((d,i)=>{
+                    return {field: `filterGroup${i}`, exclude: d.filter}
+                })
+            ], {columns: extents.column, rows: extents.row, hideNull})
+                        
+            myState[d.id].primitive = d
+            myState[d.id].list = filtered.data
+            myState[d.id].columns = filtered.columns
+            myState[d.id].rows = filtered.rows
+            myState[d.id].extents = extents
+            myState[d.id].toggles = Object.keys(extents).reduce((a,c)=>{
+                                                                    if(c.match(/liveFilter/)){
+                                                                        a[c] = extents[c]
+                                                                    }
+                                                                    return a}, {})
+        }else if( d.type === "summary" ){
+            myState[d.id].primitive = d
+            myState[d.id].list = [{column: undefined, row: undefined, primitive: d}]
+            myState[d.id].columns = [{idx: undefined, label: ''}]
+            myState[d.id].rows = [{idx: undefined, label: ''}]
+            myState[d.id].config = "full"
+            myState[d.id].extents = {
+                columns: [{idx: undefined, label: ''}],
+                row:[{idx: undefined, label: ''}]
+            }
+            myState[d.id].toggles = {}
+        }
+
 
     }
 
     for(const d of boards){
-        console.log(d.id)
         if(!myState[d.id] ){
-            myState[d.id] = {}
+            myState[d.id] = {id: d.id}
             prepareBoard(d)
         }
     }
@@ -208,6 +221,10 @@ export default function BoardViewer({primitive,...props}){
 
     function renderView(d){
         const view = myState[d.id]
+        if( view.config === "full"){
+            return {id: d.id, title: `${d.title} - #${d.plainId}`, items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, stageOptions)}
+        }
+
         return {id: d.id, title: `${d.title} - #${d.plainId}`, items: (stageOptions)=>renderMatrix(
             d, 
             view.list, {
@@ -298,9 +315,9 @@ export default function BoardViewer({primitive,...props}){
                             }}
                             render={boards.map(d=>renderView(d))}
                 />
-            <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
+            {false && <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
                 <FilterPane/>
-            </div>
+            </div>}
             
     </div>
     </>

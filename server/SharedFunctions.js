@@ -3,7 +3,7 @@ import Category from './model/Category';
 import Counter from './model/Counter';
 import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
-import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn, findPeopleFromLinkedIn, fetchLinkedInProfile, addPersonFromProxyCurlData, searchPosts, liPostExtractor, updateFromProxyCurlData} from './linkedin_helper'
+import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn, findPeopleFromLinkedIn, fetchLinkedInProfile, addPersonFromProxyCurlData, searchPosts, liPostExtractor, updateFromProxyCurlData, fetchCompanyHeadcount, extractPostsFromProfile} from './linkedin_helper'
 import { enrichCompanyFunding, extractAcquisitionsFromCrunchbase, extractArticlesFromCrunchbase, lookupCompanyByName, pivotFromCrunchbase, resolveAndCreateCompaniesByName, resolveCompaniesByName, resolveCompanyByNames } from './crunchbase_helper';
 import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList, processAsSingleChunk, generateImage} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
@@ -35,6 +35,12 @@ export function uniquePrimitives(list){
         ids[p.id] = true
         return p
     })
+}
+export async function findResultSetForType(primitive, type){
+    const category = await Category.findOne({id: primitive.referenceId})
+    if( category ){
+        return category.resultCategories.find((d)=>d.type == type)?.id
+    }
 }
 export async function findResultSetForCategoryId(primitive, id){
     const category = await Category.findOne({id: primitive.referenceId})
@@ -284,7 +290,7 @@ export async function addRelationship(receiver, target, path, skipParent = false
         const check = await Primitive.find({"_id": new ObjectId(target)},{_id: 1})
         if( check.length === 0){
             await doRemovePrimitiveLink( receiver, target, path )
-            throw new Error("Couldn't find target")
+            throw new Error(`Couldn't find target ${receiver} -> ${target}`)
         }
     }
     SIO.notifyPrimitiveEvent( receiverPrim,
@@ -346,7 +352,7 @@ export async function primitiveDescendents(primitive, types, options={}){
     let list
     
     const fullDocument = options.fullDocument === undefined ? true : options.fullDocument
-    let paths = options.paths === undefined ? ["origin", "auto"] : options.paths
+    let paths = options.paths === undefined ? ["origin", "auto","link"] : options.paths
     if( options.allPaths ){
         paths = undefined
     }
@@ -814,7 +820,7 @@ async function filterItems(list, filters){
     return thisSet || list
 }
 
-async function getDataForImport( source, cache = {} ){
+export async function getDataForImport( source, cache = {} ){
     let fullList = []
     console.log(`Importing from other sources of ${source.plainId} / ${source.id}`)
     const sources = await primitivePrimitives(source, 'primitives.imports')
@@ -1087,7 +1093,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
     }
     if( primitive.referenceParameters?.pivot && primitive.referenceParameters.pivot > 0){            
         console.log(`Primitive pivot = ${primitive.referenceParameters.pivot} / ${primitive.referenceParameters.pivotBy}`)
-        list = await primitiveListOrigin( list, primitive.referenceParameters.pivot, ["result", "entity"], primitive.referenceParameters.pivotBy)
+        list = await primitiveListOrigin( list, primitive.referenceParameters.pivot, ["result", "entity", "evidence"], primitive.referenceParameters.pivotBy)
     }
     if( action.constrainId ){
         console.log(`Filtering ${list.length} for constraint ${action.constrainId} -- QUESTION OVERRIDE`)
@@ -1140,6 +1146,26 @@ export async function getDataForProcessing(primitive, action, source, options = 
                 return [listOut, out]
             }
 
+        }
+        if( field === "full_content" ){
+            const out = [], listOut = []
+            for(const d of list){
+                let fragmentList = await ContentEmbedding.find({foreignId: d.id},{foreignId:1, part:1, text: 1})
+                let content
+                if( fragmentList && fragmentList.length > 0){
+                    content = fragmentList.map(d=>d.text).join(". ")
+                    console.log(`Fetched content from embbeding store`)
+                }else{
+                    content = (await getDocumentAsPlainText( d.id ))?.plain
+                    console.log(`Fetched content from bucket`)
+                }
+                if( content ){
+                    listOut.push(d)
+                    out.push( content )
+                }
+            }
+            console.log(`+++++ For content HAD ${list.length} now ${listOut.length} +++++`)
+            return [listOut, out]
         }
 
         const param = field.slice(0,6) === "param." ? field.slice(6) : undefined
@@ -1438,7 +1464,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     if( actionKey === "auto_extract" || actionKey === "auto_summarize"){
         console.log(options)
         const source = options.source ? await fetchPrimitive( options.source ) : undefined
-        const [items, toSummarize] = await getDataForProcessing(primitive, {...(category?.openai?.summarize?.source || {})}, source, {instance: options?.instance} )
+        const [items, toSummarize] = await getDataForProcessing(primitive, {...(category?.openai?.summarize?.source ?? options ?? {})}, source, {instance: options?.instance} )
         if( items.length > 0){
 
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
@@ -1983,6 +2009,38 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 const result = await buildPage( primitive )
                 console.log(result)
             }
+
+            if( command === "rebuild_summary"){
+                const result = await doPrimitiveAction(primitive, "auto_summarize", {source: primitive.id, ...primitive.referenceParameters})
+                dispatchControlUpdate( primitive.id, "referenceParameters.summary", result)
+
+            }
+            if( command === "create_summary"){
+                const newData = {
+                    workspaceId: primitive.workspaceId,
+                    paths: ['origin'],
+                    parent: primitive.id,
+                    data:{
+                        type: "summary",
+                        title: "New summary",
+                        referenceId: PrimitiveConfig.Constants.GENERIC_SUMMARY,
+                        referenceParameters:{
+                            "field": options.field,
+                            "target":"items",
+                            "summary_type":  options.summary_type,
+                             "prompt": options.prompt
+                        }
+                    }
+                }
+                const newPrim = await createPrimitive( newData )
+                if( newPrim ){
+                    await addRelationship( newPrim.id, primitive.id, "imports")
+                    
+                    const result = await doPrimitiveAction(newPrim, "auto_summarize", {source: newPrim.id, ...newPrim.referenceParameters})
+                    console.log(result)
+                    dispatchControlUpdate( newPrim.id, "referenceParameters.summary", result)
+                }
+            }
             if( command === "build_image"){
                 const concept = (await primitiveListOrigin( [primitive], "hierarchy", undefined, "ALL", PrimitiveConfig.Constants["CONCEPT"]))?.[0]
                 
@@ -2019,6 +2077,27 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
                 done = true
             }
+
+            if( command === "summarize_results"){
+                if( primitive.type === "query"){
+                    const list = await primitiveChildren(primitive, "result")
+                    const summary = list.map(d=>`${d.title}\n${"-".repeat(d.title.length)}\n${d.referenceParameters.description}`).join("\n\n")
+
+                    let opener = action.opener ?? `Here is a set of analyses:`
+                    let prompt = action.prompt ?? `Produce a consolidated analysis of the following text by combining topics and reducing duplication without losing any nuance or detail and without using any information other than what i have provided. Avoid hyperbole and overtly salesy language.`
+                    prompt = "Produce a 3 section report from these analyses with the first providing a general overview and without any compnay or offering specifics, the second providing a summary of each company that is mentioned each in a separate paragraph, and the third providing a conclusion"
+
+                    const process = `${opener}\n${summary}\n\n${prompt}`
+
+                    const result = await processAsSingleChunk( process, {
+                        output: `Provide your response as a json array called 'results' with an entry for each section of your analyses and with each entry having a 'title' field of up to 10 words and an array called 'para' containing each paragraph of the section as a plain string. `,
+                        debug: true
+                    } )
+                    if( result.success ){
+                        console.log( result.results )
+                    }
+                }
+            }
             if( command === "entity_jbtd"){
                 await EnrichPrimitive().generateJTBD(primitive, {...action, ...options}, req)
             }
@@ -2028,8 +2107,34 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             if( command === "site_discovery"){
                 await EnrichPrimitive().siteDiscovery(primitive, {...action, ...options}, req)
             }
+            if( command === "process_resource_as_detail"){
+                await EnrichPrimitive().fromURL(primitive, {...action, ...options}, req)
+            }
             if( command === "site_summarize"){
                 await EnrichPrimitive().siteSummarize(primitive, {...action, ...options}, req)
+            }
+            if( command === "fetch_social_content"){
+                if( primitive.referenceParameters.url){
+                    const pageContent = await fetchURLPlainText( primitive.referenceParameters.url  )
+                    if( pageContent ){
+                        const title = pageContent.title ?? primitive.title
+                        const params = {
+                            ...(primitive.referenceParameters ?? {}),
+                            imageUrl: pageContent.image,
+                            hasImg: pageContent.image ? true : false,
+                            description: pageContent.description,
+                            posted: pageContent.posted_on,
+                        }
+                        await writeTextToFile(primitive.id, pageContent.fullText)
+                        if( pageContent.image ){
+                            await replicateURLtoStorage(pageContent.image, primitive.id, "cc_vf_images")
+                        }
+                        dispatchControlUpdate(primitive.id, "referenceParameters", params)
+                        dispatchControlUpdate(primitive.id, "title", title)
+
+                    }
+
+                }
             }
             if( command === "summarize"){
                 const category = await Category.findOne({id: action.referenceCategoryId})
@@ -2716,6 +2821,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
 
             }
+
+            
+            if( command === "enrich_employee_count" ){
+                await fetchCompanyHeadcount(primitive, options, action)
+            }
             if( command === "find_staff" ){
                 await findPeopleFromLinkedIn(primitive, options, action)
 
@@ -2943,6 +3053,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
 
+            }
+            if( command === "test_li_profile_posts"){
+                await extractPostsFromProfile( primitive, options, action )
             }
             if( command === "query_linkedin_posts" ){
                 const result = await searchPosts( primitive, options, action )
@@ -3422,9 +3535,12 @@ export async function buildContext(primitive, category){
             const [children, content] = await getDataForProcessing( primitive, {referenceId: source.referenceId, target: source.target ?? "children", field: source.field ?? "title"})
             const showCount = children.length > 1
             if( children && children.length > 0){
-                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>`${source.prefix ?? ""}${showCount ? i : ""} ${content[i] ?? d.title}`).join("\n")
+                if( out.length > 0){
+                    out += ". "
+                }
+                out += (header?.length > 0 ? `${header}: ` : "") + children.map((d,i)=>`${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${content[i] ?? d.title}`).join("\n")
             }
-
+            
         }else{
             if( d === "title"){
                 out += source?.length > 0 ? `${source}: ${primitive.title}\n` : `${primitive.title}\n`

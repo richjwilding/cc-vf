@@ -34,11 +34,10 @@ export default function SideNav(props) {
   }
 
   const navigate = useNavigate()
+  const showDetailPaneButton = primitive?.type !== "working"
 
 const navigation = [
   { name: 'Home', onClick: ()=>{props.setWorkspace(undefined);navigate('/')}, icon: HomeIcon, current: props.workspace === undefined },
-//  { name: 'My tasks', href: '#', icon: Bars4Icon, current: false },
- // { name: 'Recent', href: '#', icon: ClockIcon, current: false },
 ]
 
 const mainMenu = navigation.map((item) => (
@@ -372,13 +371,14 @@ const mainMenu = navigation.map((item) => (
               <Bars3CenterLeftIcon className="h-6 w-6" aria-hidden="true" />
             </button>
             <div className="flex flex-1 justify-between px-4 sm:px-2 lg:px-4">
-              <button
+              {showDetailPaneButton && <button
+
                 type="button"
                 className="px-2 text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-ccgreen-500"
                 onClick={() => setPageDetailPane(!pageDetailPane)}
               >
               <ChevronDownIcon className={`h-6 w-6 ${pageDetailPane ? "rotate-180" : ""}`} aria-hidden="true" />
-            </button>
+            </button>}
               <div className="flex flex-1">
                 {primitive && <PrimitiveCard.Banner primitive={primitive} small showMenu={true} showStateAction={false}  className='pl-4 pr-6 w-full '/>}
               <PrimitiveCard.ProcessingBase primitive={primitive}/>

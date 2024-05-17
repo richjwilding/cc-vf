@@ -245,6 +245,24 @@ export function Sidebar({primitive, ...props}) {
                         />
 
             }
+            {segment?.primitives.origin.allSummary.length > 0 && 
+                <Panel title="Summaries" collapsable={true} open={true} major>
+                    <CardGrid   
+                        list={segment.primitives.origin.allSummary} 
+                        className='p-2'
+                        columnConfig={{"sm":1}}
+                        cardProps={{
+                            showDetails:"panel",
+                            compact: true,
+                            border:false,
+                            showExpand: false,
+                            titleAtBase: true, 
+                            showMenu: true,
+                            variant: true
+                        }}
+                    />
+                </Panel>
+            }
             {!segment && <button
                 type="button"
                 className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -370,10 +388,10 @@ export function Sidebar({primitive, ...props}) {
                     </Panel>
                 }
 
-                {metadata?.sidebar?.showRefs && primitive.primitives.ref?.allIds.length > 0 && 
+                {(metadata?.sidebar?.showRefs || PrimitiveConfig.sidebar[primitive.type]?.showRefs) && (primitive.primitives.ref?.allIds.length + primitive.primitives.link?.allIds.length)> 0 && 
                     <Panel title="References" collapsable={true} open={true} major>
                         <CardGrid   
-                            list={primitive.primitives.ref.allItems} 
+                            list={MainStore().uniquePrimitives( [...primitive.primitives.ref.allItems, ...primitive.primitives.link.allItems])} 
                             className='p-2'
                             columnConfig={{"sm":1}}
                             cardProps={{
