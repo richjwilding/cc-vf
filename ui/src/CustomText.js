@@ -110,7 +110,7 @@ class CustomText extends Text {
     if( this.attrs.withMarkdown ){
       var isAuto = this.attrs.height === AUTO || this.attrs.height === undefined;
       return isAuto
-      ? (this.textArr.slice(-1)?.[0]?.y ?? 0) + this.lineHeight()
+      ? (this.textArr.slice(-1)?.[0]?.y ?? 0) + (this.lineHeight() * this.fontSize() / 2)
       : this.attrs.height;
     }else{
       return super.getHeight()
@@ -133,13 +133,6 @@ class CustomText extends Text {
           lastInParagraph: false,
       });
   }
-  /*_getTextWidth(text) {
-      var letterSpacing = this.letterSpacing();
-      console.log(letterSpacing)
-      var length = text.length;
-      return (getDummyContext().measureText(text).width +
-          (length ? letterSpacing * (length - 1) : 0));
-  }*/
   setFont
   _getTextStats(text) {
       const metrics = getDummyContext().measureText(text)
@@ -153,7 +146,9 @@ _setTextData() {
     this.boldFont = "bold " + stem
     this.headlineFont = "bold " + stem.replace(/(\d+)px/, (d)=>(parseInt(d) * 1.5) + "px")
   if( !this.attrs.withMarkdown ){
-    return super._setTextData()
+    super._setTextData()
+    this._cachedHeight = this.height()
+    return
   }
   var lines = this.text().split('\n'), fontSize = +this.fontSize(), textWidth = 0, baseLineHeightPx = this.lineHeight() * fontSize, width = this.attrs.width, height = this.attrs.height, fixedWidth = width !== AUTO && width !== undefined, fixedHeight = height !== AUTO && height !== undefined, padding = this.padding(), maxWidth = width - padding * 2, maxHeightPx = height - padding * 2, currentHeightPx = 0, wrap = this.wrap(), shouldWrap = wrap !== NONE, wrapAtWord = wrap !== CHAR && shouldWrap, shouldAddEllipsis = this.ellipsis();
   this.textArr = [];
@@ -165,8 +160,8 @@ _setTextData() {
   var additionalWidth = shouldAddEllipsis ? this._getTextStats(ELLIPSIS).width : 0;
   var translateY 
 
-  console.log(this.standardFont)
-  console.log(this.boldFont)
+  let wasIndented = false
+  let wasHeader = false
 
   for (var i = 0, max = lines.length; i < max; ++i) {
       var line = lines[i];
@@ -175,20 +170,30 @@ _setTextData() {
       }
       let padding = 1
       var startIndent = 0
-      if( line.trim().slice(0,2) === "- " ){
-        startIndent = indentWidth
-        line = line.slice(2)
-        padding = 0.25
+      const isIndented = line.match(/^(\s*)-\s(.*)/)
+      if( isIndented ){
+        const count = isIndented[1] ? 2 : 1
+        startIndent = indentWidth * count
+        line = isIndented[2]
+        if( wasIndented < startIndent){
+          padding = -0.25
+        }else if( wasIndented > startIndent){
+          padding = 1
+        }else{
+          padding = 0.25
+        }
       }
       
       let indent = startIndent
       const fragments = line.split("**")
-      console.log(line)
       let bold = false
       let advanced = false
       let large = fragments.length === 3 && fragments[0].length === 0 && fragments[2].length === 0
       
       let lineHeightPx = large ? baseLineHeightPx * 1.5 : baseLineHeightPx
+      if( !large && wasHeader){
+        padding = -0.25
+      }
 
       if( i > 0){
         currentHeightPx += lineHeightPx * padding;
@@ -296,13 +301,15 @@ _setTextData() {
       if (this.textArr[this.textArr.length - 1]) {
           this.textArr[this.textArr.length - 1].lastInParagraph = true;
       }
-      console.log(fixedHeight, currentHeightPx + lineHeightPx , maxHeightPx )
       if (fixedHeight && currentHeightPx + lineHeightPx > maxHeightPx) {
           break;
       }
-  }
+      wasIndented = startIndent
+      wasHeader = large
+    }
   this.textHeight = fontSize;
   this.textWidth = textWidth;
+  this._cachedHeight = this.height()
 }
 
 
@@ -483,10 +490,16 @@ _setTextData() {
             ctx.fillStyle = "#eaeaea"
             let y = 0, step = this.lineHeight() * fh 
             let alignCenter = this.attrs.align === "center"
-            for(const d of this.textArr){
+            if( this.attrs.withMarkdown ){
+              for(const d of this.textArr){
+                ctx.fillRect(d.indent, d.y, d.width - 1 , fh - 1)
+              }
+            }else{
+              for(const d of this.textArr){
                 let offset = alignCenter ? (this.attrs.width - d.width)/2 : 0
                 ctx.fillRect(offset, y, d.width - 1 , fh - 1)
                 y += step
+              }
             }
         }else{
           ctx.fillStyle = "#eaeaea"

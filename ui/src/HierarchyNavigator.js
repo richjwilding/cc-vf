@@ -13,6 +13,7 @@ import {
 import { ArrowLeftCircleIcon } from '@heroicons/react/24/solid'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 import MainStore from './MainStore'
+import { Float } from '@headlessui-float/react'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -21,7 +22,6 @@ function classNames(...classes) {
 const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
     const [path,setPath] = useState(undefined)
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
-    const [customOpen, setCustomOpen] = useState(false);
 
     let colors = props.major ? "bg-blue-600 border-blue-50  text-white hover:bg-ccgreen-700 focus:ring-blue-500 focus:ring-offset-gray-100" : "bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-ccgreen-500 focus:ring-ccgreen-500"
 
@@ -29,7 +29,8 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
         return typeof(props.items) === "function" ? props.items() : props.items ?? []
     }
 
-    console.log(getNodes())
+
+
     function alignPath(){
       let path = undefined
       let nodes = getNodes()
@@ -41,7 +42,6 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
           
           const id = selectedItemId()
           path = allItems.find(d=>d.id === id)?.relationship
-          console.log(id,path)
       }
       setPath( path )
     }
@@ -57,7 +57,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
       
     let selectedItemId = () => typeof(props.selectedItemId) === "function" ? props.selectedItemId() : props.selectedItemId
     let node = getNodes()
-    if(customOpen && path ){
+    if(path ){
         let idx = 0
         while(idx < path.length){
             node = node.nested[path[idx]]
@@ -65,21 +65,14 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
         }
     }
 
-
-    const setMenu = (state)=>{
-        if( state ){
-          alignPath()
-        }
-        setCustomOpen( state )
-    }
-
     const align = (typeof(props.align) === "function" ? props.align() : props.align) 
 
   return (
     <Menu as="div" className="relative inline-block text-left ml-auto">
-      <><div>
+      <Float flip={10} onUpdate={()=>{}} placement={align === "right" ? "right-start" : "left-start"} offset={4}>
+      <div>
         <Menu.Button 
-            onClick={()=>setMenu(!customOpen)}
+            onClick={(e)=>alignPath()}
             className={
                 [
                   props.small ? "text-xs py-1 px-2" : `text-sm py-2 px-2`,
@@ -101,7 +94,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
         leaveFrom="transform opacity-100 scale-100"
         leaveTo="transform opacity-0 scale-95"
       >
-        <Menu.Items static className={`absolute ${align === "right" ? "left-8" : "right-0"} z-10 mt-2 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none`}>
+        <Menu.Items static className={`z-10 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none`}>
         {path && path.length > 0 && <div >
                                         <Menu.Item>
                                         {({ active }) => (
@@ -136,7 +129,6 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
                                             onClick={(e)=>{
                                                 if( props.action ){
                                                     props.action(d) 
-                                                    setCustomOpen(false)
                                                 }
                                             }}
                                             >
@@ -177,7 +169,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
           </div>}
         </Menu.Items>
       </Transition>
-    </>
+      </Float>
     </Menu>
   )
 })

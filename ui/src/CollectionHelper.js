@@ -6,7 +6,6 @@ import { roundCurrency } from "./RenderHelpers"
 class CollectionUtils{
     static axisToHierarchy(axisList, options = {}){
         const out = {}
-        console.log(axisList)
         function findPath(node, path, d, route){
             if( path.length === 0 || (path.length === 1 && d.type === "type")){
                 return node
@@ -284,7 +283,7 @@ class CollectionUtils{
                 return {values: out.map((d,i)=>({idx: d.idx, label: d.value === undefined ? "None" : d.value}))}
             },
             "raw":(field)=>{
-                let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
+                let out = interim.map((d)=>d[field]).flat().filter((v,idx,a)=>a.indexOf(v)===idx).sort()
                 return {labels: out, order: out, values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
             },
             "boolean":(field)=>{
@@ -457,11 +456,20 @@ class CollectionUtils{
                 }else if( option.type === "title"){
                     return (p)=>{
                         let item = p
-                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                        //item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
+                        //if( option.passType === "indexed" ){
+                        //    return {order: (item?.referenceParameters?.step ?? item?.referenceParameters?.index), value: item?.title, idx: item.id}
+                       // }
+                        //return item?.title
+                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access) : [item.originAtLevel( option.access)]
                         if( option.passType === "indexed" ){
-                            return {order: (item?.referenceParameters?.step ?? item?.referenceParameters?.index), value: item?.title, idx: item.id}
+                            item = item.map(d=>{
+                                return {order: (d?.referenceParameters?.step ?? d?.referenceParameters?.index), value: d?.title, idx: d.id}
+                            })
+                        }else{
+                            item = item.map(d=>d?.title)
                         }
-                        return item?.title
+                        return item.length === 1 ? item[0] : item
                     }
                 }else if( option.type === "question"){
                     return (d)=> {
@@ -494,6 +502,19 @@ class CollectionUtils{
                     }
                     return (d)=> {
                         let item = d
+                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access) : [item.originAtLevel( option.access)]
+
+                        return item.map(d=>{
+                            let value = d?.referenceParameters[option.parameter]
+                            if( option.parameterType === "number" && typeof(value) === "string"){
+                                value = parseFloat(value)
+                            }
+                            if( option.parameterType === "boolean"){
+                                return (value === undefined || value === false) ? value : true
+                            }
+                            return value
+                        })
+                        /*let item = d
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
                         if( !item ){return undefined}
                         let value = item?.referenceParameters[option.parameter]
@@ -503,7 +524,7 @@ class CollectionUtils{
                         if( option.parameterType === "boolean"){
                             return (value === undefined || value === false) ? value : true
                         }
-                        return value
+                        return value*/
                     }
                 }
             }
@@ -606,7 +627,7 @@ class CollectionUtils{
 
     static applyFilter(list, field, items){
 
-        const partial = field === "column" || field === "row"
+        const partial = true // field === "column" || field === "row"
 
         const removeList = new Set()
 
@@ -759,7 +780,7 @@ class CollectionUtils{
             "column",
             "row",
             (source.referenceParameters?.explore?.filters ?? []).map((d,i)=>i)
-        ].map(d=>this.primitiveAxis(source,d)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
+        ].flat().map(d=>this.primitiveAxis(source,d)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
     }
 }
 

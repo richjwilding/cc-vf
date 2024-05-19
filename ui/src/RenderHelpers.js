@@ -6,6 +6,22 @@ import PrimitiveConfig from "./PrimitiveConfig";
 const typeMaps = {}
 const categoryMaps = {}
 
+const heatMapPalette = [
+    {
+        colors:[
+            "#f7fcf0",
+            "#e0f3db",
+            "#ccebc5",
+            "#a8ddb5",
+            "#7bccc4",
+            "#4eb3d3",
+            "#2b8cbe",
+            "#0868ac",
+            "#084081"
+        ]
+    }
+]
+
 export function roundCurrency(number){
     if(number === 0){
         return "$0"
@@ -71,6 +87,55 @@ export function RenderPrimitiveAsKonva( primitive, options = {} ){
     return renderer(primitive, options)
 
 }
+registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options = {})=>{
+    const config = {width: 128, height: 128, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    if( !options.list ){
+        return undefined
+    }
+    //const range = options.rowRange[options.rIdx]
+    //const range = options.colRange[options.cIdx]
+    const range = options.range
+
+    const colors = heatMapPalette[0].colors
+    const spread = range[1] - range[0] + 1
+    
+    
+    const g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+    const items = options.list
+
+    const idx = Math.floor((items.length - range[0]) / spread * colors.length) 
+    console.log(idx, items.length, range[0], range[1])
+
+    const r = new Konva.Rect({
+        x: config.padding[3],
+        y: config.padding[0],
+        width: config.width - config.padding[3] - config.padding[1],
+        height: config.height - config.padding[0] - config.padding[2],
+        fill: colors[idx],
+        name: "background"
+    })
+    g.add(r)
+
+
+    if( options.getConfig){
+        config.cachedNodes = g
+        return config
+    }else{
+        if( options.cachedNodes ){
+            options.cachedNodes.destroy()
+        }
+    }
+
+
+    return g
+})
 registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = {})=>{
     const config = {itemSize: 256, columns: 5, spacing: [8,12], itemPadding: [10,12,10,8], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     if( !options.list ){
@@ -512,7 +577,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
                 t.height( availableHeight )
             }
         }
-        t.height(h)
+        //t.height(h)
         g.add(t)
 
 
@@ -625,7 +690,7 @@ registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function ren
                 t.height( availableHeight )
             }
         }
-        t.height(h)
+        //t.height(h)
         g.add(t)
 
 
@@ -718,7 +783,7 @@ registerRenderer( {type: "default", configs: "default"}, function renderFunc(pri
                 t.height( availableHeight )
             }
         }
-        t.height(h)
+        //t.height(h)
         g.add(t)
 
 
@@ -1088,7 +1153,12 @@ export function renderMatrix( primitive, list, options ){
         x:options.x ?? 0,
         y:options.y ?? 0
     })
+    let configName = "grid"
 
+    const asCounts = options.viewConfig?.parameters?.showAsCounts
+    if( asCounts ){
+        configName = "heatmap"
+    }
 
     const columnSize = new Array(columnExtents.length).fill(0)
     const rowSize = new Array(rowExtents.length).fill(0)
@@ -1140,20 +1210,31 @@ export function renderMatrix( primitive, list, options ){
 
 
 
-    const minWidth = {29: 120}[referenceIds[0]] ?? 300
+    const minWidth = asCounts ? 128 : {29: 120}[referenceIds[0]] ?? 300
 
     const baseRenderConfig = {
-                config: "grid", 
+                config: configName, 
                 referenceId: referenceIds[0], 
                 placeholder: options.placeholder !== false, 
                 imageCallback: options.imageCallback,
                 toggles: toggleMap,
+    }
+    if( asCounts ){
+        const cellCount = cells.map(d=>d.itemLength)
+        const columnRange = columnExtents.map((_,i)=>cells.filter(d=>d.cIdx === i).map(d=>d.itemLength))
+        const rowRange = rowExtents.map((_,i)=>cells.filter(d=>d.rIdx === i).map(d=>d.itemLength))
+        
+        baseRenderConfig.range = [Math.min(...cellCount), Math.max(...cellCount)]
+        baseRenderConfig.colRange = columnRange.map(d=>[Math.min(...d), Math.max(...d)])
+        baseRenderConfig.rowRange = rowRange.map(d=>[Math.min(...d), Math.max(...d)])
     }
 
     for(const cell of cells){
         const config = RenderSetAsKonva( primitive, cell.list, 
             {
                 ...baseRenderConfig,
+                cIdx: cell.cIdx,
+                rIdx: cell.rIdx,
                 renderConfig:{
                     columns: itemColsByColumn[cell.cIdx], minWidth: minWidth
                 },
@@ -1171,14 +1252,13 @@ export function renderMatrix( primitive, list, options ){
     let headerScale = Math.max(1, Math.max(columnSize.reduce((a,c)=>a+c, 0) / 2000 , rowSize.reduce((a,c)=>a+c, 0) / 3000 ))
     let headerFontSize = Math.min(12 * headerScale, 120)
     let textPadding = new Array(4).fill(headerFontSize * 0.3 )
-    let headerHeight = headerFontSize * 2
+    let headerHeight = (headerFontSize * 4)
     let headerTextHeight = headerHeight - textPadding[0] - textPadding[2]
 
     rowSize.forEach((d,i)=>{if(d < headerHeight){
         rowSize[i] = headerHeight
     }})
 
-    let adjustedFont = false
 
     const columnLabels = columnExtents.map((d,idx)=>{
         const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding: [5,5,5,5]}
@@ -1340,6 +1420,8 @@ export function renderMatrix( primitive, list, options ){
             {
                 ...baseRenderConfig,
                 primitiveClick: options.primitiveClick,
+                cIdx: cell.cIdx,
+                rIdx: cell.rIdx,
                 id: `${cell.cIdx}-${cell.rIdx}`, 
                 renderConfig:{
                     width: columnSize[cell.cIdx], 

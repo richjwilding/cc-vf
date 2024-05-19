@@ -616,9 +616,14 @@ async function filterItems(list, filters){
                 let idx = 0
                 for(const d of setToCheck){
                     const titles = lookups[idx].map(d=>d.title)
-                    const pass = check.filter(d=>titles.includes(d)).length > 0
-                    if( invert ^ pass ){
-                        temp.push( d )
+                    if( invert ){
+                        if( !titles.reduce((a,d)=>a && check.includes(d), true) ){
+                            temp.push( d )
+                        }
+                    }else{
+                        if( titles.reduce((a,d)=>a || check.includes(d), false) ){
+                            temp.push( d )
+                        }
                     }
                     idx++
                 }
@@ -665,11 +670,24 @@ async function filterItems(list, filters){
                 toCheck = [toCheck].flat()
 
                 for(const d of setToCheck){
+                    const titles = lookups[idx].map(d=>d.referenceParameters?.[filter.param])
+                    if( invert ){
+                        if( !titles.reduce((a,d)=>a && toCheck.includes(d), true) ){
+                            temp.push( d )
+                        }
+                    }else{
+                        if( titles.reduce((a,d)=>a || toCheck.includes(d), false) ){
+                            temp.push( d )
+                        }
+                    }
+                    idx++
+                }
+                /*for(const d of setToCheck){
                     if( invert ^ lookups[idx].reduce((r,d)=>r || toCheck.includes(d.referenceParameters?.[filter.param]), false)){
                         temp.push(d)
                     }
                     idx++
-                }
+                }*/
                 thisSet = temp
             }
         }
@@ -904,6 +922,7 @@ export async function getDataForImport( source, cache = {} ){
             }
             return d
         })
+        console.log(`FIlters for view`, viewFilters)
         fullList = await filterItems( fullList, viewFilters)
 
     }
@@ -921,7 +940,7 @@ export function getBaseFilterForView( primitive){
             "column",
             "row",
             (primitive.referenceParameters?.explore?.filters ?? []).map((d,i)=>i)
-        ].map(d=>primitiveAxis(primitive,d)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
+        ].flat().map(d=>primitiveAxis(primitive,d)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
 }
 function primitiveAxis( primitive, axisName){
     let axis 

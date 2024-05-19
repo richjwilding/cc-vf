@@ -1,7 +1,7 @@
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import { SIO } from './socket';
-import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, executeConcurrently, findPrimitiveOriginParent, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship } from "./SharedFunctions";
+import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitives, findPrimitiveOriginParent, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
@@ -929,13 +929,29 @@ export default function QueueAI(){
                 try{
                     const source = await Primitive.findOne({_id: job.data.targetId})
                     if( !source ){
-                        reyurn
+                        return
                     }
+                    let scope = job.data.action.scope
+
+                    if( primitive.referenceParameters?.pivot){
+                        const scopePrims = await fetchPrimitives( scope )
+                        scope = []
+                        for( const d of scopePrims){
+                            const p = await primitiveListOrigin( [d], primitive.referenceParameters.pivot, undefined, "ALL")
+                            if( p ){
+                                scope.push( p)
+                            }
+                        }
+                        //scope = await multiPrimitiveAtOrginLevel( await fetchPrimitives( scope ), primitive.referenceParameters.pivot, "ALL")
+                        console.log(`Shifted scope by pivot to ${scope.length}`)
+                        scope = scope.flat().map(d=>d.id)
+                    }
+
                     let [list, data] = await getDataForProcessing(primitive, job.data.action, source)
                     console.log(`got ${list.length} / ${data.length} from ${source.id} - ${source.title}`)
                     if( job.data.action.scope ){
-                        data = data.filter((d,i)=>job.data.action.scope.includes(list[i].id))
-                        list = list.filter((d,i)=>job.data.action.scope.includes(d.id))
+                        data = data.filter((d,i)=>scope.includes(list[i].id))
+                        list = list.filter((d,i)=>scope.includes(d.id))
                         if( data.length !== list.length ){
                             throw "MISMATCH ON FILTER FOR SCOPE"
                         }

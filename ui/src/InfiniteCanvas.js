@@ -81,7 +81,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
         const mapped = list.map(d=>{
             const tl = convertSceneCoordToScreen( d.x, d.y)
-            const br = convertSceneCoordToScreen( d.x + d.node.attrs.width, d.y + d.node.attrs.height)
+            const br = convertSceneCoordToScreen( d.x + (d.node.attrs.width * d.node.attrs.scaleX), d.y + (d.node.attrs.height * d.node.attrs.scaleY))
                 
             return {
                 scene:{

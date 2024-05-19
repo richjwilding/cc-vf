@@ -1662,23 +1662,41 @@ function MainStore (prims){
                                     }
                                 }else if( filter.type === "title"){
                                     if( filter.value !== undefined){
+                                        const val = [filter.value].flat()
+                                        thisSet = (thisSet || list).filter(d=>{
+                                            const titles = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.map(d=>d.title)
+                                            if( invert ){
+                                                return !titles.reduce((a,d)=>a && val.includes(d), true)
+                                            }else{
+                                                return titles.reduce((a,d)=>a || val.includes(d), false)
+                                            }
+                                        })
+                                        /*
                                         if( Array.isArray(filter.value)){
                                             thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.title))
                                         }else{
                                             thisSet = (thisSet || list).filter(d=>invert ^ filter.value === d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.title)
-                                        }
+                                        }*/
                                     }
                                 }else if( filter.type === "parameter"){
                                     let values = [filter.value].flat()
                                     let isRange = values?.[0]?.min_value !== undefined || values?.[0]?.max_value !== undefined
                                     if( !isRange){
                                         thisSet = (thisSet || list).filter(d=>{
+                                            const params = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.map(d=>d.referenceParameters?.[filter.param])
+                                            if( invert ){
+                                                return !params.reduce((a,d)=>a && values.includes(d), true)
+                                            }else{
+                                                return params.reduce((a,d)=>a || values.includes(d), false)
+                                            }
+                                        })
+                                       /* thisSet = (thisSet || list).filter(d=>{
                                             let r = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param]
                                             if( r === null){
                                                 r = undefined
                                             }
                                             return invert ^ values.includes(r)
-                                        })
+                                        })*/
                                     }else{
                                             thisSet = (thisSet || list).filter(d=>{
                                                 const toCheck = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.map(d=>d.referenceParameters?.[filter.param]).filter(d=>d)

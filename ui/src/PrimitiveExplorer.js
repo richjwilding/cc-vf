@@ -34,7 +34,8 @@ function decodeFilter(filter, extents){
         if( c instanceof Object ){
             a[c.idx] = c
         }else{
-            a[c === null ? undefined : c] = true
+            //a[c === null ? undefined : c] = true
+            a[c === null ? undefined : c] = c === null ? undefined : c
         }
         return a
     }, {}) 
@@ -98,7 +99,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
     const gridRef = useRef()
     const myState = useRef({})
     const canvas = useRef({})
-    const [experiment, setExperiment] = React.useState( [178135,278794, 161258, 257045, 164523].includes(primitive.plainId) )
+    const [experiment, setExperiment] = React.useState( true )
 
     let cancelRender = false
 
@@ -387,7 +388,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
             {field: "column", exclude: filterApplyColumns},
             {field: "row", exclude: filterApplyRows},
             ...viewFilters.map((d,i)=>{
-                return {field: `filterGroup${i}`, exclude: Object.keys(d.filter).filter(d2=>d.filter[d2]).map(d=>d === "undefined" ? undefined : d) }
+                return {field: `filterGroup${i}`, exclude: Object.keys(d.filter).filter(d2=>d.filter[d2] !== undefined).map(d2=>d2 === "undefined" ? undefined : d.filter[d2]) }
             })
         ], {columns, rows, hideNull})
 
@@ -1114,7 +1115,8 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
         const axisSetter = (filter, path)=>{
             if( primitive.referenceParameters ){
-                const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] instanceof Object ? filter[d] : filter[d] ? d : undefined ).filter(d=>d)
+                //const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] instanceof Object ? filter[d] : filter[d] ? d : undefined ).filter(d=>d)
+                const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] ).filter(d=>d)
                 primitive.setField(path, keys)
             }
             forceUpdateExtent()
@@ -1157,7 +1159,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
             if(item.bucket_min !== undefined || item.bucket_max !== undefined ){
                 a[item.idx] = {min_value: item.bucket_min, max_value: item.bucket_max, idx: item.idx}
             }else{
-                a[item.idx] = true
+                a[item.idx] = item.idx
             }
             return a
         },{})
@@ -1171,10 +1173,10 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                 filter = {}
             }
         }else{
-            if(filter[item]){
-                filter[item] = undefined
-            }else{
+            if(filter[item] === undefined){
                 filter[item] = encodeMap[item]
+            }else{
+                filter[item] = undefined
             }
         }
         setter( filter )
@@ -1437,6 +1439,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                                                 primitive, 
                                                                 list, {
                                                                     columnExtents: columnExtents, 
+                                                                    viewConfig: viewConfig,
                                                                     rowExtents: rowExtents, 
                                                                     ...stageOptions,
                                                                     toggles: Object.keys(extentMap).reduce((a,c)=>{
