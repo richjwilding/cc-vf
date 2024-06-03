@@ -153,11 +153,13 @@ export function Sidebar({primitive, ...props}) {
     }
 
     const nestedCount = props.allowRemoveChildren ? [primitive].flat().map(d=>d.primitives.allIds.length)?.reduce((a,c)=>a+c,0) : undefined
+    let summaryList = primitive.type === "view" ? primitive.primitives.origin.allSegment.map(d=>d.primitives.allSummary).flat() : undefined
 
     let infoPaneContent 
     if( infoPane ){
         const segment = primitive.primitives.allSegment.find(d=>d.doesImport( primitive.id, infoPane.filters))
         if( segment ){
+            summaryList = segment.primitives.origin.allSummary 
             console.log(`FOUND SEGEMNT `, segment.plainId, segment.itemsForProcessing.length)
         }
         let segmentCategory = primitive.metadata?.resultCategories?.find(d=>MainStore().category(d.resultCategoryId)?.primitiveType === "segment")?.resultCategoryId 
@@ -245,10 +247,10 @@ export function Sidebar({primitive, ...props}) {
                         />
 
             }
-            {segment?.primitives.origin.allSummary.length > 0 && 
+            {summaryList?.length > 0 && 
                 <Panel title="Summaries" collapsable={true} open={true} major>
                     <CardGrid   
-                        list={segment.primitives.origin.allSummary} 
+                        list={summaryList} 
                         className='p-2'
                         columnConfig={{"sm":1}}
                         cardProps={{
@@ -375,6 +377,24 @@ export function Sidebar({primitive, ...props}) {
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
                     <Panel title="Significance" collapsable={true} open={true} major>
                         <PrimitiveCard.EvidenceHypothesisRelationship primitive={primitive} title={false} />
+                    </Panel>
+                }
+                {summaryList?.length > 0 && 
+                    <Panel title="Summaries" collapsable={true} open={true} major>
+                        <CardGrid   
+                            list={summaryList} 
+                            className='p-2'
+                            columnConfig={{"sm":1}}
+                            cardProps={{
+                                showDetails:"panel",
+                                compact: true,
+                                border:false,
+                                showExpand: false,
+                                titleAtBase: true, 
+                                showMenu: true,
+                                variant: true
+                            }}
+                        />
                     </Panel>
                 }
                 {Object.keys(primitive.primitives || {}).includes("imports") &&

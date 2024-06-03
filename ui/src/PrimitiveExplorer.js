@@ -21,6 +21,8 @@ import InfiniteCanvas from './InfiniteCanvas';
 import HierarchyNavigator from './HierarchyNavigator';
 import CollectionUtils from './CollectionHelper';
 import PrimitiveConfig from './PrimitiveConfig';
+import UIHelper from './UIHelper';
+import { heatMapPalette } from './RenderHelpers';
 
 
 const mainstore = MainStore()
@@ -332,7 +334,31 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
     const baseViewConfigs = [
         {id:0, title:"Show items",parameters: {showAsCounts:false}},
-        {id:1, title:"Show counts",parameters: {
+        {id:1, title:"Show counts",
+            config:{
+                "colors":{
+                    type: "option_list",
+                    title: "Colors",
+                    default: "default",
+                    options: heatMapPalette.map(d=>({id: d.name, title:d.title}))
+                },
+                "group_by": {
+                    type: "option_list",
+                    title:"Range source",
+                    default: "all",
+                    options: [{
+                        id: "all",
+                        title: "All data"
+                    },{
+                        id: "row",
+                        title: "Rows"
+                    },{
+                        id: "col",
+                        title: "Columns"
+                    }]
+                }
+            },
+            parameters: {
             showAsCounts:true,
             "props": {
                 "hideDetails": true,
@@ -340,8 +366,9 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                 showSummary: true,
                 columns: 1,
                 fixedWidth: '60rem'
-            }
-        }},
+            }            
+         }
+        },
         {id:2, title:"Show segment overview", 
                 parameters: {
                     showAsSegment: true,
@@ -452,7 +479,6 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
             }
         })
 
-        console.log(`REDO EXTENTS`)
         storeCurrentOffset()
         forceUpdateExtent()
 
@@ -1143,7 +1169,6 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                 //filter = primitive.referenceParameters?.explore?.filters?.[ mode]?.filter?.reduce((a,c)=>{a[c === null ? undefined : c]=true;return a},{}) || {}
                 filter = decodeFilter(primitive.referenceParameters?.explore?.filters?.[ mode]?.filter)
                 setter = ( filter )=>{
-                    console.log(`WILL UPDATE ${mode}`, filter) 
                     axisSetter(filter, `referenceParameters.explore.filters.${mode}.filter`)
                     forceUpdate()
                 }
@@ -1325,13 +1350,13 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                 </div>
             </div>
         }
-                <div ref={experiment ? undefined : targetRef} className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain relative'>
+                <div ref={experiment ? undefined : targetRef} id='explorebase' className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain relative'>
         {props.closeButton ?? ""}
                     <div key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 top-32 p-1.5 flex flex-col place-items-start space-y-2'>
                         {!props.compare && <HierarchyNavigator noBorder icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[colSelection]?.id} action={(d)=>updateAxis("column", d.id, columnExtents)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && <HierarchyNavigator noBorder icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[rowSelection]?.id} action={(d)=>updateAxis("row", d.id, rowExtents)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && layers && layers.length > 1 && <DropdownButton noBorder icon={<HeroIcon icon='Layers' className='w-5 h-5'/>} items={layers} flat placement='left-start' portal showTick selectedItemIdx={layers[layerSelection] ? layerSelection :  0} setSelectedItem={updateLayer} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${layerSelection > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {!props.compare && viewConfigs && <DropdownButton noBorder icon={<HeroIcon icon='Eye' className='w-5 h-5'/>} items={viewConfigs} flat placement='left-start' portal showTick selectedItemIdx={activeView} setSelectedItem={updateViewMode} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${activeView > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {!props.compare && viewConfigs && <DropdownButton noBorder icon={<HeroIcon icon='Eye' className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "view" ? setShowPane(false) : setShowPane("view")} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${hideNull ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && viewPivotOptions && <DropdownButton noBorder icon={<HeroIcon icon='TreeStruct' className='w-5 h-5'/>} items={viewPivotOptions} flat placement='left-start' portal showTick selectedItemIdx={viewPivot} setSelectedItem={updateViewPivot} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${viewPivot > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {<DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "filter" ? setShowPane(false) : setShowPane("filter")} className={`hover:text-ccgreen-800 hover:shadow-md ${rowFilter || colFilter ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {props.compare && <DropdownButton noBorder title="IMP" items={undefined} flat placement='left-start' onClick={()=>updateImportantOnly(!importantOnly)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${importantOnly ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
@@ -1414,6 +1439,9 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                     }
                                 },
                                 onClick:{
+                                    canvas: ()=>{
+                                        MainStore().sidebarSelect( primitive )
+                                    },
                                     primitive:(id)=>{
                                         mainstore.sidebarSelect(id)
                                     },
@@ -1439,6 +1467,10 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                                                 primitive, 
                                                                 list, {
                                                                     columnExtents: columnExtents, 
+                                                                    axis:{
+                                                                        column: axisOptions[colSelection],
+                                                                        row: axisOptions[rowSelection]
+                                                                    },
                                                                     viewConfig: viewConfig,
                                                                     rowExtents: rowExtents, 
                                                                     ...stageOptions,
@@ -1590,22 +1622,6 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                                             className={`mr-2 mb-2 touch-none ${spanning} ${viewConfig?.config?.dropOnPrimitive ? "dropzone" : ""}`}
                                                             {...defaultRender || {}}
                                                             {...rProps} 
-                                                        /* onInnerCardClick={ (e, p)=>{
-                                                                if( myState.current?.cancelClick ){
-                                                                    myState.current.cancelClick = false
-                                                                    return
-                                                                }
-                                                                e.stopPropagation()
-                                                                MainStore().sidebarSelect( p, {scope: item} )
-                                                            }}
-                                                            onClick={ enableClick ? (e, p)=>{
-                                                                if( myState.current?.cancelClick ){
-                                                                    myState.current.cancelClick = false
-                                                                    return
-                                                                }
-                                                                e.stopPropagation()
-                                                                MainStore().sidebarSelect( p, {scope: primitive, context: {column: column?.label ?? column ?? "None", row: row?.label ?? row ?? "None"}} )
-                                                            } : undefined}*/
                                                             />
                                                         })}
                                         </div>
@@ -1680,13 +1696,22 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
     if( true || viewConfig?.config?.searchPane || primitive.type === "assessment"){
         return <div 
             className='flex w-full h-0 grow'
-            onClick={()=>{
-                setSelectedBox(undefined)
-                MainStore().sidebarSelect( undefined)
+            onClick={(e)=>{
+                if( e.target.getAttribute('id') === "explorebase"){
+                    setSelectedBox(undefined)
+                    MainStore().sidebarSelect( primitive )
+                }
             }}
             >
             {exploreView}
             {showPane === "search" && <SearchPane primitive={primitive} dropParent={targetRef} dropCallback={externalDrop}/>}
+            {showPane === "view" && <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
+                    <UIHelper.OptionList title="View Mode" options={viewConfigs} onChange={(id)=>updateViewMode(viewConfigs.findIndex(d=>d.id === id))} value={viewConfigs[activeView]?.id}/>
+                    <div className='w-full text-lg overflow-y-scroll sapce-y-2'>
+                        {viewConfig && (!viewConfig.config || viewConfig.config.length === 0) && <p className='text-sm text-gray-500 text-center'>No settings</p>}
+                        {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d=><UIHelper {...viewConfig.config[d]} value={primitive.renderConfig?.[d]} onChange={async (v)=>{await primitive.setField(`renderConfig.${d}`, v); forceUpdate()}}/>)}
+                    </div>
+                </div>}
             {showPane === "filter" && 
                 <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
                     <div className='w-full p-2 text-lg flex place-items-center'>

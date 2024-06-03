@@ -50,6 +50,46 @@ export default function BoardViewer({primitive,...props}){
             const items = d.itemsForProcessing
             const columnAxis = CollectionUtils.primitiveAxis(d, "column")
             const rowAxis = CollectionUtils.primitiveAxis(d, "row")
+    
+    const baseViewConfigs = [
+        {id:0, title:"Show items",parameters: {showAsCounts:false}},
+        {id:1, title:"Show counts",parameters: {
+            showAsCounts:true,
+            "props": {
+                "hideDetails": true,
+                "showGrid": false,
+                showSummary: true,
+                columns: 1,
+                fixedWidth: '60rem'
+            }
+        }},
+        {id:2, title:"Show segment overview", 
+                parameters: {
+                    showAsSegment: true,
+                    "props": {
+                        "hideDetails": true,
+                        "showGrid": false,
+                        showSummary: true,
+                        columns: 1,
+                        fixedWidth: '60rem'
+                      }
+
+                }
+            },
+        {id:3, title:"Show as graph", 
+                parameters: {
+                    showAsGraph: true,
+
+                },
+                "props": {
+                    columns: 1,
+                    fixedWidth: '80rem'
+                    }
+            }
+    ]
+            const activeView  = d?.referenceParameters?.explore?.view
+            const viewConfigs = items?.[0]?.metadata?.renderConfig?.explore?.configs ?? baseViewConfigs
+            const viewConfig = viewConfigs?.[activeView] 
 
             let viewFilters = d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
             let filterApplyColumns = d.referenceParameters?.explore?.axis?.column?.filter ?? []
@@ -80,7 +120,9 @@ export default function BoardViewer({primitive,...props}){
                         
             myState[d.id].primitive = d
             myState[d.id].list = filtered.data
+            myState[d.id].axis = {column: columnAxis, row: rowAxis}
             myState[d.id].columns = filtered.columns
+            myState[d.id].viewConfig = viewConfig
             myState[d.id].rows = filtered.rows
             myState[d.id].extents = extents
             myState[d.id].toggles = Object.keys(extents).reduce((a,c)=>{
@@ -228,8 +270,10 @@ export default function BoardViewer({primitive,...props}){
         return {id: d.id, title: `${d.title} - #${d.plainId}`, items: (stageOptions)=>renderMatrix(
             d, 
             view.list, {
+                axis: view.axis,
                 columnExtents: view.columns,
-                rowExtents: view.rows, 
+                rowExtents: view.rows,
+                viewConfig: view.viewConfig,
                 ...stageOptions,
                 toggles: view.toggles
             })

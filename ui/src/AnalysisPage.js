@@ -7,7 +7,7 @@ import Panel from "./Panel";
 import { PrimitiveCard } from "./PrimitiveCard";
 import QueryCard from "./QueryCard";
 import GridLayout from 'react-grid-layout';
-import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
+import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from "@heroicons/react/24/outline";
 import DropdownButton from "./DropdownButton";
 
 export default function AnalysisPage({primitive, ...props}){
@@ -18,6 +18,17 @@ export default function AnalysisPage({primitive, ...props}){
     const queryCategory = MainStore().categories().filter(d=>d.primitiveType === "query")?.[0]
     const showSidebar = !showQuery || !showSources
 
+        const pick = ()=>{
+          MainStore().globalPicker({
+            root: undefined,
+            callback:(pick)=>{
+                primitive.addRelationship(pick, `imports`)
+            },
+            type: "view"
+          })
+        }
+
+
     return <div 
             style={{gridTemplateColumns: [showSidebar ? "2.5rem" : undefined,showSources ? "480px" : undefined, showQuery ? "1fr" : undefined, "2fr"].filter(d=>d).join(" ")}}
             className="w-full grow max-h-[calc(100vh_-_5em)] h-[calc(100vh_-_5em)] min-w-full max-w-full grid gap-2 p-2">
@@ -26,14 +37,11 @@ export default function AnalysisPage({primitive, ...props}){
             {!showQuery && <DropdownButton noBorder icon={showQuery ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>setShowQuery(!showQuery)} flat className={`ml-auto`}/>}
         </div>}
         {showSources && <div className="flex flex-col w-full max-h-[inherit] bg-white sm:rounded-lg shadow p-4 space-y-2">
-            <DropdownButton noBorder icon={showSources ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>setShowSources(!showSources)} flat className={`ml-auto`}/>
-                <PrimitiveCard primitive={primitive} showEdit={true} hideTitle={true} major={true}/>
-                <div className="border-gray-200 py-5 w-full">
-                    <p className="text-gray-500 font-medium">Details</p>
-                    <dl className={`mt-2 divide-y divide-gray-200 border-t border-b border-gray-200 relative`}>
-                        <PrimitiveCard.Parameters primitive={primitive} editing={true} fullList={true}/>
-                    </dl>
-                </div>
+            <div className="flex space-x-2 justify-end">
+                <DropdownButton noBorder icon={<PlusIcon className="w-5 h-5"/>} onClick={pick} flat className={`ml-auto`}/>
+                <DropdownButton noBorder icon={showSources ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>setShowSources(!showSources)} flat className={`ml-auto`}/>
+            </div>
+            <PrimitiveCard.ImportList primitive={primitive}/>
         </div>}
         {showQuery &&<div className="flex flex-col w-full max-h-[inherit] bg-gray-50 sm:rounded-lg shadow p-4 space-y-4 @container">
             <DropdownButton noBorder icon={showQuery ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>setShowQuery(!showQuery)} flat className={`ml-auto`}/>

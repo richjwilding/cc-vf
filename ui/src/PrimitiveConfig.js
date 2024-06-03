@@ -155,6 +155,7 @@ const PrimitiveConfig = {
         "employee_count": "number",
         "funding": "funding",
         "contact": "contact",
+        "icon": "icon",
         "boolean": "boolean",
     },
     encodeExploreFilter:(option, val, invert)=>{

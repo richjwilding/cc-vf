@@ -604,7 +604,7 @@ async function filterItems(list, filters){
         const invert = filter.invert ?? false
         let doCat1Check = false
         
-        if( filter.type === "title"){
+        if( filter.type === "title" || filter.type === "parameter" || filter.type === "type"){
             if( filter.value !== undefined){
                 const temp = []
 
@@ -615,13 +615,21 @@ async function filterItems(list, filters){
                 
                 let idx = 0
                 for(const d of setToCheck){
-                    const titles = lookups[idx].map(d=>d.title)
+                    let data
+                    if( filter.type === "title"){
+                        data = lookups[idx].map(d=>d.title)
+                    }
+                    else if( filter.type === "parameter"){
+                        data = lookups[idx].map(d=>d.referenceParameters?.[filter.param]).filter(d=>d)
+                    }else if( filter.type === "type"){
+                        data = lookups[idx].map(d=>d.referenceId)
+                    }
                     if( invert ){
-                        if( !titles.reduce((a,d)=>a && check.includes(d), true) ){
+                        if( !data.reduce((a,d)=>a && check.includes(d), true) ){
                             temp.push( d )
                         }
                     }else{
-                        if( titles.reduce((a,d)=>a || check.includes(d), false) ){
+                        if( data.reduce((a,d)=>a || check.includes(d), false) ){
                             temp.push( d )
                         }
                     }
@@ -629,6 +637,26 @@ async function filterItems(list, filters){
                 }
                 thisSet = temp
             }
+        }
+        /*
+        if( filter.type === "type"){
+            const temp = []
+            if( filter.map !== undefined){
+                const check = [filter.map].flat()
+                const setToCheck = (thisSet || list)
+                console.log(`Filter ref type `, check, invert)
+                let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot)
+                
+                let idx = 0
+                for(const d of setToCheck){
+                    //if( invert ^ check.includes( lookups[idx]?.[0]?.referenceId) ){
+                    if( invert ^ lookups[idx].reduce((r,d)=>r || check.includes(d.referenceId), false)){
+                        temp.push( d )
+                    }
+                    idx++
+                }
+            }
+            thisSet = temp
         }
         if( filter.type === "parameter"){
             const setToCheck = (thisSet || list)
@@ -682,15 +710,9 @@ async function filterItems(list, filters){
                     }
                     idx++
                 }
-                /*for(const d of setToCheck){
-                    if( invert ^ lookups[idx].reduce((r,d)=>r || toCheck.includes(d.referenceParameters?.[filter.param]), false)){
-                        temp.push(d)
-                    }
-                    idx++
-                }*/
                 thisSet = temp
             }
-        }
+        }*/
         if( filter.type === "parent" ){
 
 
@@ -746,25 +768,6 @@ async function filterItems(list, filters){
             }
             thisSet = temp
         }
-        if( filter.type === "type"){
-            const temp = []
-            if( filter.map !== undefined){
-                const check = [filter.map].flat()
-                const setToCheck = (thisSet || list)
-                console.log(`Filter ref type `, check, invert)
-                let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot)
-                
-                let idx = 0
-                for(const d of setToCheck){
-                    //if( invert ^ check.includes( lookups[idx]?.[0]?.referenceId) ){
-                    if( invert ^ lookups[idx].reduce((r,d)=>r || check.includes(d.referenceId), false)){
-                        temp.push( d )
-                    }
-                    idx++
-                }
-            }
-            thisSet = temp
-        }
         if( filter.type === "question"){
             const temp = []
             const promptCache = {}
@@ -779,9 +782,6 @@ async function filterItems(list, filters){
             for(const d of (thisSet || list)){
                 //let item = lookups[idx]?.[0]
                 //if( item ){
-                    if( d.id === "659592cd8597d2cc99a85913"){
-                        console.log(lookups[idx], idx)
-                    }
                 let pass = false
                 for(const item of lookups[idx]){
                     let add = false
@@ -1135,7 +1135,11 @@ export async function getDataForProcessing(primitive, action, source, options = 
         list = list.filter((d)=>d.type === type)
     }
     if( referenceId ){
-        list = list.filter((d)=>d.referenceId === referenceId)
+        if( Array.isArray(referenceId)){
+            list = list.filter((d)=>referenceId.includes(d.referenceId ))
+        }else{
+            list = list.filter((d)=>d.referenceId === referenceId)
+        }
     }
     if( options.childPrimitiveIds ){
         list = list.filter((d)=>options.childPrimitiveIds.includes(d._id.toString()))
@@ -3547,17 +3551,42 @@ export async function buildContext(primitive, category){
     }
 
     let out = ""
+    const lookupSet = Object.values(category.ai.process.context.fields ?? {}).filter(d=>d instanceof Object).map(d=>({referenceId: d.referenceId, agg: (d.target ?? "children") + "-" + (d.field ?? "title"), target: d.target ?? "children", field: d.field ?? "title"}))
+    let batches = {}
+    if( lookupSet.length > 0 ){
+        const unique = lookupSet.map(d=>d.agg).filter((d,i,a)=>a.indexOf(d) === i)
+        for(const key of unique){
+            const thisSet = lookupSet.filter(d=>d.agg === key)
+            const refIds = thisSet.map(d=>d.referenceId).flat()
+            const [children, content] = await getDataForProcessing( primitive, {referenceId: refIds, target: thisSet[0].target , field: thisSet[0].field })
+            batches[unique] = {
+                children,
+                content
+            }
+            
+        }
+    } 
     for(const d of Object.keys(category.ai.process.context.fields ?? [])){
         const source = category.ai?.process?.context.fields[d]
         if( source instanceof Object){
             let header = source.title
-            const [children, content] = await getDataForProcessing( primitive, {referenceId: source.referenceId, target: source.target ?? "children", field: source.field ?? "title"})
+            const key = (source.target ?? "children") + "-" + (source.field ?? "title")
+            const children = batches[key].children
+            const content = batches[key].content
+            //const [children, content] = await getDataForProcessing( primitive, {referenceId: source.referenceId, target: source.target ?? "children", field: source.field ?? "title"})
             const showCount = children.length > 1
             if( children && children.length > 0){
                 if( out.length > 0){
                     out += ". "
                 }
-                out += (header?.length > 0 ? `${header}: ` : "") + children.map((d,i)=>`${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${content[i] ?? d.title}`).join("\n")
+                out += (header?.length > 0 ? `**${header}**: ` : "") + children.map((d,i)=>`${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${content[i] ?? d.title}`).join("\n")
+            }else{
+                if( source.fallback){
+                    const param = source.fallback.slice(7)
+                    if( primitive.referenceParameters?.[param] ){
+                        out += (header?.length > 0 ? `**${header}**: ` : "") + primitive.referenceParameters[param] + "\n"
+                    }
+                }
             }
             
         }else{
@@ -3566,7 +3595,7 @@ export async function buildContext(primitive, category){
             }else{
                 if( primitive.referenceParameters?.[d] ){
                     let header = source
-                    out += header?.length > 0 ? `${header}: ${primitive.referenceParameters[d]}\n` : `${primitive.referenceParameters[d]}\n`
+                    out += header?.length > 0 ? `**${header}**: ${primitive.referenceParameters[d]}\n` : `${primitive.referenceParameters[d]}\n`
                 }
             }
         }

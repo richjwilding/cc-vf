@@ -111,6 +111,9 @@ class CollectionUtils{
                     if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query" || category.primitiveType === "evidence" ){
                         out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "raw"})
                     }
+                    if( category.primitiveType === "entity"){
+                        out.push( {type: 'icon', title: `${category.title} Icon`, category, relationship, access: access, passType: "icon"})
+                    }
                     if( category ){
                         process(category.parameters, category) //
                     }
@@ -142,7 +145,7 @@ class CollectionUtils{
                 if( filter.type === "title" ){
                     return  (p.filter((d)=>["number","string"].includes(typeof(d.title))).filter((d)=>d !== undefined).length > 0)
                 }
-                if( filter.type === "type" ){
+                if( filter.type === "icon"  || filter.type === "type" ){
                     return true
                 }
                 return false
@@ -282,6 +285,10 @@ class CollectionUtils{
                 })
                 return {values: out.map((d,i)=>({idx: d.idx, label: d.value === undefined ? "None" : d.value}))}
             },
+            "icon":(field)=>{
+                let out = interim.map((d)=>d[field]).flat().filter((v,idx,a)=>a.indexOf(v)===idx)
+                return {values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : MainStore().primitive(d)?.title ?? "Unknown"})).sort((a,b)=>a.label.localeCompare(b.label))}
+            },
             "raw":(field)=>{
                 let out = interim.map((d)=>d[field]).flat().filter((v,idx,a)=>a.indexOf(v)===idx).sort()
                 return {labels: out, order: out, values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
@@ -334,6 +341,8 @@ class CollectionUtils{
                 //const hasValues = interim.filter(d=>d[field]).sort((a,b)=>a[field] - b[field])
                 const noValues = interim.filter(d=>d[field] === undefined)
                 const hasValues = interim.filter(d=>d[field]).sort((a,b)=>a[field] - b[field])
+                //const noValues = interim.filter(d=>d[field] === undefined || (Array.isArray(d[field]) && (d[field].length === 0 || (d[field].length === 1 && d[field][0] === undefined))))
+                //const hasValues = interim.filter(d=>(d[field] === undefined) || (Array.isArray(d[field]) && d[field][0])).sort((a,b)=>a[field] - b[field])
 
                 const totalItems = hasValues.length 
                 const itemsPerBucket = Math.ceil(totalItems / bucketCount)
@@ -416,7 +425,7 @@ class CollectionUtils{
         if( axis.type === "none"){
             out = {labels: axis.labels, values: [{idx: undefined, label: ""}], order: axis.order}
         }else if( axis.type === "category"){
-            const subCats = MainStore().primitive(axis.primitiveId).primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, label:d.title})) ?? []
+            const subCats = MainStore().primitive(axis.primitiveId)?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, label:d.title})) ?? []
             out = {
                 values: [{idx: "_N_", label: "None"}, ...subCats],
             }
@@ -452,6 +461,13 @@ class CollectionUtils{
                         let item = p
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
                         return item?.referenceId
+                    }
+                }else if( option.type === "icon"){
+                    return (p)=>{
+                        let item = p
+                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access) : [item.originAtLevel( option.access)]
+                        item = item.map(d=>d.id)
+                        return item.length === 1 ? item[0] : item
                     }
                 }else if( option.type === "title"){
                     return (p)=>{
@@ -504,7 +520,7 @@ class CollectionUtils{
                         let item = d
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access) : [item.originAtLevel( option.access)]
 
-                        return item.map(d=>{
+                        item = item.map(d=>{
                             let value = d?.referenceParameters[option.parameter]
                             if( option.parameterType === "number" && typeof(value) === "string"){
                                 value = parseFloat(value)
@@ -514,6 +530,7 @@ class CollectionUtils{
                             }
                             return value
                         })
+                        return item.length === 1 ? item[0] : item
                         /*let item = d
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
                         if( !item ){return undefined}
@@ -595,6 +612,7 @@ class CollectionUtils{
         let rowFilter = filters.find(d=>d.field === "row")?.exclude ?? []
         
         let list = CollectionUtils.filterCollection( data, filters)
+        
         let outColumns
         let outRows
 
@@ -631,7 +649,7 @@ class CollectionUtils{
 
         const removeList = new Set()
 
-        items = [items].flat()
+        items = [items].flat().map(d=>d instanceof Object ? d.idx : d)
         var outList = []
         
         for(const d of list){
@@ -677,7 +695,7 @@ class CollectionUtils{
             axis = primitive.referenceParameters?.explore?.filters?.[ axisName]
         }
         if( axis ){
-            if( ["question", "title", "type"].includes(axis.type)){
+            if( ["question", "title", "type", "icon"].includes(axis.type)){
                 return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
             }
             if( "parameter" === axis.type ){
@@ -766,7 +784,7 @@ class CollectionUtils{
                     return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }else if(struct.type === "question" ){
                     return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
-                }else if(struct.type === "title"  || struct.type === "type" ){
+                }else if(struct.type === "title"  || struct.type === "type" || struct.type === "icon" ){
                     return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
                 }
                 const connectedPrim = isNaN(axis) ? primitive.primitives.axis[axis].allIds[0] : primitive.referenceParameters.explore.filters[axis].sourcePrimId

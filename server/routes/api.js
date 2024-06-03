@@ -328,7 +328,7 @@ router.get('/primitives', async function(req, res, next) {
       //  const results = await Primitive.find({})
       let query = {$and: [
                     { workspaceId: { $in: workspaces }},
-                    { type: { $in: ['activity','experiment','venture'] }},
+                    { type: { $in: ['activity','experiment','venture', 'board','working'] }},
                     { deleted: {$exists: false}}
                 ]}
     

@@ -27,7 +27,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         });
       };
 
-
     console.log(props)
     const enablePages =  true
     const enableFlipping = true
@@ -67,10 +66,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const stageRef = useRef()
     const frameRef = useRef()
     const layerRef = useRef()
-    const myState = useRef()
+    const myState = useRef({})
 
-    const chunkWidth = 1200
-    const chunkHeight = 1200
+    const chunkWidth = 800
+    const chunkHeight = 800
 
     const framePosition = (id)=>{
         if(!myState.current?.frames){
@@ -119,7 +118,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
     const test_items = useMemo(()=>{
-        myState.current ||= {}
         const out = []
         
         let cols = 200, rows = 50
@@ -148,23 +146,19 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         
         setTimeout(() => {
             requestAnimationFrame(()=>{
-                let needUpdate = false
                 let steps = 200
                 let toProcess = myState.current.rescaleList.splice(0,steps)
-                //let nodes = []
                 for(let idx = 0; idx < steps; idx++){
                     const d = toProcess[idx]
                     if( d ){
-                        d.queuedForRefresh = false
-                        d.refreshCache()
-                        needUpdate = true
-                        //nodes.push(d)
-                        d.draw()
+                        if( !d.parent?.attrs.removing ){
+                            d.queuedForRefresh = false
+                            d.refreshCache()
+                            d.draw()
+                        }else{
+                            console.log(`Has been removed`)
+                        }
                     }
-                }
-                //myState.current.rescaleList = myState.current.rescaleList.slice(steps)
-                if( needUpdate ){
-//                    stageRef.current.batchDraw()
                 }
                 if( myState.current.rescaleList.length > 0){
                     refreshImages()
@@ -195,7 +189,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( !enablePages ){
             return
         }
-        myState.current ||= {}
         
         if(frame.pages){
             //throw `Pages already present for frame ${frame.id}`
@@ -356,6 +349,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
 
             console.log(`Found existing frame - removing`)
+            existingNode.children.forEach(d=>d.attrs.removing = true)
             existingNode.remove()
             stageRef.current.batchDraw()
         }
@@ -641,12 +635,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                 let spx = Math.max(0, px)
                 let spy = Math.max(0, py)
-                let epx = Math.min(frame.maxCol + 1, px + cols)
-                let epy = Math.min(frame.maxRow + 1, py + rows)
+                let epx = Math.min(frame.maxCol + 1, px + cols + 1)
+                let epy = Math.min(frame.maxRow + 1, py + rows + 1)
 
 
 
-                //console.log(`Frame ${frame.id} offset by ${px}, ${py} pages - : ${spx}, ${spy} - doing ${epx-spx} x ${epy-spy} pages`)
+             //   console.log(`Frame ${frame.id} offset by ${px}, ${py} pages - : ${spx}, ${spy} - doing ${epx-spx} x ${epy-spy} pages`)
 
                 for(let j = spy; j < epy; j++){
                     for(let i = spx; i < epx; i++){
@@ -943,6 +937,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             throw "Dragging already present"
             return
         }
+        const t1 = console.time('creat')
         const container = document.createElement('div')
         container.setAttribute("id","drag_container")
         Object.assign(container.style,{
@@ -955,7 +950,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         const w = clone.x() + ((clone.width() + shadow)* clone.scale().x)
         const h = clone.y() + ((clone.height() + shadow )* clone.scale().y)
 
-        const stage = new Konva.Stage({width: w, height: h, container:'drag_container'})
+        const maxW = myState.current.width + x
+        const maxH = myState.current.height + y
+
+        console.log(`Canvas size => ${x} => ${maxW}`)
+        console.log(`Canvas size => ${y} => ${maxH}`)
+
+
+
+        const stage = new Konva.Stage({width: Math.min(w, maxW) , height: Math.min(h, maxH), container:'drag_container'})
         //const stage = new Konva.Stage({width: frameRef.current.offsetWidth, height: frameRef.current.offsetHeight, container:'drag_container'})
         stage.add(new Konva.Layer())
         
@@ -1210,9 +1213,17 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             myState.current.dragging.stage.scale({x:adjScale, y:adjScale})
                             myState.current.dragging.ox = myState.current.dragging.sox * adjScale
                             myState.current.dragging.oy = myState.current.dragging.soy * adjScale
-                            myState.current.dragging.stage.container().style.transform = `translate(${myState.current.dragging.spx - myState.current.dragging.ox}px, ${myState.current.dragging.spy - myState.current.dragging.oy}px)`;
-                            myState.current.dragging.stage.width( myState.current.dragging.sw * adjScale )
-                            myState.current.dragging.stage.height( myState.current.dragging.sh * adjScale )
+
+                            const dx = myState.current.dragging.spx - myState.current.dragging.ox
+                            const dy = myState.current.dragging.spy - myState.current.dragging.oy
+
+                            myState.current.dragging.stage.container().style.transform = `translate(${dx}px, ${dy}px)`;
+
+                            const maxW = myState.current.width + dx
+                            const maxH = myState.current.height + dy
+                            
+                            myState.current.dragging.stage.width( Math.min(myState.current.dragging.sw * adjScale, maxW) )
+                            myState.current.dragging.stage.height( Math.min(myState.current.dragging.sh * adjScale, maxH)  )
                             myState.current.dragging.stage.batchDraw()
                         }
 
@@ -1588,6 +1599,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 destroyFrameSelect()                
                 if( props.callbacks?.onClick?.frame ){
                     props.callbacks.onClick.frame(undefined)
+
+                }
+                if( props.callbacks?.onClick?.canvas ){
+                    props.callbacks.onClick.canvas()
 
                 }
             }

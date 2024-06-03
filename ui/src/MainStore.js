@@ -1530,7 +1530,9 @@ function MainStore (prims){
                         if( parents ){
                             out = uniquePrimitives(parents)
                             if( level > 1){
-                                out = uniquePrimitives(parents.map(d=>d.relationshipAtLevel(fwdArray ? fwdArray : relationship, level - 1, false)).flat(Infinity))
+                                out = uniquePrimitives(parents.map(d=>{
+                                    return d.relationshipAtLevel(fwdArray ? fwdArray : relationship, level - 1, false)
+                                }).flat(Infinity))
                             }
                         }
                         return out
@@ -1574,6 +1576,8 @@ function MainStore (prims){
                                                 if( d2[c] instanceof Object){
                                                     if( Array.isArray(d2[c]) ){
                                                         res = areArraysEqualIgnoreOrder( d2[c], ip[c])
+                                                    }else if( d2[c] instanceof Object ){
+                                                        res = d2[c]?.idx === ip[c]?.idx
                                                     }else{
                                                         throw `Param ${c} not processed`
                                                     }
@@ -1599,6 +1603,18 @@ function MainStore (prims){
                         }
                     }
                     if( prop === "filterItems"){
+                        return (list, filters)=>{
+                            return PrimitiveConfig.commonFilter( 
+                                list, 
+                                filters,
+                                {
+                                    parentsAt:(list, pivot, relationship)=>{
+                                        return list.map(d=>d.relationshipAtLevel(relationship, pivot))
+                                    }
+                                })
+                        }                        
+                    }
+                    if( prop === "___filterItems"){
                         return (list, filters)=>{
                             let thisSet
 
@@ -1967,7 +1983,7 @@ function MainStore (prims){
                             if( d.parentPrimitives ){
                                 out = Object.keys(d.parentPrimitives).filter(k=>{
                                     return d.parentPrimitives[k].filter(d=>d.split(".").slice(-1)?.[0] === rel).length > 0
-                                }).map(id=>obj.primitive(id))
+                                }).map(id=>obj.primitive(id)).filter(d=>d)
                                 
                                 if( out.length === 0){
                                     out = undefined
@@ -2077,10 +2093,17 @@ function MainStore (prims){
                             let header = source.title
                             const children = receiver.primitives.uniqueAllItems.filter(d=>d.referenceId === source.referenceId)
                             if( children && children.length > 0){
-                if( out.length > 0){
-                    out += ".\n"
-                }
+                                if( out.length > 0){
+                                    out += ".\n"
+                                }
                                 out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>`${(source.prefix + " ") ?? ""}${i} - ${d.title}`).join("\n")
+                            }else{
+                                if( source.fallback){
+                                    const param = source.fallback.slice(7)
+                                    if( receiver.referenceParameters?.[param] ){
+                                        out += (header?.length > 0 ? `${header}: ` : "") + receiver.referenceParameters[param]
+                                    }
+                                }
                             }
 
                         }else{

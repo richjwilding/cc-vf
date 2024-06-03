@@ -359,7 +359,7 @@ export default function EnrichPrimitive(){
         }
     }
 
-    async function processURLAsDetail(primitive, url, thisCategory, {detailPrimitive, resultSet, detailResultSet}, pageCache = {}){
+    async function processURLAsDetail(primitive, url, thisCategory, {resultCategoryId, detailPrimitive, resultSet, detailResultSet}, pageCache = {}){
         console.log(`Processing page as ${thisCategory.id} - ${thisCategory.title} : ${url}`)
         if( thisCategory?.ai === undefined ){
             console.log(`Cant process category `, thisCategory)
@@ -515,7 +515,7 @@ export default function EnrichPrimitive(){
                                                 url: url
                                             },
                                             type: "result",
-                                            referenceId: options.resultCategoryId
+                                            referenceId: resultCategoryId
                                         }
                                     }
                                     pagePrimitive = await createPrimitive( newData )
@@ -713,7 +713,7 @@ export default function EnrichPrimitive(){
                         
                         for( const item of urlsToParse){
                             try{                                
-                                await processURLAsDetail( primitive, item.url, categories[item.categoryId], {resultSet: resultSet, detailResultSet: detailResultSet}, pageCache )
+                                await processURLAsDetail( primitive, item.url, categories[item.categoryId], {resultCategoryId: resultCategoryId, resultSet: resultSet, detailResultSet: detailResultSet}, pageCache )
                             }catch( error ){
                                 console.log(`Error processing for site_discovery ${url}`)
                                 console.log(error)

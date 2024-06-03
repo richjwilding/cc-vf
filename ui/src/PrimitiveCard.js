@@ -1123,15 +1123,26 @@ const fieldsBeingProcessed = function(primitive){
 
 const ImportList = function({primitive, ...props}){
   useDataEvent('relationship_update', primitive.id)
-  return <div className='flex flex-col mt-1 overflow-y-scroll max-h-[inherit] rounded-lg bg-gray-50 text-sm border-gray-200'>
+  return <div className='flex flex-col mt-1 overflow-y-scroll max-h-[inherit] rounded-lg bg-gray-50 border-gray-200'>
     {primitive.primitives.imports.map((d)=>{
       let items = primitive.itemsForProcessingFromImport(d, {pivot: false})
       let itemMetadata = items?.[0]?.metadata
       let filteredSource = d
       let filterForImport = primitive.referenceParameters.importConfig?.filter(d2=>d2.id === d.id) ?? []
       if( filterForImport.length === 0){
-        filterForImport = d.referenceParameters.importConfig
-        filteredSource = d.primitives?.imports?.allItems[0]
+        if( Object.keys(d.primitives ).includes("imports") ){
+          if( d.type === "view"){
+            filterForImport = [{filters:[{type: d.metadata?.title ?? d.type}]}]
+          }else{
+            filterForImport = [{filters:[{type: d.metadata?.title ?? d.type}]}]
+ //           filterForImport = d.referenceParameters.importConfig
+   //         filteredSource = d.primitives?.imports?.allItems[0]
+          }
+        }else{
+          filterForImport = [{filters:[{type: d.metadata?.title ?? d.type}]}]
+          filteredSource = d
+        }
+
       }
       if( !filteredSource){
         return <></>
@@ -1145,15 +1156,18 @@ const ImportList = function({primitive, ...props}){
           }else if( d.type === "parameter"){
             source = (itemMetadata?.parameters[ d.param ].title ?? d.param) + " is "
             value = "'" + d.value + "'"
+          }else{
+            source = d.type
+            value = ""
           }
           return  <span className="inline-flex items-center rounded-full bg-green-50 px-1.5 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
-            {source + value}
+            {items.length} from {source + value}
         </span>
         }).flatMap((d, i, a)=> i < (a.length - 1) ? [d, <span className='mx-0.5 text-xs text-gray-600'>and</span>] : d)
       }).flatMap((d, i, a)=> i < (a.length - 1) ? [d, <p className='mx-0.5 text-xs text-gray-600'>or</p>] : d)
       return <div className='px-2 hover:bg-gray-100 py-4 border-b border-b-gray-200 group'>
         <div className='flex w-full place-items-center'>
-          <p className='grow'>{items.length} from {filteredSource?.metadata?.title ?? filteredSource.type} #{filteredSource.plainId} : {filteredSource.title}</p>
+          <div className='grow flex space-x-1 place-items-center'><p className='text-gray-700 text-md'>{filteredSource.title}</p><p className='text-gray-500 text-sm'>- {filteredSource.metadata?.title ?? filteredSource.type} #{filteredSource.plainId}</p></div>
             <button
               key='delete'
                 type="button"

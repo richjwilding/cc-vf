@@ -123,7 +123,9 @@ async function doDataQuery( options ) {
                             console.log(`Will go via groups - have ${interim.length} to do`)
                             for(const d of interim){
                                 console.log(`-- Doing for ${d.plainId} / ${d.title}`)
-                                await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id})
+                               // if( d.plainId === 313195){
+                                    await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id})
+                                //}
                             }
                             return
                         }
@@ -210,7 +212,7 @@ async function doDataQuery( options ) {
                 }
                 console.log(metadata)
                 let results
-                if( query ){
+                if( query && query.trim().length > 0 ){
 
                     results = await processPromptOnText( query,{
                         opener: `You have access to a database of many thousands of text fragments and must answer questions or complete tasks using information in the database.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases. Here is a task or question:`,
@@ -224,7 +226,7 @@ async function doDataQuery( options ) {
                     })
                 }else{
                     if( doingExtracts ){
-                        query = extractTargetCategory?.ai?.extract?.prompt
+                        query = `Analyze each numbered item i have provided to generate an assessment of the messaging content, structure and style.  You must produce an assessment for each and every item and return each as a seperate part of your answer.`
                         results = {success: true, allItems: true }
                     }
                 }
@@ -248,10 +250,10 @@ async function doDataQuery( options ) {
                         let fragmentList
 
                         const quote = primitive.referenceParameters?.quote ?? true
-                        const targetWords = primitive.referenceParameters?.words ?? "3 paragraphs each of 300-450 words and in a plain string format with appropriately escaped linebreaks"
+                        const targetWords = doingExtracts ? "no more than 30 words" : primitive.referenceParameters?.words ?? "3 paragraphs each of 100-200 words and in a plain string format with appropriately escaped linebreaks"
 
                         const outPrompt = [
-                            `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in ${targetWords}`,
+                            `Return the result in a json object called "answer" which is an array containing every part of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in ${targetWords}`,
                             quote ? `, a 'quote' field containing up to 50 words of the exact text used from the fragments` : undefined,
                             `, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.`,
                             (extraFields ?? "").length > 0 ? extraFields : undefined
@@ -281,7 +283,7 @@ async function doDataQuery( options ) {
 
                         const fragmentText = fragmentList.map(d=>d.text)
                         const results = await processPromptOnText( fragmentText,{
-                            opener: `Here is a list of numbered text fragments you can use to answer a question `,
+                            opener:  doingExtracts ? "Here is a list of numbered items to process" : `Here is a list of numbered text fragments you can use to answer a question `,
                             prompt: `Using only the information explcitly provided in the text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer.`,
                             //output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words, a 'quote' field containing up to 50 words of the exact text used from the fragments, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.${(extraFields ?? "").length > 0 ? extraFields + ", " : ""}`,
                             output: outPrompt,
@@ -290,9 +292,10 @@ async function doDataQuery( options ) {
                             maxTokens: 40000,
                             temperature: 1,
                             markPass: true,
+                            batch:  doingExtracts ? 10 : undefined, 
                             idField: "ids",
                             debug: true,
-                          //  debug_content: true,
+                          // debug_content: true,
                             field: "answer"
                         })
                         console.log(results.output)

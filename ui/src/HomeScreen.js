@@ -17,7 +17,7 @@ export default function HomeScreen(props){
         return array.filter((d)=>d.workspaceId === props.workspace.id)
     }
     
-    const boards = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="board"))
+    const boards = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="board" || p.type==="working"))
     const activities = filterForWorksapce(MainStore().primitives().filter((p)=>p.isTask))
     const ventures = filterForWorksapce(MainStore().primitives().filter((p)=>p.type === 'venture' || p.type==="concept"))
     const handleCreate = (prim)=>{
@@ -30,7 +30,7 @@ export default function HomeScreen(props){
     return (
     <>
         <div className="w-full h-screen overflow-y-scroll p-4">
-            <Panel key='boards' titleButton={{title:"New board", action: ()=>setShowNew('board')}} title='Boards' collapsable={true} count={boards.length} open={true} major='true' >
+            <Panel key='boards' titleButton={{title:"New board", action: ()=>setShowNew(['board','working'])}} title='Boards and analysis' collapsable={true} count={boards.length} open={true} major='true' >
                 <div className="w-full flex overflow-x-scroll">
                     <div className="w-fit flex gap-4 p-4">
                         {boards.map((p)=>{

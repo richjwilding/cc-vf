@@ -143,7 +143,8 @@ const SearchPanel = (props)=>{
       }else if(props.list){
         return props.list
       }else{
-        return MainStore().primitives()
+        const id = MainStore().activeWorkspaceId
+        return MainStore().primitives().filter(d=>d.workspaceId === id)
       }
     }
     const set = seed().filter((p)=>{

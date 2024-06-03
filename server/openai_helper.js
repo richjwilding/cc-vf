@@ -67,8 +67,62 @@ export async function extractAxisFromDescriptionList( list, options = {}){
     }
     let type = options.type || "segment"
     let opener = `Here is a list of ${type}s:`
-    let prompt =  `These ${type}s are to be plotted on a market map to help understand the space. Provide a list of 4-6 suggested axis, together with a set of non-overlapping values for the axis, that will help compare and contrast the ${type}s. For each suggested axis, assign each ${type} into no more than one value.`
-    let output = `Provide the result as a json object  with an array called 'axis' with each entry containing a "title" field set to the suggested title of the axis, and a 'values' field set to an array with each entry containing a "value" field set to the suggested value and a "ids" field set to an array containing the ids of the ${type}s assigned to it. `
+
+    let prompt = `I need to generate a market map based on the provided information. Please suggest 4-6 appropriate axes with as many non-overlapping and unique values necessary to help compare and contrast these ${type}s. 
+    Each suggested value should represent at least 3 items and every ${type} must be assigned to each and every applicable value in each axis. 
+    Pick axis and values which provide could coverage of as many of the ${type}s i have provided as possible
+    
+    **Steps**
+    1. **Categorize Accurately**: For each axis, categorize the ${type} based on the details described in the provided information. In categorizing an ${type} be sure to consider all of the information provided about it and ensure that the assignment doesn't overly focus on any one specific detail (for example is a company operates in healthcare amongst other sectors you must assign it to  all relevant values or to a more generic value that represents the full details). 
+    2. **Alignment with Description**: Ensure that the assigned values on each axis accurately reflects the ${type}'s description provided in the overview, particularly focusing on the explicitly stated target customers and key capabilities.
+    3.  **Validation Check**: Review your assignments once completed, ensuring no ${type} is misplaced based on its provided overview, and that the categorization clearly aligns with the detailed descriptions.`
+
+    let output = `Provide the result as a json object with the following structure: 
+                {'axis': 
+                [
+                    {
+                        id: <<a numerical id for the axis>>, 
+                        title:<<Axis title in no more than 5 words>>, 
+                        dimension:<<The dimension this axis considers (such as offerings, customers)>>, 
+                        description: <<Description of the axis in no more than 25 words, 
+                        values: [
+                            {
+                                title: <<Title of value>>, 
+                                description: <<description of value in no more than 25 words>>}
+                            },<<remaining values for axis>>
+                        ]
+                    }
+                ]
+            }`
+    //unassigned: [<<list of ids of organization not assigned to any values in this axis>>]
+                                /*assignments: [
+                                    {
+                                        id: <<id of ${type} as provided by me assigned to this value in this axis>>, 
+                                        r: <<rationale for assigning to this value as opposed to others in the axis, in 10 words or less  >>
+                                    },<<remaining ${type}s assigned to values in this axis>>
+                                ]*/
+    const interim = await processInChunk( list,
+            [
+                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                {"role": "user", "content": opener}],
+            [
+                {"role": "user", "content": prompt},
+                {"role": "user", "content": output}
+
+            ],
+            {field: "axis", engine: "gpt4p", markPass: true, ...options})
+
+
+    return {success: true, output: interim}
+}
+export async function __extractAxisFromDescriptionList( list, options = {}){
+    if( list === undefined || list.length === 0){
+        return {success: true, output: []}
+    }
+    let type = options.type || "segment"
+    let opener = `Here is a list of ${type}s:`
+    let prompt =  `These ${type}s are to be plotted on a market map to help understand the space. Based on the information provided, generate a list of 4-6 suggested axis, together with a set of non-overlapping values for the axis, that will help compare and contrast the ${type}s. For each suggested axis, assign each ${type} into no more than one value based on the information i have provided for it ensuring the value it is assigned is valid and the most appropriate option. Ensure the axis and values are based on data i have provided only and that each suggested value represents at least 10 items.`
+    let output = `Provide the result as a json object  with an array called 'axis' with each entry containing a "title" field set to the suggested title of the axis, a 'description' field with upto 25 words describing the axis, and a 'values' field set to an array with each entry containing a "value" field set to the suggested value and a "ids" field set to an array containing the ids of the ${type}s assigned to it. `
 
     const interim = await processInChunk( list,
             [
@@ -304,6 +358,7 @@ export async function buildKeywordsFromList(list, options = {} ){
     return {success: true, keywords: interim}
 }
 export async function buildCategories(list, options = {} ){
+    const count = options.count ?? 10
     let theme = options.themes
     if( theme === ""){
         theme = undefined
@@ -316,10 +371,10 @@ export async function buildCategories(list, options = {} ){
                 options.themes 
                     ? {"role": "user", "content": `Summarize the ${options.themes} of each item in no more than 3 words`}
                     //: {"role": "user", "content": `Categorize each item into one of no more than ${options.count || 10} categories which covers the full list. Each category should be no more than 3 words.`},
-                    : {"role": "user", "content": `Build a set of ${options.count || 10} non overlapping categories which covers all entries in list. Each category should be no more than 3 words.`},
+                    : {"role": "user", "content": `Build a set of ${count} distinct and non overlapping categories which covers all entries in list. Each category should be no more than 3 words and should have a clear defintion.`},
                 options.themes 
-                    ? {"role": "user", "content": `Provide the result as a json object with an array called "summaries" with each  summary as a string. Do not put anything other than the raw json object in the response .`}
-                    : {"role": "user", "content": `Provide the result as a json object with an array called "categories" with each entry being a string containing the category. Do not put anything other than the raw json object in the response .`},
+                    ? {"role": "user", "content": `Provide the result as a json object with an array called "summaries" with each entry as an object with a 't' field containing the title and a 'd' field containing the definition in no more than 20 words. Do not put anything other than the raw json object in the response .`}
+                    : {"role": "user", "content": `Provide the result as a json object with an array called "categories" with each entry being an object with a 't' field containing the title and a 'd' field containing the definition in no more than 20 words. Do not put anything other than the raw json object in the response .`},
             ],
             {field: options.themes ? "summaries" : "categories", engine: options.engine, ...options})
     if( Object.hasOwn(interim, "success")){
@@ -335,17 +390,17 @@ export async function buildCategories(list, options = {} ){
     }
 
 
-    let final = []
+    let final = interim
 
-    if( interim.length > 0){
+    if( interim.length > 1){
 
-        const result = await processInChunk( interim, 
+        const result = await processInChunk( interim.map(d=>`${d.t}: ${d.d}`), 
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here is a list of categories: `}],
             [
-                {"role": "user", "content": `Rationalize this list into no more than ${options.count  || 10} categories being careful to not lose any nuance or detail, and ensuring the new categories do not overlap . Each category should be no more than 3 words.`},
-                {"role": "user", "content": `Provide the result as a json object  with an array of categories with each entry being a string containing the category. Do not put anything other than the raw json object in the response.`},
+                {"role": "user", "content": `Rationalize this list into no more than ${count} categories being careful to not lose any nuance or detail, and ensuring the new categories do not overlap . Each category should be no more than 3 words and should have a clear defintion.`},
+                {"role": "user", "content": `Provide the result as a json object  with an array of categories with each entry being an object with a 't' field containing the title and a 'd' field containing the definition in no more than 20 words.. Do not put anything other than the raw json object in the response.`},
             ],
             {field: "categories", engine: options.engine})
 
@@ -553,7 +608,7 @@ export async function processAsSingleChunk(text, options = {}){
     
     const result = await executeAI( messages, {engine: engine, ...options} )
     if( result.success && result.response ){
-        return {success: true, results: result.response.results}
+        return {success: true, results: result.response.results ?? result.response}
     }
     return result
     
@@ -747,15 +802,18 @@ async function executeAI(messages, options = {}){
     let model = "gpt-3.5-turbo-16k"
     let sleepBase = 2000
     let response_format = undefined
+    let output = 1536
 //    console.log(`open_ai_helper: Sending OpenAi request`)
     if( options.engine === "gpt4" ){
         console.log(`--- GPT 4`)
         model = "gpt-4-0613"
         sleepBase = 20000
+        output = 4096
     }
     if( options.engine === "gpt4t" ){
         console.log(`--- GPT 4 Turbo`)
         model = "gpt-4-turbo-2024-04-09"
+        output = 4096
         sleepBase = 20000
         response_format = { type: "json_object" }
     }
@@ -763,6 +821,7 @@ async function executeAI(messages, options = {}){
         console.log(`--- GPT 4o`)
         model = "gpt-4o"
         sleepBase = 20000
+        output = 4096
         response_format = { type: "json_object" }
     }
     const request = async ()=>{
@@ -772,7 +831,8 @@ async function executeAI(messages, options = {}){
                 model: model,
                 response_format,
                 temperature: options.temperature || 0.7,
-                messages: messages
+                messages: messages,
+                max_tokens: output
             });
         }catch(error){
             console.log(error)
@@ -840,7 +900,7 @@ async function executeAI(messages, options = {}){
 
 }
 
-export  async function categorize(list, categories, options = {} ){
+export  async function _categorize(list, categories, options = {} ){
     const targetType = options.types || "item"
     //const match = options.matchPrompt || `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match. Only allocate items to groups if there is a strong rationale. If there is a strong match assign the ${targetType} to the most suitable category number - otherwise assign it -1`
     const match = options.matchPrompt || `You must assess how strongly each of the provided numbered ${targetType} aligns with each of the provided numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} using a scale of "none", "hardly", "somewhat", "likely", "clear", and then assign the numbered ${targetType} to the number of the category it best aligns with . Numbered ${targetType}s that do not have an explicit, strong or clear alignment to any category must be assigned to the number -1`
@@ -864,6 +924,50 @@ export  async function categorize(list, categories, options = {} ){
     return interim
 }
 
+export  async function categorize(list, categories, options = {} ){
+    const targetType = options.types || "item"
+    const match = options.matchPrompt || `I am categorizing a list of ${options.longType ?? targetType}s.  You must assess how well each of the provided numbered ${targetType}s aligns with each of the candidate numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} based on conceptual similarity, rather than exact text matches`
+    let tokens = 12000
+    if(options.engine === "gpt4"){
+        tokens = 2000
+    }
+    if(options.engine === "gpt4p"){
+        tokens = 10000
+    }
+    const instructions = `
+    ### Assessment Scale
+    - Not: The item does not conceptually align with the category.
+    - Hardly: The item has minimal conceptual similarity with the category.
+    - Somewhat: The item shares some conceptual elements with the category.
+    - Likely: The item has a significant conceptual alignment with the category.
+    - Clear: The item perfectly aligns with the conceptual definition of the category.
+    
+    **Steps**
+    1. Carefully examine all information provided for each numbered ${options.longType ?? targetType}s and compare and contrast it to each and every  provided numbered category, focusing on conceptual similarities.
+    2. For each numbered category, form an assessment of how related, relevant, and appropriate it is for the numbered ${options.longType ?? targetType} using the scale provided.
+    3. Carefully review your assignment and correct any mistakes
+    4. You must do this for every numbered item i have provided
+    
+    Return your results in a JSON object called results with the following structure:
+    [
+        {
+            id: <<id of numbered item as provided to you>>,
+            alignment:[ <<array of assessment for each of the numbered categories in the order i provided] 
+        },
+        <<remaining entries for each item>>
+    ]`
+    const interim = await processInChunk( list, 
+            [
+                {"role": "system", "content": match},
+                {"role": "user", "content": `Here is the list of numbered ${options.longType ?? targetType}s: `}
+            ],
+            [
+                {"role": "user", "content": `And here are a list of numbered categories: ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
+                {"role": "user", "content": instructions}
+            ],
+            {field: "results", maxTokens: tokens, engine:  options.engine, ...options})
+    return interim
+}
 /*
 Find a maximum of 5  specific, concrete problems that are explicitly discussed in the article which relate to challenges to growth
 Return your results in a json object with a field called 'answered' set to the number of specific and concrete problems were discussed in the article, and an 'answers' field which is an array of problems (if any), with each entry being an object with the following fields: a 'quote' field containing no more than the first 30 words of the exact text from the article used to produce the answer without correcting bad spelling or grammar or altering the text in anyway,  and a problem field containing the problems you identify in the form 'It sucks that...'.Do not put anything other than the raw JSON in the response

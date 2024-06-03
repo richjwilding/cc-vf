@@ -6,8 +6,10 @@ import PrimitiveConfig from "./PrimitiveConfig";
 const typeMaps = {}
 const categoryMaps = {}
 
-const heatMapPalette = [
+export const heatMapPalette = [
     {
+        title: "Default blue",
+        name:"default",
         colors:[
             "#f7fcf0",
             "#e0f3db",
@@ -18,6 +20,29 @@ const heatMapPalette = [
             "#2b8cbe",
             "#0868ac",
             "#084081"
+        ]
+    },{
+        title: "Purple",
+        name: "purple",
+        colors:[
+            "#003f5c",
+            "#2f4b7c",
+            "#665191",
+            "#a05195",
+            "#d45087",
+            "#f95d6a",
+            "#ff7c43",
+            "#ffa600"
+        ]
+    },{
+        title: "Heat",
+        name: "heat",
+        colors:[
+            "#f5f5ab",
+            "#fed976",
+            "#fc8c3c",
+            "#f03b20",
+            "#bd0026"
         ]
     }
 ]
@@ -92,11 +117,14 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
     if( !options.list ){
         return undefined
     }
-    //const range = options.rowRange[options.rIdx]
-    //const range = options.colRange[options.cIdx]
-    const range = options.range
+    let range = options.range
+    if( primitive.renderConfig?.group_by === "row"){
+        range = options.rowRange[options.rIdx]
+    }else if( primitive.renderConfig?.group_by === "col"){
+        range = options.colRange[options.cIdx]
+    }
 
-    const colors = heatMapPalette[0].colors
+    const colors = heatMapPalette.find(d=>d.name === (primitive?.renderConfig?.colors ?? "default"))?.colors ?? heatMapPalette[0].colors
     const spread = range[1] - range[0] + 1
     
     
@@ -614,6 +642,12 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
     return g
 })
 registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function renderFunc(primitive, options = {}){
+    return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.snippet ?? primitive.text})
+})
+registerRenderer( {type: "categoryId", id: 34, configs: "default"}, function renderFunc(primitive, options = {}){
+    return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.description.replace(/[\*-]+/g, '')?.replace(/\n+/g, '\n')?.replace(/\s+/g, ' ').trim() ?? primitive.snippet})
+})
+function baseImageWithText(primitive, options){
     const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
     if( options.getConfig){
         return config
@@ -676,9 +710,11 @@ registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function ren
             y: config.padding[0] + imageHeight,
             fontSize: 16,
             lineHeight: 1.5,
-            text: primitive.referenceParameters?.snippet ?? primitive.text,
+            text: options.textField,
+            height: availableHeight,
             fill: '#334155',
             wrap: true,
+            ellipsis: true,
             width: availableWidth,
         })
         t.attrs.refreshCallback = options.imageCallback
@@ -689,6 +725,7 @@ registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function ren
                 t.ellipsis(true)
                 t.height( availableHeight )
             }
+         //   h = availableHeight
         }
         //t.height(h)
         g.add(t)
@@ -727,7 +764,7 @@ registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function ren
         r.height( totalheight )
     }
     return g
-})
+}
 registerRenderer( {type: "default", configs: "default"}, function renderFunc(primitive, options = {}){
     const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
     if( options.getConfig){
@@ -1259,35 +1296,50 @@ export function renderMatrix( primitive, list, options ){
         rowSize[i] = headerHeight
     }})
 
+    const iconSize = 100
+    let columnLabelAsText = true
+    let rowLabelAsText = true
 
     const columnLabels = columnExtents.map((d,idx)=>{
         const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding: [5,5,5,5]}
-        
-        const longestWord = `${(d.label ?? "")}`.split(" ").reduce((a,c)=>a.length > c.length ? a : c, 0)
-        const colWidth = columnSize[idx] - textPadding[1] - textPadding[3] - cellConfig.padding[3] - cellConfig.padding[1] 
+        if( options.axis?.column?.type === "icon"){
+            columnLabelAsText = false
+            const logo = imageHelper( `/api/image/${d.idx}`, {
+                x: cellConfig.padding[3] + textPadding[3],
+                y: cellConfig.padding[0] + textPadding[0],
+                size: iconSize,
+                center: true,
+                imageCallback: options.imageCallback,
+                placeholder: options.placeholder !== false
+            })
+            return logo
+        }else{
+            const longestWord = `${(d.label ?? "")}`.split(" ").reduce((a,c)=>a.length > c.length ? a : c, 0)
+            const colWidth = columnSize[idx] - textPadding[1] - textPadding[3] - cellConfig.padding[3] - cellConfig.padding[1] 
 
-        const text = new CustomText({
-            fontFamily: "system-ui",
-            fontSize: headerFontSize,
-            text: longestWord,
-            align:"center",
-            wrap: true,
-            verticalAlign:"middle",
-            bgFill:"#f3f4f6",
-            x: cellConfig.padding[3] + textPadding[3],
-            y: cellConfig.padding[0] + textPadding[0],
-            width: colWidth,
-            height: "auto",
-            refreshCallback: options.imageCallback
-        })
+            const text = new CustomText({
+                fontFamily: "system-ui",
+                fontSize: headerFontSize,
+                text: longestWord,
+                align:"center",
+                wrap: true,
+                verticalAlign:"middle",
+                bgFill:"#f3f4f6",
+                x: cellConfig.padding[3] + textPadding[3],
+                y: cellConfig.padding[0] + textPadding[0],
+                width: colWidth,
+                height: "auto",
+                refreshCallback: options.imageCallback
+            })
 
-        while( text.measureSize(longestWord).width > colWidth && headerFontSize > 6){
-            headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
-            text.fontSize( headerFontSize )
-        } 
-        text.text( d.label ?? "" )  
+            while( text.measureSize(longestWord).width > colWidth && headerFontSize > 6){
+                headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
+                text.fontSize( headerFontSize )
+            } 
+            text.text( d.label ?? "" )  
 
-        return text
+            return text
+        }
     })
     
 
@@ -1300,12 +1352,15 @@ export function renderMatrix( primitive, list, options ){
     
     let recalc = false
     let recalcRow = false
-    while( isColumnHeaderOverflowing( columnLabels, headerTextHeight) && headerFontSize > 6){
-        headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
+    if( columnLabelAsText ){
+
+        while( isColumnHeaderOverflowing( columnLabels, headerTextHeight) && headerFontSize > 6){
+            headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
+            columnLabels.forEach(d=>d.fontSize(headerFontSize))
+            recalc = true
+        }
         columnLabels.forEach(d=>d.fontSize(headerFontSize))
-        recalc = true
     }
-    columnLabels.forEach(d=>d.fontSize(headerFontSize))
 
     let showRowheaders = rowExtents.length > 1 || rowExtents[0]?.label?.length > 0
     let headerWidth = 0
@@ -1324,44 +1379,62 @@ export function renderMatrix( primitive, list, options ){
         rowLabels = rowExtents.map((d,idx)=>{
             const cellConfig = cells.find(d=>d.rIdx === idx)?.config
             rowHeights[idx] = rowSize[idx] - textPadding[0] - textPadding[2] - cellConfig.padding[0] - cellConfig.padding[2]
-            const text = new CustomText({
-                fontFamily: "system-ui",
-                fontSize: headerFontSize,
-                text: textWidth ? (d.label  ?? "") : ` ${longestPairs} `,
-                wrap: true,
-                align:"center",
-                bgFill:"#f3f4f6",
-                verticalAlign:"middle",
-                x: cellConfig.padding[3] + textPadding[3],
-                y: cellConfig.padding[0] + textPadding[0],
-                width: textWidth ? textWidth : "auto",
-                refreshCallback: options.imageCallback
-            })
-            if( !textWidth ){
-                textWidth = text.width()
-                headerWidth = textWidth + textPadding[1] + textPadding[3] + cellConfig.padding[3] + cellConfig.padding[1]
-                text.width(textWidth)
-                text.text( d.label  ?? "")
+            if( options.axis?.row?.type === "icon"){
+                rowLabelAsText = false
+                const iconSize = 100
+                headerWidth = iconSize + textPadding[1] + textPadding[3] + cellConfig.padding[3] + cellConfig.padding[1]
+                const logo = imageHelper( `/api/image/${d.idx}`, {
+                    x: cellConfig.padding[3] + textPadding[3],
+                    y: cellConfig.padding[0] + textPadding[0],
+                    size: iconSize,
+                    center: true,
+                    imageCallback: options.imageCallback,
+                    placeholder: options.placeholder !== false
+                })
+                return logo
+            }else{
+
+                const text = new CustomText({
+                    fontFamily: "system-ui",
+                    fontSize: headerFontSize,
+                    text: textWidth ? (d.label  ?? "") : ` ${longestPairs} `,
+                    wrap: true,
+                    align:"center",
+                    bgFill:"#f3f4f6",
+                    verticalAlign:"middle",
+                    x: cellConfig.padding[3] + textPadding[3],
+                    y: cellConfig.padding[0] + textPadding[0],
+                    width: textWidth ? textWidth : "auto",
+                    refreshCallback: options.imageCallback
+                })
+                if( !textWidth ){
+                    textWidth = text.width()
+                    headerWidth = textWidth + textPadding[1] + textPadding[3] + cellConfig.padding[3] + cellConfig.padding[1]
+                    text.width(textWidth)
+                    text.text( d.label  ?? "")
+                }
+                return text
             }
-            return text
         })
+        if( rowLabelAsText){
 
-        while( isRowHeaderOverflowing( rowLabels, rowHeights) && headerFontSize > 6){
-            headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
-            rowLabels.forEach(d=>d.fontSize(headerFontSize))
-            recalcRow = true
+            while( isRowHeaderOverflowing( rowLabels, rowHeights) && headerFontSize > 6){
+                headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
+                rowLabels.forEach(d=>d.fontSize(headerFontSize))
+                recalcRow = true
+            }
+            if( recalcRow ){
+                columnLabels.forEach(d=>d.fontSize(headerFontSize))
+            }
         }
-        if( recalcRow ){
-            columnLabels.forEach(d=>d.fontSize(headerFontSize))
-        }
-
-   
     }
     if( recalc || recalcRow ){
         headerTextHeight = columnLabels.reduce((a,c)=>c.height() > a ? c.height() : a, 0)
         headerHeight = headerTextHeight + textPadding[0] + textPadding[2] 
     }
-    columnLabels.forEach(d=>d.height(headerTextHeight))
+    columnLabels.forEach(d=>{
+        d.y(d.y() + ((headerTextHeight - d.height())/2) )
+    })
     let headerPadding = cells[0]?.config.padding[0] ?? 0
 
     const columnY = rowSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), headerHeight + headerPadding))
@@ -1440,23 +1513,27 @@ export function renderMatrix( primitive, list, options ){
 
     for(let rIdx = 0; rIdx < rowExtents.length; rIdx++){
         const thisRow = cells.filter(d=>d.rIdx === rIdx)
-        const maxHeightCell = thisRow.reduce((a,c)=>c.node.attrs.height > a.node.attrs.height ? c : a )
-        const maxHeight = maxHeightCell.node.attrs.height
-        const bg = maxHeightCell.node.find('.background')?.[0]
-        const maxHeightBg = bg ? bg.attrs.height : undefined
-
-        for(const d of thisRow ){
-            if( d.node.attrs.height < maxHeight){
-                d.node.attrs.height = maxHeight
-                if( maxHeightBg ){
-                    const bg = d.node.find('.background')?.[0]
-                    if( bg ){
-                        bg.attrs.height = maxHeightBg
+        if( thisRow && thisRow.length > 0){
+            const maxHeightCell = thisRow.reduce((a,c)=>c.node.attrs.height > a.node.attrs.height ? c : a )
+            if( maxHeightCell ){
+                const maxHeight = maxHeightCell.node.attrs.height
+                const bg = maxHeightCell.node.find('.background')?.[0]
+                const maxHeightBg = bg ? bg.attrs.height : undefined
+                
+                for(const d of thisRow ){
+                    if( d.node.attrs.height < maxHeight){
+                        d.node.attrs.height = maxHeight
+                        if( maxHeightBg ){
+                            const bg = d.node.find('.background')?.[0]
+                            if( bg ){
+                                bg.attrs.height = maxHeightBg
+                            }
+                        }
                     }
                 }
+                
             }
         }
-        
     }
 
     g.width( g.find(()=>true).map(d=>d.x() + d.width()).reduce((a,c)=>c > a ? c : a, 0))

@@ -3,7 +3,7 @@ import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitives, findPrimitiveOriginParent, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
-import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
+import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
 import { Cluster, agnes } from "ml-hclust";
 import DBSCAN from "@cdxoo/dbscan";
@@ -63,86 +63,132 @@ function euclideanDistance(point1, point2) {
   }
 
 async function defineAxis( primitive, action ){
-    let axis = primitive.axis
-    const [list, data] = await getDataForProcessing(primitive, action)
-    if( true || !axis || axis.length === 0){
+ //   let axis = primitive.axis
 
+        let axis 
         console.log(`Fetching suggested axis`)
 
-        const result = await extractAxisFromDescriptionList( data, {type: action.type, batch: 200} )
-        //const result = {success: true, output: axis}
-
-        if( result.success ){
+        const [list, data] = await getDataForProcessing(primitive, action)
+        const category = await Category.findOne({id: list[0]?.referenceId})
+        const type = category?.plural ?? category.title ?? list[0]?.type ?? action.type
+        const result = await extractAxisFromDescriptionList( data, {type: type, batch: 100, debug: true, debug_content: true} )
+        if( result?.success ){
             await dispatchControlUpdate(primitive.id, `axis`, result.output)
             axis = result.output
+        }
 
+        if( axis ){
             const passCheck = axis.map((d)=>d._pass || 0).filter((d,i,a)=>a.indexOf(d)===i)
             if( passCheck.length > 1){
-                let newAxis
                 console.log(`NEED TO CONSOLIDATE AXIS`)
-                const forConsolidation = axis.map((d,idx)=>{return {id: idx, title: d.title, values: d.values.map((d2)=>d2.value)}})
-                if( forConsolidation ){
+                const forConsolidation = axis.map((d,idx)=>{return {
+                    id: idx, 
+                    title: d.title, 
+                    dimension: d.dimension, 
+                    description: d.description,
+                    values: d.values.map((d)=>{
+                        return {
+                            title: d.title,
+                            description: d.description,
+                          //  assignments: d.assignments.map(d=>d.id)
+                        }
+                    })
+                }})
+                console.log(forConsolidation)
 
-                    console.log( forConsolidation )
-                    const result = await consoldiateAxis( JSON.stringify(forConsolidation), {debug:true, debug_content: true})
-                    console.log(result.success)
-                    console.log(result.output)
-                    if( result.success ){
-                        newAxis = result.output.map((d)=>{
-                            console.log(`Combing ${d.original.join(", ")}`)
-                            const originalAxis = d.original.map((idx)=>axis[idx].values).flat()
-                            const out = {
-                                title: d.title,
-                                values: d.values.map((v)=>{
-                                    const ids = originalAxis.map((d)=>{
-                                        let originalValues = [v.value]
-                                        if( v.o && v.o.length > 0 ){
-                                            originalValues = v.o
-                                        }
-                                        const match = originalValues.includes(d.value)
-                                        if( match){
-                                            d.matched = true
-                                            return d.ids
-                                        }
-                                    }).flat().filter((d)=>d)
-                                    return {
-                                        value: v.v,
-                                        ids: ids
-                                    }
-                                })
-                            }
-                            const unmatched = originalAxis.filter((d)=>!d.matched)
-                            if( unmatched.length > 0){
-                                console.log(`couldnt match ${unmatched.length} entries`)
-                                console.log(unmatched)
-                            }
-                            console.log(out)
-                            return out
-                        })
-                        console.log(newAxis)
+
+               /* let prompt = "Combine any and all axis which are addressing the same focus and dimension by merging the values structures of those axis."
+                prompt += "**Steps**\n1. Merge any overlapping axis based on the title, dimension and description fields by combining their respective values stuctures\n"
+                prompt += "2. Consolidate similar values within the new axis based on the title and description of the value, being cafeful to combine similar entries but without losing nuance or detail\n"
+                prompt += "3. Add a 'combined' field to the new axis containing an array of the ids that were combined to make it\n"
+                prompt += "4. Produce a list containing the new combined axis\n"
+                prompt += "5. Produce a list of ids of axis which have not been combined\n"*/
+
+                let prompt = `Combine any and all axes which are addressing the same focus and dimension by merging the values structures of those axes.
+                **Steps:**
+                1. Compare each axis with every other axis based on their titles, descriptions, AND values. Consider axes that have similar topics or coverage areas even if titles, descriptions or dimensions differ slightly so long as they are conceptually the same
+                2. Merge axes that have conceptually related or overlapping content by combining their respective values structures. Ensure each value retains its key details.
+                3. Consolidate similar values within the new axis based on their title and description, combining the titles and descriptions where necessary to retain nuance.
+                4. Add a 'combined' field to the new axis containing an array of ids that were merged.`
+
+                let output = `Provide the result as a json object called 'results' with the following structure: 
+                {
+                    'not_combined': [<<list of axis ids which have not been combined with others>>],
+                    'new_axis': 
+                [   <<list of new combined axis with following sturcture>>
+                    { 
+                        title:<<New title for the combined axis in no more than 5 words>>, 
+                        dimension:<<The dimension this combined axis considers (such as offerings, customers)>>, 
+                        description: <<Description of the combined axis in no more than 25 words, 
+                        values: [
+                            {
+                                title: <<Title of value>>, 
+                                description: <<description of value in no more than 25 words>>},
+                                combined_values: [<<list of titles from the original values that are being merged into this value>>],
+                                rationale: <<a short description of why these values have been combined, or why they have not>>,
+                            },<<remaining values from the original axis or combined values from those axis>>>
+                        ],
+                        combined: [<<list of axis ids from orignal list that have been combined into this axis>>],
+                    },<<remaining combined axis only>
+                ],
+            }`
+
+            const instructions = `Here is a set of axis:\n${JSON.stringify(forConsolidation)}\n\n${prompt}`
+        
+
+            const result = await processAsSingleChunk(instructions,{
+                output: output,
+                temperature: 1,
+                debug: true,
+                debug_content:true
+            })
+            if(result?.success && result?.results?.new_axis){
+                console.log(result.results.new_axis)
+                console.log(result.results.not_combined)
+
+                let outIdx = axis.length + 1
+                const newAxis = result.results.new_axis.map(d=>{
+                    outIdx++
+                    const {values, combined, ...xform} = d
+
+                    console.log(`Combining ${combined.join(", ")}`)
+                    const originalAxisSet = combined.map(d=>axis[d])
+
+                    if( combined.length === 1 ){
+                        const {_pass, ...out} = originalAxisSet[0]
+                        return {id: outIdx, ...out}
                     }
-                    if( newAxis ){
-                        axis = newAxis
-                        console.log(`Finished consolidating`)
-                        await dispatchControlUpdate(primitive.id, `axis`, axis)
-                    }
-                    else{
-                        console.log(`Error consolidating`)
-                        return
-                    }
-                }
+                    
+                    const originalValues = originalAxisSet.map(d=>d.values).flat()
+
+                    xform.values = values.map(d=>{
+                        const {combined_values, rationale, ...xform} = d
+                        //xform.assignments = originalValues.filter(d=>combined_values.includes(d.title)).map(d=>d.assignments).flat()
+                        return xform
+                    })
+
+                    return {id: outIdx, ...xform}
+                }) 
+                console.log(`----- New axis set`)
+                axis = [...result.results.not_combined.map(d=>axis[d]), ...newAxis]
+                console.log(newAxis)
+                
             }
         }
-    }
-    if( axis ){
+                
         for( const a of axis ){
             if( a.title && a.values && a.values.length ){
+               // const coverage = Math.floor((a.values.map(d=>d.assignments.length).reduce((a,c)=>a + c,0) ?? 0) * 100 / list.length)
                 const newPrim = await createPrimitive({
                     workspaceId: primitive.workspaceId,
                     parent: primitive.id,
                     data:{
                         type: "category",
                         title: a.title,
+                        referenceParameters: {
+                            description: a.description,
+                            dimension: a.dimension
+                        }
                     }
                 })
                 if( newPrim ){
@@ -154,13 +200,18 @@ async function defineAxis( primitive, action ){
                             referenceId: action.resultCategory,
                             data:{
                                 type: "category",
-                                title: v.value,
+                                title: v.title,
+                                referenceParameters: {
+                                    description: v.description,
+                                }
                             }
                         })
-                        if( valuePrim ){
-                            for( const s of v.ids){
-                                const segment = list[s]
-                                await addRelationship( valuePrim.id, segment.id, 'ref')
+                        if( false && valuePrim ){
+                            for( const s of v.assignments){
+                                const prim = list[s?.id]
+                                if( prim ){
+                                    await addRelationship( valuePrim.id, prim.id, 'ref')
+                                }
                             }
                         }
                     }
@@ -986,7 +1037,7 @@ export default function QueueAI(){
                                         theme: theme,
                                         debug: true} )
                                     if( result.success ){
-                                        const categories =  result.output.map(d=>d.cluster_title)
+                                        const categories =  result.output.map(d=>({t: d.cluster_title}))
                                         catData = { 
                                             success: true,
                                             categories
@@ -1009,7 +1060,7 @@ export default function QueueAI(){
                                 }
                                 if( catData.success && catData.categories){
                                     console.log(catData.categories)
-                                    for( const title of catData.categories){
+                                    for( const cat of catData.categories){
                                         await createPrimitive({
                                             workspaceId: primitive.workspaceId,
                                             parent: primitive.id,
@@ -1017,7 +1068,10 @@ export default function QueueAI(){
                                             data:{
                                                 type: "category",
                                                 referenceId: primitive.referenceParameters?.resultCategory || action.resultCategory,
-                                                title: title
+                                                title: cat.t,
+                                                referenceParameters:{
+                                                    description: cat.d
+                                                }
                                             }
                                             
                                         })
@@ -1055,7 +1109,7 @@ export default function QueueAI(){
                                     catOptions = await primitiveChildren( primitive, "category")
                                 }
 
-                                const categoryList = catOptions.map((d)=>d.title)
+                                const categoryList = catOptions.map((d)=>`${d.title}${d.referenceParameters?.description ? `: ${d.referenceParameters?.description}` : ""}`)
                                 const categoryIds = catOptions.map((d)=>d._id.toString())
                                 
                                 const removeUpdate = []
@@ -1368,20 +1422,44 @@ export default function QueueAI(){
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
                                         engine:  primitive.referenceParameters?.engine || action.engine,
                                         rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
-                                        batch: primitive.referenceParameters?.batch ?? action.batch ?? 80,
+                                        batch: primitive.referenceParameters?.batch ?? action.batch ?? 25,
                                         types: types,
                                         focus: focus,
-                                        temperature: 0.85,
+                                        temperature: 1,//0.85,
                                         debug: true,
-                                        debug_content: true
+                                        debug_content: false
                                     })
-                                    for(const d of categoryAlloc){
-                                        if(d.alignment === 'hardly'){
-                                            d.potentialCategory = d.category
-                                            d.category = -1
-                                            console.log(`Override ${d.id} ${d.potentialCategory} > ${d.category}`)
+                                    console.log( categoryAlloc )
+                                    
+                                    let promiseList = []
+
+                                    for(const entry of categoryAlloc){
+                                        const prim = list[entry.id]
+                                        if( prim ){
+                                            let idx = 0
+                                            console.log(`${list[entry.id].title} => ${entry.alignment.join(", ")}`)
+                                            for(const d of entry.alignment){
+                                                if( catOptions[idx] ){
+                                                    if( d === "Likely" || d === "Clear" || d === "Somewhat"){
+                                                        promiseList.push( addRelationship( catOptions[idx]._id.toString(), list[entry.id]._id.toString(), "ref") )
+                                                        if( promiseList.length > 100 ){
+                                                            console.log(`Syncing promiss`)
+                                                            await Promise.all( promiseList )
+                                                            promiseList = []
+                                                        }
+                                                    }
+                                                }else{
+                                                    console.log(`Error : Exceeded expected categories ${idx} for ${list[entry.id].title}`)
+                                                }
+                                                idx++
+                                            }
                                         }
                                     }
+                                    if( promiseList.length > 0 ){
+                                        console.log(`last sync`)
+                                        await Promise.all( promiseList )
+                                    }
+                                    return
                                 }
 
                                 if( resultMap ){

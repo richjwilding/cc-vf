@@ -208,7 +208,6 @@ class CustomImage extends Shape {
   refreshCache(){
     if( this.maxImage ){
       if( this.newScale ){
-        //     console.time("drwa")
         const width = this.getWidth();
         const height = this.getHeight();
 
@@ -278,12 +277,7 @@ class CustomImage extends Shape {
         }
       }
     }
-    /*if( this.needsFill ){
-      context._context.fillStyle = "white"
-      context.fillRect(0,0,width,height)
-    }*/
     context.drawImage(this.pcache._canvas, 0, 0 , width, height)
-
   }
 
   _hitFunc(context) {

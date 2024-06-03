@@ -59,7 +59,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
     let node = getNodes()
     if(path ){
         let idx = 0
-        while(idx < path.length){
+        while(node?.nested && idx < path.length){
             node = node.nested[path[idx]]
             idx++
         }

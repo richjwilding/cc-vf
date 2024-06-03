@@ -10,7 +10,7 @@
     "@fortawesome/free-solid-svg-icons": "^6.3.0",
     "@fortawesome/react-fontawesome": "^0.2.0",
     "@headlessui-float/react": "^0.11.4",
-    "@headlessui/react": "^1.7.7",
+    "@headlessui/react": "^2.0.4",
     "@heroicons/react": "^2.0.13",
     "@mirohq/miro-api": "^1.0.4",
     "@react-hook/resize-observer": "^1.2.6",
@@ -25,6 +25,7 @@
     "@testing-library/user-event": "^13.5.0",
     "@use-gesture/react": "^10.2.27",
     "canvg": "^4.0.1",
+    "clsx": "^2.1.1",
     "date-fns": "^2.29.3",
     "echarts": "^5.4.3",
     "framer-motion": "^9.1.7",
@@ -77,7 +78,7 @@
     ]
   },
   "devDependencies": {
-    "tailwindcss": "^3.3.2",
+    "tailwindcss": "^3.4.3",
     "tailwindcss-bg-patterns": "^0.2.0"
   }
 }
