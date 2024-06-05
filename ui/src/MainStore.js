@@ -1,6 +1,5 @@
 import PrimitiveParser from "./PrimitivesParser";
 import ResultAnalyzer from "./ResultAnalyzer";
-import ExperimentAnalyzer from "./ExperimentAnalyzer";
 import ContactHelper from "./ContactHelper";
 import {default as PrimitiveConfig} from "./PrimitiveConfig";
 import AssessmentAnalyzer from "./AssessmentAnalyzer";
@@ -53,7 +52,7 @@ function areArraysEqualIgnoreOrder(arr1, arr2) {
 
 let instance = undefined
 function MainStore (prims){
-    if( instance ){
+    if( !prims && instance ){
         return instance
     }
     window.contactHelper = ContactHelper()
@@ -1604,13 +1603,18 @@ function MainStore (prims){
                     }
                     if( prop === "filterItems"){
                         return (list, filters)=>{
+                            
                             return PrimitiveConfig.commonFilter( 
                                 list, 
                                 filters,
                                 {
-                                    parentsAt:(list, pivot, relationship)=>{
-                                        return list.map(d=>d.relationshipAtLevel(relationship, pivot))
-                                    }
+                                    parentsAt:(list, pivot, relationship)=>list.map(d=>d.relationshipAtLevel(relationship, pivot)),                                    
+                                    parentsOfType:(primitive, type)=>primitive.findParentPrimitives({type: type}),
+                                    parentsOfTypeForList:(list, type)=>uniquePrimitives(list.map(d=>d.findParentPrimitives({type: type})).flat()),
+                                    getPrimitive:(id)=>obj.primitive(id),
+                                    parentIds:(primitive)=>primitive.parentPrimitiveIds,
+                                    primitiveChildren:(primitive, type)=>primitive.primitives.allItems.filter(d=>!type || d.type===type),
+
                                 })
                         }                        
                     }
@@ -2221,6 +2225,9 @@ function MainStore (prims){
         return primObj
     }    
     obj.data = {}
+    if( prims ){
+        obj.data = {primitives: prims.reduce((a,d)=>{a[d.id] = primitive_access(d, "primitive");return a}, {})}
+    }
 
     obj.processOutstandingDiscovery = async function(){
         obj.primitives().forEach((primObj)=>{

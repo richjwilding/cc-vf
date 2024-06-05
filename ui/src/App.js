@@ -8,7 +8,6 @@ import { library } from '@fortawesome/fontawesome-svg-core'
 import { fas } from '@fortawesome/free-solid-svg-icons'
 import { faLinkedin } from '@fortawesome/free-brands-svg-icons'
 import { PrimitivePage } from './PrimitivePage';
-import MainStoreTests from './mainstore_tests';
 import SideNav from './SideNav';
 import SignIn from './SignIn';
 import HomeScreen from './HomeScreen';
@@ -17,6 +16,7 @@ import ConfirmationPopup from './ConfirmationPopup';
 import PrimitivePicker from './PrimitivePicker';
 import { InputPopup } from './InputPopup';
 import CollectionUtils from './CollectionHelper';
+import test from './tests/filter.js';
 
 library.add(fas, faLinkedin)
 
@@ -27,7 +27,7 @@ let mainstore = MainStore()
 window.mainstore = mainstore
 window.utils = CollectionUtils
 
-window.mainstore_tests = MainStoreTests
+window.mainstore_tests = test// MainStoreTests
 
 
 function App() {

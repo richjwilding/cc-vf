@@ -339,9 +339,9 @@ export default function MainStoreTests(){
         console.assert( arrayEquals(test.uniqueIds, [2, 4, 3]))
         console.assert( test.ids.length === 4)
         console.assert( test.uniqueIds.length === 3)
-        console.assert( arrayEquals(test.paths(4), ['','.a','.test3.a.c']) )
-        console.assert( test.paths(40) === undefined )
-        console.assert( arrayEquals(test.relationships(4), ['','a','c']) )
+        console.assert( arrayEquals(test.paths(4), ['','','.a','.test3.a.c']) )
+        console.assert( arrayEquals(test.paths(40),[]) )
+        console.assert( arrayEquals(test.relationships(4), ['','','a','c']) )
         console.assert( arrayEquals(test.fromPath({test2: "a"}), [11,5,6]))
         console.assert( test.allIds.length == 23)
     }
