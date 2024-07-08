@@ -2,14 +2,15 @@ import QueueManager from './base_queue';
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import Primitive from "./model/Primitive";
-import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask } from "./SharedFunctions";
-import { queryPosts, searchLinkedInJobs } from "./linkedin_helper";
+import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, findResultSetForCategoryId, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
+import { findCompanyLIPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
 import { fetchArticlesFromGdelt } from "./gdelt_helper";
 import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
-import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryYoutube } from "./google_helper";
+import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleScholar, queryYoutube } from "./google_helper";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
+import { queryMetaAds } from './ad_helper';
 
 
 let instance
@@ -73,20 +74,30 @@ export default function QueryQueue(){
                     let baseTerms = primitive.title
 
                     let origin
-                    const oId = primitiveOrigin( primitive )
-                    const candidatePaths = primitive.parentPrimitives[oId]?.filter(d=>d.indexOf("primitives.search.") === 0)
+                    //const oId = primitiveOrigin( primitive )
+
+
+                    const [oId, candidatePaths] = Object.keys(primitive.parentPrimitives ?? {})?.map(d=>primitive.parentPrimitives[d].map(d2=>[d,d2])).flat()?.find(d=>d[1].indexOf("primitives.search.") === 0)
+                    console.log(`Using ${oId} for origin`)
                     if( candidatePaths.length === 0){
                         throw "Cant find result path"
                     }
                     if( candidatePaths.length > 1){
                         console.log(`INFO: Too many candidate paths - picking first`)
                     }
-                    const resultPath = candidatePaths[0].replace(".search.",".results.")
-                    
+                    const resultPath = candidatePaths.replace(".search.",".results.")
+
+                    const parentSearch = (await primitiveParentsOfType( primitive, "search"))?.[0]
+
                     const config = primitive.referenceParameters || {}
                     Object.keys(category.parameters).forEach((k)=>{
                         if(config[k] === undefined && k !== "title"){
                             config[k] = category.parameters[k].default
+                        }
+                        if( parentSearch ){
+                            if( parentSearch.referenceParameters?.[k] !== undefined){
+                                config[k] = parentSearch.referenceParameters?.[k]      
+                            }
                         }
                         if( config[k] && category.parameters[k].type === "options"){
                             config[k] = config[k].map(d=>category.parameters[k].options.find(d2=>d2.id === d))
@@ -94,17 +105,48 @@ export default function QueryQueue(){
                     })
                     console.log(config)
 
-                    const nestCandidates = Object.keys(category.parameters).filter(d=>category.parameters[d].nestedSearch).map(d=>config[d] ? d : undefined).filter(d=>d)
-                    if( nestCandidates.length > 0 ){
-                        const task = await Primitive.findOne({_id: await primitiveTask( primitive ) })
-                        if( task ){
-                            for( const nest of nestCandidates){
-                                const items = await primitiveDescendents(task, undefined, {referenceId: category.parameters[nest].referenceCategoryId})
-                                console.log(`Got nested candidate ${nest} with ${items.length} items of ${category.parameters[nest].referenceCategoryId}`)
-                                
+                    const nestCandidates = category.nestedSearch
+                    if( nestCandidates && ! parentSearch ){
+                        const nestedReferenceCategoryId = nestCandidates.referenceCategoryId
+                        origin = origin ?? await Primitive.findOne({_id: oId})
+                        if( origin.referenceId !== nestedReferenceCategoryId ){
+                            const task = await Primitive.findOne({_id: await primitiveTask( primitive ) })
+                            const nestedSearches = await primitiveChildren( primitive, "search")
+
+                            const nestedCategory = await Category.findOne({id: nestedReferenceCategoryId})
+                            const nestedSet = nestedCategory.resultCategories.find((d)=>d.searchCategoryIds?.includes(primitive.referenceId))
+                            console.log(`Found ${nestedSet?.id} for ${primitive.referenceId} in ${nestedCategory.title}`)
+
+                            if( nestedSet && task ){
+                                const items = await primitiveDescendents(task, undefined, {referenceId: nestedReferenceCategoryId})
+                                console.log(`Got ${items.length} items and ${nestedSearches.length} nested searches of ${nestedReferenceCategoryId}`)
+                                for(const target of items){
+                                    let nestedSearchForItem = nestedSearches.find(d=>Object.keys(d.parentPrimitives ?? {}).includes(target.id) )
+                                    if( !nestedSearchForItem ) {
+                                        console.log(`Need to created nested search for ${target.id} / ${target.plainId}`)
+                                        nestedSearchForItem = await createPrimitive({
+                                                                                workspaceId: primitive.workspaceId,
+                                                                                paths: ['origin'],
+                                                                                parent: primitive.id,
+                                                                                data:{
+                                                                                    type: "search",
+                                                                                    referenceId: primitive.referenceId
+                                                                                }})
+                                        if(nestedSearchForItem){
+                                            await addRelationship(target.id, nestedSearchForItem.id, `primitives.search.${nestedSet.id}`)
+                                            await addRelationship(target.id, nestedSearchForItem.id, `link`)
+                                        }
+                                    }else{
+                                        console.log(`Found existing nested search for ${target.id} / ${target.plainId} = ${nestedSearchForItem.id}`)
+                                    }
+                                    if( nestedSearchForItem ){
+                                        console.log(`Initiating query - ${nestedSearchForItem.id}`)
+                                        await QueryQueue().doQuery(nestedSearchForItem, {})
+                                    }
+                                }
                             }
+                            return
                         }
-                        throw "done"
                     }
                     
                     
@@ -259,12 +301,19 @@ export default function QueryQueue(){
                                 if(!embeddedTopic){
                                     embeddedTopic = (await buildEmbeddings( topic ))?.embeddings
                                 }
-                                const embeddedFragments = await buildDocumentTextEmbeddings( data.text )
+                                const {truncated, results: embeddedFragments} = await buildDocumentTextEmbeddings( data.text, 300 )
                                 if( embeddedFragments ){
                                     const scores  = embeddedFragments.map(d=>cosineSimilarity( d.embeddings, embeddedTopic ))
                                     const threshold = config.threshold ?? 0.75
                                     const match = scores.filter(d=>d>=threshold).length > 0
-                                    data.embeddedFragments = embeddedFragments
+                                    if( match ){
+                                        if( truncated ){
+                                            console.log(`Was truncated - will need to refetch`)
+                                            data.embeddedFragments = await buildDocumentTextEmbeddings( data.text )
+                                        }else{
+                                            data.embeddedFragments = embeddedFragments
+                                        }
+                                    }
                                     return match
                                 }
                                 return false
@@ -272,7 +321,7 @@ export default function QueryQueue(){
                             if( type === "topic" ){
                                 if( topic ){
                                     const threshold = filter.threshold ?? 3
-                                    const result = await analyzeTextAgainstTopics(data.text, topic, {maxTokens: 2000, maxTokensToSend: 10000, stopAtOrAbove: threshold,single:true, type: resultCategory?.title, engine: primitive.referenceParameters?.engine ?? "gpt3t"})
+                                    const result = await analyzeTextAgainstTopics(data.text, topic, {maxTokens: 2000, maxTokensToSend: 10000, stopChunk: 300, stopAtOrAbove: threshold,single:true, type: resultCategory?.title, engine: primitive.referenceParameters?.engine})
                                     if( result.output >= threshold){
                                         return true
                                     }
@@ -324,13 +373,26 @@ export default function QueryQueue(){
                         if( source.platform === "google_news" ){
                             await queryGoogleNews( terms, callopts) 
                         }
+                        if( source.platform === "google_scholar" ){
+                            await queryGoogleScholar( terms, callopts) 
+                        }
                         if( source.platform === "google" ){
                             await queryGoogleSERP( terms, callopts) 
+                        }
+                        if( source.platform === "meta_ads" ){
+                            callopts.ignoreIds = primitive.checkCache?.items
+                            await queryMetaAds( terms, callopts) 
                         }
                         if( source.platform === "linkedin_ddg" ){
                             origin = origin ?? await Primitive.findOne({_id: oId})
                             //const company = origin.referenceParameters?.linkedIn?.match(/linkedin\.com\/company\/(.+)\//i)?.[1]
-                            const company = origin.referenceParameters?.linkedIn?.match(/linkedin\.com\/company\/([^\/]+)(?=\/|$)/i)?.[1]
+                            let company = origin.referenceParameters?.linkedIn?.match(/linkedin\.com\/company\/([^\/]+)(?=\/|$)/i)?.[1]
+                            if( !company ){
+                                console.log(`Looking up company`)
+                                let url = await findCompanyLIPage( origin )
+                                company = url.match(/linkedin\.com\/company\/([^\/]+)(?=\/|$)/i)?.[1]
+                                console.log(`Got ${company}`)
+                            }
                             console.log(`company = `, company)
                             if( company ){
                                 const query = `site:linkedin.com/posts ${company}`

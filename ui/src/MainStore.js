@@ -23,32 +23,6 @@ import CollectionUtils from "./CollectionHelper";
         });
     };
 
-function areArraysEqualIgnoreOrder(arr1, arr2) {
-    // Check if both arrays have the same length
-    if( !arr1 || !arr2 ){
-        return false
-    }
-    if (arr1.length !== arr2.length) {
-        return false;
-    }
-
-    // Sort the arrays
-    const sortedArr1 = arr1.slice().sort();
-    const sortedArr2 = arr2.slice().sort();
-
-    // Compare the sorted arrays element by element
-    for (let i = 0; i < sortedArr1.length; i++) {
-        if ((sortedArr1[i] === null || sortedArr1[i] === undefined) && (sortedArr2[i] === null || sortedArr2[i] === undefined)) {
-            continue;
-        }
-        if (sortedArr1[i] !== sortedArr2[i]) {
-            return false;
-        }
-    }
-
-    // If all elements are equal, the arrays are equal
-    return true;
-}
 
 let instance = undefined
 function MainStore (prims){
@@ -1562,176 +1536,49 @@ function MainStore (prims){
                 if( type === "primitive"){
                     if( prop === "doesImport"){
                         return (id, filters)=>{
-                            console.log(`Check segment `, id, receiver.id)
-                            if( receiver?.referenceParameters?.target === "items" && receiver.referenceParameters.importConfig){
-                                const candidates = receiver.referenceParameters.importConfig.filter(d=>d.id === id)
-                                const match = candidates.filter(d=> {
-                                    const thisMatch = d.filters.filter(d2 => {
-                                        console.log(`Checking`)
-                                        const thisSet = filters.find(ip=>{
-                                            const allKeys = [...Object.keys(d2), ...Object.keys(ip)].filter((d,i,a)=>d!== "id" && a.indexOf(d)===i)
-                                            return allKeys.reduce((a,c)=>{
-                                                let res = false
-                                                if( d2[c] instanceof Object){
-                                                    if( Array.isArray(d2[c]) ){
-                                                        res = areArraysEqualIgnoreOrder( d2[c], ip[c])
-                                                    }else if( d2[c] instanceof Object ){
-                                                        res = d2[c]?.idx === ip[c]?.idx
-                                                    }else{
-                                                        throw `Param ${c} not processed`
-                                                    }
-                                                }else{
-                                                    res = (d2[c] === ip[c]) 
-                                                }
-                                                console.log(" - ", res)
-                                                return res && a}, true)
-                                            })
-                                            console.log(`Result = `, thisSet)
-                                            return thisSet
-                                    })
-                                    console.log(thisMatch)
-                                    return thisMatch.length === filters.length && thisMatch.length === d.filters.length
-                                })
-
-                                console.log(match.length)
-                                if( match.length === 1){
-                                    return true
-                                }
-                            }
-                            return false
+                            console.log(`Check primitive `, id, receiver.id)
+                            return PrimitiveConfig.checkImports( receiver, id, filters)
                         }
                     }
                     if( prop === "filterItems"){
                         return (list, filters)=>{
-                            
-                            return PrimitiveConfig.commonFilter( 
-                                list, 
-                                filters,
-                                {
-                                    parentsAt:(list, pivot, relationship)=>list.map(d=>d.relationshipAtLevel(relationship, pivot)),                                    
-                                    parentsOfType:(primitive, type)=>primitive.findParentPrimitives({type: type}),
-                                    parentsOfTypeForList:(list, type)=>uniquePrimitives(list.map(d=>d.findParentPrimitives({type: type})).flat()),
-                                    getPrimitive:(id)=>obj.primitive(id),
-                                    parentIds:(primitive)=>primitive.parentPrimitiveIds,
-                                    primitiveChildren:(primitive, type)=>primitive.primitives.allItems.filter(d=>!type || d.type===type),
-
-                                })
-                        }                        
-                    }
-                    if( prop === "___filterItems"){
-                        return (list, filters)=>{
-                            let thisSet
-
-
-                            const notCat1 = (list, hits, filter)=>{
-                                const invert = filter.invert ?? false
-                                const l1Hits = hits.map(d=>obj.primitive(d)?.primitives?.allCategory).flat().filter(d=>d).map(d=>d.id)
-                                if( l1Hits.length === 0){
-                                    return list
-                                }
-                                return list.filter(d=>{
-                                    const parents = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)
-                                    const result = parents.reduce((a,d)=>a && d.parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length === 0, true)
-                                    return invert ^ result
-                                })
-                                //return list.filter(d=>{invert ^ !d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.parentPrimitiveIds.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length > 0)
-                            }
-
-                            for( const filter of filters){
-                                if( filter === undefined){
+                            let thisSet = undefined
+                            for(const filter of filters ){
+                                
+                                let {resolvedFilterType, pivot, relationship, check, includeNulls, skip, isRange} = PrimitiveConfig.commonFilterSetup( filter )
+                                if( skip){
                                     continue
                                 }
-                                const invert = filter.invert ?? false
+                                const setToCheck = (thisSet || list)
+
+                                let lookups = setToCheck.map(d=>d.relationshipAtLevel(relationship, pivot))
+
+                                let scope
                                 if( filter.type === "parent"){
-                                    let hitList = [filter.value].flat()
-                                    if( hitList.length === 0){
-                                        thisSet = (thisSet || list)
-                                    }else{
-
-                                        if( hitList.includes(undefined) || hitList.includes(null)){
-                                            hitList = hitList.filter(d=>d !== undefined && d !== null )
-                                            thisSet = notCat1( thisSet || list, [filter.sourcePrimId], filter)
-                                        }
-                                        if( filter.sourcePrimId){
-                                            if( !filter.relationship || filter.relationship === "origin" ){
-                                                thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).parentPrimitiveIds.filter(d=>hitList.includes(d)).length > 0)
-                                            }else{
-                                                thisSet = (thisSet || list).filter(d=>invert ^ (d.relationshipAtLevel(filter.relationship,filter.pivot)?.[0]?.parentPrimitiveIds ?? []).filter(d=>hitList.includes(d)).length > 0)
-                                            }
-                                        }else{
-                                            if( !filter.relationship || filter.relationship === "origin" ){
-                                                thisSet = (thisSet || list).filter(d=>invert ^ d.originAtLevel(filter.pivot).id === d)
-                                            }else{
-                                                thisSet = (thisSet || list).filter(d=>invert ^ (d.relationshipAtLevel(filter.relationship,filter.pivot)?.map(d=>d.id) ?? []).filter(d=>hitList.includes(d)).length > 0)
-                                            }
-
-                                        }
+                                    if( filter.sourcePrimId ){
+                                        scope = obj.primitive(filter.sourcePrimId).primitives.allIds
                                     }
-                                }else if( filter.type === "not_category_level1"){
-                                    const hits = [filter.value].flat()
-                                    thisSet = notCat1( thisSet || list, hits, filter)
-                                }else if( filter.type === "question"){
-                                    thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes( d.findParentPrimitives({type: filter.subtype})?.[0]?.id))
-                                }else if( filter.type === "type"){
-                                    if( filter.map !== undefined){
-                                        if( Array.isArray(filter.map)){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.map.includes(d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceId))
-                                        }else{
-                                            thisSet = (thisSet || list).filter(d=>invert ^ d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceId === filter.map)
-                                        }
+                                }else if( filter.subtype === "question"){
+                                    const prompts = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "prompt"})).flat()),
+                                    scope = prompts.map(d=>d.id)
+                                    check = check.map(d=>prompts.filter(d2=>d2.parentPrimitiveIds.includes(d))).flat().map(d=>d.id)
+                                }else if( filter.subtype === "search"){
+                                    if( includeNulls){
+                                        scope = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "search"})).flat()).map(d=>d.id)
                                     }
-                                }else if( filter.type === "title"){
-                                    if( filter.value !== undefined){
-                                        const val = [filter.value].flat()
-                                        thisSet = (thisSet || list).filter(d=>{
-                                            const titles = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.map(d=>d.title)
-                                            if( invert ){
-                                                return !titles.reduce((a,d)=>a && val.includes(d), true)
-                                            }else{
-                                                return titles.reduce((a,d)=>a || val.includes(d), false)
-                                            }
-                                        })
-                                        /*
-                                        if( Array.isArray(filter.value)){
-                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value.includes(d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.title))
-                                        }else{
-                                            thisSet = (thisSet || list).filter(d=>invert ^ filter.value === d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.title)
-                                        }*/
-                                    }
-                                }else if( filter.type === "parameter"){
-                                    let values = [filter.value].flat()
-                                    let isRange = values?.[0]?.min_value !== undefined || values?.[0]?.max_value !== undefined
-                                    if( !isRange){
-                                        thisSet = (thisSet || list).filter(d=>{
-                                            const params = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.map(d=>d.referenceParameters?.[filter.param])
-                                            if( invert ){
-                                                return !params.reduce((a,d)=>a && values.includes(d), true)
-                                            }else{
-                                                return params.reduce((a,d)=>a || values.includes(d), false)
-                                            }
-                                        })
-                                       /* thisSet = (thisSet || list).filter(d=>{
-                                            let r = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.[0]?.referenceParameters?.[filter.param]
-                                            if( r === null){
-                                                r = undefined
-                                            }
-                                            return invert ^ values.includes(r)
-                                        })*/
-                                    }else{
-                                            thisSet = (thisSet || list).filter(d=>{
-                                                const toCheck = d.relationshipAtLevel(filter.relationship ?? "origin", filter.pivot)?.map(d=>d.referenceParameters?.[filter.param]).filter(d=>d)
-                                                if( toCheck.length === 0){
-                                                    return false
-                                                }
-                                                return invert ^ toCheck.reduce((r,v)=>{
-                                                    return r || values.reduce((a,c)=>a || (v >= (c.min_value ?? -Infinity) && v <= (c.max_value ?? Infinity)), false)
-                                                }, false)
-                                            })
+                                }else if(filter.type === "not_category_level1"){
+                                    includeNulls = true
+                                    check = []
+                                    if( filter.sourcePrimId ){
+                                        scope = obj.primitive(filter.sourcePrimId).primitives.allIds
                                     }
                                 }
+                                    
+                                
+                                thisSet = PrimitiveConfig.doFilter( {resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, {parentIds:(primitive)=>primitive.parentPrimitiveIds})
                             }
                             return thisSet || list
-                        }
+                        }                        
                     }
                     if( prop === "fetchItemsForAction"){
                         return (options = {})=>{
@@ -1786,6 +1633,11 @@ function MainStore (prims){
                     if( prop === "itemsForProcessing"){
                         return receiver.itemsForProcessingWithOptions()
                     }
+                    if( prop === "itemsForProcessingWithParams"){
+                        return (p)=>{
+                            return receiver.itemsForProcessingWithOptions(undefined, {params: p})
+                        }
+                    }
                     if( prop === "itemsForProcessingWithFilter"){
                         return (f,o)=>{
                             let items = receiver.itemsForProcessingWithOptions(undefined, o)
@@ -1826,23 +1678,22 @@ function MainStore (prims){
                                         if( receiver.referenceParameters?.path ){
                                             node = node.fromPath(receiver.referenceParameters?.path)
                                         }
-                                        let items 
                                         if( !receiver.referenceParameters?.path && source.type === "segment"){
-                                            items = source.nestedItems
+                                            list = source.nestedItems
                                         }else{
-                                            items = node.uniqueAllItems
+                                            list = node.uniqueAllItems
                                         }
-                                        if( receiver.referenceParameters?.descend ){
-                                            items = items.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
-                                        }
-                                        if( receiver.referenceParameters?.referenceId ){
-                                            const match = receiver.referenceParameters.referenceId
-                                            items = items.filter(d=>d.referenceId === match) 
-                                        }
-                                        if( receiver.referenceParameters?.type ){
-                                            items = items.filter(d=>d.type === receiver.referenceParameters.type) 
-                                        }
-                                        list = list.concat(items)
+                                    }
+                                    let params = options.params ?? receiver.getConfig
+                                    if( params.descend ){
+                                        list = list.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
+                                    }
+                                    if( params.referenceId ){
+                                        const match = params.referenceId
+                                        list = list.filter(d=>d.referenceId === match) 
+                                    }
+                                    if( params.type ){
+                                        list = list.filter(d=>d.type === params.type) 
                                     }
                                     let config
                                     
@@ -1883,7 +1734,16 @@ function MainStore (prims){
                                 }
                                 return uniquePrimitives(fullList)
                             }else{
-                                return receiver.primitives.uniqueAllItems
+                                let list = receiver.primitives.uniqueAllItems
+                                if( receiver.type === "query" || receiver.type  === "segment"){
+                                    let params = options.params ?? receiver.getConfig
+                                    if( params.extract ){
+                                        const check = [params.extract].flat()
+                                        list = list.filter(d=>check.includes(d.referenceId))
+                                    }
+                                    list = list.filter(d=>!["segment","category","query"].includes(d.type))
+                                }
+                                return list
                             }                        
                         }
                     }
@@ -1981,13 +1841,23 @@ function MainStore (prims){
                         return d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports")) : []
                     }
                     if( prop === "parentPrimitiveWithRelationship"){
-                        return (rel)=>{
+                        return (relationship)=>{
                             let out
+                            let [rel, rId] = relationship.split(":")
+                            if( rId !== undefined){
+                                rId = parseInt(rId)
+                            }
 
                             if( d.parentPrimitives ){
                                 out = Object.keys(d.parentPrimitives).filter(k=>{
+                                    if( rel === "origin_link_result"){
+                                        return d.parentPrimitives[k].filter(d=>{
+                                            const parts = d.split(".")
+                                            return ( parts[parts.length - 1] === "origin" || parts[parts.length - 1] === "link" || parts[parts.length - 2]=== "results" )
+                                        }).length > 0
+                                    }
                                     return d.parentPrimitives[k].filter(d=>d.split(".").slice(-1)?.[0] === rel).length > 0
-                                }).map(id=>obj.primitive(id)).filter(d=>d)
+                                }).map(id=>obj.primitive(id)).filter(d=>d && (rId === undefined || rId === d.referenceId))
                                 
                                 if( out.length === 0){
                                     out = undefined
@@ -2194,6 +2064,31 @@ function MainStore (prims){
                         //return parent.primitives.relationships( d.id )
                         return receiver.parentPaths(parent, root)?.map((d)=>d.split('.').slice(-1)[0])
                     }
+                }
+                if( prop === "getConfig"){
+                    let out = {}
+                    let category = receiver.metadata
+                    if( category ){
+                        for(const p of Object.keys(category.parameters)){
+                            if( category.parameters[p].default ){
+                                out[p] = category.parameters[p].default
+                            }
+                        }
+                    }
+                    const configParent = receiver.parentPrimitiveWithRelationship("config")?.[0]
+                    if( configParent ){
+                        out = {
+                            ...out,
+                            ...(configParent.getConfig ?? {})
+                        }
+                        console.log(`Config import from parent`)
+                        console.log(out)
+                    }
+
+                    return {
+                        ...out,
+                        ...(receiver.referenceParameters ?? {})
+                    }    
                 }
                 if( prop === "parentPaths"){
                     return function( parent, root ){

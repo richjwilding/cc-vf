@@ -322,7 +322,7 @@ async function rollup2(primitive, target, action ){
                             segmentObj.summary = summary?.success ? summary.summary : undefined
                         }
 
-                        const rewrites = await simplifyAndReduceHierarchy( ["Problems in the market"], Object.values(mappedGroups).map(d=>d.summary), {engine: "gpt4p", debug: true, debug_content: true})
+                        const rewrites = await simplifyAndReduceHierarchy( ["Problems in the market"], Object.values(mappedGroups).map(d=>d.summary), {engine: "gpt4o", debug: true, debug_content: true})
                         if( rewrites.success){
                             const merged = []
                             const remap = Object.keys(mappedGroups)
@@ -1436,9 +1436,11 @@ export default function QueueAI(){
                                     for(const entry of categoryAlloc){
                                         const prim = list[entry.id]
                                         if( prim ){
-                                            let idx = 0
-                                            console.log(`${list[entry.id].title} => ${entry.alignment.join(", ")}`)
-                                            for(const d of entry.alignment){
+                                            console.log(`${list[entry.id].title} => ${entry.a.map(d=>`${d.c} = ${d.s}`).join(", ")}`)
+                                            for(const align of entry.a){
+                                                let idx = align.c
+                                                let d = align.s
+
                                                 if( catOptions[idx] ){
                                                     if( d === "Likely" || d === "Clear" || d === "Somewhat"){
                                                         promiseList.push( addRelationship( catOptions[idx]._id.toString(), list[entry.id]._id.toString(), "ref") )
@@ -1451,7 +1453,6 @@ export default function QueueAI(){
                                                 }else{
                                                     console.log(`Error : Exceeded expected categories ${idx} for ${list[entry.id].title}`)
                                                 }
-                                                idx++
                                             }
                                         }
                                     }

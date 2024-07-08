@@ -31,10 +31,10 @@ export default function PrimtiveReportViewer({primitive, ...props}){
     console.log(`targetResultCategoryId `,targetResultCategoryId )
     let  list = primitive.task?.primitives.descendants.filter(d=>d.referenceId===  targetResultCategoryId).flat()
     
-    if( primitive.plainId === 262816){
-        list = primitive.task?.primitives.descendants.filter(d=>d.referenceId === 54).flat()
-    }
-    if( primitive.plainId === 273341){
+    if( primitive.workspaceId === '667c15e0493c88237a047167'){
+        //list = primitive.task?.primitives.descendants.filter(d=>d.parentPrimitives[0]?.title === "New clustering")
+        list = mainstore.primitive(334061).primitives.descendants.filter(d=>d.parentPrimitives[0]?.title === "New clustering")
+    }else if( primitive.plainId === 273341){
         list = mainstore.primitive("65cc980a98d8dcc176818703").primitives.allCategory
     }else {
         if( primitive.primitives.params.source?.length> 0 ){

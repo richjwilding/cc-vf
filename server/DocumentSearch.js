@@ -7,6 +7,16 @@ import nlp from "compromise/three";
 import { PorterStemmer } from "natural";
 import { executeConcurrently } from "./SharedFunctions";
 
+
+export async function retrieveDocumentFromSearchCache( primitiveId){
+    const fragments = await ContentEmbedding.find({foreignId: primitiveId },{foreignId:1, part:1, text: 1})
+    if( fragments.length > 0 ){
+        const text = fragments.map(d=>d.text).join("\n")
+        return text
+    }
+    return undefined
+
+}
 export async function indexDocument( primitive, {force} = {}){
     try{
         if( force ){
@@ -47,67 +57,24 @@ export async function indexDocument( primitive, {force} = {}){
     }
 }
 
-export async function buildDocumentTextEmbeddings( text ){
+export async function buildDocumentTextEmbeddings( text, limit ){
     if( !text || text.length === 0){
         return
     }
-    /*
-    text = text.replace(/\n+/g, '\n');
-    text = text.replace(/ +/g, ' ');
-    let paras = text.split("\n")
-    const max = 2000
-
-    console.log(`Got ${paras.length} paragraphs`)
-    
-    let segments = []
-    const targetWordCount = 200
-    let current = ""
-    let cWords = 0
-    for(const para of paras){
-        const words = para.split(" ").length
-
-        current += (cWords === 0 ? "" : "\n") + para 
-        cWords += words
-
-        if( cWords >= targetWordCount ){
-            segments.push( current )
-            current = ""
-            cWords = 0
-        }
-    }
-    if( cWords > 0 ){
-        segments.push( current )
-    }
-    console.log(`Processing as ${segments.length}`)
-
-    const checkAndSplitInTwo = ( text )=>{
-        let thisTokens = encode( text ).length
-        if( thisTokens > max ){
-            const words = text.split(" ")
-            const length = words.length
-            let partA, partB
-            if( length === 1){
-                const half =  text.length / 2
-                partA = text.slice(0, half)
-                partB = text.slice(half)
-
-            }else{
-                const half =  length / 2
-                partA = words.slice(0, half).join(" ")
-                partB = words.slice(half).join(" ")
-            }
-            return [ checkAndSplitInTwo( partA ), checkAndSplitInTwo( partB ) ].flat(Infinity)
-        }
-        return text
-    }
-
-    segments = segments.map(segment=>{
-        return checkAndSplitInTwo( segment )
-    }).flat(Infinity)*/
-
     const keywords = extractSentencesAndKeywords(text.replace(/[\s\t\n]+/g, ' '));
     const groupedSentences = groupNeighboringSentences(keywords);
-    const final = combineGroupsToChunks(groupedSentences)
+    let final = combineGroupsToChunks(groupedSentences)
+    let truncating = false
+
+    if( limit && limit < final.length){
+        console.log(`Will limit embeddings to first ${limit} of ${final.length}`)
+        final = final.slice(0, limit)
+        truncating = true
+    }
+    if( final.length > 1500){
+        console.log(`WARNING: limit embeddings to first 1500 sections of document`)
+        final = final.slice(0, 1500)
+    }
     
 
     console.log(`Processing as ${final.length} (from ${groupedSentences.length})`)
@@ -126,6 +93,9 @@ export async function buildDocumentTextEmbeddings( text ){
     }
     let {results, _} = await executeConcurrently( final, encode, undefined, undefined, 10)
     results = results.filter(d=>d)
+    if( limit !== undefined ){
+        return {truncated: truncating, results: results}        
+    }
     return results
 }
 function combineGroupsToChunks(groups, maxWords = 120) {
@@ -282,7 +252,7 @@ export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, s
     
     allFragments = allFragments.flat()
     console.log(`have ${allFragments.length} fragments`)
-    allFragments = allFragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id)===i).sort((a,b)=>b.score - a.score)
+    allFragments = allFragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i).sort((a,b)=>b.score - a.score)
     
     return allFragments
 

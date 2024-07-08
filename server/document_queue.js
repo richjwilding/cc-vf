@@ -11,6 +11,7 @@ import ContentEmbedding from "./model/ContentEmbedding";
 import PrimitiveParser from "./PrimitivesParser";
 import { searchPosts } from "./linkedin_helper";
 import { fetchFragmentsForTerm } from "./DocumentSearch";
+import { aggregateItems, checkAndGenerateSegments } from "./task_processor";
 
 const parser = PrimitiveParser()
 
@@ -93,45 +94,44 @@ export async function mergeDataQueryResult( primitive, {ids = [], descriptionRew
 
 async function doDataQuery( options ) {
         const primitive = await Primitive.findOne({_id: options.id})
+        const thisCategory = await Category.findOne({id: primitive.referenceId})
 
+                const parentForScope = options.parentForScope //(await primitiveParentsOfType(primitive, "working"))?.[0]
 
                 const doingExtracts = primitive.referenceParameters?.extract
 
 
-                const resultCategoryId =  doingExtracts ? primitive.referenceParameters?.extract : (options.resultCategoryId ?? action.resultCategoryId)
+                const resultCategoryId =  doingExtracts ? primitive.referenceParameters?.extract : options.resultCategoryId 
                 const resultSet = doingExtracts ?  (await findResultSetForType( primitive, "evidence")) : (await findResultSetForCategoryId( primitive, resultCategoryId))
                 if( resultSet === undefined ){
                     throw "No resultCategoryId specified"
                 }
                 const extractTargetCategory = doingExtracts ? (await Category.findOne({id: resultCategoryId}))?.toJSON() : undefined
                 
-                const parentForScope = (await primitiveParentsOfType(primitive, "working"))?.[0]
 
                 const serachScope = [{workspaceId: primitive.workspaceId}]
                 
-                const scope = options.scope ?? primitive.primitives?.params?.scope?.[0] ?? parentForScope?.primitives?.params?.scope?.[0]
+                const scope = options.scope ?? primitive.primitives?.params?.scope?.[0] ?? parentForScope?.primitives?.params?.scope?.[0] ?? (Object.keys(parentForScope.primitives).includes("imports") ? parentForScope : undefined)
                 const referenceCategoryFilter = options.referenceCategoryFilter ?? primitive.referenceParameters?.referenceCategoryFilter ?? parentForScope?.referenceParameters?.referenceCategoryFilter
-
 
                 let items
                 if( scope  ){
                     const node = await fetchPrimitive( scope )
-                    if( node.type === "view" ){
+                    if( node.type === "view" || node.type === "working" ){
                         const interim = await getDataForImport(node)
 
-                        if( primitive.referenceParameters.group){
+                        if( primitive.referenceParameters.group || thisCategory.type === "iterator" ){
                             console.log(`Will go via groups - have ${interim.length} to do`)
                             for(const d of interim){
-                                console.log(`-- Doing for ${d.plainId} / ${d.title}`)
-                               // if( d.plainId === 313195){
-                                    await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id})
-                                //}
+                                    console.log(`++ Doing for ${d.plainId} / ${d.title}`)
+                                    await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: true})
                             }
                             return
                         }
 
                         console.log(`Got ${interim.length} for view `)
-                        items = await primitiveDescendents( interim, "result")
+                        //items = await primitiveDescendents( interim, "result")
+                        items = [interim.filter(d=>d.type==="result"), await primitiveDescendents( interim, "result")].flat()
                     }else{
                         items = await primitiveDescendents( node, "result")
                     }
@@ -270,7 +270,7 @@ async function doDataQuery( options ) {
                                 fragments = fragments.concat( await fetchFragmentsForTerm(prompt, {searchTerms, scanRatio, threshold_seek, threshold_min, serachScope}) )
                             }
                             console.log(`have ${Object.keys(fragments).length} fragments`)
-                            fragments = fragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id)===i)
+                            fragments = fragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i)
                             console.log(`have ${Object.keys(fragments).length} fragments`)
 
                             fragmentList = Object.values( fragments )//.slice(132,270)
@@ -287,7 +287,7 @@ async function doDataQuery( options ) {
                             prompt: `Using only the information explcitly provided in the text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer.`,
                             //output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words, a 'quote' field containing up to 50 words of the exact text used from the fragments, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.${(extraFields ?? "").length > 0 ? extraFields + ", " : ""}`,
                             output: outPrompt,
-                            engine: "gpt4p",
+                          //  engine: "gpt4p",
                             no_num: false,
                             maxTokens: 40000,
                             temperature: 1,
@@ -295,10 +295,11 @@ async function doDataQuery( options ) {
                             batch:  doingExtracts ? 10 : undefined, 
                             idField: "ids",
                             debug: true,
-                          // debug_content: true,
+                           debug_content: true,
                             field: "answer"
                         })
-                        console.log(results.output)
+                        //console.log(results.output)
+                        console.log(`For ${options.inheritValue} for ${results.output?.length} for ${fragmentList.length}`)
                         if( results.success && Array.isArray(results.output)){
                             results.output = results.output.filter(d=>d.answered)
                             let final
@@ -411,14 +412,21 @@ async function doDataQuery( options ) {
                                 }
                                 const newPrim = await createPrimitive( newData )
                                 if( newPrim ){
-                                    console.log(`need to link in`)
                                     const primitiveIds = d.ids.map(idx=>fragmentList[idx]?.id).filter((d,i,a)=>a.indexOf(d) === i )
-                                    console.log(primitiveIds)
+                                    console.log(`need to link in ${primitiveIds.join(", ")}`)
                                     for(const id of primitiveIds){
-                                        try{
-                                            await addRelationship(newPrim.id, id, 'link')
-                                        }catch(error){
-                                            console.log(`Couldnt link in ${newPrim.id} - >${id} link`)
+                                        if( options.linkAsChild ){
+                                            try{
+                                                await addRelationship(id, newPrim.id, 'auto')
+                                            }catch(error){
+                                                console.log(`Couldnt link in ${id} - >${newPrim.id} link`)
+                                            }
+                                        }else{
+                                            try{
+                                                await addRelationship(newPrim.id, id, 'link')
+                                            }catch(error){
+                                                console.log(`Couldnt link in ${newPrim.id} - >${id} link`)
+                                            }
                                         }
                                     }
                                 }
@@ -700,15 +708,19 @@ export default function QueueDocument(){
         return true
     }
 
-    const unpackParams = (params, target, type)=>{
+    const unpackParams = (params, limitSet, type)=>{
         Object.keys(params).forEach((p)=>{
+            let target = limitSet.find(d2=>d2.word_limit === params[p].word_limit)
+            if( !target ){
+                target = {word_limit: params[p].word_limit, items: []}
+                limitSet.push(target)
+            }
             if( (type === undefined || params[p].promptType === type) || (params[p].promptType === undefined && type === "question")){
                 if( params[p].prompt){
-                    target.push({key: p, ...params[p]})
+                    target.items.push({key: p, ...params[p]})
                 }
             }
         })
-
     }
 
 
@@ -880,16 +892,17 @@ export default function QueueDocument(){
                     }
                     return
                 }
-                const extract = await getDocumentAsPlainText( primitiveId, job.data.req, false, true)
+                const extract = await getDocumentAsPlainText( primitiveId, job.data.req)
                 if( extract ){
                     const text = extract.plain
-                    const parent = await Primitive.findOne({_id: await primitiveOrigin(primitive) })
+                    const parent = await Primitive.findOne({_id: primitiveOrigin(primitive) })
 
 
                     const fields = {}
                     const processResponses = async (result, prompts)=>{
                         if( result.success && result.response){
                             console.log(result.response)
+                            const listTrack = new Set()
                             for( const res of result.response){
                                 if( res.answered){
                                     let p = prompts[res.id]
@@ -899,6 +912,16 @@ export default function QueueDocument(){
                                     if( p ){
                                         console.log(res.id, p.key, res.answer)
                                         let value = res.answer
+
+                                        if( typeof(value) === "object" && p.prompt_output){
+                                            if( typeof(p.prompt_output) === "string"){
+                                                value = value[p.prompt_output]
+                                                console.log(`--> Mapped to ${value}`)
+                                            }else{
+                                                throw "Prompt output as struct not implemented"
+                                            }
+                                        }
+
                                         const key = p.onRoot ? p.key : `referenceParameters.${p.key}`
                                         if( p.type === "string" || p.type === "long_string" )
                                         {
@@ -909,6 +932,13 @@ export default function QueueDocument(){
                                             }else{
                                                 fields[key] = value                                         
                                             }
+                                        }else if(p.type === "list"){
+                                                if( listTrack.has(key)){
+                                                    fields[key] = [fields[key],value].flat()
+                                                }else{
+                                                    listTrack.add(key)
+                                                    fields[key] = [value].flat()
+                                                }
                                         }else if(p.type === "number"){
                                             const number = isNaN(value) ? value.match(/[-+]?[0-9]*\.?[0-9]+/) : value
                                             console.log(number)
@@ -931,21 +961,30 @@ export default function QueueDocument(){
                         }
                     }
 
+                            
                     const transformQuestions = (list, parent)=>{
                         return list.map((d)=>{
+                            let item = d
                             if( d.type === "number"){
-                                return {...d, prompt: `${d.prompt}. Provide your answer as a number without any other text`}
+                                item = {...d, prompt: `${d.prompt}. Provide your answer as a number without any other text`}
                             }
                             if( d.promptParentModifier){
                                 const value = getNestedValue( parent, d.promptParentModifier)
-                                console.log(`--- nESTED ${value}`)
                                 if( value ){
-                                    return {...d, prompt: d.prompt.replaceAll('{t}', value), value: value}
+                                    item = {...d, prompt: d.prompt.replaceAll('{t}', value), value: value}
                                 }else{
-                                    return {...d, prompt: d.promptBlank}
+                                    item = {...d, prompt: d.promptBlank}
                                 }
                             }
-                            return d
+                            if( d.prompt_structure){
+                                const structure = "{" + Object.keys(d.prompt_structure).map(f=>`${f}:<${d.prompt_structure[f]?.description ?? d.prompt_structure[f]}>`).join(", ") + "}"
+                                if( d.type === "list"){
+                                    item.prompt += `. Each entry should have the structure ${structure}`
+                                }else{
+                                    item.prompt += `. Use the following structure for your answer ${structure}`
+                                }
+                            }
+                            return item
                         })
                     }
 
@@ -957,13 +996,20 @@ export default function QueueDocument(){
                     
 
                     if( questionList.length > 0){
-                        let result = await analyzeText(text, {
-                            opener: category.openai.opener,
-                            descriptor: category.openai.descriptor,
-                            text: text, 
-                            prompts: transformQuestions(questionList, parent)
-                        })
-                        await processResponses( result, questionList)
+                        for( const set of questionList ){
+                            let thisText = text
+                            if( set.word_limit ){
+                                thisText = text.split(" ").slice(0, set.word_limit).join(" ")
+                            }
+
+                            let result = await analyzeText(thisText, {
+                                opener: category.openai.opener,
+                                descriptor: category.openai.descriptor,
+                                temperature: 1,
+                                prompts: transformQuestions(set.items, parent)
+                            })
+                            await processResponses( result, set.items)
+                        }
                     }
 
 
@@ -975,16 +1021,22 @@ export default function QueueDocument(){
                     }
 
                     if( taskList.length > 0){
-
-                        let result = await analyzeText(text, {
-                            opener: category.openai.opener,
-                            descriptor: "Complete the following tasks:",
-                            text: text, 
-                            skipQuote: true,
-                            promptType: "task",
-                            prompts: transformQuestions(taskList, parent)
-                        })
-                        processResponses( result, taskList)
+                        for( const set of taskList ){
+                            let thisText = text
+                            if( set.word_limit ){
+                                thisText = text.split(" ").slice(0, set.word_limit).join(" ")
+                                console.log(`LIMITED ${thisText.length} vs ${text.length}`)
+                            }
+                            let result = await analyzeText(thisText, {
+                                opener: category.openai.opener,
+                                descriptor: "Complete the following tasks:",
+                                skipQuote: true,
+                                promptType: "task",
+                                temperature: 1,
+                                prompts: transformQuestions(set.items, parent)
+                            })
+                            processResponses( result, set.items)
+                        }
                     }
 
                     if( Object.keys(fields).length > 0 ){

@@ -317,11 +317,9 @@ _setTextData() {
     var textArr = this.textArr,
     textArrLen = textArr.length;
 
-
-
-  if (!this.text()) {
-    return;
-  }
+    if (!this.text()) {
+      return;
+    }
     var padding = this.padding(),
       fontSize = this.fontSize(),
       lineHeightPx = this.lineHeight() * fontSize,

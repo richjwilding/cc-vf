@@ -40,6 +40,8 @@ import { InputPopup } from './InputPopup';
 import TooggleButton from './ToggleButton';
 import CheckPill from './CheckPill';
 import SummaryCard from './SummaryCard';
+import UIHelper from './UIHelper';
+import CollectionUtils from './CollectionHelper';
 
 export const ExpandArrow = function(props) {
   return (
@@ -68,13 +70,36 @@ let mainstore = MainStore()
         return (
           <dd className="text-gray-500 font-medium self-center">{thisVal ? "Yes" : "No"}</dd>
         )
+      }else if( item.type === "collection_axis"){
+        const source = props.primitive?.findParentPrimitives({type: ["experiment", "activity"]})[0] ?? props.primitive?.findParentPrimitives({type: ["query", "view", "segment"]})[0]
+        return <UIHelper.AxisPicker 
+                    source={source} 
+                    value={item.value}
+                    onChange={async (d,idx)=>{
+                      const path = idx === undefined ? item.key : `${item.key}.${idx}`
+                      await CollectionUtils.setPrimitiveAxis(  props.primitive, d, path, false)
+                    }}
+                    />
       }else if( item.type === "list"){
         const align = ""
         const clamp = item.type === "long_string" && !props.disableClamp ? "line-clamp-[10]" : ""
+        let editable = true
+        let thisValue = undefined
+        if( Array.isArray(item.value)){
+          if( typeof(item.value[0]) === "string" ){
+            thisValue = item.value.join(", ") 
+          }else{
+            editable = false
+            thisValue = JSON.stringify( item.value )
+          }
+
+        }
+
         return <EditableTextField
           {...props} 
           submitOnEnter={true} 
-          value={Array.isArray(item.value) ? item.value.join(", ") : undefined} 
+          editable={editable}
+          value={thisValue} 
           default={item.default} 
           placeholder={item.placeholder} 
           icon={icon} 
@@ -160,7 +185,7 @@ let mainstore = MainStore()
         }
         
         for( const cat of available){
-          if(item.referenceIds ||  ["entity","evidence","result","category","query","activity","marketsegment","detail"].includes(cat.primitiveType) ){
+          if(item.referenceIds ||  ["entity","evidence","result","category","query","activity","marketsegment","detail","summary"].includes(cat.primitiveType) ){
             list.push({title: cat.title, categoryId: cat.id, category: cat})
           }
         }                
@@ -376,15 +401,19 @@ let mainstore = MainStore()
       }else if( item.type === "category_field"){
         const task = props.primitive.task
 
-        const defaultConfig = task?.metadata?.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
+        const defaultConfig = item.itemMeta ? undefined : task?.metadata?.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
         let sourceMeta
 
         let _target = props.primitive?.referenceParameters?.target ? props.primitive.referenceParameters?.target : defaultConfig?.target
         let _refId =  props.primitive.referenceParameters?.referenceId ?? defaultConfig?.referenceId
         console.log(_target)
 
-        if( item.itemMeta ){
-          sourceMeta = props.primitive.itemsForProcessing?.[0]?.metadata
+        const first = item.itemMeta ? props.primitive.itemsForProcessing?.[0] : undefined
+
+        if( props.primitive.referenceParameters?.referenceId){
+          sourceMeta = mainstore.category(props.primitive.referenceParameters?.referenceId)
+        }else if( item.itemMeta && first){
+            sourceMeta = first.metadata
         }else if(_target === "evidence" || _target === "items"){
           sourceMeta =  mainstore.category(_refId) 
         }else if(_target === "origin"){
@@ -580,12 +609,24 @@ let mainstore = MainStore()
               {item.key === "valuation" && <HeroIcon icon="ArrowTrendingUpIcon" className='w-4 h-4 mr-1'/>}
                 <p>${(val || 0).toFixed(2)}{unit}</p>
               </div>
-      }else if( item.type === "url" && !props.editing){
+      }else if( item.type === "url"){
         return (
-          <div className='ml-auto flex'>
-            <a href={item.value} className='flex place-items-center space-x-2' target="_blank">
+          <div className='ml-auto flex place-items-start space-x-2'>
+          <EditableTextField
+            {...props} 
+            submitOnEnter={true} 
+            value={item.value} 
+            default={item.default} 
+            placeholder={item.placeholder} 
+            icon={icon} 
+            fieldClassName={`break-all ${props.compact ? "" :`grow`} ${props.inline ? "truncate" : ""}`}
+            callback={props.callback ? props.callback : (value)=>{
+                return props.primitive.setParameter(item.key, value)
+            }}
+            className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
+          />
+            <a href={item.value} className='p-1' target="_blank">
                 <LinkIcon className='w-5'/>
-                <p className='break-all line-clamp-1 w-full'>{item.value}</p>
               </a>
             </div>
             )
@@ -1060,7 +1101,7 @@ const Parameters = function({primitive, ...props}){
         style={{
           gridTemplateColumns: props.showTitles === undefined || props.showTitles === true ? "minmax(min-content, 7rem) 1fr" : "1fr"
         }}
-        className='grid gap-2 text-sm'>
+        className={`grid gap-2 text-sm ${props.className ?? ""}`}>
         {details.map((item, idx)=>(
           <>
             {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}

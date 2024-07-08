@@ -99,6 +99,7 @@ export default function NewPrimitive({...props}) {
                 name: d.title,
                 categoryId: d.id,
                 description: d.description,
+                primitiveType: d.primitiveType,
                 icon: d.icon,
                 iconColor: 'bg-slate-500',
                 details: d

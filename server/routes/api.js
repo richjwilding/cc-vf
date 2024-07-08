@@ -318,6 +318,7 @@ router.get('/categories', async function(req, res, next) {
 
     }
 })
+
 router.get('/primitives', async function(req, res, next) {
     let workspaceId = req.query.workspace
     const owns = req.query.owns
@@ -368,7 +369,9 @@ router.get('/primitives', async function(req, res, next) {
         }
       }
         
-        const results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0})
+        
+        //const results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0})
+        const results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0})
         //res.json(results)
 
         res.setHeader('Content-Type', 'application/msgpack');

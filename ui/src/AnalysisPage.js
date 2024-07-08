@@ -15,7 +15,7 @@ export default function AnalysisPage({primitive, ...props}){
     const [showSources, setShowSources] = useState(false)
     const [showQuery, setShowQuery] = useState(true)
 
-    const queryCategory = MainStore().categories().filter(d=>d.primitiveType === "query")?.[0]
+    const queryCategories = MainStore().categories().filter(d=>d.primitiveType === "query")
     const showSidebar = !showQuery || !showSources
 
         const pick = ()=>{
@@ -46,7 +46,15 @@ export default function AnalysisPage({primitive, ...props}){
         {showQuery &&<div className="flex flex-col w-full max-h-[inherit] bg-gray-50 sm:rounded-lg shadow p-4 space-y-4 @container">
             <DropdownButton noBorder icon={showQuery ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>setShowQuery(!showQuery)} flat className={`ml-auto`}/>
                 <div className="w-full justify-end flex">
-                    <CreateButton title="New Query" parent={primitive} resultCategory={queryCategory}/>
+                    <CreateButton 
+                        small={true}
+                        parent={primitive}
+                        options={queryCategories.map(d=>({
+                            title: `New ${d.title}`,
+                            options: {
+                                resultCategory: d
+                            }
+                    }))}/>
                 </div>
                 <div className="w-full overflow-y-scroll space-y-4 p-1">
                 {primitive.primitives.allUniqueQuery.map(d=><QueryCard primitive={d}/>)}

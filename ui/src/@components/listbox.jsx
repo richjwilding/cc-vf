@@ -4,7 +4,7 @@ import * as Headless from '@headlessui/react'
 import clsx from 'clsx'
 import { Fragment } from 'react'
 
-export function Listbox({ className, placeholder, autoFocus, 'aria-label': ariaLabel, children: options, ...props }) {
+export function Listbox({ className, placeholder, autoFocus, small, zIndex, 'aria-label': ariaLabel, children: options, ...props }) {
   return (
     <Headless.Listbox {...props} multiple={false}>
       <Headless.ListboxButton
@@ -35,7 +35,7 @@ export function Listbox({ className, placeholder, autoFocus, 'aria-label': ariaL
             // Basic layout
             'relative block w-full appearance-none rounded-lg py-[calc(theme(spacing[2.5])-1px)] sm:py-[calc(theme(spacing[1.5])-1px)]',
             // Set minimum height for when no value is selected
-            'min-h-11 sm:min-h-9',
+            small ? 'min-h-9 sm:min-h-7' : 'min-h-11 sm:min-h-9',
             // Horizontal padding
             'pl-[calc(theme(spacing[3.5])-1px)] pr-[calc(theme(spacing.7)-1px)] sm:pl-[calc(theme(spacing.3)-1px)]',
             // Typography
@@ -71,6 +71,7 @@ export function Listbox({ className, placeholder, autoFocus, 'aria-label': ariaL
           anchor="selection start"
           className={clsx(
             // Anchor positioning
+            zIndex ? `z-${zIndex}` : "",
             '[--anchor-offset:-1.625rem] [--anchor-padding:theme(spacing.4)] sm:[--anchor-offset:-1.375rem]',
             // Base styles
             'isolate w-max min-w-[calc(var(--button-width)+1.75rem)] select-none scroll-py-1 rounded-xl p-1',
@@ -94,6 +95,7 @@ export function Listbox({ className, placeholder, autoFocus, 'aria-label': ariaL
 export function ListboxOption({ children, className, ...props }) {
   const sharedClasses = clsx(
     // Base
+    props.small ? "text-xs" : "",
     'flex min-w-0 items-center',
     // Icons
     '[&>[data-slot=icon]]:size-5 [&>[data-slot=icon]]:shrink-0 sm:[&>[data-slot=icon]]:size-4',

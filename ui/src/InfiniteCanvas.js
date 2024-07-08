@@ -144,14 +144,25 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             return
         }
         
-        setTimeout(() => {
-            requestAnimationFrame(()=>{
+        myState.current.timeoutPending = setTimeout(() => {
+            myState.current.timeoutPending = undefined
+            myState.current.animFramePending = requestAnimationFrame(()=>{
+                myState.current.animFramePending = undefined
                 let steps = 200
                 let toProcess = myState.current.rescaleList.splice(0,steps)
                 for(let idx = 0; idx < steps; idx++){
                     const d = toProcess[idx]
                     if( d ){
-                        if( !d.parent?.attrs.removing ){
+                        /*
+                        if(idx === 0){
+                            if(!d.getLayer()){
+                                console.log(`CANVAS DESTROYED - BAIING`)
+                                myState.current.rescaleList = []
+                                break
+                            }
+                        }*/
+                        //if( !d.parent?.attrs.removing ){
+                        if( !d.parent?.attrs.removing && d.getLayer()){
                             d.queuedForRefresh = false
                             d.refreshCache()
                             d.draw()
@@ -534,6 +545,16 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
 
         return ()=>{
+            
+            if( myState.current.timeoutPending ){
+                console.log(`Cancelling timeout`)
+                clearTimeout(myState.current.timeoutPending)
+            }
+            if( myState.current.animFramePending ){
+                console.log(`Cancelling RAF`)
+                cancelAnimationFrame(myState.current.animFramePending)
+            }
+            myState.current.rescaleList = undefined
             observer.unobserve(frameRef.current);
             for(const frame of myState.current.frames ?? []){
                 if( frame.allNodes ){

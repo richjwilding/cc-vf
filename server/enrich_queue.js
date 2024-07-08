@@ -713,7 +713,7 @@ export default function EnrichPrimitive(){
                         
                         for( const item of urlsToParse){
                             try{                                
-                                await processURLAsDetail( primitive, item.url, categories[item.categoryId], {resultCategoryId: resultCategoryId, resultSet: resultSet, detailResultSet: detailResultSet}, pageCache )
+                                await processURLAsDetail( primitive, item.url, categories[item.categoryId], {resultCategoryId: options.resultCategoryId, resultSet: resultSet, detailResultSet: detailResultSet}, pageCache )
                             }catch( error ){
                                 console.log(`Error processing for site_discovery ${url}`)
                                 console.log(error)

@@ -1,3 +1,4 @@
+import DropdownButton from "./DropdownButton";
 import MainStore from "./MainStore";
 import Panel from "./Panel";
 import PrimitiveConfig from "./PrimitiveConfig";
@@ -46,7 +47,15 @@ const createResult = async( primitive, options = {})=>{
 
 }
 
-export default function CreateButton({parent, ...props}){
+export default function CreateButton({parent, options,...props}){
+    if(options){
+        return <DropdownButton portal {...props} items={
+            options.map(d=>({
+                title: d.title,
+                action: ()=>createResult( parent, d.options)
+            }))
+        }/>
+    }
     return <Panel.MenuButton 
         onClick={()=>createResult( parent, props) }
         title={props.title ?? "Create new"}

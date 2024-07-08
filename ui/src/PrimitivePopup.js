@@ -75,7 +75,7 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
     <>
     {showDeletePrompt && <ConfirmationPopup title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
     <Transition.Root show={primitive !== undefined} as={Fragment}  appear>
-      <Dialog as="div" className="relative z-50" onClose={()=>setPrimitive(null)} >
+      <Dialog as="div" className="relative z-50" onClose={()=>{}/*()=>setPrimitive(null)*/} >
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-300"

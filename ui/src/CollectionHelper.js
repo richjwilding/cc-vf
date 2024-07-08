@@ -11,7 +11,7 @@ class CollectionUtils{
                 return node
             }
             node.nested ||= {}
-            const next = path[0]
+            let next = path[0]
             const running = [...route, next]
             if( !node.nested[next] ){
                 node.nested[next] = {path: running, parent: node}
@@ -33,7 +33,27 @@ class CollectionUtils{
     }
     static axisFromCollection(items, primitive, options = {}){
         const mainstore = MainStore()
+        if( primitive.type === "query"){
+            if( primitive.metadata.type === "aggregator"){
+                const segments = uniquePrimitives(items.map(d=>d.findParentPrimitives({type: "segment", first:true})).flat())
+                const filterLength = Math.max(0, ...segments.map(d=>d.referenceParameters?.importConfig?.[0].filters?.length))
+                if( !filterLength ){
+                    return [{id: 0, type: "none", title: "None"}]
+                }
+
+                let segmentAxis = new Array(filterLength).fill().map((d,i)=>({id: i, passType: "segment_filter", type: "segment_filter", title: `By Segment axis ${i}`}))
+
+                segmentAxis = [
+                    ...segmentAxis,
+                    {id: filterLength, type: "none", title: "None"},
+                ].slice(0,2)
+                console.log(segmentAxis)
+                return segmentAxis
+            }
+        }
+        
         const viewPivot = options.viewPivot
+
 
         let out = [{type: "none", title: "None", values: [""], order:[""], labels: ["None"]}]
 
@@ -188,7 +208,7 @@ class CollectionUtils{
         if( items ){
             out = out.concat( txParameters( items ) )
             
-            const expandOrigin = (nodes, count = 0, relationshipChain = "origin")=>{
+            const expandOrigin = (nodes, count = 0, relationshipChain = "origin_link_result")=>{
                 let out = []
                     let origins = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel(Array.isArray(relationshipChain) ? relationshipChain.slice(-1)[0] : relationshipChain,1)).flat(Infinity).filter((d)=>d)) 
 
@@ -197,7 +217,7 @@ class CollectionUtils{
                     let path = [relationshipChain].flat()
                     let last = path.pop()
                     if( last === "auto"){
-                        const rejectList = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel("origin",1)).flat(Infinity).filter((d)=>d)).map(d=>d.id)
+                        const rejectList = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel("origin_link_result",1)).flat(Infinity).filter((d)=>d)).map(d=>d.id)
                         const pre = origins.length
                         origins = origins.filter(d=>!rejectList.includes(d.id))
                         console.log(`Filtered out origin for auto from ${pre} to ${origins.length}`)
@@ -216,12 +236,12 @@ class CollectionUtils{
 
                             out = out.concat( txParameters( theseOrigins, count + 1, cont ) )
                             out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, last]))
-                            if( last !== "origin"){
-                                out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, "origin"]) )
+                            if( last !== "origin_link_result"){
+                                out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, "origin_link_result"]) )
                             }
-                            if( last !== "link"){
-                                out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, "link"]) )
-                            }
+                            //if( last !== "link"){
+                            //    out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, "link"]) )
+                            //}
                         }
                     }
                     const questions = uniquePrimitives(uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "prompt").map(d => d.origin))
@@ -246,7 +266,7 @@ class CollectionUtils{
                         console.log(byCat)
                         for(const d of Object.values(byCat)){
                             const values = d.items.map(d=>({idx: d.id, label: `Search #${d.plainId}`, map: [d.id, d.id]}))
-                            out.push( {type: 'question', subtype:"search", values, title: `Source search`, access: count + 1, relationship: [...path, "origin"], passType: "question", category: d.category})
+                            out.push( {type: 'question', subtype:"search", values, title: `Source search`, access: count + 1, relationship: [...path, `origin_link_result:${d.category.id}`], passType: "question", category: d.category})
                         }
                     }
 
@@ -254,14 +274,14 @@ class CollectionUtils{
                     return out
             }
             if( !options.excludeOrigin ){
-                out = out.concat( expandOrigin(items, 0, "origin") )
-                out = out.concat( expandOrigin(items, 0, "link") )
+                out = out.concat( expandOrigin(items, 0, "origin_link_result") )
+                //out = out.concat( expandOrigin(items, 0, "link") )
                 out = out.concat( expandOrigin(items, 0, "auto") )
             }
         }
         const final = out.filter((d, idx, a)=>{
             if(d.type === "category"){
-                return a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access)) === idx
+                return a.findIndex((d2)=>(d2.primitiveId === d.primitiveId) && (d.access === d2.access) && mainstore.equalRelationships(d.relationship, d2.relationship) ) === idx
             }
             if(d.subtype === "search"){
                 return a.findIndex((d2)=>(d.access === d2.access) && mainstore.equalRelationships(d.relationship, d2.relationship)) === idx
@@ -269,6 +289,7 @@ class CollectionUtils{
             return true
         })
         const labelled = final.map((d,idx)=>{return {id:idx, ...d}})
+        console.log(labelled)
         return labelled
     }
     static axisExtents(interim, axis, field){
@@ -277,6 +298,31 @@ class CollectionUtils{
                 //let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
                 //return {labels: out, order: out, values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
                 return {values: [{idx: "_N_", label: "None"},...axis.values]}
+            },
+            "segment_filter":(field)=>{
+                const segments = uniquePrimitives(interim.map(d=>d.primitive.findParentPrimitives({type: "segment", first:true})).flat())
+
+                const mapped = segments.map(d=>{
+                    const filterConfig = d.referenceParameters?.importConfig?.[0]?.filters?.[axis.id]
+                    if( filterConfig){
+                        if(filterConfig.type ==="parent"){
+                            if( filterConfig.value){
+                                return {idx: filterConfig.value, label: MainStore().primitive(filterConfig.value)?.title ?? "None"}
+                            }else{
+                                return {idx: undefined, label: "None"}
+                            }
+                        }else{
+                            const value = filterConfig.value ?? "None"
+                            return {idx: value, label: value}
+                        }
+                    }
+                }).filter((d,i,a)=>a.findIndex(d2=>d2.idx === d.idx)===i).sort((a,b)=>a.label.localeCompare(b.label))
+
+
+                console.log(mapped)
+                return {values: mapped}
+
+               // return {values: mapped.map((d,i)=>({idx: d, label: d}))}
             },
             "indexed":(field)=>{
                 let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.findIndex(d2=>d2.value === v.value)===idx).sort((a,b)=>a.order - b.order)
@@ -340,7 +386,7 @@ class CollectionUtils{
                 let bucketCount = 10
                 //const hasValues = interim.filter(d=>d[field]).sort((a,b)=>a[field] - b[field])
                 const noValues = interim.filter(d=>d[field] === undefined)
-                const hasValues = interim.filter(d=>d[field]).sort((a,b)=>a[field] - b[field])
+                const hasValues = interim.filter(d=>d[field] !== undefined).sort((a,b)=>a[field] - b[field])
                 //const noValues = interim.filter(d=>d[field] === undefined || (Array.isArray(d[field]) && (d[field].length === 0 || (d[field].length === 1 && d[field][0] === undefined))))
                 //const hasValues = interim.filter(d=>(d[field] === undefined) || (Array.isArray(d[field]) && d[field][0])).sort((a,b)=>a[field] - b[field])
 
@@ -356,15 +402,18 @@ class CollectionUtils{
                     noValues.forEach(d=>{
                         mapped[d.primitive.id] = 0
                     })
-                    mins[0] = "Unknown"
-                    max[0] = "Unknown"
+                    mins[0] = null
+                    max[0] = null
                     bucketCount += 1
                 }
 
 
-                let labels =  new Array(bucketCount).fill(0).map((_,i)=>`Bucket ${i}`)
                 let last = undefined
                 hasValues.forEach(d=>{
+                    if( count >= itemsPerBucket && last !== d[field]){
+                        count = 0
+                        bucket++
+                    }
                     mapped[d.primitive.id] = bucket
                     if( count === 0){
                         mins[bucket ] = d[field]
@@ -372,13 +421,10 @@ class CollectionUtils{
                         max[bucket ] = d[field]
                     }
                     count++                    
-                    if( count === itemsPerBucket){
-                        count = 0
-                        bucket++
-                    }
+                    last = d[field]
                 })
 
-                labels = labels.map((d,i)=>`${mins[i]} - ${max[i]}`)
+                let labels =  new Array(bucket + 1).fill(0).map((_,i)=>(mins[i] === null) && (max[i] === null) ? "Unknown" : `${mins[i]} - ${max[i]}`)
 
                 interim.forEach((d)=>{
                     d.old = d[field]
@@ -454,6 +500,8 @@ class CollectionUtils{
                         }
                         return "_N_"
                     }
+                }else if( option.type === "segment_filter"){
+                    return (p)=>p.findParentPrimitives({type: "segment", first:true})[0]?.referenceParameters?.importConfig?.[0]?.filters?.[option.id]?.value ?? null
                 }else if( option.type === "contact"){
                     return (d)=>d.origin.referenceParameters?.contactId
                 }else if( option.type === "type"){
@@ -545,20 +593,20 @@ class CollectionUtils{
                     }
                 }
             }
-            return (p)=>""
+            return (p)=>undefined
         }
 
         let interim = list.map((p)=>{
             return {
                 primitive: p,
-                column: column ? _pickProcess(column)(p) || undefined : undefined,
-                row: row ? _pickProcess(row)(p) || undefined : undefined,
+                column: column ? _pickProcess(column)(p) ?? undefined : undefined,
+                row: row ? _pickProcess(row)(p) ?? undefined : undefined,
                 ...((others ?? []).reduce((a,d,idx)=>{
-                    a[`filterGroup${idx}` ] = _pickProcess(d)(p) || undefined
+                    a[`filterGroup${idx}` ] = _pickProcess(d)(p) ?? undefined
                     return a
                 },{})),
                 ...((liveFilters ?? []).reduce((a,d,idx)=>{
-                    a[`liveFilter${idx}` ] = _pickProcess(d)(p) || undefined
+                    a[`liveFilter${idx}` ] = _pickProcess(d)(p) ?? undefined
                     return a
                 },{}))
             }
@@ -709,15 +757,21 @@ class CollectionUtils{
         return {type: "none", filter: []}
 
     }
-    static async setPrimitiveAxis(primitive, item, axisName, extents){
+    static async setPrimitiveAxis(primitive, item, axisName, forExplorer = true){
         let target
-        if( axisName === "column" || axisName === "row"){
-            target =`referenceParameters.explore.axis.${axisName}`
+        if( forExplorer){
+
+            if( axisName === "column" || axisName === "row"){
+                target =`referenceParameters.explore.axis.${axisName}`
+            }else{
+                target = `referenceParameters.explore.filters.${axisName}`
+            }
         }else{
-            target = `referenceParameters.explore.filters.${axisName}`
+            target = `referenceParameters.${axisName}`
         }
         const fullState = {
             type: item.type,
+            title: item.title,
             access: item.access,
             relationship: item.relationship?.map(d=>d?.split(":")[0])
         }
@@ -779,19 +833,22 @@ class CollectionUtils{
     static findAxisItem(primitive, axis, axisOptions){
         if( primitive && axisOptions){
             const struct =  isNaN(axis) ?  primitive.referenceParameters?.explore?.axis?.[axis] : primitive.referenceParameters?.explore?.filters?.[axis]
-            if( struct ){
-                if(struct.type === "parameter" ){
-                    return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
-                }else if(struct.type === "question" ){
-                    return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
-                }else if(struct.type === "title"  || struct.type === "type" || struct.type === "icon" ){
-                    return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
-                }
-                const connectedPrim = isNaN(axis) ? primitive.primitives.axis[axis].allIds[0] : primitive.referenceParameters.explore.filters[axis].sourcePrimId
-                return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
-            }
-            return 0
+            const connectedPrim = isNaN(axis) ? primitive.primitives.axis[axis].allIds[0] : primitive.referenceParameters.explore.filters[axis].sourcePrimId
+            return CollectionUtils.findAxis(struct, axisOptions, connectedPrim)
         }
+    }
+    static findAxis(struct, axisOptions, connectedPrim){
+        if( struct ){
+            if(struct.type === "parameter" ){
+                return axisOptions.find(d=>d.type === struct.type && d.parameter === struct.parameter && CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+            }else if(struct.type === "question" ){
+                return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
+            }else if(struct.type === "title"  || struct.type === "type" || struct.type === "icon" ){
+                return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+            }
+            return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+        }
+        return 0
     }
     static convertCollectionFiltersToImportFilters(source){
         return [

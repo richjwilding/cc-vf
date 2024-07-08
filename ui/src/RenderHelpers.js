@@ -178,7 +178,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     const calcWidth = ((Math.max(1, config.columns)  + 1) * config.spacing[1]) + (Math.max(1, config.columns) * fullWidth) + config.padding[1] + config.padding[3]
 
     if( calcWidth > config.width ){
-        config.columns = Math.max(1, ((config.width - config.padding[1] + config.padding[3]) - config.spacing[1]) / (config.itemSize + config.spacing[1]))
+        config.columns = Math.ceil(Math.max(1, ((config.width - config.padding[1] + config.padding[3]) - config.spacing[1]) / (config.itemSize + config.spacing[1])))
     }else{
         config.width = calcWidth
     }
@@ -212,7 +212,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     let idx = 0
     let col = 0
     
-    let ypos = new Array( config.columns).fill(config.padding[0] + config.spacing[0])
+    let ypos = new Array( config.columns ?? 1).fill(config.padding[0] + config.spacing[0])
 
     for( const d of items ){
         let y = ypos[col]
@@ -277,12 +277,16 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
 
     return g
 })
+registerRenderer( {type: "categoryId", id: 109, configs: "set_grid"}, (primitive, options = {})=>{
+    const config = {itemWidth: 600, minColumns: 1, spacing: [2,2], itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    return baseGridRender(options, config)
+})
 registerRenderer( {type: "categoryId", id: 100, configs: "set_grid"}, (primitive, options = {})=>{
     const config = {itemWidth: 600, itemHeight: 1800, spacing: [2,2], itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {}), columns: 3}
     return baseGridRender(options, config)
 })
 registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive, options = {})=>{
-    const config = {itemSize: 30, columns: 3, minColumns: 3, spacing: [2,2], itemPadding: [2,2,2,2], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    const config = {itemSize: 60, columns: 3, minColumns: 3, spacing: [8,8], itemPadding: [2,2,2,2], padding: [2,2,2,2], ...(options.renderConfig ?? {})}
     return baseGridRender(options, config)
 })
 registerRenderer( {type: "categoryId", id: 101, configs: "set_grid"}, (primitive, options = {})=>{
@@ -342,7 +346,8 @@ function baseGridRender( options, config){
     config.rows = Math.ceil( options.list.length / config.columns )
     
     if( heightDefined ){
-        config.height ||= ((config.rows - 1) * config.spacing[0]) + (config.rows * fullHeight) + config.padding[0] + config.padding[2]
+        config.height ||= ((config.rows + 1) * config.spacing[0]) + (config.rows * fullHeight) + config.padding[0] + config.padding[2]
+        console.log("****", config.rows, config.height)
     }
 
     if( options.getConfig && config.height){
@@ -409,7 +414,7 @@ function baseGridRender( options, config){
 
     if( !heightDefined ){
         const mayY = Math.max(...columnYs) 
-        r.height( mayY)
+       // r.height( mayY)
         g.height( mayY + config.padding[2])
         config.height = mayY + config.padding[2]
     }
@@ -603,6 +608,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
             if( h > availableHeight ){
                 t.ellipsis(true)
                 t.height( availableHeight )
+                h = availableHeight
             }
         }
         //t.height(h)
@@ -1285,12 +1291,18 @@ export function renderMatrix( primitive, list, options ){
 
         cell.config = config
     }
+    const maxRowHeight = Math.max(...rowSize)
 
-    let headerScale = Math.max(1, Math.max(columnSize.reduce((a,c)=>a+c, 0) / 2000 , rowSize.reduce((a,c)=>a+c, 0) / 3000 ))
-    let headerFontSize = Math.min(12 * headerScale, 120)
+    let maxFont = maxRowHeight / 4
+    console.log(`${maxRowHeight}, maxfont = `, maxFont)
+
+    let headerScale = Math.max(1, Math.max(columnSize.reduce((a,c)=>a+c, 0) / 2000 , rowSize.reduce((a,c)=>a+c, 0) / 4000 ))
+    let headerFontSize = Math.min(12 * headerScale, maxFont, 120)
     let textPadding = new Array(4).fill(headerFontSize * 0.3 )
     let headerHeight = (headerFontSize * 4)
     let headerTextHeight = headerHeight - textPadding[0] - textPadding[2]
+
+
 
     rowSize.forEach((d,i)=>{if(d < headerHeight){
         rowSize[i] = headerHeight
@@ -1511,14 +1523,19 @@ export function renderMatrix( primitive, list, options ){
         g.add(c)
     }
 
+    
+   /* 
     for(let rIdx = 0; rIdx < rowExtents.length; rIdx++){
         const thisRow = cells.filter(d=>d.rIdx === rIdx)
         if( thisRow && thisRow.length > 0){
             const maxHeightCell = thisRow.reduce((a,c)=>c.node.attrs.height > a.node.attrs.height ? c : a )
+            const cellConfig = thisRow[0].config ?? {padding:[0,0,0,0]}
+            let headerHeight = showRowheaders ? rowSize[rIdx] - cellConfig.padding[0] - cellConfig.padding[2] : 0
+            console.log(`*** `, cellConfig, rowSize[rIdx], headerHeight)
             if( maxHeightCell ){
-                const maxHeight = maxHeightCell.node.attrs.height
+                const maxHeight = Math.max(headerHeight, maxHeightCell.node.attrs.height)
                 const bg = maxHeightCell.node.find('.background')?.[0]
-                const maxHeightBg = bg ? bg.attrs.height : undefined
+                const maxHeightBg = Math.max(headerHeight, bg ? bg.attrs.height : headerHeight)
                 
                 for(const d of thisRow ){
                     if( d.node.attrs.height < maxHeight){
@@ -1534,7 +1551,7 @@ export function renderMatrix( primitive, list, options ){
                 
             }
         }
-    }
+    }*/
 
     g.width( g.find(()=>true).map(d=>d.x() + d.width()).reduce((a,c)=>c > a ? c : a, 0))
     g.height( g.find(()=>true).map(d=>d.y() + d.height()).reduce((a,c)=>c > a ? c : a, 0))

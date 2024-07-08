@@ -1,4 +1,6 @@
 
+
+
 const PrimitiveConfig = {
     "Constants":{
         LIVE_FILTER: 103,
@@ -204,140 +206,210 @@ const PrimitiveConfig = {
         } 
         return undefined
     },
-    commonFilter: (list, filters, fns)=>{
-        let thisSet = undefined
-        for(const filter of filters ){
-          //  console.log(filter)
-            const invert = filter.invert ?? false
-            let doCat1Check = false
-            
-            const setToCheck = (thisSet || list)
-            let includeNulls = false
-            let pivot = filter.pivot 
-            let relationship = filter.relationship
-            if( filter.subtype === "question"){
-                pivot = (pivot ?? 0) + 1
-                if( relationship){
-                    if( Array.isArray(relationship)){
-                        relationship = [...relationship, "auto"]
-                    }else{
-                        relationship = [relationship, "auto"]
-                    }
+    commonFilterSetup: (filter, isAxis = false )=>{
+        const needsValue = filter.type === "title" || filter.type === "parameter" || filter.type === "type" || filter.type === "parent"
+        let isRange = false
+        if( !isAxis && needsValue && filter.value === undefined){
+            return {skip:true}
+        }
+        if( filter.value ){
+            if( Array.isArray(filter.value)){
+                isRange = filter.value.find(d=>d?.min_value !== undefined || d?.max_value !== undefined)
+            }else{
+                isRange = filter.value.min_value !== undefined || filter.value.max_value !== undefined
+            }
+        }
+
+        if( isRange ){
+            console.warn("RANGE NOT IMPLEMENTED")
+        }
+        let pivot = isAxis ? (filter.access ?? filter.pivot) : filter.pivot 
+        let relationship = filter.relationship
+        let resolvedFilterType = filter.type
+        
+        if( filter.type === "category"){
+            resolvedFilterType = "parent"
+            if( Array.isArray(relationship)){
+                relationship = [...relationship, "ref"]
+            }else if(relationship){
+                relationship = [relationship, "ref"]
+            }else{
+                relationship = ['ref']
+            }
+            pivot = (pivot ?? 0) + 1
+        }
+        if( filter.subtype === "question"){
+            pivot = (pivot ?? 0) + 1
+            if( relationship){
+                if( Array.isArray(relationship)){
+                    relationship = [...relationship, "auto"]
                 }else{
-                    relationship = ["auto"]
+                    relationship = [relationship, "auto"]
                 }
+            }else{
+                relationship = ["auto"]
             }
+        }
+        let check = [filter.map ?? filter.value].flat()
+        let includeNulls = false
 
+        if( filter.subtype === "question"){
+            resolvedFilterType = "parent"
+        }else if( filter.subtype === "search"){
+            resolvedFilterType = "parent"
+        }
 
-            let lookups = fns.parentsAt( setToCheck, pivot, relationship)
-            const needsValue = filter.type === "title" || filter.type === "parameter" || filter.type === "type" || filter.type === "parent"
-
-            if( filter.min_value !== undefined || filter.max_value !== undefined){
-                console.warn("RANGE NOT IMPLEMENTED")
+        if( resolvedFilterType === "parent"){
+            if( check.includes(undefined) || check.includes(null)){
+                check = check.filter(d=>d !== undefined && d !== null )
+                includeNulls = true
             }
+        }
 
-            if( filter.type === "title" || filter.type === "parameter" || filter.type === "type" || filter.type === "parent" || filter.type === "not_category_level1" || filter.subtype == "search" || filter.type === "question"){
-                if( !needsValue || filter.value !== undefined){
-                    let resolvedFilterType = filter.type
-                    const temp = []
-                    let check = filter.type === "question" ?  [filter.map].flat() : [filter.value].flat()
-                    let scope
-                    if( filter.type === "parent"){
-                        if( check.includes(undefined) || check.includes(null)){
-                            check = check.filter(d=>d !== undefined && d !== null )
-                            includeNulls = true
-                        }
-                        if( filter.sourcePrimId ){
-                            scope = fns.primitiveChildren(fns.getPrimitive(filter.sourcePrimId)).map(d=>d.id)
-                        }
-                    }else if( filter.subtype === "question"){
-                        resolvedFilterType = "parent"
-                        if( check.includes(undefined) || check.includes(null)){
-                            check = check.filter(d=>d !== undefined && d !== null )
-                            includeNulls = true
-                        }
-                        const prompts = fns.parentsOfTypeForList(setToCheck, "prompt")
-                        scope = prompts.map(d=>d.id)
-                        check = check.map(d=>prompts.filter(d2=>fns.parentIds(d2).includes(d))).flat().map(d=>d.id)
-                    }else if( filter.subtype === "search"){
-                        resolvedFilterType = "parent"
-                        if( check.includes(undefined) || check.includes(null)){
-                            check = check.filter(d=>d !== undefined && d !== null )
-                            includeNulls = true
-                            scope = fns.parentsOfTypeForList( setToCheck, "search" ).map(d=>d.id)
-                        }
-                    }else if(filter.type === "not_category_level1"){
-                        includeNulls = true
-                        check = []
-                        if( filter.sourcePrimId ){
-                            scope = fns.primitiveChildren(fns.getPrimitive(filter.sourcePrimId)).map(d=>d.id)
+        return {resolvedFilterType, pivot, relationship, check, includeNulls, isRange}
+
+    },areArraysEqualIgnoreOrder:(arr1, arr2)=>{
+        // Check if both arrays have the same length
+        if( !arr1 || !arr2 ){
+            return false
+        }
+        if (arr1.length !== arr2.length) {
+            return false;
+        }
+
+        // Sort the arrays
+        const sortedArr1 = arr1.slice().sort();
+        const sortedArr2 = arr2.slice().sort();
+
+        // Compare the sorted arrays element by element
+        for (let i = 0; i < sortedArr1.length; i++) {
+            if ((sortedArr1[i] === null || sortedArr1[i] === undefined) && (sortedArr2[i] === null || sortedArr2[i] === undefined)) {
+                continue;
+            }
+            if (sortedArr1[i] !== sortedArr2[i]) {
+                return false;
+            }
+        }
+
+        // If all elements are equal, the arrays are equal
+        return true;
+    },
+    checkImports: (receiver, id, filters)=>{
+        if( !filters || filters.length === 0){
+            const imp = receiver.primitives.imports
+            const ids = imp.allIds ?? imp
+            if( ids.includes(id) ){
+                if( receiver?.referenceParameters?.target === "items"){
+                    if( !receiver.referenceParameters.importConfig ){
+                        return true
+                    }
+                    if( receiver.referenceParameters.importConfig.length === 1 ){
+                        if(receiver.referenceParameters.importConfig[0].id === id){
+                            if( !receiver.referenceParameters.importConfig[0].filters || receiver.referenceParameters.importConfig[0].filters.length === 0 ){
+                                return true
+                            }
                         }
                     }
-                    
-                    let idx = 0
-                    for(const d of setToCheck){
-                        let data
-                        if( resolvedFilterType === "title"){
-                            data = lookups[idx].map(d=>d.title)
-                        }
-                        else if( resolvedFilterType === "parameter"){
-                            data = lookups[idx].map(d=>d.referenceParameters?.[filter.param]).filter(d=>d)
-                        }else if( resolvedFilterType === "type"){
-                            data = lookups[idx].map(d=>d.referenceId)
-                        }else if( resolvedFilterType === "not_category_level1"){
-                            const parentIds = lookups[idx].map(d=>fns.parentIds(d)).flat()
-                            data = scope.filter(d=>parentIds.includes(d))
-                        }else if( resolvedFilterType === "parent"){
-                            if( filter.sourcePrimId ){
-                                data = lookups[idx].map(d=>fns.parentIds(d)).flat().filter((d,i,a)=>a.indexOf(d)===i)
+                    return false
+                }
+            }else{
+                return false
+            }
+        }
+        if( receiver?.referenceParameters?.target === "items" && receiver.referenceParameters.importConfig){
+            const candidates = receiver.referenceParameters.importConfig.filter(d=>d.id === id)
+            const match = candidates.filter(d=> {
+                const thisMatch = d.filters.filter(d2 => {
+                    //console.log(`Checking`)
+                    const thisSet = filters.find(ip=>{
+                        const allKeys = [...Object.keys(d2), ...Object.keys(ip)].filter((d,i,a)=>d!== "id" && a.indexOf(d)===i)
+                        return allKeys.reduce((a,c)=>{
+                            let res = false
+                            if( d2[c] instanceof Object){
+                                if( Array.isArray(d2[c]) ){
+                                    res = PrimitiveConfig.areArraysEqualIgnoreOrder( d2[c], ip[c])
+                                }else if( d2[c] instanceof Object ){
+                                    res = d2[c]?.idx === ip[c]?.idx
+                                }else{
+                                    throw `Param ${c} not processed`
+                                }
                             }else{
-                                data = lookups[idx].map(d=>d.id).flat().filter((d,i,a)=>a.indexOf(d)===i)
+                                res = (d2[c] === ip[c]) 
                             }
-                            if( scope ){
-                                data = data.filter(d=>scope.includes(d))
-                            }
-                        }
-                        if( invert ){
-                            if( (data.length === 0 && !includeNulls) || !data.reduce((a,d)=>a && check.includes(d), true) ){
-                                temp.push( d )
-                            }
-                        }else{
-                            if((data.length === 0 && includeNulls) || data.reduce((a,d)=>a || check.includes(d), false) ){
-                                temp.push( d )
-                            }
-                        }
-                        idx++
-                    }
-                    thisSet = temp
-                }
+                            //console.log(" - ", res, d2[c], ip[c])
+                            return res && a}, true)
+                        })
+                        //console.log(`Result = `, thisSet)
+                        return thisSet
+                })
+                //console.log(thisMatch)
+                return thisMatch.length === filters.length && thisMatch.length === d.filters.length
+            })
+
+            //console.log(match.length)
+            if( match.length === 1){
+                return true
             }
-            /*if( filter.type === "not_category_level1" || doCat1Check){
-                const hits = doCat1Check ? [filter.sourcePrimId] : [filter.value].flat()
-                let l1Hits = []
-                for( const d of hits){
-                    //l1Hits = l1Hits.concat( (await primitiveChildren(await Primitive.findOne({_id: d}), "category") ).map(d=>d.id))
-                    l1Hits = l1Hits.concat( (fns.primitiveChildren(fns.getPrimitive(d), "category") ).map(d=>d.id))
+        }
+        return false
+    },doFilter: ({resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, fns)=>{
+            const invert = filter.invert ?? false
+            const temp = []
+
+            let basicCheck = (d)=>{
+                if( typeof(d) === "object" ){
+                return check.filter(d2=>d.includes(d2)).length > 0
+
+                }
+                return check.includes(d)
+            }
+            let rangeCheck = (d)=>{
+                return check.find(c=>{
+                    if( c.min_value === null && c.max_value === null ){
+                        return (d === null || d === undefined)
+                    }
+                    return (d >= (c.min_value ?? -Infinity) && d <= (c.max_value ?? Infinity))
+                }) !== undefined
+            }
+            const doCheck = isRange ? rangeCheck : basicCheck
+
+            let idx = 0
+            for(const d of setToCheck){
+                let data
+                if( resolvedFilterType === "title"){
+                    data = lookups[idx].map(d=>d.title)
+                }
+                else if( resolvedFilterType === "parameter"){
+                    data = lookups[idx].map(d=>d.referenceParameters?.[filter.param])//.filter(d=>d)
+                }else if( resolvedFilterType === "type"){
+                    data = lookups[idx].map(d=>d.referenceId)
+                }else if( resolvedFilterType === "not_category_level1"){
+                    const parentIds = lookups[idx].map(d=>fns.parentIds(d)).flat()
+                    data = scope.filter(d=>parentIds.includes(d))
+                }else if( resolvedFilterType === "parent"){
+                    if( filter.sourcePrimId ){
+                        data = lookups[idx].map(d=>fns.parentIds(d)).flat().filter((d,i,a)=>a.indexOf(d)===i)
+                    }else{
+                        data = lookups[idx].map(d=>d.id).flat().filter((d,i,a)=>a.indexOf(d)===i)
+                    }
+                    if( scope ){
+                        data = data.filter(d=>scope.includes(d))
+                    }
                 }
 
 
-                //const setToCheck = (thisSet || list)
-                //let lookups = await multiPrimitiveAtOrginLevel( setToCheck, filter.pivot, filter.relationship)
-
-                const temp = []
-                let idx = 0
-                for(const d of setToCheck){
-                    let allParents = lookups[idx].map(d=>Object.keys(d.parentPrimitives ?? {})).flat()
-                    let found =  allParents.filter(d=>l1Hits.filter(d2=>d2===d).length > 0).length === 0
-                    if( invert ^ found){
+                if( invert ){
+                    if( (data.length === 0 && !includeNulls) || !data.reduce((a,d)=>a && doCheck(d), true) ){
                         temp.push( d )
                     }
-                    idx++
+                }else{
+                    if((data.length === 0 && includeNulls) || data.reduce((a,d)=>a || doCheck(d), false) ){
+                        temp.push( d )
+                    }
                 }
-                thisSet = temp
-            }*/
-            //console.log(`-- This set has ${thisSet.length} items for ${filter.type}`)
-        }
-        return thisSet || list
+                idx++
+            }
+            return temp
     }
 }
 

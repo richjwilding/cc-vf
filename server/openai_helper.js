@@ -431,8 +431,16 @@ export async function analyzeTextAgainstTopics( text, topics, options = {}){
     let prompt =  options.prompt || `I will provide you text detailing ${type}. Assess how strongly the ${type} relates to ${single ? "the topic of" : "one or more of the following topics:"} ${topics}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`
 
     if( options.stopAtOrAbove ){
+        let chunkCount = 0
         options.chunkCallback = (chunk)=>{
             console.log(`Got`, chunk)
+            chunkCount++
+            if( options.stopChunk ){
+                console.log(`Check count ${chunkCount} vs ${options.stopChunk}`)
+                if(chunkCount > options.stopChunk){
+                    return false
+                }
+            }
             let chunkScores = chunk.map((d)=>scoreMap[d.s] ?? 0)
             let highestScore = chunkScores.reduce((a,c)=>c> a ? c : a, 0)
             console.log( highestScore)
@@ -723,7 +731,7 @@ async function processInChunk( list, pre, post, options = {} ){
         if( result.error && result.token_limit ){
             maxTokens = lastTokensCount / 2
             console.log(`----- HIT MAX LIMIT, REDUCING TO ${maxTokens}`)
-            if( maxTokens < 100 ){
+            if( maxTokens < 40 ){
                 throw "Token limit too low - something went wrong"
             }
             endIdx = startIdx
@@ -799,31 +807,30 @@ async function executeAI(messages, options = {}){
     const openai = new OpenAIApi(configuration)
     let response
     let err
-    let model = "gpt-3.5-turbo-16k"
-    let sleepBase = 2000
-    let response_format = undefined
-    let output = 1536
-//    console.log(`open_ai_helper: Sending OpenAi request`)
+    
+    let model = "gpt-4o"
+    let sleepBase = 20000
+    let output = 4096
+    let response_format = { type: "json_object" }
+
     if( options.engine === "gpt4" ){
-        console.log(`--- GPT 4`)
         model = "gpt-4-0613"
         sleepBase = 20000
         output = 4096
     }
     if( options.engine === "gpt4t" ){
-        console.log(`--- GPT 4 Turbo`)
         model = "gpt-4-turbo-2024-04-09"
         output = 4096
         sleepBase = 20000
         response_format = { type: "json_object" }
     }
-    if( options.engine === "gpt4p" ){
-        console.log(`--- GPT 4o`)
-        model = "gpt-4o"
-        sleepBase = 20000
-        output = 4096
-        response_format = { type: "json_object" }
+    if( options.engine === "gpt3" || options.engine === "gpt3t"){
+        model = "gpt-3.5-turbo"
+        sleepBase = 2000
+        response_format = undefined
+        output = 1536
     }
+    console.log(`Executing ${model}`)
     const request = async ()=>{
         try{
             response = await openai.createChatCompletion({
@@ -952,7 +959,13 @@ export  async function categorize(list, categories, options = {} ){
     [
         {
             id: <<id of numbered item as provided to you>>,
-            alignment:[ <<array of assessment for each of the numbered categories in the order i provided] 
+            a:[
+                {
+                    c: <<id of category>>,
+                    s: <<assessment score using the scale i have provided>>
+                },
+                <<assessments for the remainder of categories>>
+            ] 
         },
         <<remaining entries for each item>>
     ]`
@@ -1251,7 +1264,7 @@ export default async function analyzeDocument(options = {}){
     const request = async ()=>{
         try{
             response = await openai.createChatCompletion({
-                model:"gpt-3.5-turbo-16k",
+                model:"gpt-3.5-turbo",
                 temperature: 0.7,
                 messages: messages
             });

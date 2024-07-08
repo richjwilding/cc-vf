@@ -5,12 +5,18 @@ import MainStore from './MainStore'
 import { HeroIcon } from './HeroIcon'
 import { Float } from '@headlessui-float/react'
 import { offset } from '@floating-ui/react-dom'
+import UIHelper from './UIHelper'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
+
 export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
+  return <UIHelper.OptionList options={props.items} zIndex="50" onChange={setSelectedItem} value={selectedItem} small={true}/>
+}
+
+export function _MyCombo({selectedItem, setSelectedItem, ...props}) {
   const [query, setQuery] = useState('')
   const [selectedItemFallback, setSelectedItemFallback] = useState(props.multiple ? [] : props.items[0])
   const main = useRef()

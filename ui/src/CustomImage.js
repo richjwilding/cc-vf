@@ -18,7 +18,7 @@ class CustomImage extends Shape {
     const defaults = {
       maxScale: 10,
       scaleRatio: 2,
-      rescaleMax: 1.5,
+      rescaleMax: 4,
       rescaleMin: 0.14}
     
     super(attrs);

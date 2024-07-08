@@ -97,6 +97,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
     const [colFilter, setColFilter] = React.useState(undefined)
     const [rowFilter, setRowFilter] = React.useState(undefined)
     const [viewPivot, setViewPivot] = React.useState(primitive?.referenceParameters?.explore?.viewPivot )
+    const [axisToggle, setAxisToggle] = React.useState(primitive?.referenceParameters?.explore?.axisToggle )
     const targetRef = useRef()
     const gridRef = useRef()
     const myState = useRef({})
@@ -160,6 +161,9 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
     }, [selectedCategoryIds])
 
     const asSegment = props.asSegment || primitive.type === "segment" || (props.category && mainstore.category(props.category.resultCategoryId).primitiveType === "segment")
+    const isAggregation = primitive.type === "query" && primitive.metadata.type === "aggregator"
+    const fixAxis = isAggregation
+    const allowToggleAxis = isAggregation
     
     let baseItems = React.useMemo(()=>{
         console.log(`REDO BASE`)
@@ -168,9 +172,18 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
             list = props.list
             console.log(`GOT LIST OF ${list.length}`)
         }else{
-            if( asSegment ){
+            /*
+            if( primitive.type === "query"){
+                if( primitive.metadata.type === "aggregator"){
+                    const parentForScope = primitive.findParentPrimitives({type: "working"})[0]
+                    if( parentForScope ){
+                        list = parentForScope.itemsForProcessingWithParams({descend: true, ...primitive.referenceParameters})
+                    }
+                }
+            }*/
+            /*if( asSegment ){
                 list = primitive.primitives.allSegment
-            }
+            }*/
             if( !list || list.length === 0){
 
                 if( props.types ){
@@ -263,12 +276,24 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
     },[primitive.id, update, layerSelection])
 
     
+    function doToggleAxis(){
+        const newToggle = !axisToggle
+        if( newToggle ){
+            setColSelection(0)
+            setRowSelection(1)
+        }else{
+            setColSelection(1)
+            setRowSelection(0)
+        }
+        primitive.setField("referenceParameters.explore.axisToggle", newToggle)
+        setAxisToggle( newToggle )
+    }
 
     const [axisOptions, viewFilters, liveFilters] = useMemo(()=>{
         const labelled = CollectionUtils.axisFromCollection( items, primitive ).map(d=>{
             const out = {...d}
             if( d.relationship ){
-                out.relationship = [d.relationship].flat().map(d=>d.split(":")[0])
+                out.relationship = [d.relationship].flat()//.map(d=>d.split(":")[0])
                 out.access = [out.relationship].flat().length
             }
             return out
@@ -277,6 +302,14 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         if( props.compare ){
             setColSelection(1)
             setRowSelection(0)
+        }else if(isAggregation ){
+            if( axisToggle ){
+                setColSelection(0)
+                setRowSelection(1)
+            }else{
+                setColSelection(1)
+                setRowSelection(0)
+            }
         }else{
             const colSelect = findAxisItem(primitive, "column", labelled )
             const rowSelect =  findAxisItem(primitive, "row", labelled)
@@ -1353,8 +1386,9 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                 <div ref={experiment ? undefined : targetRef} id='explorebase' className='touch-none w-full h-full overflow-x-hidden overflow-y-hidden overscroll-contain relative'>
         {props.closeButton ?? ""}
                     <div key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 top-32 p-1.5 flex flex-col place-items-start space-y-2'>
-                        {!props.compare && <HierarchyNavigator noBorder icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[colSelection]?.id} action={(d)=>updateAxis("column", d.id, columnExtents)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-                        {!props.compare && <HierarchyNavigator noBorder icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[rowSelection]?.id} action={(d)=>updateAxis("row", d.id, rowExtents)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {allowToggleAxis && <DropdownButton noBorder icon={<HeroIcon icon='Angle90' className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={doToggleAxis} className={`hover:text-ccgreen-800 hover:shadow-md ${axisToggle? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {!fixAxis && <HierarchyNavigator noBorder icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[colSelection]?.id} action={(d)=>updateAxis("column", d.id, columnExtents)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                        {!fixAxis && <HierarchyNavigator noBorder icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' portal showTick selectedItemId={axisOptions[rowSelection]?.id} action={(d)=>updateAxis("row", d.id, rowExtents)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && layers && layers.length > 1 && <DropdownButton noBorder icon={<HeroIcon icon='Layers' className='w-5 h-5'/>} items={layers} flat placement='left-start' portal showTick selectedItemIdx={layers[layerSelection] ? layerSelection :  0} setSelectedItem={updateLayer} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${layerSelection > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && viewConfigs && <DropdownButton noBorder icon={<HeroIcon icon='Eye' className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "view" ? setShowPane(false) : setShowPane("view")} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${hideNull ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
                         {!props.compare && viewPivotOptions && <DropdownButton noBorder icon={<HeroIcon icon='TreeStruct' className='w-5 h-5'/>} items={viewPivotOptions} flat placement='left-start' portal showTick selectedItemIdx={viewPivot} setSelectedItem={updateViewPivot} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${viewPivot > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}

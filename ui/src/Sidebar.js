@@ -153,11 +153,23 @@ export function Sidebar({primitive, ...props}) {
     }
 
     const nestedCount = props.allowRemoveChildren ? [primitive].flat().map(d=>d.primitives.allIds.length)?.reduce((a,c)=>a+c,0) : undefined
-    let summaryList = primitive.type === "view" ? primitive.primitives.origin.allSegment.map(d=>d.primitives.allSummary).flat() : undefined
+    let summaryList = (primitive.type === "view" && !infoPane) ? primitive.primitives.origin.allSegment.map(d=>d.primitives.allSummary).flat() : undefined
 
     let infoPaneContent 
     if( infoPane ){
-        const segment = primitive.primitives.allSegment.find(d=>d.doesImport( primitive.id, infoPane.filters))
+        let segmentOriginId = primitive.id
+        let allSegments = primitive.primitives.allSegment
+        if( primitive.type === "query"){
+            if( primitive.metadata.type === "aggregator"){
+                const parentForScope = primitive.findParentPrimitives({type: "working"})[0]
+                if( parentForScope ){
+                    //list = parentForScope.itemsForProcessingWithParams({descend: true, ...primitive.referenceParameters})
+                    allSegments = parentForScope.primitives.allSegment
+                    segmentOriginId = parentForScope.id
+                }
+            }
+        }
+        let segment = allSegments.find(d=>d.doesImport( segmentOriginId, infoPane.filters))
         if( segment ){
             summaryList = segment.primitives.origin.allSummary 
             console.log(`FOUND SEGEMNT `, segment.plainId, segment.itemsForProcessing.length)

@@ -22,6 +22,8 @@ import AIProcessButton from "./AIProcessButton";
 import EditableTextField from "./EditableTextField";
 import { Menu } from "@headlessui/react";
 import { Float } from "@headlessui-float/react";
+import DropdownButton from "./DropdownButton";
+import UIHelper from "./UIHelper";
 
 const allViews = ["cards","cluster", "explore", "table","table_grid", "list", "proximity" ]
 const icons = {
@@ -431,22 +433,36 @@ export default function CollectionViewer({primitive, category, ...props}){
     if( showSearch && category){
 
         const searches = primitive.primitives.search?.[category.id] 
-        const searchCategoryId = [category?.searchCategoryIds].flat()?.[0] 
+        const searchCategoryIds = [category?.searchCategoryIds].flat()
         const hasSearches = (searches && searches.length > 0)
-
-        const createSearch = async ()=>{
+        
+        
+        const createSearch = async (id)=>{
             const path = `search.${category.id}`
-            console.log(`Will add to ${path}`)
-            const newPrim = await MainStore().createPrimitive({type: 'search', parent: primitive, categoryId: searchCategoryId, parentPath: path})
-    }
-        searchPane = <div className={`${hasSearches ? "py-2" : "p-2"} bg-slate-50 border m-2 rounded-lg divide-y divide-gray-200 border-b border-gray-300`}>
-                {!hasSearches && <button
-                type="button"
-                onClick={createSearch}
-                className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            console.log(`will create ${id ?? searchCategoryIds[0]} at ${path}`)
+            const newPrim = await MainStore().createPrimitive({type: 'search', parent: primitive, categoryId: id ?? searchCategoryIds[0], parentPath: path})
+        }
+        
+        let createSearchButton
+        if(searchCategoryIds.length === 1){
+            if( hasSearches ){
+//                createSearchButton = <Panel.MenuButton small title={<><MagnifyingGlassIcon className="h-4 mr-1"/>New Search</>} action={()=>createSearch()} className='flex place-items-center'/>
+                createSearchButton = <UIHelper.Button small  icon={<MagnifyingGlassIcon className="h-4"/>} title="New search" action={()=>createSearch()}/>
+            }else{
+                createSearchButton = <button 
+                type="button" 
+                onClick={()=>createSearch()} 
+                className="text-center hover:border-gray-400 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
                 >
-                    <span className="mt-2 block text-sm font-semibold text-gray-900">{'Create a new query'}</span>
-                </button>}
+                    <span className="m-2 block text-sm font-semibold text-gray-900">{'Create a new query'}</span>
+                </button>
+            }
+        }else{
+            createSearchButton = <UIHelper.Dropdown small={hasSearches} icon={<MagnifyingGlassIcon className="h-4"/>} title="New search" action={createSearch} options={searchCategoryIds.map((d)=>{let cat = MainStore().category(d);return {id: cat.id, title:cat.title}})}/>
+        }
+
+        searchPane = <div className={`${hasSearches ? "py-2" : "p-2"} bg-slate-50 border m-2 rounded-lg divide-y divide-gray-200 border-b border-gray-300`}>
+                {!hasSearches && <div className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400">{createSearchButton}</div>}
                 {searches && searches.length > 0 && <>
                     {searches.map(d=>{
                     let action = false, active = false, error = false
@@ -497,7 +513,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                     </div>
                 )}) }
                 <div className="px-4 pt-2">
-                    <Panel.MenuButton small title={<><MagnifyingGlassIcon className="h-4 mr-1"/>New Search</>} action={createSearch} className='flex place-items-center'/>
+                    {createSearchButton}
                 </div>
                 </>
                 }

@@ -16,9 +16,12 @@ import { buildEmbeddings } from "./openai_helper";
 import Parser from '@postlight/parser';
 import csv from 'csv-parser';
 import { dispatchControlUpdate, executeConcurrently } from "./SharedFunctions";
-import { storeDocumentEmbeddings } from "./DocumentSearch";
+import { retrieveDocumentFromSearchCache, storeDocumentEmbeddings } from "./DocumentSearch";
 import * as cheerio from 'cheerio';
 import { fetchLinksFromWebDDGQuery } from "./ddg_helper";
+import ContentEmbedding from "./model/ContentEmbedding";
+import Category from "./model/Category";
+import { HttpsProxyAgent } from "https-proxy-agent";
 
 let adconfig = {}
 
@@ -156,13 +159,24 @@ export async function buildDocumentEmbedding(id, req){
 
 export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
 
+
+    if( !forcePDF ){
+        const text = await retrieveDocumentFromSearchCache( id )
+        if( text ){
+            return {plain: text}
+        }
+    }
+
+
     const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
+    const category =  await Category.findOne({id:  primitive.referenceId})
     const bucketName = 'cc_vf_document_plaintext'
     const storage = new Storage({
         projectId: process.env.GOOGLE_PROJECT_ID,
       });
 
     const bucket = storage.bucket(bucketName);
+
     let file = bucket.file(id)
 
     let notes = primitive.referenceParameters?.notes
@@ -203,49 +217,10 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
                 }
             }
 
-            /*
-            let html
-
-            try{
-
-                const extResult = await fetch( url );
-                html = await extResult.text();
-            }catch(error){
-                console.log(error)
-                console.log(`Error - couldnt fetch ${url} in getDocumentAsPlainText `)
-                return undefined
-            }
-
-            const extractOptions = {
-                baseElements:{
-                    selectors : ['article'],
-                    returnDomByDefault: true
-                },
-                selectors: [
-                { selector: 'a', format: 'skip' },
-                { selector: 'input', format: 'skip' },
-                { selector: 'img', format: 'skip' },
-                { selector: 'button', format: 'skip' },
-                { selector: '[class*=nav]', format: 'skip' }
-                ]
-            }
-            console.log(`Importing URL as text`)
-            let text = htmlToText(html, extractOptions);
-            if( text.match(/incapsula incident/i) ){
-                console.log(`Blocked - fallback to pdf`)
-                await grabUrlAsPdf( url, id )
-                console.log(`--- now text`)
-                text = (await extractPlainTextFromPdf( id, req ))?.plain
-            }
-
-            if( text.match(/enable javascript/i) ){
-                return undefined
-            }*/
-
-
-            let text = (await fetchURLPlainText(url))?.fullText
+            let text = (await fetchURLPlainText(url, false, category.preferPDF))?.fullText
             if( !text ){
                 return undefined
+
             }
             await writeTextToFile(id, text, req)
             return {plain: text}
@@ -934,13 +909,17 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
             "gl": options.country ?? "us",
             "q": query,
             "output":"json",
-            "include_fields": "pagination,request_info,news_results,organic_results,video_results,search_information"
-        }
-        if( options.search_type ){
-            params.search_type = options.search_type
+            "include_fields": "pagination,request_info,news_results,organic_results,scholar_results,video_results,search_information"
         }
         if( options.timeFrame ){
             params.time_period = options.timeFrame
+        }
+        if( options.search_type ){
+            params.search_type = options.search_type
+            if( options.search_type === "scholar"){
+                delete params["timeFrame"]
+                params.scholar_year_min = 2016
+            }
         }
         
         const url = `https://api.scaleserp.com/search?${new URLSearchParams(params).toString() }`
@@ -960,8 +939,15 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
             let source = data.organic_results
             if( options.search_type === "news"){
                 source = data.news_results
+            }else if( options.search_type === "scholar"){
+                source = data.scholar_results
             }else if( options.search_type === "videos"){
                 source = data.video_results
+            }
+            if( data.search_information?.original_query_yields_zero_results){
+                console.log(`Search returned zero results`)
+                console.log( data.search_information?.total_results + " for " + data.search_information?.showing_results_for )
+                return {}
             }
             
             const mapped = source?.map(d=>{
@@ -1220,7 +1206,7 @@ const createAndUploadPDF = async (text, file) => {
   };
   
 
-export async function grabUrlAsPdf(url, id, text_only = false){
+export async function grabUrlAsPdf(url, id, text_only = false, prioritize_embedded_pdf = false){
     const isYoutube = url && url.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?([a-zA-Z0-9_-]+)/)
     let pdfBuffer
     const storage = new Storage({
@@ -1247,29 +1233,127 @@ export async function grabUrlAsPdf(url, id, text_only = false){
         }else{
             console.log(`Awaiting  page`)
             let response
-            if( url.slice(-4) === ".pdf"){
+            if( false && url.slice(-4) === ".pdf"){
                 await replicateURLtoStorage(url, id, bucketName)
                 return 
             }else{
                 const browserlessEndpoint = `https://chrome.browserless.io/function?token=${process.env.BROWSERLESS_KEY}&stealth`;
-                
+
                 response = await fetch(browserlessEndpoint, {
                     method: 'POST',
+                    debug: true,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        code: "module.exports=async({page:a,context:b})=>{const{url:c}=b;await a.goto(c);await a.evaluate(() => {document.querySelectorAll('a').forEach(a => {const text = document.createTextNode(a.textContent);a.replaceWith(text);});});const d=await a.pdf();return{data:d,type:\"application/pdf\"}};",
-                        "context": {
-                            "url": url
+                        code: `
+                            module.exports = async ({ page, context }) => {
+                                const { url } = context;
+                                let pendingRequests = new Set();
+
+                                page.on('request', request => {
+                                    pendingRequests.add(request);
+                                });
+
+                                // Listen for network responses
+                                page.on('requestfinished', request => {
+                                    pendingRequests.delete(request);
+                                });
+
+                                page.on('requestfailed', request => {
+                                    pendingRequests.delete(request);
+                                });
+
+                                const waitForNetworkIdle = async (timeout = 5000) => {
+                                    return new Promise((resolve) => {
+                                        if (pendingRequests.size === 0) {
+                                            resolve();
+                                        }
+                                        const checkInterval = setInterval(() => {
+                                            if (pendingRequests.size === 0) {
+                                                clearInterval(checkInterval);
+                                                resolve();
+                                            }
+                                        }, 100);
+                                        setTimeout(() => {
+                                            clearInterval(checkInterval);
+                                            resolve();
+                                        }, timeout);
+                                    });
+                                };
+
+                
+                                const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
+                                let contentType = response.headers()['content-type'];
+
+                                async function fetchPDF( url ){
+                                    const pdfContent = await page.evaluate(async (url) => {
+
+                                        function arrayBufferToBase64(buffer) {
+                                            const bytes = new Uint8Array(buffer);
+                                            const chunkSize = 0x8000; 
+                                            let binary = '';
+                                            for (let i = 0; i < bytes.length; i += chunkSize) {
+                                                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+                                            }
+                                            return btoa(binary);
+                                          }
+    
+                                          const response = await fetch(url);
+                                          const buffer = await response.arrayBuffer();
+                                          return arrayBufferToBase64(buffer);
+                                      }, url);
+    
+                                        return {
+                                            data: pdfContent,
+                                            type: 'application/json'
+                                        }
+                                }
+
+            
+                                // Check if it's a redirect to a PDF
+                                if (contentType && contentType.toLowerCase() === 'application/pdf') {
+                                    return await fetchPDF(url)
+                                } else {
+                                    // If it's HTML, wait for network idle
+                                    
+                                    await waitForNetworkIdle();
+
+                                    if(prioritize_embedded_pdf){
+                                        const embeddedURL = await page.evaluate(() => document.querySelectorAll('object[type="application/pdf"]')?.[0]?.getAttribute("data"))
+                                        if( embeddedURL ){
+                                            return await fetchPDF(embeddedURL)
+                                        }
+                                    }
+
+                                    await page.evaluate(() => {
+                                        document.querySelectorAll('a').forEach(a => {
+                                            const text = a.textContent.trim();
+                                            if (text && text.length > 0) {
+                                                const textNode = document.createTextNode(text);                                                  
+                                                a.parentNode.replaceChild(textNode, a);
+                                            }
+                                        });
+                                    });
+                    
+                                    const pdf = await page.pdf();
+                                    return { data: pdf.toString('base64'), type: 'application/json' };
+                                }
+                                
+                            };
+                        `,
+                        context: {
+                            url: url,
+                            prioritize_embedded_pdf                                                        
                         }
-                        
                     }),
                 });
             }
-                
             if (response.ok) {
 
-                const pdfData = await response.arrayBuffer();
-                pdfBuffer = Buffer.from(pdfData);
+                const pdfData = await response.json();
+
+                // Decode the Base64 string back to a buffer
+                const pdfBuffer = Buffer.from(pdfData, 'base64');
+        
                 if( text_only ){
                     const output = await extractPlainTextFromPdf(undefined,undefined, pdfBuffer)
                     return output
@@ -1286,9 +1370,7 @@ export async function grabUrlAsPdf(url, id, text_only = false){
                 await waitForFileToExit(id, bucket)
                 console.log('PDF saved to Google Cloud Storage.');
             }else{
-                if(url.slice(-3)==="pdf"){
-                    await replicateURLtoStorage(url, id, bucketName)
-                }
+                console.log( await response.text())
             }
         }
     }catch(error){
@@ -1297,6 +1379,12 @@ export async function grabUrlAsPdf(url, id, text_only = false){
     }
 
 }
+export async function extractTextFromPDFData(pdfData){
+    const pdfBuffer = Buffer.from(pdfData);
+    const output = await extractPlainTextFromPdf(undefined,undefined, pdfBuffer)
+    return output?.plain
+}
+
 export function locateQuote(oQuote, document){
     const quote = oQuote.toLowerCase().replaceAll(/\./g," ").replaceAll(/\s+/g," ").replace(/[`’]/g, "'").trim()
     let startPage = 0
@@ -1415,7 +1503,7 @@ export async function buildEmbeddingsForPrimitives( list, field = "title", fill_
         console.log(`Have ${embeddings.length} embeddings - ${missingIdx.length} missing`)
     }
     if( fill_missing ){
-        console.log( `Embed ${field} / missingIdx = ${missingIdx.join(", ")}`)
+        //console.log( `Embed ${field} / missingIdx = ${missingIdx.join(", ")}`)
         for(const idx of missingIdx){
             let thisItem = isParam ? list[idx]?.referenceParameters?.[field] : list[idx][field]
             if( thisItem ){
@@ -1425,7 +1513,7 @@ export async function buildEmbeddingsForPrimitives( list, field = "title", fill_
         for(const idx of missingIdx){
             let thisItem = isParam ? list[idx]?.referenceParameters?.[field] : list[idx][field]
             if( thisItem){
-                console.log(`Embeddings for ${idx} - ${list[idx].id} ${thisItem}`)
+                //console.log(`Embeddings for ${idx} - ${list[idx].id} ${thisItem}`)
                 try{
                     
                     const response = await buildEmbeddings(thisItem)
@@ -1438,7 +1526,7 @@ export async function buildEmbeddingsForPrimitives( list, field = "title", fill_
                             embeddings: response.embeddings
                         },{upsert: true, new: true})
                         embeddings.push( dbUpdate )
-                        console.log(`Embeddings done for ${list[idx].id} / ${field}`) 
+                        //console.log(`Embeddings done for ${list[idx].id} / ${field}`) 
                         dispatchControlUpdate(list[idx].id, `embed_${field}`, undefined )
                     }else{
                         dispatchControlUpdate(list[idx].id, `embed_${field}`, "error")
@@ -1461,6 +1549,9 @@ export async function queryFacebookGroup(keywords, options = {}){
 export async function queryGoogleNews(keywords, options = {}){
     return await queryGoogleSERP(keywords, {...options, search_type: "news", article: true})
 }
+export async function queryGoogleScholar(keywords, options = {}){
+    return await queryGoogleSERP(keywords, {...options, search_type: "scholar", article: true})
+}
 export async function queryYoutube(keywords, options = {}){
     return await queryGoogleSERP(keywords, {title: "Youtube search",...options, search_type: "videos", prefix: "site:youtube.com"})
 }
@@ -1472,6 +1563,7 @@ export async function queryGoogleSERP(keywords, options = {}){
     let maxPage = options.maxPage ?? 8
     let results = []
     let timeFrame //= "last_year"
+    let allSite = options.site
 
     let webQuery = options.engine === "ddg" ? fetchLinksFromWebDDGQuery : fetchLinksFromWebQuery
     if( options.engine === "ddg" ){
@@ -1479,8 +1571,9 @@ export async function queryGoogleSERP(keywords, options = {}){
         console.log(`maxPage raised to ${maxPage} for ddg`)
     }
 
-    const doLookup = async (term, lookupOptions )=>{
+    const doLookup = async (term, lookupOptionFull )=>{
         try{
+            const {site, ...lookupOptions} = lookupOptionFull
             if( lookupOptions === undefined){
                 count = 0
             }
@@ -1488,12 +1581,11 @@ export async function queryGoogleSERP(keywords, options = {}){
             let hasResults = false
             let nTerm = (options.titleOnly? "intitle:" : "") + term
             let query = options.prefix ? options.prefix + " " + nTerm  : nTerm
-            if( options.site ){
-                query += ` site:${options.site}`
+            if( site ){
+                query += ` site:${site}`
             }
     
             console.log(searchOptions, query)
-
 
             let currentIndex = 0;
             let concurrencyLimit = 5
@@ -1533,7 +1625,7 @@ export async function queryGoogleSERP(keywords, options = {}){
                             snippet: item.snippet,
                             url: item.url,
                             posted: pageContent.posted_on,
-                            source:"Google News - " + term,
+                            source: `Google ${searchOptions.search_type} ${site ? `site:${site}` :""} ${term}`,
                             imageUrl: pageContent.image,
                             hasImg: (item.image || pageContent.image) ? true : false,
                             description: pageContent.description
@@ -1583,7 +1675,7 @@ export async function queryGoogleSERP(keywords, options = {}){
                 if( lookup.nextPage){
                     console.log('Do next page check', lookup.nextPage)
                     if( lookup.nextPage < maxPage){
-                        await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame})
+                        await doLookup( term, {page:lookup.nextPage, timeFrame: timeFrame, site: site})
                     }
                 }
             }
@@ -1598,11 +1690,18 @@ export async function queryGoogleSERP(keywords, options = {}){
     if( !keywords && options.prefix ){
         keywords = " "
     }
+    const sites = options.site ? options.site.split(",").filter(d=>d).map(d=>d?.trim()) : [undefined]
+    console.log(sites)
     if( keywords ){
-
-        for( const d of keywords.split(",")){
-            const thisSearch = options.quoteKeywords ? '"' + d.trim() + '"' : d.trim()
-            const cancelled = await doLookup( thisSearch )
+        let cancelled = false
+        for( const site of sites){
+            for( const d of keywords.split(",")){
+                const thisSearch = options.quoteKeywords ? '"' + d.trim() + '"' : d.trim()
+                cancelled = await doLookup( thisSearch, {site: site} )
+                if( cancelled ){
+                    break
+                }
+            }
             if( cancelled ){
                 break
             }
@@ -1844,7 +1943,53 @@ export async function extractURLsFromPageAlternative( baseUrl, options = {}, fet
     
 
 }
-export async function fetchURLAsTextAlternative( url, options = {} ){
+export async function downloadURLContentViaProxy(url, options ={}){
+    const proxyUrl = 'http://customer-cc_sense_3vFPL-cc-us-sessid-0783178570-sesstime-30:yffxPZcT6S_Z_29@pr.oxylabs.io:7777'; 
+    const proxyAgent = new HttpsProxyAgent(proxyUrl);
+
+    try{
+        console.log(`Proxying request for ${url}`)
+        const response = await fetch(url, { agent: proxyAgent })
+        if(response.status !== 200){
+            console.log(`Failed downloadURLContentViaProxy for ${url}`)
+            console.log(response.status)
+            console.log(response.statusTexttatus)
+            return undefined
+        }
+        const data = await response.arrayBuffer();
+        let filename
+        const contentDisposition = response.headers.get('content-disposition')
+        console.log(response.headers)
+        if (contentDisposition && contentDisposition.includes('filename=')) {
+            filename = contentDisposition.split('filename=')[1].split(';')[0].replace(/"/g, '');
+            } else {
+            filename = `Download from ${url}`
+        }            
+
+        return await processPDFDownloadBuffer( data )
+    }catch(error){
+        console.log(`Error in downloadURLContentViaProxy`)
+        console.log(error)
+    }
+}
+export async function processPDFDownloadBuffer( data, filename ){
+    const dataBuffer = Buffer.from(data);
+
+    const pdfSignature = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2D]); // %PDF-
+    const isPdf = dataBuffer.subarray(0, pdfSignature.length).equals(pdfSignature);
+    let text = ""
+    if( isPdf ){
+        console.log('Processing pdf')
+        text = await extractTextFromPDFData( dataBuffer )
+    }
+    return{
+        title: filename ?? "Download",
+        fullText: text, 
+        description: text?.split(" ").slice(0,400).join(" ")
+    }
+}
+export async function fetchURLAsTextAlternative( url, full_options = {} ){
+    const {preferEmbeddedPdf, ...options} = full_options
 
         const params = 
             {
@@ -1859,38 +2004,122 @@ export async function fetchURLAsTextAlternative( url, options = {} ){
         })
         try{
             if(response.status !== 200){
+                if( response.status === 413 || response.status === 413){
+                    // too large or unprocessable
+                    return downloadURLContentViaProxy( url )
+                }
                 return undefined
             }
-            const results = await response.text();
-            if( results){
-                const extractOptions = {
-                    baseElements:{
-                        selectors : ['title', 'body'],
-                        returnDomByDefault: false
-                    },
-                    selectors: [
-                        { selector: 'a', format: 'skip' },
-                        { selector: 'input', format: 'skip' },
-                        { selector: 'img', format: 'skip' },
-                        { selector: 'button', format: 'skip' },
-                        //{ selector: '[class*=nav]', format: 'skip' }
-                    ]
-                }
-                const text = htmlToText(results, extractOptions);
-                if( text ){
-                    let parts = text.split('\n').filter(d=>d && d.length > 0)
-                    let title = parts.shift()
-                    let fullText = parts.join("\n").replaceAll(/\[\s*(https?:\/\/[^\]]+)\s*\]/g,"")
-                    fullText = fullText.replace(/ +/g, ' ');
-                    fullText = fullText.replace(/\n+/g, '\n');
-                    if( fullText.length < 25){
-                        return undefined
+            const contentType = response.headers.get('zr-content-type')
+            if( contentType.startsWith('application/pdf')){
+                console.log(`Got content type ${contentType}`)
+
+                const contentDisposition = response.headers.get('zr-content-disposition')
+                let filename
+                if (contentDisposition && contentDisposition.includes('filename=')) {
+                    filename = contentDisposition.split('filename=')[1].split(';')[0].replace(/"/g, '');
+                  } else {
+                    filename = `Download from ${url}`
+                }            
+
+
+                const data = await response.arrayBuffer();
+                return await processPDFDownloadBuffer( data, filename )
+            }else if( contentType.startsWith('text/html')){
+                const results = await response.text();
+                if( results){
+
+                    if( preferEmbeddedPdf ){
+                        // Search for embedded pdf in object
+                        const elementRegex = /<object ([^>]*)type=["']application\/pdf["']([^>]*)>/gi;
+                        let match;
+
+                        const embeddedPdfs = [];
+                        while ((match = elementRegex.exec(results)) !== null) {
+                            const attributesString = match[1] + match[2];
+
+                            // Regular expression to match individual attributes
+                            const attributesRegex = /(\w+)=["']([^"']*)["']/g;
+                            let attributeMatch;
+                            const attributes = {};
+
+                            while ((attributeMatch = attributesRegex.exec(attributesString)) !== null) {
+                                const name = attributeMatch[1];
+                                const value = attributeMatch[2];
+                                if( name === "data"){
+                                    embeddedPdfs.push(value)
+
+                                }
+                            }
+                        }
+                        if( embeddedPdfs.length === 0){
+                            const spanElementRegex = /<[^>]*data=["']([^"']*)["']/gi;
+                            while ((match = spanElementRegex.exec(results)) !== null) {
+                                const pdfUrl = match[1];
+                                embeddedPdfs.push(pdfUrl);
+                            }
+                        }
+                        if( embeddedPdfs.length === 0){
+                            const spanElementRegex = /<(?!link\b)[^>]*href=["']([^"']*\.pdf[^"']*)["']/gi;
+                            while ((match = spanElementRegex.exec(results)) !== null) {
+                                const pdfUrl = match[1];
+                                embeddedPdfs.push(pdfUrl);
+                            }
+                        }
+                        if( embeddedPdfs.length === 0){
+                            const spanElementRegex = /<[^>]*href=["']([^"']*\/download)["']/gi;
+                            while ((match = spanElementRegex.exec(results)) !== null) {
+                                const pdfUrl = match[1];
+                                embeddedPdfs.push(pdfUrl);
+                            }
+                        }
+                        if( embeddedPdfs.length > 0){
+                            let thisUrl = embeddedPdfs[0]
+
+                            if (!thisUrl.startsWith('http')) {
+                                thisUrl = new URL(thisUrl, url).href;
+                              }
+
+                            console.log( `Found embedded ${thisUrl} - fetching`)
+
+                            //return await fetchURLAsTextAlternative( thisUrl, options)
+                            return downloadURLContentViaProxy( thisUrl)
+                        }
                     }
-                    return{
-                        title: title,
-                        fullText: fullText, 
-                        description: fullText?.split(" ").slice(0,400).join(" ")
+
+                    const extractOptions = {
+                        baseElements:{
+                            selectors : ['title', 'body'],
+                            returnDomByDefault: false
+                        },
+                        selectors: [
+                            { selector: 'a', format: 'skip' },
+                            { selector: 'input', format: 'skip' },
+                            { selector: 'img', format: 'skip' },
+                            { selector: 'button', format: 'skip' },
+                            //{ selector: '[class*=nav]', format: 'skip' }
+                        ]
                     }
+
+                    const text = htmlToText(results, extractOptions);
+                    if( text ){
+                        let parts = text.split('\n').filter(d=>d && d.length > 0)
+                        let title = parts.shift()
+                        let fullText = parts.join("\n").replaceAll(/\[\s*(https?:\/\/[^\]]+)\s*\]/g,"")
+                        fullText = fullText.replace(/ +/g, ' ');
+                        fullText = fullText.replace(/\n+/g, '\n');
+                        if( fullText.length < 25){
+                            return undefined
+                        }
+                        return{
+                            title: title,
+                            fullText: fullText, 
+                            description: fullText?.split(" ").slice(0,400).join(" ")
+                        }
+                    }
+                }else{
+                    console.log(`Unknown type ${contentType}`)
+                    return {unhandled: true}
                 }
             }
 
@@ -1931,7 +2160,7 @@ export async function fetchURLScreenshot( url ){
         console.log(error)
     }    
 }
-export async function fetchURLPlainText( url, asArticle = false ){
+export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedPdf = false ){
     try{
 
         console.log(url)
@@ -1968,17 +2197,21 @@ export async function fetchURLPlainText( url, asArticle = false ){
         const attempts = [
             //{title: "Article", exec: asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
             //{title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
-            {title: "zenRows 1", exec: async ()=>await fetchURLAsTextAlternative( url )},
+            {title: "zenRows 1", exec: async ()=>await fetchURLAsTextAlternative( url,{
+                        preferEmbeddedPdf
+            } )},
             {title: "zenRows 2", exec: async ()=>await fetchURLAsTextAlternative( url,{
                         'js_render': 'true',
+                        preferEmbeddedPdf
                     } )},
             {title: "zenRows 3", exec: async ()=>await fetchURLAsTextAlternative( url,{
                         'js_render': 'true',
                         'premium_proxy': 'true',
                         'proxy_country': 'us',
+                        preferEmbeddedPdf
                     } )},
-            {title: "Artcile", exec: !asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
-            {title: "PDF", exec: async ()=> await grabUrlAsPdf( url, undefined, true )}
+            {title: "Article", exec: !asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
+            {title: "PDF", exec: async ()=> await grabUrlAsPdf( url, undefined, true, preferEmbeddedPdf )}
         ].filter(d=>d.exec)
 
         for(const attempt of attempts){

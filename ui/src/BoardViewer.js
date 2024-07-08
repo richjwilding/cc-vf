@@ -43,10 +43,10 @@ export default function BoardViewer({primitive,...props}){
     const action = primitive.metadata?.actions?.find(d=>d.key === "build_generic_view")
 
     //const boards = [279897,290878, 294261, 303071,303073,302434, 303074, 303153].map(d=>mainstore.primitive(d))
-    const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary]
+    const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery]
 
     function prepareBoard(d){
-        if( d.type === "view"){
+        if( d.type === "view" || d.type === "query"){
             const items = d.itemsForProcessing
             const columnAxis = CollectionUtils.primitiveAxis(d, "column")
             const rowAxis = CollectionUtils.primitiveAxis(d, "row")

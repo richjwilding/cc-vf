@@ -1,36 +1,51 @@
-    import React, { useEffect } from 'react';
+  import React, { useEffect, useLayoutEffect } from 'react';
+  import {Input} from '@headlessui/react'
+import clsx from 'clsx';
+
   export default function EditableTextField ({item, ...props}){
-    const [editing, setEditing] = React.useState(false)
-    const editBox = React.useRef()
     const [errors, setErrors] = React.useState(false)
+    const editBox = React.useRef()
+    const editing = React.useRef(false)
+
+    const showPlaceholder = props.value === undefined ||props.value?.length === 0
+
+
+    const updateDisplay = (value)=>{
+      value = value ?? props.value
+      editBox.current.textContent = editing.current ? (value  ?? ""): value?.length > 0 ? value :  (props.default ?? props.placeholder ?? "Enter details")
+    }
+
+    const startEditing = ()=>{
+      if( !editing.current ){
+        editing.current = true
+        editBox.current.textContent = props.value ?? ""
+      }
+    }
+
+    const stopEditing = ()=>{
+      let useTemp = false
+      const value = editBox.current.textContent.trim()
+      if( value !== (props.value ?? "") ){
+        if( props.callback ){
+          if( !props.callback( value ) ){
+            editBox.current.focus()
+            setErrors(true)
+            return
+          }
+          useTemp = true
+        }
+      }      
+      editing.current = false
+      updateDisplay(useTemp ? value : undefined)
+    }
 
     const keyHandler = (e)=>{
       e.stopPropagation()
 
-      if( !editing ){          
-        if(e.key === "Enter"){
-          e.preventDefault()
-          editBox.current.focus()
-
-          const range = document.createRange();
-          range.selectNodeContents(editBox.current );
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-
-          startEditing()
-
-          return
-        }
-        if( e.key === "Tab"){
-          return
-        }
-        e.preventDefault()
-      }else{
         if(e.key === "Enter"){
           if( props.submitOnEnter ){
             e.preventDefault()
-            toggleEditing()
+            stopEditing()
             return
           }        
         }
@@ -40,73 +55,41 @@
           cancelEdit()
           return
         }
-
-      }
-
     }
-
-    const startEditing = ()=>{
-      editBox.current.setAttribute("_org", editBox.current.textContent.trim())
-      setEditing(true)
-    }
-
 
     const cancelEdit = ()=>{
+      editing.current = false
       const sel = window.getSelection();
       sel.removeAllRanges();
-      editBox.current.textContent = editBox.current.getAttribute("_org") 
-      setEditing(false)
+      updateDisplay()
     }
+    
 
-    const toggleEditing = ()=>{
-      let editOld = editBox.current.getAttribute("_org") 
-        let newText = editBox.current.textContent.trim()
-        if( editOld !== newText ){
-          editBox.current.setAttribute("_org", newText)
-          if( props.callback ){
-            if( !props.callback( newText ) ){
-              editBox.current.focus()
-              setErrors(true)
-              return
-            }
-          }
-        }      
-        cancelEdit()
-    }
 
-    const showAsEmpty = props.value === undefined || props.value === null || props.value === ""
-    const showPlaceholder = !(props.editable && editing) && props.value === undefined && props.placeholder
-
-    return (
-        <>
-        <div
-          ref={editBox} 
-          contentEditable={props.editable && editing}
-          onKeyDown={props.editable ? keyHandler : undefined}
-          onClick={props.editable && editing ? undefined : ()=>startEditing()}
-          onBlur={props.editable ? toggleEditing : undefined}
-          tabIndex={1}
-          suppressContentEditableWarning={true}
-          className={[
-            'place-items-center outline-none',
+    return  <div 
+      contentEditable={props.editable !== false}
+      suppressContentEditableWarning={true}
+      onClick={props.editable ? startEditing : undefined}
+      onFocus={props.editable ? startEditing : undefined}
+      key={props.key} 
+      ref={editBox} 
+      onKeyUp={props.editable ? keyHandler : undefined}
+      onBlur={props.editable ? stopEditing : undefined}
+      placeholder={props.placeholder ?? props.default}
+      className={clsx([
+            'place-items-center outline-none bg-transparent resize-none overflow-hidden',
             props.border ? "border border-gray-200 rounded-md" : "",
             !props.compact && !editing ? "p-1 min-h-[2em]" : "",
             props.fieldClassName || '',
             props.compact ? "py-1" : "px-1 py-1",
             props.fieldClassName && props.fieldClassName.search("text-") > -1 ? "" :props.secondary ? "text-gray-400" : "text-gray-800",
-            showPlaceholder ? "italic" : "",
-            showAsEmpty ? "italic text-gray-600" : "",
+            showPlaceholder ? "italic text-gray-500" : "",
             props.editable && !editing ? props.clamp : "",
             props.editable && !editing && !errors ? "focus:bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-200" : "",
             props.editable && editing && !errors ? "px-1 bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-500" : "",
             props.editable && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
-          ].join(" ")}
-          >
-          {props.value ?? ((props.editable && editing) ? undefined : props.default) ?? props.placeholder ?? "Enter details" }
-          </div>
-          {props.icon && <div className='grow-0 place-items-center ml-1'>
-            {props.icon}
-          </div>}
-          </>
-    )    
+
+      ])}>  
+          {props.value?.length > 0 ? props.value :  (props.default ?? props.placeholder ?? "Enter details")}
+      </div>
   }

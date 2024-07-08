@@ -269,6 +269,82 @@ export async function queryCrunchbaseOrganizationArticles(keywords, options = {}
     return options.createResult ? totalCount : results
 
 }
+export async function queryCBPersonRelatedOrganizations(first, last, options = {}){
+    if( !first || first.length < 2){
+        return
+    }
+    if( !last || last.length < 2){
+        return
+    }
+    if(first.length === 1 || (first.length === 2 && first.slice(-1)===".")){
+        console.log(`Skip ${first} ${last}`)
+        return
+    }
+    let sleep = 200
+    const doLookup = async (attempts = 5 )=>{
+        const params = JSON.stringify(
+            {
+                "field_ids": [
+                  "first_name","last_name","description"
+                ],
+                "query": [
+                  {
+                    "type": "predicate",
+                    "field_id": "first_name",
+                    "operator_id": "eq",
+                    "values": [first]
+                  },
+              {
+                    "type": "predicate",
+                    "field_id": "last_name",
+                    "operator_id": "eq",
+                    "values": [last]
+                  },options.contains ? {
+                    "type": "predicate",
+                    "field_id": "description",
+                    "operator_id": "contains",
+                    "values": [options.contains]
+                  } : undefined
+                ].filter(d=>d)
+                
+              })
+        const url = `https://api.crunchbase.com/api/v4/searches/people`
+        console.log(params)
+        const response = await fetch(url,{
+            method: 'POST',
+            headers: {
+                'X-cb-user-key': `${process.env.CRUNCHBASE_KEY}`
+            },
+            body:params
+        });
+        
+        if( response.status !== 200){
+            if( response.status === 429){
+                if( attempts > 0){
+                    console.log(`Sleeping ${sleep}`)
+                    await new Promise(r => setTimeout(r, sleep ));                    
+                    sleep *= 2
+                    
+                    return await doLookup(attempts - 1)
+                }else{
+                    return
+                }
+            }
+            console.log(`Error from crunchbase`)
+            console.log(response)
+            return
+        }
+        const data = await response.json();
+        if( data ){
+            if( data.entities ){
+                for(const entity of data.entities){
+                    console.log(entity)
+                }
+            }
+        }
+    }
+    await doLookup()
+}
 export async function queryCrunchbaseOrganizations(terms, options = {}){
 
     let totalCount = 0
@@ -281,6 +357,17 @@ export async function queryCrunchbaseOrganizations(terms, options = {}){
     const doLookup = async (allTerms, nextPage )=>{
         const term = allTerms.keyword
 
+        const region_maps = {
+            "usa": ["f110fca2-1055-99f6-996d-011c198b3928"],
+            "united states": ["f110fca2-1055-99f6-996d-011c198b3928"],
+            "south america": ["dc5ba49f-731c-c510-b669-6a1641aee660"],
+            "central america":["118dc7e0-e391-4d72-bda3-4ea51151bf19"],
+            "latin america":["dc8ffe02-9def-4cb3-a14c-5d37458b1507"],
+            "sea": ["5d13489b-bd49-4d3c-850b-500df5975192"],
+            "south east asia": ["5d13489b-bd49-4d3c-850b-500df5975192"],
+            "india":["44048bf7-db64-0d7a-db20-fd3c1ebf47b0"]
+        }
+         
         const query = Object.keys(allTerms).map((k)=>{
             if( !allTerms[k] ){
                 return
@@ -304,12 +391,13 @@ export async function queryCrunchbaseOrganizations(terms, options = {}){
                     }
                 }
             }else if( k === "headquaters"){
-                if( allTerms[k] === "USA" || allTerms[k] === "United States"){
+                const values = region_maps[allTerms[k].toLowerCase()] ?? [allTerms[k]]
+                if( values ){
                     return {
                         "type": "predicate",
                         "field_id": "location_identifiers",
                         "operator_id": "includes",
-                        "values": ["f110fca2-1055-99f6-996d-011c198b3928"]
+                        "values": values
                     }
                 }
             }else if( k === "exit_year"){
@@ -460,7 +548,7 @@ export async function queryCrunchbaseOrganizations(terms, options = {}){
                         }
                     }
                     hasResults = true
-                    let exec = await executeConcurrently( lookup.entities, process, options.cancelCheck, ()=> count >= target )
+                    let exec = await executeConcurrently( lookup.entities, process, options.cancelCheck, ()=> count >= target, 1 )
                     cancelled = exec?.cancelled
                 }
             }else{

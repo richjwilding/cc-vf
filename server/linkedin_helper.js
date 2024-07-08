@@ -169,105 +169,6 @@ export async function queryPosts(keywords, options = {}){
     return totalCount
 
 }
-export async function searchPosts(primitive, options = {}, action = {}){
-    console.log("DONT USE THIS searchPosts")
-    console.log("DONT USE THIS searchPosts")
-    console.log("DONT USE THIS searchPosts")
-    console.log("DONT USE THIS searchPosts")
-    console.log("DONT USE THIS searchPosts")
-
-    let totalCount = 0
-    let count = 0
-    let target = options.count ?? action.count ?? 100
-
-    const doLookup = async (term, nextPage )=>{
-        try{
-            if( nextPage === undefined){
-                count = 0
-            }
-            let hasResults = false
-            let query = "site:linkedin.com/posts " + term
-
-            const resultCategory = options.resultCategory || action.resultCategory
-            let lookup = await fetchLinksFromWebQuery(query, nextPage ? nextPage : true)
-            if( lookup && lookup.links ){
-                let out = lookup.links
-                console.log(`got ${out.length}`)
-                const outputPath = await findResultSetForCategoryId(primitive, resultCategory)
-                if( outputPath !== undefined ){
-                    if( out ){
-                        if( action.limit ){
-                            out = out.slice(0, action.limit)
-                        }
-                        for(const item of out){
-                            hasResults = true
-                            const xSnippet = item.snippet?.toLowerCase().replace(/[^a-zA-Z0-9\s]/g, '');
-                            const xTerm = term?.toLowerCase().replace(/[^a-zA-Z0-9\s]/g, '');
-                            if( !xSnippet || !xTerm){
-                                continue
-                            }
-                            if( xSnippet.indexOf(xTerm) === -1 ){
-                                continue
-                            }
-                            const existing = await Primitive.findOne({
-                                "workspaceId": primitive.workspaceId,
-                                "referenceParameters.url": item.url,
-                                [`parentPrimitives.${primitive.id}`]: {$in: ['primitives.origin']},
-                                deleted: {$exists: false},
-                            })
-                            if( existing ){
-                                continue
-                            }
-                            const postText = await fetchLIPost( item.url )
-                            if( postText ){
-                                const newData = {
-                                    workspaceId: primitive.workspaceId,
-                                    paths: ['origin', `results.${outputPath}`],
-                                    parent: primitive.id,
-                                    data:{
-                                        type: "result",
-                                        referenceId: resultCategory,
-                                        title: item.title,
-                                        referenceParameters:{
-                                            url: item.url,
-                                            snippet: item.snippet,
-                                            source:`Web query "${query}"`,
-                                            text: postText,
-                                        }
-                                    }
-                                }
-                                const newPrim = await createPrimitive( newData )
-                                count++
-                                totalCount++
-                            }
-                        }
-                    }
-                }
-            }
-            console.log(hasResults, count, target)
-            if( hasResults && count < target ){
-                if( Object.keys(lookup.nextPageQuery).length > 0 ){
-                    console.log(' -- fetch next page')
-                    console.log(lookup.nextPageQuery)
-                    await doLookup( term, lookup.nextPageQuery)
-                }else{
-                    console.log(' -- no next page')
-                }
-            }
-        }
-        catch(error){
-            console.log("Error in searchPosts")
-            console.log(error)
-        }
-    }
-
-    await doLookup( '"green build"' )
-    await doLookup( '"greenbuild"' )
-    await doLookup( '"sustainable material"' )
-    await doLookup( '"embodied carbon"' )
-    await doLookup( '"embodiedcarbon"' )
-
-}
 
 export async function extractUpdatesFromLinkedIn(primitive, options = {}, force = false){
     let linkedInData = primitive.linkedInData
@@ -696,11 +597,16 @@ export async function findCompanyLIPage( primitive ){
 export async function findCompanyLIPageWithGoogle( title, url ){
     const result = await fetchLinksFromWebQuery(`site:linkedin.com/company ${url}`, {count:5, timeFrame: ""})
     if( result.links ){
-        let match = result.links.filter(d=>d.url.match(/.+\.linkedin\..*\/company\//) && (d.title.toLowerCase().match(title.toLowerCase()) || d.snippet.toLowerCase().match(title.toLowerCase())))?.[0]
-        if( match){
-            let id = match.url.match(/(.+\.linkedin\..*\/company\/[^\/]+)/)?.[1]
-            return id
-        }
+        const parts = title.toLowerCase().split(" ")  
+        const matchOrder = new Array(parts.length).fill(0).map((d,i)=>parts.slice(0, i + 1).join(" ")).reverse()
+        for(const pass of matchOrder ){
+            console.log(`Checking ${pass}`)
+            let match = result.links.filter(d=>d.url.match(/.+\.linkedin\..*\/company\//) && (d.title.toLowerCase().match(pass) || d.snippet.toLowerCase().match(pass)))?.[0]
+            if( match){
+                let id = match.url.match(/(.+\.linkedin\..*\/company\/[^\/]+)/)?.[1]
+                return id
+            }
+        }            
     }
 }
 

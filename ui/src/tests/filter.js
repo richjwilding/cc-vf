@@ -35,6 +35,84 @@ function link(parent, child, rel){
     child.parentPrimitives[parent.id] ||= []
     child.parentPrimitives[parent.id].push("primitives." + rel)
 }
+function test4(){
+    prims = []
+    idx = 1000
+
+    const testIds = []
+    for(let i = 0; i < 110; i++){
+        const bucket = Math.floor(i / 10)
+        const prim = buildTestPrimitive({title: `Test for ${bucket}`, referenceParameters: {count: bucket < 10 ? bucket : undefined}})
+        testIds.push(prim.id)
+    }
+
+    const teststore = MainStore(prims)
+    const checkList = testIds.map(d=>teststore.primitive(d))
+    const primitive = checkList[0]
+
+    console.log(`Test param`)
+    for(let p = 0; p < 10; p++){
+        const filtered = primitive.filterItems( checkList, [
+            {
+                type: "parameter",
+                param: "count",
+                value: [p]
+            }
+        ])
+        console.assert( filtered.length === 10 )
+        console.assert(filtered.reduce((a,d)=>a && d.title === `Test for ${p}`, true))
+    }
+    console.log(`Test param multi`)
+    for(let p = 0; p < 9; p++){
+        const filtered = primitive.filterItems( checkList, [
+            {
+                type: "parameter",
+                param: "count",
+                value: [p, p + 1]
+            }
+        ])
+        console.assert( filtered.length === 20 )
+        console.assert(filtered.reduce((a,d)=>a && (d.title === `Test for ${p}` || d.title === `Test for ${p + 1}`), true))
+    }
+    console.log(`Test param invert`)
+    for(let p = 0; p < 10; p++){
+        const filtered = primitive.filterItems( checkList, [
+            {
+                type: "parameter",
+                param: "count",
+                value: [p],
+                invert: true
+            }
+        ])
+        console.assert( filtered.length === 100 )
+        console.assert(filtered.reduce((a,d)=>a && d.title !== `Test for ${p}`, true))
+    }
+    console.log(`Test param null`)
+    {
+        const filtered = primitive.filterItems( checkList, [
+            {
+                type: "parameter",
+                param: "count",
+                value: [undefined],
+                invert: true
+            }
+        ])
+        console.assert( filtered.length === 100 )
+        console.assert(filtered.reduce((a,d)=>a && d.title !== `Test for 10`, true))
+    }
+    console.log(`Test param null`)
+    {
+        const filtered = primitive.filterItems( checkList, [
+            {
+                type: "parameter",
+                param: "count",
+                value: [undefined],
+            }
+        ])
+        console.assert( filtered.length === 10 )
+        console.assert(filtered.reduce((a,d)=>a && d.title === `Test for 10`, true))
+    }
+}
 
 function test3(){
     prims = []
@@ -81,7 +159,7 @@ function test3(){
     }
 
     
-    console.log(`Testing search filters 2`)
+    console.log(`Testing question filters 2`)
     for(let q = 0; q < 2; q++){
         const filtered = primitive.filterItems( checkList, [
             {
@@ -93,7 +171,7 @@ function test3(){
         console.assert(filtered.length === 10)
         console.assert(filtered.reduce((a,d)=>a && d.title === `Test on ${q}`, true))
     }
-    console.log(`Testing search invert`)
+    console.log(`Testing question invert`)
     for(let q = 0; q < 2; q++){
         const filtered = primitive.filterItems( checkList, [
             {
@@ -106,7 +184,7 @@ function test3(){
         console.assert(filtered.length === 20)
         console.assert(filtered.reduce((a,d)=>a && (d.title === `Test on ${1 - q}` || d.title === `Test on 2`), true))
     }
-    console.log(`Testing search NULL`)
+    console.log(`Testing question NULL`)
     {
         const filtered = primitive.filterItems( checkList, [
             {
@@ -119,7 +197,7 @@ function test3(){
         console.assert(filtered.length === 20)
         console.assert(filtered.reduce((a,d)=>a && (d.title === `Test on 0` || d.title === `Test on 1`), true))
     }
-    console.log(`Testing search NULL`)
+    console.log(`Testing question NULL`)
     {
         const filtered = primitive.filterItems( checkList, [
             {
@@ -131,7 +209,7 @@ function test3(){
         console.assert(filtered.length === 10)
         console.assert(filtered.reduce((a,d)=>a && (d.title === `Test on 2`), true))
     }
-    console.log(`Testing search NULL`)
+    console.log(`Testing question NULL`)
     {
         const filtered = primitive.filterItems( checkList, [
             {
@@ -398,4 +476,5 @@ export default function test(){
     test1()
     test2()
     test3()
+    test4()
 }
