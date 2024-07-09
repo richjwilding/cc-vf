@@ -16,6 +16,7 @@ import { VFImage } from './VFImage'
 import useDataEvent from './CustomHook'
 import CardGrid from './CardGrid'
 import { InputPopup } from './InputPopup'
+import QueryCard from './QueryCard'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -383,7 +384,10 @@ export function Sidebar({primitive, ...props}) {
                 {primitive.referenceParameters?.hasImg  &&  <VFImage className="w-8 h-8 mx-2 object-contain my-auto" src={`/api/image/${primitive.id}`} />}
                 {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} className='ml-auto m-2'/> }            
             </div>}
-            {!infoPane && !isMulti && <div className="pb-2 pl-4 pr-4 pt-4">
+            {!infoPane && !isMulti && primitive.type === "query" && <div className="pb-2 pl-4 pr-4 pt-4">
+                <QueryCard primitive={primitive} showDetails={true}/>
+            </div>}
+            {!infoPane && !isMulti && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
                 {primitive.type === "result" && primitive.referenceParameters?.url && <Panel.MenuButton title='View text' onClick={async ()=>alert(await primitive.getDocumentAsText())}/>}
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 

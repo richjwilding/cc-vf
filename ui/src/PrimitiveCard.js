@@ -430,7 +430,7 @@ let mainstore = MainStore()
         if( sourceMeta?.parameters ){
           Object.keys(sourceMeta.parameters).forEach((d)=>{
             const param = sourceMeta.parameters[d]
-            if( (param.type === "string" || param.type === "long_string") && !param.hidden){
+            if( (param.type === "string" || param.type === "long_string" || param.type === "list") && !param.hidden){
               list.push({key: `param.${d}`, title: param.title})
             }
           })

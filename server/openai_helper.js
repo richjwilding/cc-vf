@@ -47,6 +47,7 @@ export async function analyzeForClusterPhrases( list, options = {}){
     let prompt = `i will undertake a clustering process of several thousand ${inputType}s based on the distance of the embedding of each ${inputType} to each cluster centroid. Each cluster must relate to a sub topic of ${focus ? focus : options.theme}. The aim is to group similar ${inputType}s together into between 2 and 10 non-overlapping clusters. Assess the provided ${inputType}s to first filter out any which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a 2-3 candidate phrases per cluster. Ensure that the clusters are as specific and selective as possible, do not overlap with one another, are not a subset of another cluster, are based on only the information in the ${inputType}s i have provided, are directly and explicitly relevant to the provided theme${focus ? ` and are related to ${focus}` : ""}. If there are no relevant ${inputType}s then return an empty list.`
     let output = `Provide your response as a json object called "result" containing an array of objects each with a 'cluster_title' field set a 5 word title of the cluster${focus ? ` which is framed as ${focus}` : ""}, a 'phrase' field containing an array of proposed phrases (each as a string), a 'relevance' field containing an explanation for how the proposed phrase is directly relevant to the provided theme in no more than 15 words, a 'score' field with an assessment for how relevant the phrase is to the provided theme on the scale of 'not at all', 'hardly', 'somewhat' , 'clearly', and a 'size' field containing the number of ${inputType}s from the provided list that you estimate to align with this phrase.  Do not provide anything other than the json object in your response`
 
+
     const interim = await processInChunk( list,
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
@@ -654,6 +655,12 @@ export async function processPromptOnText( text, options = {}){
 
 
 async function processInChunk( list, pre, post, options = {} ){
+    list = list.map(d=>{
+        if( typeof(d) === "object" ){
+            return JSON.stringify(d)
+        }            
+        return d
+    })
 
     const field = options.field ?? "answer"
     let pass = 0

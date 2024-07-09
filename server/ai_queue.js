@@ -1026,15 +1026,29 @@ export default function QueueAI(){
                         if( job.data.mode === "categorize" ){
                             try{
                                 let catData
+                                let itemType
+                                if( targetCatgeory ){
+                                    if( primitive.referenceParameters?.field ){
+                                        const field = primitive.referenceParameters?.field?.match(/param\.(.+)/)?.[1]
+                                        if( field && targetCatgeory.parameters[field] ){
+                                            itemType = targetCatgeory.parameters[field].description
+                                        }
+                                    }else{
+                                        itemType = targetCatgeory.title
+                                    }
+                                    console.log(`Type = ${itemType}`)
+                                }
                                 if( action.alternative){
+                                    let types = itemType ?? primitive.referenceParameters?.types ?? action.aiConfig?.[primitive.referenceParameters?.field]?.types ??  "problem statement"
                                     const task = await primitiveTask( primitive)
-                                    const theme = (primitive.referenceParameters?.theme && primitive.referenceParameters?.theme.trim().length > 0 ? primitive.referenceParameters?.theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics
+                                    const theme = (primitive.referenceParameters?.cat_theme && primitive.referenceParameters?.cat_theme.trim().length > 0 ? primitive.referenceParameters?.cat_theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics
                                     const result = await analyzeForClusterPhrases( data, {
                                         //type:primitive.referenceParameters?.listType, 
-                                        type: primitive.referenceParameters?.types ?? action.aiConfig?.[primitive.referenceParameters?.field]?.types ??  "problem statement",
+                                        type: types,
                                         focus: primitive.referenceParameters?.cat_theme,
                                         batch: 500,
                                         theme: theme,
+                                        debug_content: true,
                                         debug: true} )
                                     if( result.success ){
                                         const categories =  result.output.map(d=>({t: d.cluster_title}))
@@ -1046,8 +1060,8 @@ export default function QueueAI(){
                                 }else{                            
                                     
                                     
-                                    let types = targetConfig?.build?.type ?? primitive.referenceParameters?.dataTypes ?? action.dataTypes
-                                    let theme = primitive.referenceParameters?.theme ?? targetConfig?.build?.theme ?? action.theme
+                                    let types = itemType ?? targetConfig?.build?.type ?? primitive.referenceParameters?.dataTypes ?? action.dataTypes
+                                    let theme = primitive.referenceParameters?.cat_theme ?? targetConfig?.build?.theme ?? action.theme
                                     
                                     catData = await buildCategories( data, {
                                         count: primitive.referenceParameters?.count || action.count || 8,

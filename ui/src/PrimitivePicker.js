@@ -180,7 +180,7 @@ const SearchPanel = (props)=>{
                 {({ activeOption }) => {
                   return (
                   <>
-                  <div className="relative">
+                  <div className="relative flex">
                     <MagnifyingGlassIcon
                       className="pointer-events-none absolute top-3.5 left-4 h-5 w-5 text-gray-400"
                       aria-hidden="true"
@@ -191,6 +191,13 @@ const SearchPanel = (props)=>{
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
                     />
+                    <button
+                        type="button"
+                        onClick={props.setOpen ? ()=>props.setOpen(false) : undefined}
+                        className="place-self-center mr-2 w-fit rounded-md bg-gray-100 py-2 px-3 text-sm text-gray-400 shadow-sm hover:bg-indigo-500 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                      >
+                        Cancel
+                    </button>
                   </div>
 
                     {((query === '' || filteredPrimitives.length > 0) || props.allowNew) && (
@@ -257,15 +264,14 @@ const SearchPanel = (props)=>{
                 )}}
               </Combobox>
               {props.allowAll && <div className='p-2'>
-                                    <button
+                                  <button
                                       type="button"
                                       onClick={()=>props.selected(filteredPrimitives)}
                                       className="w-fit rounded-md bg-gray-100 py-2 px-3 text-sm text-gray-400 shadow-sm hover:bg-indigo-500 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
                                     >
                                       Select all {filteredPrimitives.length} items
                                     </button>
-                                    </div>
-              }
+              </div>}
               </>
         )
 }
@@ -336,7 +342,7 @@ function ParentLinksManager({mode, ...props}) {
     <Popup setOpen={()=>props.setOpen(false)} padding={false} width="md:max-w-4xl xl:max-w-5xl">
       {({ handleClose }) => (
         <>
-          <SearchPanel {...props} selected={selected}>
+          <SearchPanel {...props} close={handleClose} selected={selected}>
             {({ activeOption }) => (
             activeOption && (
               <div className="hidden h-96 w-2/5 flex-none flex-col overflow-y-auto sm:flex">

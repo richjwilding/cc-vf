@@ -5,8 +5,11 @@ import { useGesture } from '@use-gesture/react';
 import { RenderPrimitiveAsKonva, finalizeImages, renderToggle } from './RenderHelpers';
 import { exportKonvaToPptx } from './PptHelper';
 import MainStore from './MainStore';
+import { AvoidLib } from 'libavoid-js';
 
 Konva.autoDrawEnabled = false
+
+const updateLinksDuringMove = true
 
 //export default function InfiniteCanvas(props){
 const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
@@ -27,7 +30,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         });
       };
 
-    console.log(props)
     const enablePages =  true
     const enableFlipping = true
     const enableNodePruning = true
@@ -66,7 +68,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const stageRef = useRef()
     const frameRef = useRef()
     const layerRef = useRef()
-    const myState = useRef({})
+    const myState = useRef({renderList: props.render})
 
     const chunkWidth = 800
     const chunkHeight = 800
@@ -87,7 +89,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     x: d.x,
                     y: d.y,
                     width: d.node.attrs.width,
-                    height: d.node.attrs.height
+                    height: d.node.attrs.height,
+                    l: d.x,
+                    r: d.x + (d.node.attrs.width  * d.node.attrs.scaleX),
+                    t: d.y,
+                    b: d.y + (d.node.attrs.height * d.node.attrs.scaleY)
                 },
                 viewport:{
                     l: tl[0],
@@ -106,10 +112,37 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             exportKonvaToPptx( stageRef.current )
         }
     }
+    function addFrame(d){
+        myState.current.renderList.push(d)
+        refreshFrame(d.id)
+        refreshLinks()
+    }
+    function removeFrame(frameId){
+
+        const existing = myState.current.frames?.find(d=>d.id === frameId) 
+        if( existing ){
+            if( myState.current.frameSelect && myState.current.selected.frame){
+                const ids = myState.current.selected.frame.map(d=>d.attrs.id)
+                if( ids.includes(frameId) ){
+                    destroyFrameSelect()
+                }
+            }
+            existing.node.children = existing.allNodes
+            myState.current.frames = myState.current.frames.filter(d=>d.id !== frameId) 
+
+            existing.node.children.forEach(d=>d.attrs.removing = true)
+            existing.node.remove()
+
+        }
+        myState.current.renderList = myState.current.renderList.filter(d=>d.id !== frameId)
+        refreshLinks()
+    }
 
     useImperativeHandle(ref, () => {
         return {
             exportToPptx,
+            addFrame,
+            removeFrame,
             framePosition,
             size: ()=>[myState.current.width,myState.current.height],
             refreshFrame
@@ -264,8 +297,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             height: 10,
             fill: undefined,
             stroke:"#eee",
+            strokeWidth: 0.5,
             fill:"white",
-            strokeWidth:1,
             strokeScaleEnabled: false,
             visible: props.board,
             id: `frame`,
@@ -455,50 +488,229 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             
         }
     }
+    async function refreshLinks( override ){
+        if( props.frameLinks){
+            console.log(`refresh links`)
+            if( !myState.current.frameLinks ){
+                myState.current.frameLinks = []                
+            }
+            if( !myState.current.avoid_loaded ){
+                AvoidLib.load('/images/libavoid.wasm').then(data=>{
+                    console.log(`Avoid loaded`)
+                    myState.current.avoid_loaded = true
+                    refreshLinks()
+                })
+                return
+
+            }
+            const Avoid = AvoidLib.getInstance();
+            const router = new Avoid.Router(Avoid.OrthogonalRouting);
+
+            // Define the graph with fixed node positions and edges
+            
+            const track = new Set()
+            const edges = []
+            let edge = 0
+
+            const nodes = {}
+            for(const frame of myState.current.frames){
+                const fId = frame.id
+
+                if( !track.has(fId)){
+                    track.add(fId)
+                    let position =  framePosition(fId)?.scene
+                    if( override && override.id === fId ){
+                        position.r = position.r - position.l + override.x
+                        position.b = position.b - position.t + override.y
+                        position.l = override.x
+                        position.t = override.y
+                    }
+                    
+                    if( position ){
+
+
+                        const shapeRef = new Avoid.ShapeRef(router, 
+                            new Avoid.Rectangle(
+                                new Avoid.Point(position.l, position.t),
+                                new Avoid.Point(position.r, position.b)
+                        ));
+
+                
+                        const inputPin = new Avoid.ShapeConnectionPin(
+                            shapeRef,
+                            1,
+                            0,
+                            0.5,
+                            true,
+                            0,
+                            Avoid.ConnDirLeft // All directions
+                        );
+
+
+
+                        const outputPin = new Avoid.ShapeConnectionPin(
+                            shapeRef,
+                            2, // one central pin for each shape
+                            1,
+                            0.5,
+                            true,
+                            0,
+                            Avoid.ConnDirRight // All directions
+                        );
+                        inputPin.setExclusive(false);
+                        outputPin.setExclusive(false);
+
+                        nodes[fId] = {id: fId, position: position, shape: shapeRef}
+                    }
+                }
+            }
+
+            let activeLinks = new Set()
+
+
+            for(const target of props.frameLinks){
+                const left = nodes[target.left]
+                const right = nodes[target.right]
+                if( left && right){
+                    const id = `${target.left}-${target.right}` 
+                    const leftConnEnd = new Avoid.ConnEnd(left.shape,2)
+                    const rightConnEnd = new Avoid.ConnEnd(right.shape,1)
+                    const connRef = new Avoid.ConnRef(router);
+                    connRef.setSourceEndpoint(leftConnEnd);
+                    connRef.setDestEndpoint(rightConnEnd);
+                    activeLinks.add(id)
+                    edges.push({
+                        id: id,
+                        left: {
+                            id: target.left, 
+                            position: left.position
+                        },
+                        right: {
+                            id: target.right, 
+                            position: right.position
+                        },
+                        route: connRef
+                    })
+                }
+            }
+            myState.current.frameLinks = myState.current.frameLinks.filter(d=>{
+                if( !activeLinks.has(d.attrs.id)){
+                    console.log(`Remove link ${d.attrs.id}`)
+                    d.remove()
+                    return false
+                }
+                return true
+            })
+
+            router.setRoutingParameter(Avoid.shapeBufferDistance, 40);
+    
+
+            router.processTransaction()
+            edges.forEach(edge=>{
+                const route = edge.route.displayRoute()
+                const points = []
+                for (let i = 0; i < route.size() ; i++) {
+                    const { x, y } = route.get_ps(i);
+                    points.push(x)
+                    points.push(y)
+                }
+
+                let allPoints = points
+                /*
+                let sx = (edge.left.position.r + edge.left.position.l) / 2
+                let sy = (edge.left.position.b + edge.left.position.t) / 2
+                let ex = (edge.right.position.r + edge.right.position.l) / 2
+                let ey = (edge.right.position.b + edge.right.position.t) / 2
+                if( points.length > 0){
+
+                    if(points[0] > edge.left.position.r){
+                        sx = edge.left.position.r
+                    }else if(points[0] < edge.left.position.l){
+                        sx = edge.left.position.l
+                    }
+                    if(points[points.length - 2] > edge.right.position.r){
+                        ex = edge.right.position.r
+                    }else if(points[points.length - 2] < edge.right.position.l){
+                        ex = edge.right.position.l
+                    }
+                    if(points[1] > edge.left.position.b){
+                        sy = edge.left.position.b
+                    }else if(points[1] < edge.left.position.t){
+                        sy = edge.left.position.t
+                    }
+                    if(points[points.length - 1] > edge.right.position.b){
+                        ey = edge.right.position.b
+                    }else if(points[points.length - 1] < edge.right.position.t){
+                        ey = edge.right.position.t
+                    }
+                    allPoints = [sx, sy, ...points, ex, ey]
+                }else{
+                    allPoints = [sx, sy, ex, ey]
+                }*/
+
+
+                let link = myState.current.frameLinks.find(d=>d.attrs.id === edge.id)
+                if( link ){
+                    link.points(allPoints)
+                }else{
+                    link = new Konva.Arrow({
+                        id: edge.id,
+                        points: allPoints,
+                        stroke: '#444',
+                        strokeWidth: 0.5,
+                        pointerLength: 20,
+                        pointerWidth: 20,
+                        fill: '444',
+                        strokeScaleEnabled: false
+                    })
+                    myState.current.frameLinks.push(link)
+                    layerRef.current.add( link )
+                }
+            })
+            console.log(`doing redraw for links`)
+            stageRef.current.batchDraw()
+
+            Avoid.destroy( router )
+        }
+    }
 
     function refreshFrame(id){
-        if( props.render){
-            const item = props.render.find(d=>d.id === id)
-            if( item ){
-                const x = props.primitive.frames?.[id].x ?? myState.current.frames?.[id]?.x
-                const y = props.primitive.frames?.[id].y ?? myState.current.frames?.[id]?.y
-                const s = props.primitive.frames?.[id].s ?? myState.current.frames?.[id]?.s
+        const item = myState.current.renderList.find(d=>d.id === id)
+        if( item ){
+            const x = props.primitive.frames?.[id]?.x ?? myState.current.frames?.[id]?.x
+            const y = props.primitive.frames?.[id]?.y ?? myState.current.frames?.[id]?.y
+            const s = props.primitive.frames?.[id]?.s ?? myState.current.frames?.[id]?.s
 
-                const frame = setupFrameForItems(id, item.title, item.items, x, y, s)
-                buildPositionCache(frame)
-                finalizeImages(stageRef.current, {imageCallback: processImageCallback})
-                alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
-                if( myState.current.frameSelect ){
+            const frame = setupFrameForItems(id, item.title, item.items, x, y, s)
+            buildPositionCache(frame)
+            finalizeImages(stageRef.current, {imageCallback: processImageCallback})
+            alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
+            if( myState.current.frameSelect ){
+                const ids = myState.current.selected.frame.map(d=>d.attrs.id)
+                if( ids.includes(id) ){
                     clearSelection()                    
                     destroyFrameSelect()
                     createFrameSelect(frame.node)
                 }
-                stageRef.current.batchDraw()
             }
+            refreshLinks()
+            stageRef.current.batchDraw()
         }
     }
 
     useLayoutEffect(()=>{
-        console.log(stageRef.current)
         var ctx = layerRef.current.getContext()._context;
-        console.log(ctx.textRendering)
         ctx.textRendering = "optimizeSpeed";
         
         stageRef.current.container().querySelector('canvas').style.background = props.background ?? "white"
         
-        let renderList
-        if( props.render ){
-            renderList = props.render
-        }else{
-            renderList = childRefs.current.map((childRef) => childRef.dataForCanvas());
-        }
         
-        if( renderList ){
+        if( myState.current.renderList ){
             if( myState.current.frames ){
                 myState.current.frames.forEach(d=>d.markForDeletion = true)
             }
             let x = 0, y = 0, s = 1
-            for( const set of renderList){
+            for( const set of myState.current.renderList){
                 if( props.primitive?.frames?.[set.id] ){
                     x = props.primitive.frames[set.id].x
                     y = props.primitive.frames[set.id].y
@@ -506,7 +718,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
                 const frame = setupFrameForItems(set.id, set.title, set.items, x, y, s)
                 y += (frame.node.attrs.height * frame.node.attrs.scaleY) + 200
-                console.log(y)
 
             }
             if( myState.current.frames ){
@@ -518,6 +729,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
                     return true
                 })
+                refreshLinks()
             }
         }
 //        convertItems(props)
@@ -767,8 +979,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 frame.lastNodes = activeNodes
                 frame.thisRender = newThisRender
 
-                if( !props.board){
-                    let showFrame = hidden > 0
+                let showFrame = hidden > 0
+                if( props.board){
+                    frame.border.stroke(showFrame ? "#444" : "#eee")
+                }else{
                     frame.border.visible(showFrame)
                 }
                 
@@ -958,7 +1172,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             throw "Dragging already present"
             return
         }
-        const t1 = console.time('creat')
         const container = document.createElement('div')
         container.setAttribute("id","drag_container")
         Object.assign(container.style,{
@@ -1031,8 +1244,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 const item = found[0]
                 if( item && !myState.current.dragging ){
 
-                    let frameSelect = myState.current.selected?.frame
-
                     clearHightlights()
                     clearSelection()                    
                     destroyFrameSelect()
@@ -1091,7 +1302,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     createDragging(clone, (dx * scale) + offsetForShadow, (dy * scale) + offsetForShadow, 8 )
                     
                     if( props.enableFrameSelection){
-                        myState.current.dragging.frameSelect = frameSelect
+                        myState.current.dragging.frameSelect = [item]
                     }
 
                     myState.current.dragging.sourceItem = item
@@ -1143,6 +1354,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         myState.current.dragging.dropConfig = config[type]
                     }
                 }
+                if( updateLinksDuringMove ){
+                    let [px,py] = state.xy
+                    px -= memo.x
+                    py -= memo.y
+                    const [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
+                    refreshLinks({id: myState.current.dragging.clone.attrs.id, x: fx, y: fy})
+
+                }
                 
                 if(state.last){
                     const scale = restoreScale()
@@ -1176,9 +1395,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 s: frame.scale
                             })
                         }
-                    }
-                    if( props.enableFrameSelection && myState.current.dragging.frameSelect){
-                        createFrameSelect(myState.current.dragging.frameSelect[0])
+                        refreshLinks()
+                        if( props.enableFrameSelection && myState.current.dragging.frameSelect){
+                            createFrameSelect(myState.current.dragging.frameSelect[0])
+                            if(props.callbacks?.onClick?.frame){
+                                props.callbacks.onClick.frame(  [frameId] )
+                            }
+                        }
                     }
                     destroyDragging()
                     clearHightlights()
@@ -1295,11 +1518,16 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     
                 },
                 pinch: {
-                from: ()=>{
-                    let [translateX, translateY, initialScale] = restoreTransform()
-                    return [initialScale,initialScale]
-                },
-                    scaleBounds: { min: 0.03, max: 8 },
+                    from: ()=>{
+                        let [translateX, translateY, initialScale] = restoreTransform()
+                        return [initialScale,initialScale]
+                    },
+                    //scaleBounds: { min: 0.03, max: 8 },
+                    scaleBounds: ()=>{
+                        const max = props.board ? 5 / Math.min(1, ...Object.values(props.primitive.frames).map(d=>d.s ?? 1)) : 8
+                        console.log(max)
+                        return { min: 0.03, max: max }
+                    }
                 },
             }
         )
@@ -1678,6 +1906,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             s: newScale
                         })
                     }
+                    refreshLinks()
                 }
             })
             myState.current.frameSelect.transformer.nodes([node])

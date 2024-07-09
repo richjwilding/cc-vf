@@ -303,12 +303,17 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
             setColSelection(1)
             setRowSelection(0)
         }else if(isAggregation ){
-            if( axisToggle ){
-                setColSelection(0)
-                setRowSelection(1)
+            if( labelled.length === 1){
+                    setColSelection(0)
+                    setRowSelection(0)
             }else{
-                setColSelection(1)
-                setRowSelection(0)
+                if( axisToggle ){
+                    setColSelection(0)
+                    setRowSelection(1)
+                }else{
+                    setColSelection(1)
+                    setRowSelection(0)
+                }
             }
         }else{
             const colSelect = findAxisItem(primitive, "column", labelled )

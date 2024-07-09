@@ -1989,6 +1989,22 @@ function MainStore (prims){
                     }
                     return out.length === 0 ? undefined : out
                 }
+                if( prop === "findImportRoute"){
+                    return function(target, out = []){
+                        if( receiver.primitives.imports.allIds.includes(target)){
+                            out.push(receiver)
+                        }else{
+                            const workings = receiver.parentPrimitives.filter(d=>d.type === "working")
+                            for(const d of workings){
+                                d.findImportRoute( target, out)
+                            }                        
+                        }
+                        return out
+                    }
+                }
+                if( prop === "importedBy"){
+                    return Object.keys(receiver._parentPrimitives).filter(d=>receiver._parentPrimitives[d].includes("primitives.imports")).map(d=>obj.primitive(d))
+                }
                 if( prop === "findRouteToParent"){
                     return function(target){
                         const ids = {}

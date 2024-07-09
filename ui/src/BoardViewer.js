@@ -40,10 +40,49 @@ export default function BoardViewer({primitive,...props}){
         })
     }
 
+    useEffect(() => {
+        const overlay = menu.current;
+    
+        const preventDefault = (e) => {
+            if (e.ctrlKey) {
+                e.preventDefault();
+            }
+        };
+    
+        overlay.addEventListener('wheel', preventDefault, { passive: false });
+        //overlay.addEventListener('touchstart', preventDefault, { passive: false });
+        //overlay.addEventListener('touchmove', preventDefault, { passive: false });
+    
+        return () => {
+          overlay.removeEventListener('wheel', preventDefault);
+          //overlay.removeEventListener('touchstart', preventDefault);
+          //overlay.removeEventListener('touchmove', preventDefault);
+        };
+      }, [menu.current]);
+    
+
     const action = primitive.metadata?.actions?.find(d=>d.key === "build_generic_view")
 
     //const boards = [279897,290878, 294261, 303071,303073,302434, 303074, 303153].map(d=>mainstore.primitive(d))
     const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery]
+
+    const linkList = boards.map(left=>{
+        return boards.map(right=>{
+            if( left.id !== right.id){
+                let link = false
+                if( right.parentPrimitiveIds.includes(left.id) ){
+                    link = true
+                }else{
+                    const route = right.findImportRoute(left.id)
+                    link = route.length > 0
+                }
+                if( link ){
+                    return {left: left.id, right: right.id}
+                }
+            }
+        }).flat()
+    }).flat().filter(d=>d)
+    console.log("LINKLIST", linkList.length)
 
     function prepareBoard(d){
         if( d.type === "view" || d.type === "query"){
@@ -51,42 +90,42 @@ export default function BoardViewer({primitive,...props}){
             const columnAxis = CollectionUtils.primitiveAxis(d, "column")
             const rowAxis = CollectionUtils.primitiveAxis(d, "row")
     
-    const baseViewConfigs = [
-        {id:0, title:"Show items",parameters: {showAsCounts:false}},
-        {id:1, title:"Show counts",parameters: {
-            showAsCounts:true,
-            "props": {
-                "hideDetails": true,
-                "showGrid": false,
-                showSummary: true,
-                columns: 1,
-                fixedWidth: '60rem'
-            }
-        }},
-        {id:2, title:"Show segment overview", 
-                parameters: {
-                    showAsSegment: true,
-                    "props": {
-                        "hideDetails": true,
-                        "showGrid": false,
-                        showSummary: true,
-                        columns: 1,
-                        fixedWidth: '60rem'
-                      }
-
-                }
-            },
-        {id:3, title:"Show as graph", 
-                parameters: {
-                    showAsGraph: true,
-
-                },
+        const baseViewConfigs = [
+            {id:0, title:"Show items",parameters: {showAsCounts:false}},
+            {id:1, title:"Show counts",parameters: {
+                showAsCounts:true,
                 "props": {
+                    "hideDetails": true,
+                    "showGrid": false,
+                    showSummary: true,
                     columns: 1,
-                    fixedWidth: '80rem'
+                    fixedWidth: '60rem'
+                }
+            }},
+            {id:2, title:"Show segment overview", 
+                    parameters: {
+                        showAsSegment: true,
+                        "props": {
+                            "hideDetails": true,
+                            "showGrid": false,
+                            showSummary: true,
+                            columns: 1,
+                            fixedWidth: '60rem'
+                        }
+
                     }
-            }
-    ]
+                },
+            {id:3, title:"Show as graph", 
+                    parameters: {
+                        showAsGraph: true,
+
+                    },
+                    "props": {
+                        columns: 1,
+                        fixedWidth: '80rem'
+                        }
+                }
+        ]
             const activeView  = d?.referenceParameters?.explore?.view
             const viewConfigs = items?.[0]?.metadata?.renderConfig?.explore?.configs ?? baseViewConfigs
             const viewConfig = viewConfigs?.[activeView] 
@@ -181,7 +220,7 @@ export default function BoardViewer({primitive,...props}){
                 myState[id].axisOptions = CollectionUtils.axisFromCollection( source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
             }
             handleViewChange(true)
-
+            mainstore.sidebarSelect(id)
         }else{
             myState.activeBoard = undefined
             hideMenu()
@@ -261,6 +300,45 @@ export default function BoardViewer({primitive,...props}){
         }
     }
 
+    function pickBoardDescendant(){
+        if(myState.activeBoard){
+            let importedSet = myState.activeBoard.primitive.importedBy.map(d=>[d.primitives.origin.allUniqueQuery, d.primitives.origin.allUniqueView]).flat(Infinity)
+            let items = [...myState.activeBoard.primitive.primitives.origin.allUniqueQuery, ...myState.activeBoard.primitive.primitives.origin.allUniqueView, ...importedSet]
+
+            const activeBoardIds = Object.keys(myState)
+            items = items.filter(d=>!activeBoardIds.includes(d.id))
+
+            mainstore.globalPicker({
+                list: items,
+                callback: (d)=>{
+                    primitive.addRelationship(d, "ref")
+                    myState[d.id] = {id: d.id}
+                    prepareBoard( d )
+
+                    canvas.current.addFrame( renderView(d))
+                }
+
+            })
+
+        }        
+    }
+    function removeBoard(){
+        if(myState.activeBoard){
+            mainstore.promptDelete({
+                title: "Confirmation",
+                prompt: "Remove from board?",
+                handleDelete: ()=>{
+                    primitive.removeRelationship(myState.activeBoard.primitive, "ref")
+                    hideMenu()
+                    canvas.current.removeFrame( myState.activeBoard.id )
+                    delete myState[myState.activeBoard.id]
+                    myState.activeBoard = undefined
+                    return true
+                }
+            })
+        }
+    }
+
     function renderView(d){
         const view = myState[d.id]
         if( view.config === "full"){
@@ -287,6 +365,8 @@ export default function BoardViewer({primitive,...props}){
             <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
             <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
             <DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "filter" ? setShowPane(false) : setShowPane("filter")} className={`hover:text-ccgreen-800 hover:shadow-md ${rowFilter || colFilter ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
+            <DropdownButton noBorder icon={<HeroIcon icon='FAAddRectangle' className='w-5 h-5'/>} onClick={pickBoardDescendant} flat placement='left-start' />
+            <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />
         </div>}
         <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>
             <InfiniteCanvas 
@@ -315,7 +395,9 @@ export default function BoardViewer({primitive,...props}){
                                 },
                                 onClick:{
                                     frame: (id)=>setActiveBoard(id),
-                                    primitive:(id)=>mainstore.sidebarSelect(id)
+                                    primitive:(id)=>mainstore.sidebarSelect(id),
+                                    canvas:(id)=>mainstore.sidebarSelect()
+
                                 },
                                 onToggle:async (primitiveId, toggle, frameId)=>{
                                     console.log(`Will toggle ${toggle} on ${primitiveId} for frame ${frameId}`)
@@ -346,6 +428,7 @@ export default function BoardViewer({primitive,...props}){
                                     }
                                 },
                             }}
+                            frameLinks={linkList}
                             selectable={{
                                 "frame":{
                                     multiple: false
