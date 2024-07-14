@@ -131,7 +131,7 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                             imageOnly={props.imageOnly}
                             showEvidence="compact"
                             relationships={category?.relationships} 
-                            relationship={category ? primitive.primitives.relationships(p.id, ["results", category.id]) : undefined}
+                            relationship={primitive && category ? primitive.primitives.relationships(p.id, ["results", category.id]) : undefined}
                             {...(props.cardProps || {})}
                             />
                         </div>

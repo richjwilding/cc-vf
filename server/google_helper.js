@@ -1246,7 +1246,7 @@ export async function grabUrlAsPdf(url, id, text_only = false, prioritize_embedd
                     body: JSON.stringify({
                         code: `
                             module.exports = async ({ page, context }) => {
-                                const { url } = context;
+                                const { url, prioritize_embedded_pdf } = context;
                                 let pendingRequests = new Set();
 
                                 page.on('request', request => {
@@ -2196,10 +2196,10 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
         let result
         const attempts = [
             //{title: "Article", exec: asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
-            //{title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
             {title: "zenRows 1", exec: async ()=>await fetchURLAsTextAlternative( url,{
-                        preferEmbeddedPdf
+                preferEmbeddedPdf
             } )},
+            {title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
             {title: "zenRows 2", exec: async ()=>await fetchURLAsTextAlternative( url,{
                         'js_render': 'true',
                         preferEmbeddedPdf

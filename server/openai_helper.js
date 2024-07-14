@@ -204,7 +204,7 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here is a list of summaries:`}],
             [
-                {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single summary.`                    
+                {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single summary to address this original prompt: ${prompt}`                    
                             },
                 {"role": "user", "content": `Provide the result as a json object with an single field called 'summary' which conatins a string with your summary. Do not put anything other than the raw json object in the response .`},
             ],

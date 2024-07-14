@@ -90,7 +90,7 @@ export default function Panel({...props}){
 
   if( !props.collapsable ){
     return (
-        <div className={`group/panel ${props.hideTitle ? "" : "mt-6"} ${props.className || ""}`}>
+        <div className={`group/panel ${props.hideTitle || props.noSpace ? "" : "mt-6"} ${props.className || ""}`}>
           {!props.hideTitle && <Title {...props}/> }
             {props.children}
         </div>
@@ -100,7 +100,7 @@ export default function Panel({...props}){
     return (
       <Disclosure defaultOpen={props.open}>
       {({ open }) => (
-        <div className={`group/panel mt-6 ${props.className || ""}`}>
+        <div className={`group/panel ${props.noSpace ? "" : "mt-6"} ${props.className || ""}`}>
           <div className='flex w-full place-items-center space-x-2'>
             <Disclosure.Button as='div' key="title" className='flex w-full' ref={toggleRef}>
               <Title {...props} open={open}/>

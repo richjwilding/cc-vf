@@ -169,6 +169,9 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     if( !options.list ){
         return undefined
     }
+    let items = options.list
+    let itemCount = items.length + (config.showExtra ? 1 : 0)
+
 
     if( config.minColumns) {
         config.columns = Math.max(config.minColumns, config.columns)
@@ -183,7 +186,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
         config.width = calcWidth
     }
 
-    config.rows = Math.ceil( options.list.length / config.columns )
+    config.rows = Math.ceil( itemCount / config.columns )
 
 
     const width = config.width 
@@ -197,7 +200,6 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     })
     let x = config.padding[3] + config.spacing[1]
 
-    const items = options.list
 
     const r = new Konva.Rect({
         x: config.padding[3],
@@ -214,37 +216,93 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     
     let ypos = new Array( config.columns ?? 1).fill(config.padding[0] + config.spacing[0])
 
-    for( const d of items ){
+    for( let dIdx = 0; dIdx < itemCount; dIdx++){
+        const d = items[dIdx]
         let y = ypos[col]
         let node
-        
-        if( options.cachedNodes ){
-            node = options.cachedNodes.children.find(d2=>d2.attrs.id === d.id)
-            if( node ){
-                node.remove()
-                node.attrs.placeholder = options.placeholder !== false
-                node.children.forEach(d=>{
-                    if(d.className === "CustomImage"|| d.className === "CustomText"){
-                        d.attrs.refreshCallback = options.imageCallback
-                    }
+        let lastNode
 
+        if( d ){
+            if( options.cachedNodes ){
+                node = options.cachedNodes.children.find(d2=>d2.attrs.id === d.id)
+                if( node ){
+                    node.remove()
+                    node.attrs.placeholder = options.placeholder !== false
+                    node.children.forEach(d=>{
+                        if(d.className === "CustomImage"|| d.className === "CustomText"){
+                            d.attrs.refreshCallback = options.imageCallback
+                        }
+                        
+                    })
+                }
+            }
+            if( !node ){
+                node = RenderPrimitiveAsKonva( d, {
+                    config: "default", 
+                    x: x, 
+                    y: y, 
+                    onClick: options.primitiveClick,
+                    maxHeight: 400,
+                    width: fullWidth, 
+                    padding: config.itemPadding, 
+                    placeholder: options.placeholder !== false,
+                    toggles: options.toggles,
+                    imageCallback: options.imageCallback
                 })
             }
-        }
-        if( !node ){
-            node = RenderPrimitiveAsKonva( d, {
-                config: "default", 
-                x: x, 
-                y: y, 
-                onClick: options.primitiveClick,
-                maxHeight: 400,
-                width: fullWidth, 
-                padding: config.itemPadding, 
-                placeholder: options.placeholder !== false,
-                toggles: options.toggles,
-                imageCallback: options.imageCallback
+        }else{
+            col = config.columns - 1
+            x = (config.padding[3] + config.spacing[1]) + ((fullWidth + config.spacing[1]) * col)
+            y = ypos[col]
+            
+            const number = `${config.showExtra}`
+            const check = config.showExtra >= 0 ? number.length > 4 ? number : "more" : `Show less`
+            const fullLabel = config.showExtra >= 0 ? `**${number}**\nmore`: `Show less`
+            let size = 100
+            const t = new CustomText({
+                x: 0,
+                y: 10,
+                fontSize: size,
+                lineHeight: config.showExtra >= 0 ? 0.7 : 1.2,
+                text: fullLabel,
+                align:"center",
+               // verticalAlign:"middle",
+                withMarkdown: true,
+                fill: '#334155',
+                showPlaceHolder: false,
+                wrap: true,
+                bgFill: 'transparent',
+                width: fullWidth,
+                refreshCallback: options.imageCallback
             })
+            while( (t.measureSize(check).width > fullWidth * 0.3) && size > 6){
+                size = size > 20 ? size -= (size * 0.1) : size - 0.25
+                t.fontSize( size )
+            }
+
+            const thisHeight = t.height() + 20
+            node = new Konva.Group({
+                id: options.id,
+                x: x,
+                y: y,
+                width: fullWidth,
+                height: thisHeight,
+                onClick: options.onClick,
+                name:"inf_track widget show_extra"
+            })
+            const r = new Konva.Rect({
+                x: 0,
+                y: 0,
+                width: fullWidth,
+                height: thisHeight,
+                cornerRadius: 4,
+                fill: '#d2d2d2',
+                hoverFill: '#a2a2a2',
+            })
+            node.add(r)
+            node.add(t)
         }
+
         if( node ){
             g.add(node)
             ypos[col] += config.spacing[0] + (node.attrs.height ?? 0)
@@ -259,7 +317,9 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
             col = 0
             x = config.padding[3] + config.spacing[1]
         }
+        lastNode = node
     }
+    
     const height = Math.max(ypos.reduce((a,c)=>c > a ? c : a, 0) + config.padding[0] + config.padding[2], config.minHeight ?? 0)
     config.height = height + config.spacing[0]
 
@@ -717,7 +777,7 @@ function baseImageWithText(primitive, options){
             fontSize: 16,
             lineHeight: 1.5,
             text: options.textField,
-            height: availableHeight,
+          //  height: availableHeight,
             fill: '#334155',
             wrap: true,
             ellipsis: true,
@@ -730,8 +790,8 @@ function baseImageWithText(primitive, options){
             if( h > availableHeight ){
                 t.ellipsis(true)
                 t.height( availableHeight )
+                h = availableHeight
             }
-         //   h = availableHeight
         }
         //t.height(h)
         g.add(t)
@@ -1212,6 +1272,14 @@ export function renderMatrix( primitive, list, options ){
         console.log(`Multiple types in list, selecting first`)
     }
 
+    let cellContentLimit = {
+        "result": 50
+    }[list[0]?.primitive?.type] ?? false
+    
+    cellContentLimit = {
+        29: 64
+    }[referenceIds[0]] ?? cellContentLimit
+
     let itemColsByColumn = new Array(columnExtents.length).fill(0)
 
     let toggleMap
@@ -1231,7 +1299,19 @@ export function renderMatrix( primitive, list, options ){
     for(const row of rowExtents){
         let cIdx = 0
         for(const column of columnExtents){
-            const subList = list.filter((item)=>(Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx) && (Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive)
+            let subList = list.filter((item)=>(Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx) && (Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive)
+            let cellShowExtra
+            if( cellContentLimit ){
+                if( subList.length > cellContentLimit){
+                    if( options.expand && options.expand.includes([column.idx, row.idx].filter(d=>d).join("-"))){
+                        cellShowExtra = -1
+                    }else{
+                        cellShowExtra = subList.length - cellContentLimit
+                        subList = subList.slice(0, cellContentLimit)
+                    }
+                }
+            }
+
             const itemLength = subList.length 
             const itemCols = Math.floor( Math.sqrt( itemLength) )
 
@@ -1244,7 +1324,8 @@ export function renderMatrix( primitive, list, options ){
                 row: row,
                 list: subList,
                 itemLength,
-                itemCols
+                itemCols,
+                showExtra: cellShowExtra
             })
             cIdx++
         }
@@ -1279,6 +1360,7 @@ export function renderMatrix( primitive, list, options ){
                 cIdx: cell.cIdx,
                 rIdx: cell.rIdx,
                 renderConfig:{
+                    showExtra: cell.showExtra,
                     columns: itemColsByColumn[cell.cIdx], minWidth: minWidth
                 },
                 getConfig: true
@@ -1509,6 +1591,7 @@ export function renderMatrix( primitive, list, options ){
                 rIdx: cell.rIdx,
                 id: `${cell.cIdx}-${cell.rIdx}`, 
                 renderConfig:{
+                    showExtra: cell.showExtra,
                     width: columnSize[cell.cIdx], 
                     height: rowSize[cell.rIdx] , 
                     minHeight: rowSize[cell.rIdx] - cell.config.padding[0] - cell.config.padding[2],

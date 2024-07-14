@@ -502,10 +502,10 @@ export function allPrimitivesWithRelationship(primitive, relationship){
         return []
     }
     if( relationship.indexOf("_") > -1 ){
-        const multi = relationship.split("_")
+        const multi = relationship.split("_").map(d=>`primitives.${d}`)
         return Object.keys(primitive.parentPrimitives ?? {}).filter((parentId)=>{
             return multi.filter(d=>{
-                if( d === "result"){
+                if( d === "primitives.result"){
                     return primitive.parentPrimitives[parentId].filter(d=>d.match(/\.results\.\d+/)).length > 0
                 }else{
                     return primitive.parentPrimitives[parentId].includes(d)
@@ -599,10 +599,11 @@ export async function multiPrimitiveAtOrginLevel( list, level, relationship = "o
     let isArray = Array.isArray(relationship)
     const [rel, rId] = decodeRelationship(isArray ? relationship[0] : relationship)
     let thisRefFilter = rId
-
-
-
+    
+    
+    
     const startIds = list.map(d=>allPrimitivesWithRelationship(d, rel))
+    console.log(`Got ${startIds.length} for first level check (${rel} / ${rId})`)
 
     do{        
         console.log(`Fetch level ${inc}`)
@@ -1158,7 +1159,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
     const category = await Category.findOne({id: primitive.referenceId})
 
     let type = primitive.referenceParameters?.type || action.type //|| category.type
-    let target = primitive.referenceParameters?.target || action.target || category?.target || "children"
+    let target = primitive.referenceParameters?.target || action.target || category?.target || (Object.keys(source?.primitives ?? {}).includes("imports") ? "items" : "children")
     let referenceId = primitive.referenceParameters?.referenceId || action.referenceId || category?.referenceId
     let field = primitive.referenceParameters?.field || action.field || "title"
 
@@ -1465,10 +1466,50 @@ export async function primitiveParents(primitive, path){
     return []
 }
 
+export async function createSummary(primitive, queryData, importData){
+    let interimSegment
+
+    if( importData ){
+        const candidates = await primitiveChildren( primitive, "segment")
+        interimSegment = candidates.find(d=>PrimitiveConfig.checkImports( d, primitive.id, importData[0].filters ))
+        if( !interimSegment ){
+            const segmentData = {
+                parent: primitive.id,
+                workspaceId: primitive.workspaceId,
+                data:{
+                    type: "segment",
+                    title: "New segment",
+                    referenceParameters:{
+                        importConfig: importData
+                    }
+                }
+            }
+            
+            interimSegment = await createPrimitive(segmentData)
+            await addRelationship( interimSegment.id, primitive.id, "imports")
+        }
+    }
+    const newPrimitiveData = {
+        data: queryData,
+        parent: interimSegment ?? primitive,
+        workspaceId: primitive.workspaceId,
+        referenceParameters: interimSegment ? {"target":"items"} : undefined
+    }
+
+    let newPrimitive = await createPrimitive(newPrimitiveData)
+    newPrimitive = await addRelationship( newPrimitive.id, interimSegment ? interimSegment.id : primitive.id, "imports")
+
+    doPrimitiveAction(newPrimitive, "rebuild_summary")
+
+    return {primitiveId: newPrimitive.id, segment: interimSegment?.id}
+}
 export async function doPrimitiveAction(primitive, actionKey, options, req){
 
     if( primitive.type === "search" ){
         return await QueryQueue().doQuery(primitive, options)
+    }
+    if( actionKey === "new_summary"){
+        return await createSummary(primitive, options.queryData, options.importData)
     }
     if( actionKey === "refetch_source"){
         await removeDocument( primitive.id )
@@ -1614,6 +1655,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         console.log(options)
         const source = options.source ? await fetchPrimitive( options.source ) : undefined
         const [items, toSummarize] = await getDataForProcessing(primitive, {...(category?.openai?.summarize?.source ?? options ?? {})}, source, {instance: options?.instance} )
+        console.log(items.length, "items")
         if( items.length > 0){
 
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
@@ -1694,13 +1736,16 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     if( summary && summary.summary ){
                         result = summary.summary
 
-                        result = result.replace(/\\n/g, '\n');
-                        result = result.replace(/\n+/g, '\n');
-                        result = result.replace(/^\s*\d+\)?\.?\s*/gm, '');
-                        if( primitive.referenceParameters?.asList ?? options.asList ){
+                        if( false){
 
-                        }else{
-                            result = result.trim().replace(/\n/g, '\n\n');                 
+                            result = result.replace(/\\n/g, '\n');
+                            result = result.replace(/\n+/g, '\n');
+                            result = result.replace(/^\s*\d+\)?\.?\s*/gm, '');
+                            if( primitive.referenceParameters?.asList ?? options.asList ){
+                                
+                            }else{
+                                result = result.trim().replace(/\n/g, '\n\n');                 
+                            }
                         }
                     }
                 }
@@ -2605,7 +2650,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             if( command === "custom_query"){
                 const thisCategory = await Category.findOne({id: primitive.referenceId})
-                const parentForScope = (await primitiveParentsOfType(primitive, ["working", "view", "segment", "query"]))?.[0]
+                const parentForScope = (await primitiveParentsOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
                 if( thisCategory.type === "aggregator"){
                     await aggregateItems( parentForScope, primitive )
                     return
@@ -3516,7 +3561,11 @@ export async function createPrimitive( data, skipActions, req, options={} ){
         if( data.parent ){
             data.data.parentPrimitives = {[parentPrimitive.id]: paths}
         }
+        
+        const category = options.category ?? (await Category.findOne({id: data.data.referenceId}))
+
         data.data.plainId = await getNextSequenceValue("base")
+        data.data.title =  data.data.title ?? `New ${category?.title ?? data.data.type}`
         
         let newPrimitive = await Primitive.create(data.data)
         
@@ -3532,7 +3581,6 @@ export async function createPrimitive( data, skipActions, req, options={} ){
             await addRelationship(parentPrimitive.id, newId, path, true)
         }
 
-        const category = options.category ?? (await Category.findOne({id: newPrimitive.referenceId}))
         if( !skipActions && category && category.actions){
             let changed = false
             for( const action of category.actions){

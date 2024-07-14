@@ -17,6 +17,7 @@ import PrimitivePicker from './PrimitivePicker';
 import { InputPopup } from './InputPopup';
 import CollectionUtils from './CollectionHelper';
 import test from './tests/filter.js';
+import NewPrimitive from './NewPrimitive.js';
 
 library.add(fas, faLinkedin)
 
@@ -42,6 +43,7 @@ function App() {
   const [showDeletePrompt, setShowDeletePrompt] = React.useState()
   const [showPicker, setShowPicker] = React.useState()
   const [manualInputPrompt, setManualInputPrompt] = React.useState(false)
+  const [showNew, setShowNew] = React.useState(false)
 
 
   const checkPrimIsLoaded = ()=>{
@@ -107,6 +109,7 @@ function App() {
   mainstore.promptDelete = setShowDeletePrompt
   mainstore.globalPicker = setShowPicker
   mainstore.globalInputPopup = setManualInputPrompt
+  mainstore.globalNewPrimitive = setShowNew
 
   return (
     !loaded
@@ -148,6 +151,7 @@ function App() {
           {showDeletePrompt && <ConfirmationPopup title={showDeletePrompt.title ?? "Confirm deletion"} message={showDeletePrompt.prompt} confirm={showDeletePrompt.handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
           {showPicker && <PrimitivePicker list={showPicker.list} root={showPicker.root} callback={showPicker.callback} setOpen={setShowPicker} type={showPicker.type} referenceId={showPicker.referenceId}/>}
           {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
+          {showNew && <NewPrimitive {...showNew} done={showNew.callback ? (data)=>showNew.callback(data) : undefined} cancel={()=>setShowNew(false)}/>}
           </BrowserRouter>
       </div>
   )

@@ -195,6 +195,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
             }
         }
         return list.filter((d)=>filters.map((f)=>f(d)).reduce((r,c)=>r && c, true))
+        
     },[primitive.id, update])
 
     let layers
@@ -346,6 +347,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
 
     let [fullList, baseFilters, extentMap] = React.useMemo(()=>{
+        console.log(`REDO FULL LIST`)
 
         
         let {data: interim, extents} = CollectionUtils.mapCollectionByAxis( items, axisOptions[colSelection], axisOptions[rowSelection], viewFilters.map(d=>axisOptions[d.option]), liveFilters, viewPivot )
@@ -1379,6 +1381,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
     let selectionForCategory = selectedBox?.infoPane?.filters ? primitive.filterItems(list.map(d=>d.primitive), selectedBox.infoPane.filters).map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i) : undefined
 
+    console.log(`--- RENDER ${primitive.plainId} / ${primitive.id}`)
 
     let exploreView = <>
         {props.allowedCategoryIds && props.allowedCategoryIds.length > 1 && 

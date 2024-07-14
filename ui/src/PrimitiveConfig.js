@@ -299,7 +299,7 @@ const PrimitiveConfig = {
             const imp = receiver.primitives.imports
             const ids = imp.allIds ?? imp
             if( ids.includes(id) ){
-                if( receiver?.referenceParameters?.target === "items"){
+                if( !receiver?.referenceParameters?.target || receiver?.referenceParameters?.target === "items"){
                     if( !receiver.referenceParameters.importConfig ){
                         return true
                     }
@@ -316,7 +316,7 @@ const PrimitiveConfig = {
                 return false
             }
         }
-        if( receiver?.referenceParameters?.target === "items" && receiver.referenceParameters.importConfig){
+        if( (!receiver?.referenceParameters?.target || receiver?.referenceParameters?.target === "items") && receiver.referenceParameters.importConfig){
             const candidates = receiver.referenceParameters.importConfig.filter(d=>d.id === id)
             const match = candidates.filter(d=> {
                 const thisMatch = d.filters.filter(d2 => {
@@ -357,9 +357,8 @@ const PrimitiveConfig = {
             const temp = []
 
             let basicCheck = (d)=>{
-                if( typeof(d) === "object" ){
-                return check.filter(d2=>d.includes(d2)).length > 0
-
+                if(d !== null && typeof(d) === "object" ){
+                    return check.filter(d2=>d.includes(d2)).length > 0
                 }
                 return check.includes(d)
             }

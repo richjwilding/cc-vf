@@ -120,17 +120,42 @@ export default function NewPrimitive({...props}) {
 
     async function submit() {
         const type = selectedCategory.primitiveType ?? [props.type].flat()[0]
+
+        const baseParams = selectedCategory.details.parameters
+        const defaults = Object.keys(baseParams ?? {}).filter(d=>baseParams[d].default).reduce((a,c)=>{
+            a[c] = baseParams[c].default
+            return a
+        },{})
+        const fullParameters = {
+            ...defaults,
+            ...props.parameters,
+            ...parameters
+        }
+
+        if( Object.keys(baseParams ?? {}).filter(d=>baseParams[d].required).filter(d=>fullParameters[d] === undefined).length > 0){
+            console.log(`Missing fields`)
+            return 
+        }
+
+        console.log(fullParameters)
+
         const primitive = await MainStore().createPrimitive({
             title: value,
             type: type,
             categoryId: selectedCategory?.categoryId,
             parent: props.parent,
             parentPath: props.parentPath,
-            referenceParameters: {...props.parameters, ...parameters},
+            referenceParameters: fullParameters,
             workspaceId: selectedWorkspace
         })
+        if( primitive && props.originTask ){
+            await primitive.addRelationshipAndWait( props.originTask, "imports")
+        }
         if( props.done ){
-            props.done(primitive)
+            const r = props.done(primitive)
+            if( r ) {
+                closeModal()
+            }
         }
     }
 
@@ -159,6 +184,7 @@ export default function NewPrimitive({...props}) {
         return true
 
     }
+
     return (
         <Popup width='max-w-xl' setOpen={closeModal} title={`Create new ${props.title || "item"}`}>
             {({ activeOption }) => (
@@ -187,15 +213,18 @@ export default function NewPrimitive({...props}) {
                 />
                 {selectedCategory && selectedCategory.details.parameters && 
                     <div style={{gridTemplateColumns:'max-content auto'}} className='w-full px-2 py-0.5 grid grid-cols-2 border border-gray-200 rounded-md shadow-sm mt-2'>
-                        {Object.keys(selectedCategory.details.parameters).map((d, idx)=>{
+                        {Object.keys(selectedCategory.details.parameters).filter(d=>!selectedCategory.details.parameters[d].hidden).map((d, idx)=>{
                             const parameter = selectedCategory.details.parameters[d]
+                            
+                            parameter.value = parameters[d]
+
                             const classDef = ['flex text-sm min-h-[2rem] p-2 place-items-center', idx > 0 ? "border-t" : ""].join(" ")
                             return <>
                                 <p className={`${classDef} font-semibold text-gray-500`}>
                                     {parameter.title}
                                 </p>
                                 <div className={`${classDef} flex justify-end w-full`}>
-                                    <PrimitiveCard.RenderItem item={parameter} editable={true} border callback={(e)=>{return validateAndSetParameter(d, parameter, e)}}/>
+                                    <PrimitiveCard.RenderItem item={parameter} local primitive={props.originTask} editable={true} border callback={(e)=>{return validateAndSetParameter(d, parameter, e)}}/>
                                 </div>
                             </>
                         })}

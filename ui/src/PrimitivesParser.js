@@ -397,6 +397,10 @@ export default function PrimitiveParser(obj){
                         const ids = receiver._buildDescendantIds( {}, true, true )
                         return ids.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
+                    if(prop === "directDescendants"){
+                        const ids = receiver._buildDescendantIds( {}, true, false, true )
+                        return ids.map((d)=>obj.primitive(d)).filter((d)=>d)
+                    }
                     if(prop === "descendants"){
                         return receiver.descendantIds.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
@@ -404,11 +408,10 @@ export default function PrimitiveParser(obj){
                         return receiver._buildDescendantIds( {}, true )
                     }
                     if(prop === "_buildDescendantIds"){
-                        return function(temp , first = true, origin_only){
+                        return function(temp , first = true, origin_only, direct_only){
                             if( first ){
                                 temp = new Set()
                             }
-                            //const childrenIds = origin_only ? receiver.origin.uniqueAllIds : receiver.uniqueAllIds
                             let childrenIds 
                             if( origin_only ){
                                 childrenIds = []
@@ -422,19 +425,9 @@ export default function PrimitiveParser(obj){
                                     childrenIds.push( Object.values(target.auto ) )
                                 }
                                 childrenIds = childrenIds.flat(Infinity)
-
-                                /*if( target.origin && target.auto){
-                                    childrenIds = uniqueArray([Object.values(target.origin ), Object.values(target.auto)].flat(Infinity))
-                                }else if( target.origin){
-                                    childrenIds = Object.values(target.origin ) 
-                                }else if( target.auto){
-                                    childrenIds = Object.values(target.auto ) 
-                                }else{
-                                    if( first ){
-                                        return []
-                                    }
-                                    return
-                                }*/
+                            }else if(direct_only){
+                                const keys = Object.keys(target).filter(d=>d !== "imports")
+                                childrenIds = keys.map(d=>receiver[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
                             }else{
                                 childrenIds = receiver.uniqueAllIds
                             }

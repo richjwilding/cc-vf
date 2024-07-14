@@ -9,6 +9,7 @@ import clsx from 'clsx'
 import CollectionUtils from './CollectionHelper'
 import { useState } from 'react'
 import { PencilSquareIcon } from '@heroicons/react/24/outline'
+import { HeroIcon } from './HeroIcon'
 
 
 function AxisPicker({className, options, name, title, type, small, disabled, autoFocus,'aria-label': ariaLabel,...props}){
@@ -158,7 +159,9 @@ function OptionList({options, name, title, type, ...props}){
     const control = <Listbox name={name} value={props.value} defaultValue={props.defaultValue ?? props.default} onChange={props.onChange} placeholder={props.placeholder} zIndex={props.zIndex} small={props.small}>
         {options.map(d=>(
             <ListboxOption value={d.id} small={props.small}>
+                {d.icon && <HeroIcon icon={d.icon} className='w-4 h-4'/>}
                 <ListboxLabel key={d.id}>{d.title}</ListboxLabel>
+                {props.showCount && <span className="inline-flex items-center rounded-full bg-gray-200 px-1.5 ml-3 text-[0.625rem] font-medium text-gray-600">{d.count ?? 0}</span>}
             </ListboxOption>
         ))}
     </Listbox>

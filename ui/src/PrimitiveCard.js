@@ -82,7 +82,6 @@ let mainstore = MainStore()
                     />
       }else if( item.type === "list"){
         const align = ""
-        const clamp = item.type === "long_string" && !props.disableClamp ? "line-clamp-[10]" : ""
         let editable = true
         let thisValue = undefined
         if( Array.isArray(item.value)){
@@ -104,12 +103,10 @@ let mainstore = MainStore()
           placeholder={item.placeholder} 
           icon={icon} 
           fieldClassName={`${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
-          clamp={clamp}
           callback={props.callback ? props.callback : (value)=>{
             const asList = value.split(",").map(d=>d.trim())
             return props.primitive.setParameter(item.key, asList)
           }}
-          className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
         />
       }else if( item.type === "options"){
           return <div className='flex flex-wrap space-x-2'>{item.options.map(d=><CheckPill title={d.title} enabled={item.value ? item.value.includes(d.id) : item.default?.includes(d.id)} setEnabled={(v)=>{
@@ -179,14 +176,27 @@ let mainstore = MainStore()
         }
 
         let available = item.referenceIds ? item.referenceIds.map(d=>mainstore.category(d)) : mainstore.categories()
-        if( props.activeOnly ){
-          const ids = props.primitive.primitives.descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
-          available = available.filter(d=>ids.includes(d.id))
+        let itemCountByType
+        if( props.activeOnly || item.activeOnly){
+          //const ids = props.primitive.primitives.descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
+          if( props.primitive || props.primitiveList){
+            const items = props.primitiveList ?? [props.primitive]
+            let lookups = mainstore.uniquePrimitives(mainstore.uniquePrimitives(items.map(d=>d.itemsForProcessing).flat()).map(d=>d.primitives.descendants).flat())
+            lookups = [...items, ...lookups]
+            itemCountByType = {}
+            for(const d of lookups){
+              itemCountByType[d.referenceId] = (itemCountByType[d.referenceId] ?? 0) + 1
+            }
+            const ids = lookups.map(d=>d.referenceId).flat().filter((d,i,a)=>a.indexOf(d) === i)
+            available = available.filter(d=>ids.includes(d.id))
+          }else{
+            available = []
+          }
         }
         
         for( const cat of available){
           if(item.referenceIds ||  ["entity","evidence","result","category","query","activity","marketsegment","detail","summary"].includes(cat.primitiveType) ){
-            list.push({title: cat.title, categoryId: cat.id, category: cat})
+            list.push({title: cat.title, count: itemCountByType ? itemCountByType[cat.id] : undefined,categoryId: cat.id, category: cat, icon: cat.icon})
           }
         }                
 
@@ -203,9 +213,20 @@ let mainstore = MainStore()
           }
         }
 
+
+        let selectedItem = list.findIndex(d=>parseInt(item.value) === d.categoryId)
+        if(props.local ){
+          if( item.value === undefined && (item.activeOnly || props.activeOnly)){
+            if( props.primitiveList ){                
+              selectedItem = list.findIndex((d)=>(d.categoryId === props.primitiveList[0].referenceId))
+            }
+          }
+        }
+
         return <MyCombo 
           disabled={item.locked}
-          selectedItem={list.findIndex(d=>parseInt(item.value) === d.categoryId)} 
+          showCount={itemCountByType}
+          selectedItem={selectedItem} 
           setSelectedItem={setSource}
           small={props.compact || props.inline}
           portal
@@ -220,8 +241,6 @@ let mainstore = MainStore()
         }
 
         let defaultConfig
-        console.log(item)
-
 
         if( item.scope ){
           const origin = props.primitive.origin
@@ -264,6 +283,7 @@ let mainstore = MainStore()
             }
           }
         }else{
+          
 
           const task = props.primitive.task
           if( !task?.metadata){
@@ -312,7 +332,6 @@ let mainstore = MainStore()
           if( props.callback ){
             const res = {}
             props.callback(parseInt(source.key))
-
           }else{
             if( source.target ){
               props.primitive.setParameter("referenceId", source.categoryId  )
@@ -332,11 +351,10 @@ let mainstore = MainStore()
         }else{
 
           if( props.local ){
-            index = list.findIndex((d)=>(d.key === item.value))
+              index = list.findIndex((d)=>(d.key === item.value))
           }else{
             index = list.findIndex((d)=>(item.value === "evidence" && d.key === props.primitive.referenceParameters?.referenceId) ||(item.value === "evidence" && props.primitive.referenceParameters?.referenceId === undefined) || item.value === d.key) 
             if( index == -1 ){
-              console.log(`here` , item.value)
               index = list.findIndex((d)=>item.value !== "evidence" && d.categoryId === props.primitive?.referenceParameters?.referenceId)
             }
             if( index == -1 && defaultConfig){
@@ -399,18 +417,20 @@ let mainstore = MainStore()
           />
 
       }else if( item.type === "category_field"){
-        const task = props.primitive.task
+        const task = props.primitive?.task
 
         const defaultConfig = item.itemMeta ? undefined : task?.metadata?.actions.find((d)=>d.key === "categorize" || d.command === "categorize")
         let sourceMeta
 
         let _target = props.primitive?.referenceParameters?.target ? props.primitive.referenceParameters?.target : defaultConfig?.target
-        let _refId =  props.primitive.referenceParameters?.referenceId ?? defaultConfig?.referenceId
+        let _refId =  props.primitive?.referenceParameters?.referenceId ?? defaultConfig?.referenceId
         console.log(_target)
 
-        const first = item.itemMeta ? props.primitive.itemsForProcessing?.[0] : undefined
+        const first = item.itemMeta ? props.primitive?.itemsForProcessing?.[0] : undefined
 
-        if( props.primitive.referenceParameters?.referenceId){
+        if( props.localCategoryId){
+          sourceMeta = mainstore.category(props.localCategoryId)
+        }else if( props.primitive?.referenceParameters?.referenceId){
           sourceMeta = mainstore.category(props.primitive.referenceParameters?.referenceId)
         }else if( item.itemMeta && first){
             sourceMeta = first.metadata
@@ -619,11 +639,11 @@ let mainstore = MainStore()
             default={item.default} 
             placeholder={item.placeholder} 
             icon={icon} 
+            border
             fieldClassName={`break-all ${props.compact ? "" :`grow`} ${props.inline ? "truncate" : ""}`}
             callback={props.callback ? props.callback : (value)=>{
                 return props.primitive.setParameter(item.key, value)
             }}
-            className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
           />
             <a href={item.value} className='p-1' target="_blank">
                 <LinkIcon className='w-5'/>
@@ -652,7 +672,6 @@ let mainstore = MainStore()
                         callback={props.callback ? props.callback : (value)=>{
                           return props.primitive.setParameter(`${item.key}.${d}`, value, false, true)
                         }}
-                        className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
                         fieldClassName='border-b broder-gray-200'
                         />
                   </>
@@ -668,7 +687,8 @@ let mainstore = MainStore()
         default={item.default} 
         placeholder={item.placeholder} 
         icon={icon} 
-        fieldClassName={`${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
+        border
+        fieldClassName={`${item.type === "long_string" ? "min-h-24" : ""} ${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
         clamp={clamp}
         callback={props.callback ? props.callback : (value)=>{
             if( item.type === "integer"){
@@ -676,7 +696,6 @@ let mainstore = MainStore()
             }
             return props.primitive.setParameter(item.key, value)
         }}
-        className={`flex place-items-center ${props.secondary ? "text-slate-400 text-xs font-medium" : `text-gray-${item.value ? "500" : "400"}  font-medium`}`}
       />
 
   }

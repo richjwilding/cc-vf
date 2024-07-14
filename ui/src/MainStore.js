@@ -480,6 +480,22 @@ function MainStore (prims){
                     }
                     )
             },
+            async setRelationshipAndWait( receiver, target, path, set ){
+                const data = {
+                    receiver: receiver.id,
+                    target: target.id,
+                    path: path,
+                    set: set
+                }
+                obj.triggerCallback("relationship_update", [receiver, target])
+                await fetch("/api/set_relationship",{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+            },
             setRelationship( receiver, target, path, set ){
                 const data = {
                     receiver: receiver.id,
@@ -1391,6 +1407,16 @@ function MainStore (prims){
                     }
 
                 }
+                if( prop === "addRelationshipAndWait"){
+                    return async function( target, path ){
+                        if( receiver.primitives.add( target.id, path )){
+                            target.addParentRelationship(receiver, path)
+                            console.log(`ADDING WITH WAIT`)
+                            await obj.controller.setRelationshipAndWait( receiver, target, path, true )
+                            console.log(`ADDING WITH WAIT - BACK`)
+                        }
+                    }
+                }
                 if( prop === "addRelationship"){
                     return function( target, path, skip = false ){
                         if( receiver.primitives.add( target.id, path )){
@@ -1657,7 +1683,8 @@ function MainStore (prims){
                                 options.cache = {}
                             }
 
-                            if( Object.keys(receiver.primitives).includes("imports")){
+                            if( Object.keys(receiver.primitives).includes("imports") && receiver.type !== "query"){
+                            //if( Object.keys(receiver.primitives).includes("imports") && !["query","segment"].includes(receiver.type)){
                                 //console.log(`Importing from other sources`)
                                 let fullList = []
                                 for( const source of receiver.primitives.imports.allItems){
@@ -1734,7 +1761,7 @@ function MainStore (prims){
                                 }
                                 return uniquePrimitives(fullList)
                             }else{
-                                let list = receiver.primitives.uniqueAllItems
+                                let list = uniquePrimitives(Object.keys(receiver.primitives).filter(d=>d !== "imports").map(d=>receiver.primitives[d].uniqueAllItems).flat())
                                 if( receiver.type === "query" || receiver.type  === "segment"){
                                     let params = options.params ?? receiver.getConfig
                                     if( params.extract ){
@@ -1938,7 +1965,7 @@ function MainStore (prims){
                     }
                 }
                 if( prop === "displayType"){
-                    return d.type.charAt(0).toUpperCase() + d.type.slice(1)
+                    return d.metadata?.title ?? d.type.charAt(0).toUpperCase() + d.type.slice(1)
                 }
                 if( prop === "context"){
                     const category = receiver.metadata

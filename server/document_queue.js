@@ -111,13 +111,13 @@ async function doDataQuery( options ) {
 
                 const serachScope = [{workspaceId: primitive.workspaceId}]
                 
-                const scope = options.scope ?? primitive.primitives?.params?.scope?.[0] ?? parentForScope?.primitives?.params?.scope?.[0] ?? (Object.keys(parentForScope.primitives).includes("imports") ? parentForScope : undefined)
+                const scope = options.scope ?? primitive.primitives?.params?.scope?.[0] ?? parentForScope?.primitives?.params?.scope?.[0] ?? (Object.keys(parentForScope?.primitives ?? {}).includes("imports") ? parentForScope : undefined)
                 const referenceCategoryFilter = options.referenceCategoryFilter ?? primitive.referenceParameters?.referenceCategoryFilter ?? parentForScope?.referenceParameters?.referenceCategoryFilter
 
                 let items
                 if( scope  ){
                     const node = await fetchPrimitive( scope )
-                    if( node.type === "view" || node.type === "working" ){
+                    if( node.type === "view" || node.type === "working" || node.type === "query"){
                         const interim = await getDataForImport(node)
 
                         if( primitive.referenceParameters.group || thisCategory.type === "iterator" ){
@@ -133,7 +133,7 @@ async function doDataQuery( options ) {
                         //items = await primitiveDescendents( interim, "result")
                         items = [interim.filter(d=>d.type==="result"), await primitiveDescendents( interim, "result")].flat()
                     }else{
-                        items = await primitiveDescendents( node, "result")
+                        items = [node, ...(await primitiveDescendents( node, "result"))]
                     }
                     
                 }

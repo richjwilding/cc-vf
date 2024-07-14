@@ -13,7 +13,7 @@ function classNames(...classes) {
 
 
 export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
-  return <UIHelper.OptionList options={props.items} zIndex="50" onChange={setSelectedItem} value={selectedItem} small={true}/>
+  return <UIHelper.OptionList options={props.items} zIndex="50" onChange={setSelectedItem} value={selectedItem} showCount={props.showCount} small={true}/>
 }
 
 export function _MyCombo({selectedItem, setSelectedItem, ...props}) {
@@ -66,6 +66,7 @@ export function _MyCombo({selectedItem, setSelectedItem, ...props}) {
                               <div className="flex items-center">
                                 <HeroIcon icon={item.icon} className="h-6 w-6 flex-shrink-0 rounded-full" />
                                 <span className={classNames('ml-3 truncate', selected && 'font-semibold')}>{item.title}</span>
+                                {props.showCount && <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">{item.count ?? 0}</span>}
                               </div>
 
                               {selected && (

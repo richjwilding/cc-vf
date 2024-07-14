@@ -511,7 +511,7 @@ export function PrimitiveTable(props) {
 
     return (
         <>
-        <div key="table" className={`p-2 bg-white rounded-md overflow-y-scroll relative ${props.className}`}>
+        <div key="table" className={`p-2 rounded-md overflow-y-scroll relative text-sm  ${props.className}`}>
             <button 
                 onClick={()=>copyToClipboard(table)}
                 className="absolute top-4" style={{zIndex:10000}}>
@@ -524,7 +524,7 @@ export function PrimitiveTable(props) {
                 gridTemplateColumns: `20px ${Object.values(gridWidths).join(" ")}`
             }}
             onKeyDown={keyHandler}
-            className="grid text-sm w-full overflow-x-auto relative max-h-full">
+            className="grid w-full overflow-x-auto relative max-h-full">
             {table.getHeaderGroups().map(headerGroup => (
                 <>
                 <div

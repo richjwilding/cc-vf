@@ -484,7 +484,7 @@ _setTextData() {
 
         let showLines = fh * scale > 2.5
         let ctx = context
-        if( showLines){
+        if( showLines && this.attrs.showPlaceHolder !== false){
             ctx.fillStyle = "#eaeaea"
             let y = 0, step = this.lineHeight() * fh 
             let alignCenter = this.attrs.align === "center"

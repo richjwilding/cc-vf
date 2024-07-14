@@ -73,11 +73,12 @@ import clsx from 'clsx';
       onFocus={props.editable ? startEditing : undefined}
       key={props.key} 
       ref={editBox} 
+      tabIndex={1}
       onKeyUp={props.editable ? keyHandler : undefined}
       onBlur={props.editable ? stopEditing : undefined}
       placeholder={props.placeholder ?? props.default}
       className={clsx([
-            'place-items-center outline-none bg-transparent resize-none overflow-hidden',
+            'place-items-center outline-none bg-white resize-none overflow-hidden',
             props.border ? "border border-gray-200 rounded-md" : "",
             !props.compact && !editing ? "p-1 min-h-[2em]" : "",
             props.fieldClassName || '',

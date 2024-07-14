@@ -68,7 +68,20 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const stageRef = useRef()
     const frameRef = useRef()
     const layerRef = useRef()
+    const lineLayerRef = useRef()
     const myState = useRef({renderList: props.render})
+
+    /*
+    useEffect(()=>{
+        myState.current.renderList = props.render
+        console.log(`----- RL CHANGE`)
+        console.log(myState.current.renderList)
+    }, [props.render, props.update])*/
+    
+
+    useEffect(()=>{
+        refreshLinks()
+    }, [props.frameLinks])
 
     const chunkWidth = 800
     const chunkHeight = 800
@@ -93,7 +106,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     l: d.x,
                     r: d.x + (d.node.attrs.width  * d.node.attrs.scaleX),
                     t: d.y,
-                    b: d.y + (d.node.attrs.height * d.node.attrs.scaleY)
+                    b: d.y + (d.node.attrs.height * d.node.attrs.scaleY),
+                    s: d.node.attrs.scaleX
                 },
                 viewport:{
                     l: tl[0],
@@ -136,6 +150,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         myState.current.renderList = myState.current.renderList.filter(d=>d.id !== frameId)
         refreshLinks()
+        stageRef.current.batchDraw()
+
     }
 
     useImperativeHandle(ref, () => {
@@ -321,7 +337,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         
         return myState.current.frames[frameId]
     }
-    function setupFrameForItems( id, title, items, x, y, s ){
+    function setupFrameForItems( id, title, items, x, y, s, options ){
 
         const existing = myState.current.frames?.find(d=>d.id === id) 
         let existingNode
@@ -336,7 +352,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             let framePadding = [0,0,0,0]
             
             if( props.board){
-                framePadding = [5,5,5,5]
+                framePadding = options.canvasMargin ?? [5,5,5,5]
                 const titleText = new Konva.Text({
                     text: title,
                     x:0,
@@ -356,24 +372,29 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
 
             const rendered = items({imageCallback: processImageCallback, x: framePadding[3], y: framePadding[0]})
+            framePadding = rendered.attrs.canvasMargin ?? framePadding
 
             const root = convertItems( rendered, frame.node)
+            frame.cells = frame.node.find('.cell').map(d=>({id: d.attrs.id, l: d.attrs.x, t: d.attrs.y, r: (d.attrs.x + d.attrs.width), b: (d.attrs.y + d.attrs.height)}))
             const maxX = root.width() + framePadding[1] + framePadding[3]
             const maxY = root.height() + framePadding[0] + framePadding[2]
             
             frame.allNodes = frame.node.children
+            frame.canChangeSize = options.canChangeSize
+            frame.canvasMargin = framePadding
             
             if( frameBorder){
                 frameBorder.width(maxX)
                 frameBorder.height(maxY)
             }
+            console.log(maxX,maxY)
             frame.node.width(maxX)
             frame.node.height(maxY)
         }
         if( existingNode ){
             if( frame ){
                 const newItems = frame.node.find('.inf_keep')
-                let existingItems = existingNode.find('.inf_keep')
+                let existingItems = options.forceRender ?[] : existingNode.find('.inf_keep')
                 for(const d of newItems){
                     if( !d.attrs.id ){continue}
                     const match = existingItems.filter(d2=>d.attrs.id === d2.attrs.id )
@@ -489,14 +510,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
     }
     async function refreshLinks( override ){
+        
         if( props.frameLinks){
-            console.log(`refresh links`)
             if( !myState.current.frameLinks ){
                 myState.current.frameLinks = []                
             }
             if( !myState.current.avoid_loaded ){
                 AvoidLib.load('/images/libavoid.wasm').then(data=>{
-                    console.log(`Avoid loaded`)
                     myState.current.avoid_loaded = true
                     refreshLinks()
                 })
@@ -513,6 +533,43 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             let edge = 0
 
             const nodes = {}
+
+            function addShapeToRouter(id, l,t,r,b){
+                const shapeRef = new Avoid.ShapeRef(router, 
+                    new Avoid.Rectangle(
+                        new Avoid.Point(l, t),
+                        new Avoid.Point(r, b)
+                ));
+
+        
+                const inputPin = new Avoid.ShapeConnectionPin(
+                    shapeRef,
+                    1,
+                    0,
+                    0.5,
+                    true,
+                    0,
+                    Avoid.ConnDirLeft // All directions
+                );
+
+
+
+                const outputPin = new Avoid.ShapeConnectionPin(
+                    shapeRef,
+                    2, // one central pin for each shape
+                    1,
+                    0.5,
+                    true,
+                    0,
+                    Avoid.ConnDirRight // All directions
+                );
+                inputPin.setExclusive(false);
+                outputPin.setExclusive(false);
+                
+                nodes[id] = {id: id, shape: shapeRef}
+                return shapeRef
+            }
+
             for(const frame of myState.current.frames){
                 const fId = frame.id
 
@@ -527,40 +584,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
                     
                     if( position ){
+                        addShapeToRouter( fId, position.l, position.t, position.r, position.b)
 
-
-                        const shapeRef = new Avoid.ShapeRef(router, 
-                            new Avoid.Rectangle(
-                                new Avoid.Point(position.l, position.t),
-                                new Avoid.Point(position.r, position.b)
-                        ));
-
-                
-                        const inputPin = new Avoid.ShapeConnectionPin(
-                            shapeRef,
-                            1,
-                            0,
-                            0.5,
-                            true,
-                            0,
-                            Avoid.ConnDirLeft // All directions
-                        );
-
-
-
-                        const outputPin = new Avoid.ShapeConnectionPin(
-                            shapeRef,
-                            2, // one central pin for each shape
-                            1,
-                            0.5,
-                            true,
-                            0,
-                            Avoid.ConnDirRight // All directions
-                        );
-                        inputPin.setExclusive(false);
-                        outputPin.setExclusive(false);
-
-                        nodes[fId] = {id: fId, position: position, shape: shapeRef}
+                        for(const cell of frame.cells){
+                            const id = `${fId}:${cell.id}`
+                            addShapeToRouter( id, (cell.l * position.s) + position.l , (cell.t  * position.s) + position.t, (cell.r  * position.s) + position.l , (cell.b * position.s) + position.t)
+                        }
                     }
                 }
             }
@@ -569,10 +598,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
             for(const target of props.frameLinks){
-                const left = nodes[target.left]
+                const leftName = target.left + (target.cell ? `:${target.cell}` : "")
+                const left = nodes[leftName]
                 const right = nodes[target.right]
+                
                 if( left && right){
-                    const id = `${target.left}-${target.right}` 
+                    const id = `${leftName}-${target.right}` 
                     const leftConnEnd = new Avoid.ConnEnd(left.shape,2)
                     const rightConnEnd = new Avoid.ConnEnd(right.shape,1)
                     const connRef = new Avoid.ConnRef(router);
@@ -582,7 +613,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     edges.push({
                         id: id,
                         left: {
-                            id: target.left, 
+                            id: leftName, 
                             position: left.position
                         },
                         right: {
@@ -595,7 +626,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             myState.current.frameLinks = myState.current.frameLinks.filter(d=>{
                 if( !activeLinks.has(d.attrs.id)){
-                    console.log(`Remove link ${d.attrs.id}`)
                     d.remove()
                     return false
                 }
@@ -616,38 +646,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
 
                 let allPoints = points
-                /*
-                let sx = (edge.left.position.r + edge.left.position.l) / 2
-                let sy = (edge.left.position.b + edge.left.position.t) / 2
-                let ex = (edge.right.position.r + edge.right.position.l) / 2
-                let ey = (edge.right.position.b + edge.right.position.t) / 2
-                if( points.length > 0){
-
-                    if(points[0] > edge.left.position.r){
-                        sx = edge.left.position.r
-                    }else if(points[0] < edge.left.position.l){
-                        sx = edge.left.position.l
-                    }
-                    if(points[points.length - 2] > edge.right.position.r){
-                        ex = edge.right.position.r
-                    }else if(points[points.length - 2] < edge.right.position.l){
-                        ex = edge.right.position.l
-                    }
-                    if(points[1] > edge.left.position.b){
-                        sy = edge.left.position.b
-                    }else if(points[1] < edge.left.position.t){
-                        sy = edge.left.position.t
-                    }
-                    if(points[points.length - 1] > edge.right.position.b){
-                        ey = edge.right.position.b
-                    }else if(points[points.length - 1] < edge.right.position.t){
-                        ey = edge.right.position.t
-                    }
-                    allPoints = [sx, sy, ...points, ex, ey]
-                }else{
-                    allPoints = [sx, sy, ex, ey]
-                }*/
-
 
                 let link = myState.current.frameLinks.find(d=>d.attrs.id === edge.id)
                 if( link ){
@@ -664,30 +662,34 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         strokeScaleEnabled: false
                     })
                     myState.current.frameLinks.push(link)
-                    layerRef.current.add( link )
+                    lineLayerRef.current.add( link )
                 }
             })
-            console.log(`doing redraw for links`)
-            stageRef.current.batchDraw()
+            lineLayerRef.current.batchDraw()
 
             Avoid.destroy( router )
         }
     }
 
-    function refreshFrame(id){
+    function refreshFrame(id, newItems ){
+        const force = newItems !== undefined
         const item = myState.current.renderList.find(d=>d.id === id)
+        if( force ){
+            item.items = newItems.items            
+        }
         if( item ){
             const x = props.primitive.frames?.[id]?.x ?? myState.current.frames?.[id]?.x
             const y = props.primitive.frames?.[id]?.y ?? myState.current.frames?.[id]?.y
             const s = props.primitive.frames?.[id]?.s ?? myState.current.frames?.[id]?.s
 
-            const frame = setupFrameForItems(id, item.title, item.items, x, y, s)
+            const {items, title, ...options} = item
+
+            const frame = setupFrameForItems(id, title, items, x, y, s, {...options, forceRender: force})
             buildPositionCache(frame)
             finalizeImages(stageRef.current, {imageCallback: processImageCallback})
             alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
             if( myState.current.frameSelect ){
-                const ids = myState.current.selected.frame.map(d=>d.attrs.id)
-                if( ids.includes(id) ){
+                if( myState.current.frameSelect.node.attrs.id === id ){
                     clearSelection()                    
                     destroyFrameSelect()
                     createFrameSelect(frame.node)
@@ -699,6 +701,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
 
     useLayoutEffect(()=>{
+        myState.current.renderList = props.render
         var ctx = layerRef.current.getContext()._context;
         ctx.textRendering = "optimizeSpeed";
         
@@ -716,7 +719,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     y = props.primitive.frames[set.id].y
                     s = props.primitive.frames[set.id].s
                 }
-                const frame = setupFrameForItems(set.id, set.title, set.items, x, y, s)
+                const frame = setupFrameForItems(set.id, set.title, set.items, x, y, s, set)
                 y += (frame.node.attrs.height * frame.node.attrs.scaleY) + 200
 
             }
@@ -749,7 +752,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         });
         observer.observe(frameRef.current);
 
-       // stageRef.current.batchDraw()
 
         if( props.primitive?.id !== myState.current.lastPrimitiveId ){
             zoomToExtents()
@@ -775,7 +777,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
             }
         }
-    },[props.update])
+    },[props.update, props.primitive.id, props.renderList])
 
     function zoomToExtents(){
         if( myState.current?.frames ){
@@ -1330,6 +1332,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     myState.current.dragging.spy = py
                 myState.current.dragging.stage.container().style.transform = `translate(${px - myState.current.dragging.ox}px, ${py - myState.current.dragging.oy}px)`;
                 [x, y] = convertStageCoordToScene(px, py )
+
+                if( updateLinksDuringMove && myState.current.dragging.isFrame){
+                    const [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
+                    refreshLinks({id: myState.current.dragging.clone.attrs.id, x: fx, y: fy})
+                }
             }
             
             if( myState.current.dragging ){
@@ -1353,14 +1360,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         myState.current.dragging.dropZone = found
                         myState.current.dragging.dropConfig = config[type]
                     }
-                }
-                if( updateLinksDuringMove ){
-                    let [px,py] = state.xy
-                    px -= memo.x
-                    py -= memo.y
-                    const [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
-                    refreshLinks({id: myState.current.dragging.clone.attrs.id, x: fx, y: fy})
-
                 }
                 
                 if(state.last){
@@ -1524,7 +1523,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     },
                     //scaleBounds: { min: 0.03, max: 8 },
                     scaleBounds: ()=>{
-                        const max = props.board ? 5 / Math.min(1, ...Object.values(props.primitive.frames).map(d=>d.s ?? 1)) : 8
+                        const max = props.board ? 5 / Math.min(1, ...Object.values(props.primitive.frames ?? {}).map(d=>d.s ?? 1)) : 8
                         console.log(max)
                         return { min: 0.03, max: max }
                     }
@@ -1533,6 +1532,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         )
 
         function findTrackedNodesAtPosition(px,py, classes, includeFrame = false, forClick){
+            if( !myState.current?.frames){return}
             if( classes ){
                 classes = [classes].flat()
             }
@@ -1588,7 +1588,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     if( bg && !bg.attrs.overlay_label || bg.attrs.overlay_label === "hover" ){
                         bg.attrs.baseFill = bg.attrs.fill
                         bg.attrs.overlay_label = label
-                        bg.fill(colors[operation]?.fill)
+                        bg.fill(bg.attrs?.hoverFill ?? colors[operation]?.fill)
                     }
                 }
             }
@@ -1765,10 +1765,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 return
             }
             let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
-            if( !props.selectable ){
+            const clickable_names = ["widget", ...Object.keys(props.selectable), Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
+            if( clickable_names.length === 0 ){
                 return
             }
-            let found = findTrackedNodesAtPosition( x, y, Object.keys(props.selectable), undefined, true)
+            let found = findTrackedNodesAtPosition( x, y, clickable_names, undefined, true)
             console.log(found)
             let doneClick = false
             for( const d of found){
@@ -1776,7 +1777,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     d.attrs.onClick(d.attrs.id)
                     doneClick = true
                 }else{
-                    for(const cls of (d.attrs.name?.split(" ") ?? [])){
+                    const clsNames = d.attrs.name?.split(" ") ?? []
+                    for(const cls of clsNames){
                         if( props.selectable?.[cls]){
 
                             if( myState.current.lastSelection && myState.current.lastSelection !== cls && props.selectable[myState.current.lastSelection].multiple && e.evt.shiftKey ){
@@ -1805,7 +1807,17 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             }
                             doneClick = true
                         }                        
-                        if( cls === "_toggle"){
+                        if( cls === "widget"){
+                            const frameId = d.findAncestor('.frame')?.attrs.id
+                            const triggerNames = clsNames.filter(d=>!["widget" ,"inf_track"].includes(d))
+                            for(const trigger of triggerNames){
+                                if( props.callbacks?.onClick?.widget?.[trigger]){
+                                    props.callbacks?.onClick?.widget?.[trigger](d, frameId)
+                                }
+
+                            }
+                        }
+                        else if( cls === "_toggle"){
                             const parent = d.findAncestor('Group')
                             if(parent){
                                 const id = parent.attrs.id
@@ -1836,8 +1848,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             }
                             doneClick = true
                         }else if( props.callbacks?.onClick?.[cls] ){
+                            const frameId = myState.current.selected[cls][0].findAncestor('.frame')?.attrs.id
                             const ids = myState.current.selected[cls].map(d=>d.attrs.id)
-                            const result = props.callbacks?.onClick?.[cls]( ids.length > 1 ? ids : ids )
+                            const result = props.callbacks?.onClick?.[cls]( ids.length > 1 ? ids : ids, frameId )
                             doneClick = true
                         }
                     }
@@ -1868,45 +1881,56 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             stageRef.current.add(myState.current.frameSelect.layer)
             const node = new Konva.Rect({x: d.attrs.x, y: d.attrs.y, width: d.attrs.width * d.attrs.scaleX, height: d.attrs.height  * d.attrs.scaleX})
+            const frame = myState.current.frames?.find(d2=>d2.id === d.attrs.id) 
             myState.current.frameSelect.layer.add(node)
             myState.current.frameSelect.transformer = new Konva.Transformer({
                 rotateEnabled:false, 
                 resizeEnabled: true,
                 flipEnabled: false,
-                enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+                enabledAnchors: frame?.canChangeSize ? ['top-left', 'top-right', 'middle-right', 'bottom-left', 'bottom-right'] : ['top-left', 'top-right', 'bottom-left', 'bottom-right']
             })
             myState.current.frameSelect.transformer.on('transformstart',()=>{
                 myState.current.frameSelect.transforming = true
             })
-            myState.current.frameSelect.transformer.on('transformend',()=>{
+            myState.current.frameSelect.transformer.on('transformend',(e)=>{
                 myState.current.frameSelect.transforming = false
                 const frame = myState.current.frames?.find(d2=>d2.id === d.attrs.id) 
-                if( frame ){
-                    const newScale = myState.current.frameSelect.transformer.width() / myState.current.viewport.scale / frame.node.attrs.width
-                    let fx = node.attrs.x
-                    let fy = node.attrs.y
-                    frame.x = fx
-                    frame.y = fy
-                    frame.scale = newScale
-                    buildPositionCache(frame)
-                    frame.node.scale({x:1, y:1})
-                    frame.node.setPosition({x:fx, y:fy})
-                    frame.node.scale({x:newScale, y:newScale})
-                    
-                    alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
 
-                    console.log(newScale)
-                    stageRef.current.batchDraw()
-                    
-                    if( props.callbacks?.frameMove ){
-                        props.callbacks.frameMove({
-                            id: frame.id,
-                            x: fx,
-                            y: fy,
-                            s: newScale
-                        })
+                if( frame ){
+                    if( myState.current.frameSelect.transformer._movingAnchorName === "middle-right"){
+                        const newWidth = (myState.current.frameSelect.transformer.width() / myState.current.viewport.scale) / frame.scale
+                        const innerWidth = newWidth - (frame.canvasMargin[1] + frame.canvasMargin[3])
+                        if( props.callbacks.resizeFrame ){
+                            props.callbacks.resizeFrame( frame.id, innerWidth)                        
+                        }
+                        return
+                    }else{
+                        const newScale = myState.current.frameSelect.transformer.width() / myState.current.viewport.scale / frame.node.attrs.width
+                        let fx = node.attrs.x
+                        let fy = node.attrs.y
+                        frame.x = fx
+                        frame.y = fy
+                        frame.scale = newScale
+                        buildPositionCache(frame)
+                        frame.node.scale({x:1, y:1})
+                        frame.node.setPosition({x:fx, y:fy})
+                        frame.node.scale({x:newScale, y:newScale})
+                        
+                        alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
+                        
+                        console.log(newScale)
+                        stageRef.current.batchDraw()
+                        
+                        if( props.callbacks?.frameMove ){
+                            props.callbacks.frameMove({
+                                id: frame.id,
+                                x: fx,
+                                y: fy,
+                                s: newScale
+                            })
+                        }
+                        refreshLinks()
                     }
-                    refreshLinks()
                 }
             })
             myState.current.frameSelect.transformer.nodes([node])
@@ -1964,8 +1988,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         ref={layerRef}
                         perfectDrawEnabled={false}
                         listening={false}
-                    >
-                    </Layer>
+                    />
+                    <Layer
+                        ref={lineLayerRef}
+                        perfectDrawEnabled={false}
+                        listening={false}
+                    />
                 </Stage>
 
         return <div 

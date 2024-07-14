@@ -60,8 +60,9 @@ export default function DropdownButton({...props}) {
                 key='button' 
                 onClick={props.onClick}
             >
+            {props.icon && props.icon}
             {props.title }
-            {props.hideArrow ? "" : (props.icon ?? <ChevronDownIcon key='arrow' className="h-5 w-5 ml-1" aria-hidden="true" />)}
+            {(props.hideArrow || props.icon) ? "" : <ChevronDownIcon key='arrow' className="h-5 w-5 ml-1" aria-hidden="true" />}
           </Menu.Button>
 
           : <Menu.Button 

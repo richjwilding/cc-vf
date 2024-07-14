@@ -1,6 +1,6 @@
 import MainStore from "./MainStore"
-import { useEffect, useRef, useState } from "react";
-import { ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ClipboardDocumentIcon, DocumentArrowDownIcon, FunnelIcon, MagnifyingGlassIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ClipboardDocumentIcon, DocumentArrowDownIcon, FunnelIcon, MagnifyingGlassIcon, PlusIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { HeroIcon } from './HeroIcon';
 import { InputPopup } from './InputPopup';
 import DropdownButton from "./DropdownButton";
@@ -10,15 +10,19 @@ import { RenderPrimitiveAsKonva, renderMatrix } from "./RenderHelpers";
 import HierarchyNavigator from "./HierarchyNavigator";
 import PrimitiveConfig from "./PrimitiveConfig";
 import FilterPane from "./FilterPane";
+import CollectionInfoPane from "./CollectionInfoPane";
 
 export default function BoardViewer({primitive,...props}){
     const mainstore = MainStore()
     const [manualInputPrompt, setManualInputPrompt] = useState(false)
+    const [collectionPaneInfo, setCollectionPaneInfo] = useState(false)
     const canvas = useRef({})
     const myState = useRef({})
     const menu = useRef({})
     const colButton = useRef({})
     const rowButton = useRef({})
+    const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
+    const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
 
     const list = primitive.primitives.allUniqueView
 
@@ -63,26 +67,40 @@ export default function BoardViewer({primitive,...props}){
 
     const action = primitive.metadata?.actions?.find(d=>d.key === "build_generic_view")
 
-    //const boards = [279897,290878, 294261, 303071,303073,302434, 303074, 303153].map(d=>mainstore.primitive(d))
-    const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery]
 
-    const linkList = boards.map(left=>{
-        return boards.map(right=>{
-            if( left.id !== right.id){
-                let link = false
-                if( right.parentPrimitiveIds.includes(left.id) ){
-                    link = true
-                }else{
-                    const route = right.findImportRoute(left.id)
-                    link = route.length > 0
-                }
-                if( link ){
-                    return {left: left.id, right: right.id}
-                }
+    async function cloneBoard(){
+        if(myState.activeBoard){
+            const p = myState.activeBoard.primitive
+            if( p.type === "view" || p.type === "query"){
+                console.log("adding")
+                const newPrimitive = await mainstore.createPrimitive({
+                    parent: primitive, 
+                    title: `Copy of ${p.title}`,
+                    type: p.type,
+                    workspaceId: p.workspaceId, 
+                    categoryId: p.referenceId, 
+                    referenceParameters: p.referenceParameters
+                })
+                
+                if(newPrimitive ){
+                    for(const imp of p.primitives.imports.allItems){
+                        await newPrimitive.addRelationshipAndWait(imp, "imports")
+                    }
+                    for(const imp of p.primitives.axis.row.allItems){
+                        await newPrimitive.addRelationshipAndWait(imp, "axis.row")
+                    }
+                    for(const imp of p.primitives.axis.column.allItems){
+                        await newPrimitive.addRelationshipAndWait(imp, "axis.column")
+                    }
+                }        
+
+                let position = canvas.current.framePosition(p.id)?.scene
+                console.log("now to canvas")
+                addBoardToCanvas( newPrimitive, {x:position.l, y: position.b + 30, s: position.s})
+                console.log("done")
             }
-        }).flat()
-    }).flat().filter(d=>d)
-    console.log("LINKLIST", linkList.length)
+        }
+    }
 
     function prepareBoard(d){
         if( d.type === "view" || d.type === "query"){
@@ -185,13 +203,68 @@ export default function BoardViewer({primitive,...props}){
 
     }
 
-    for(const d of boards){
-        if(!myState[d.id] ){
-            myState[d.id] = {id: d.id}
-            prepareBoard(d)
-        }
-    }
 
+    const [boards,  renderedSet] = useMemo(()=>{
+        const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery]
+        
+        for(const d of boards){
+            if(!myState[d.id] ){
+                myState[d.id] = {id: d.id}
+                prepareBoard(d)
+            }
+        }
+        const renderedSet = boards.map(d=>renderView(d))
+        return [boards, renderedSet]
+    }, [primitive?.id, update])
+        
+
+    const linkList = useMemo(()=>{
+        console.log(`redo linklist ${updateLinks}`)
+        return boards.map(left=>{
+            return boards.map(right=>{
+                if( left.id !== right.id){
+                    let segment
+                    if( right.parentPrimitiveIds.includes(left.id) ){
+                        return {left: left.id, right: right.id}
+                    }else{
+                        const route = right.findImportRoute(left.id)
+                        if( route.length > 0){
+                            return {left: left.id, right: right.id}
+                        }else{
+                            if( right.type === "query" || right.type === "summary"){
+                                const segmentSummaries = left.primitives.origin.allUniqueSegment.map(d=>[...d.primitives.origin.allUniqueSummary, ...d.primitives.origin.allUniqueQuery] ).flat()
+                                console.log(left.plainId, segmentSummaries.map(d=>d.plainId))
+                                if(segmentSummaries.map(d=>d.id).includes( right.id)){
+                                    const out = []
+                                    let added = false
+                                    myState[left.id].columns.forEach((column,cIdx)=>{
+                                        myState[left.id].rows.forEach((row,rIdx)=>{
+                                            const filter = [
+                                                    PrimitiveConfig.encodeExploreFilter( myState[left.id].axis.column, column ),
+                                                    PrimitiveConfig.encodeExploreFilter( myState[left.id].axis.row, row ),
+                                                ].filter(d=>d)
+                                            
+                                            if( right.origin.doesImport(left.id, filter)){
+                                                out.push( {left: left.id, cell: `${cIdx}-${rIdx}`, right: right.id})
+                                                added = true
+                                            }
+                                        })
+                                    })
+                                    if( !added ){
+                                        out.push( {left: left.id, right: right.id})
+                                    }
+                                    return out
+                                }
+                            }
+                        }
+                        
+                    }
+                }
+            }).flat(Infinity)
+        }).flat().filter(d=>d)
+    }, [primitive?.id, update, updateLinks])
+
+    console.log("LINKLIST", linkList)
     let selectedColIdx = 0
     let selectedRowIdx = 0
     let showPane = 0
@@ -204,11 +277,20 @@ export default function BoardViewer({primitive,...props}){
             hideMenu()
             await CollectionUtils.setPrimitiveAxis(myState?.activeBoard.primitive, axis, axisName)
             prepareBoard( myState?.activeBoard.primitive )
-            canvas.current.refreshFrame( myState.activeBoardId, renderView(myState.activeBoard))
+            forceUpdateLinks()
+            canvas.current.refreshFrame( myState.activeBoardId )
         }
     }
 
     let boardUpdateTimer
+
+    function resizeFrame(fId, width){
+        const board = myState[fId]
+        console.log(`WIDTH SET = `, width)
+        primitive.setField(`frames.${fId}.width`, width)
+        console.log(`WIDTH CHECK = `, primitive.frames[fId].width)
+        canvas.current.refreshFrame( board.id, renderView(board))
+    }
 
     function setActiveBoard(e){
         const id = e?.[0]
@@ -220,7 +302,8 @@ export default function BoardViewer({primitive,...props}){
                 myState[id].axisOptions = CollectionUtils.axisFromCollection( source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
             }
             handleViewChange(true)
-            mainstore.sidebarSelect(id)
+            //mainstore.sidebarSelect(id)
+            setCollectionPaneInfo({frame: myState.activeBoard.primitive, board: primitive})
         }else{
             myState.activeBoard = undefined
             hideMenu()
@@ -300,10 +383,39 @@ export default function BoardViewer({primitive,...props}){
         }
     }
 
+    function addBoardToCanvas( d, position ){
+        myState[d.id] = {id: d.id}
+        prepareBoard( d )
+
+        if( position ){
+            primitive.setField(`frames.${d.id}`, {x: position.x, y: position.y, s: position.s})
+        }
+
+        canvas.current.addFrame( renderView(d))
+        forceUpdate()
+    }
+
+    function addExistingView(){
+        let items = mainstore.primitives().filter(d=>d.workspaceId === primitive.workspaceId && ["working","view","query"].includes(d.type))
+
+        const activeBoardIds = Object.keys(myState)
+        items = items.filter(d=>!activeBoardIds.includes(d.id))
+
+        mainstore.globalPicker({
+            list: items,
+            callback: (d)=>{
+                primitive.addRelationship(d, "ref")
+                let position = canvas.current.framePosition(myState.activeBoardId)?.scene
+                addBoardToCanvas( d, {x:position.r +50, y: position.t, s: position.s})
+            }
+
+        })
+    }
     function pickBoardDescendant(){
         if(myState.activeBoard){
             let importedSet = myState.activeBoard.primitive.importedBy.map(d=>[d.primitives.origin.allUniqueQuery, d.primitives.origin.allUniqueView]).flat(Infinity)
-            let items = [...myState.activeBoard.primitive.primitives.origin.allUniqueQuery, ...myState.activeBoard.primitive.primitives.origin.allUniqueView, ...importedSet]
+            let summaries = [...myState.activeBoard.primitive.primitives.origin.allUniqueSummary, ...myState.activeBoard.primitive.primitives.origin.allUniqueSegment.map(d=>d.primitives.allUniqueSummary).flat(), ...myState.activeBoard.primitive.primitives.origin.allUniqueSegment.map(d=>d.primitives.allUniqueQuery).flat()]
+            let items = [...summaries,...myState.activeBoard.primitive.primitives.origin.allUniqueQuery, ...myState.activeBoard.primitive.primitives.origin.allUniqueView, ...importedSet]
 
             const activeBoardIds = Object.keys(myState)
             items = items.filter(d=>!activeBoardIds.includes(d.id))
@@ -312,10 +424,8 @@ export default function BoardViewer({primitive,...props}){
                 list: items,
                 callback: (d)=>{
                     primitive.addRelationship(d, "ref")
-                    myState[d.id] = {id: d.id}
-                    prepareBoard( d )
-
-                    canvas.current.addFrame( renderView(d))
+                    let position = canvas.current.framePosition(myState.activeBoardId)?.scene
+                    addBoardToCanvas( d, {x:position.r +50, y: position.t, s: position.s})
                 }
 
             })
@@ -324,15 +434,23 @@ export default function BoardViewer({primitive,...props}){
     }
     function removeBoard(){
         if(myState.activeBoard){
+            let title = "Remove from board?"
+            let action = ()=>primitive.removeRelationship(myState.activeBoard.primitive, "ref")
+            if( myState.activeBoard.primitive.origin.id === primitive.id){
+                title = `Delete ${myState.activeBoard.primitive.displayType}?`
+                action = ()=>mainstore.removePrimitive( myState.activeBoard.primitive )
+
+            }
             mainstore.promptDelete({
                 title: "Confirmation",
-                prompt: "Remove from board?",
+                prompt: title,
                 handleDelete: ()=>{
-                    primitive.removeRelationship(myState.activeBoard.primitive, "ref")
+                    action()                        
                     hideMenu()
                     canvas.current.removeFrame( myState.activeBoard.id )
                     delete myState[myState.activeBoard.id]
                     myState.activeBoard = undefined
+                    forceUpdate()
                     return true
                 }
             })
@@ -342,7 +460,18 @@ export default function BoardViewer({primitive,...props}){
     function renderView(d){
         const view = myState[d.id]
         if( view.config === "full"){
-            return {id: d.id, title: `${d.title} - #${d.plainId}`, items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, stageOptions)}
+            const renderOptions = {}
+            const configNames = ["width"]
+            if( primitive.frames?.[d.id]){
+                for( const name of configNames){
+                    if( primitive.frames[d.id][name] !== undefined){
+                        renderOptions[name] = primitive.frames[d.id][name]
+                    }
+                }
+            }
+            console.log(renderOptions)
+            
+            return {id: d.id, title: `${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})}
         }
 
         return {id: d.id, title: `${d.title} - #${d.plainId}`, items: (stageOptions)=>renderMatrix(
@@ -353,20 +482,126 @@ export default function BoardViewer({primitive,...props}){
                 rowExtents: view.rows,
                 viewConfig: view.viewConfig,
                 ...stageOptions,
-                toggles: view.toggles
+                toggles: view.toggles,
+                expand: Object.keys(primitive.frames[ d.id ]?.expand ?? {})
             })
         }
 
     }
 
+    function newView(){
+        let items = mainstore.primitives().filter(d=>d.workspaceId === primitive.workspaceId && ["activity"].includes(d.type))
+            
+        mainstore.globalPicker({
+            list: items,
+            callback: (d)=>{
+
+                mainstore.globalNewPrimitive({
+                    title: "New view",
+                    type: ["view", "query"],
+                    originTask: d,
+                    parent: primitive,
+                    callback:(d)=>{
+                        addBoardToCanvas( d, {x:0, y: 0, s: 1})
+                        return true
+                    }
+                })
+            }
+
+        })
+
+    }
+    async function createNewQuery( parent, data ){
+
+        const addAsChild = parent.type === "query"
+        console.log(data)
+
+        const queryData = data?.target ?? data
+        const importData = data?.importConfig 
+
+
+        await mainstore.doPrimitiveAction( parent, "new_summary", {queryData, importData},async (result)=>{
+            if( result ){
+                const newPrimitive = await MainStore().waitForPrimitive( result.primitiveId )
+                let position = canvas.current.framePosition(parent.id)?.scene
+                await primitive.addRelationshipAndWait(newPrimitive, "ref")
+                addBoardToCanvas( newPrimitive, {x:position.r +50, y: position.t, s: position.s})
+            }
+        })
+
+
+        /*
+        if( importData ){
+            const segmentData = {
+                type: "segment",
+                parent: parent,
+                referenceParameters: {
+                    importConfig: importData
+                },
+                workspaceId: parent.workspaceId
+            }
+            interimSegment = await MainStore().createPrimitive(segmentData)
+            await interimSegment.addRelationshipAndWait( parent, "imports")
+        }
+
+        const newPrimitiveData = {
+            ...queryData,
+            parent: interimSegment ?? parent,
+            workspaceId: primitive.workspaceId,
+            referenceParameters: interimSegment ? {"target":"items"} : undefined
+        }
+
+        const newPrimitive = await MainStore().createPrimitive(newPrimitiveData)
+        if( newPrimitive ){
+            let position = canvas.current.framePosition(parent.id)?.scene
+            await primitive.addRelationshipAndWait(newPrimitive, "ref")
+            if( interimSegment ){
+                await newPrimitive.addRelationshipAndWait(interimSegment, "imports")
+            }
+            addBoardToCanvas( newPrimitive, {x:position.r +50, y: position.t, s: position.s})
+        }*/
+    }
+
+    function newDescendView(){
+        if(myState.activeBoard){
+            const addAsChild = myState.activeBoard.primitive.type === "query"
+            mainstore.globalNewPrimitive({
+                title: "New view",
+                type: ["view", "query"],
+                originTask: myState.activeBoard.primitive,
+                parent: addAsChild ? myState.activeBoard.primitive : primitive,
+                callback:(d)=>{
+                    let position = canvas.current.framePosition(myState.activeBoardId)?.scene
+                    if( addAsChild ){
+                        primitive.addRelationship(d, "ref")
+                    }
+                    addBoardToCanvas( d, {x:position.r + 50, y: position.t, s: position.s})
+                    return true
+                }
+            })
+        }
+    }
+
     return <>
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
+        <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
+            <div className='p-3 flex place-items-start space-x-2 '>
+                    <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
+                    <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
+                    {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
+            </div>
+            {collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
+                <CollectionInfoPane {...collectionPaneInfo} newPrimitiveCallback={createNewQuery}/>
+            </div>}
+        </div>
         {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
             <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
             <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
             <DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "filter" ? setShowPane(false) : setShowPane("filter")} className={`hover:text-ccgreen-800 hover:shadow-md ${rowFilter || colFilter ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
-            <DropdownButton noBorder icon={<HeroIcon icon='FAAddRectangle' className='w-5 h-5'/>} onClick={pickBoardDescendant} flat placement='left-start' />
+            <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={pickBoardDescendant} flat placement='left-start' />
             <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />
+            {myState.activeBoard && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
+            {myState.activeBoard && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACreateChildNode' className='w-5 h-5'/>} onClick={newDescendView} flat placement='left-start' />}
         </div>}
         <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>
             <InfiniteCanvas 
@@ -377,7 +612,8 @@ export default function BoardViewer({primitive,...props}){
                             ignoreAfterDrag={false}
                             highlights={{
                                 "primitive":"border",
-                                "cell":"background"
+                                "cell":"background",
+                                "widget":"background"
                             }}
                             rerender={(frame, primitiveId)=>{
                                 const prim = MainStore().primitive(primitiveId)
@@ -385,18 +621,59 @@ export default function BoardViewer({primitive,...props}){
                             }}
                             enableFrameSelection
                             callbacks={{
+                                resizeFrame,
                                 viewportWillMove:handleViewWillChange,
                                 viewportCallback:handleViewChange,
                                 frameMove: (d)=>{
                                     const prim = MainStore().primitive(d.id)
                                     if(prim){
-                                        primitive.setField(`frames.${prim.id}`, {x: d.x, y: d.y, s: d.s})
+                                        const expand = primitive.frames?.[d.id]?.expand ?? {}
+                                        const width = primitive.frames?.[d.id]?.width
+                                        primitive.setField(`frames.${d.id}`, {x: d.x, y: d.y, s: d.s, width, expand })
                                     }
                                 },
                                 onClick:{
                                     frame: (id)=>setActiveBoard(id),
-                                    primitive:(id)=>mainstore.sidebarSelect(id),
-                                    canvas:(id)=>mainstore.sidebarSelect()
+                                    //primitive:(id)=>mainstore.sidebarSelect(id),
+                                    primitive:(id)=>setCollectionPaneInfo({primitive: mainstore.primitive(id)}),
+                                    //canvas:(id)=>mainstore.sidebarSelect(),
+                                    canvas:(id)=>setCollectionPaneInfo(),
+                                    cell:(id, frameId)=>{
+                                        const cell = id?.[0]
+                                        if( cell ){
+                                            const [cIdx,rIdx] = cell.split("-")
+
+                                            let infoPane = {
+                                                filters: [
+                                                    PrimitiveConfig.encodeExploreFilter( myState[frameId].axis.column, myState[frameId].columns[cIdx] ),
+                                                    PrimitiveConfig.encodeExploreFilter( myState[frameId].axis.row, myState[frameId].rows[rIdx] ),
+                                                ].filter(d=>d)
+                                            }
+                                            console.log(infoPane.filters[0])
+                                            //MainStore().sidebarSelect( frameId, {infoPane: infoPane})
+                                            setCollectionPaneInfo({frame: mainstore.primitive(frameId), board: primitive, filters: infoPane.filters})
+                                        }
+                                    },
+                                    widget:{
+                                        show_extra:(d,frameId)=>{
+                                            const cellId = d.attrs.id
+                                            const [cIdx,rIdx] = cellId.split("-")
+                                            console.log(`Toggle extra of ${frameId} / ${cellId}`)
+                                            const mappedColumn = myState[frameId].columns[cIdx] 
+                                            const mappedRow = myState[frameId].rows[rIdx] 
+                                            const current = primitive.frames?.[frameId]?.expand ?? {}
+                                            const key = [mappedColumn?.idx, mappedRow?.idx].filter(d=>d).join("-")
+
+                                            if( current[key] ){
+                                                delete current[key]
+                                            }else{
+                                                current[key] = true
+                                            }
+                                            console.log(key, current)
+                                            primitive.setField(`frames.${frameId}.expand`, current)
+                                            canvas.current.refreshFrame( frameId)
+                                        }
+                                    }
 
                                 },
                                 onToggle:async (primitiveId, toggle, frameId)=>{
@@ -419,7 +696,7 @@ export default function BoardViewer({primitive,...props}){
                                             for(const targetBoard of boards){
                                                 if( targetBoard.id !== frameId){
                                                     prepareBoard( targetBoard )
-                                                    canvas.current.refreshFrame( targetBoard.id, renderView(targetBoard))
+                                                    canvas.current.refreshFrame( targetBoard.id )
                                                 }
                                             }
                                             return result
@@ -440,7 +717,7 @@ export default function BoardViewer({primitive,...props}){
                                     multiple: true
                                 }
                             }}
-                            render={boards.map(d=>renderView(d))}
+                            render={renderedSet}
                 />
             {false && <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
                 <FilterPane/>
