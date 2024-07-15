@@ -18,6 +18,7 @@ import { InputPopup } from './InputPopup';
 import CollectionUtils from './CollectionHelper';
 import test from './tests/filter.js';
 import NewPrimitive from './NewPrimitive.js';
+import Popup from './Popup.js';
 
 library.add(fas, faLinkedin)
 
@@ -44,6 +45,7 @@ function App() {
   const [showPicker, setShowPicker] = React.useState()
   const [manualInputPrompt, setManualInputPrompt] = React.useState(false)
   const [showNew, setShowNew] = React.useState(false)
+  const [showCategoryPicker, setShowCategoryPicker] = React.useState()
 
 
   const checkPrimIsLoaded = ()=>{
@@ -110,6 +112,7 @@ function App() {
   mainstore.globalPicker = setShowPicker
   mainstore.globalInputPopup = setManualInputPrompt
   mainstore.globalNewPrimitive = setShowNew
+  mainstore.globalCategoryPicker = setShowCategoryPicker
 
   return (
     !loaded
@@ -152,6 +155,7 @@ function App() {
           {showPicker && <PrimitivePicker list={showPicker.list} root={showPicker.root} callback={showPicker.callback} setOpen={setShowPicker} type={showPicker.type} referenceId={showPicker.referenceId}/>}
           {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
           {showNew && <NewPrimitive {...showNew} done={showNew.callback ? (data)=>showNew.callback(data) : undefined} cancel={()=>setShowNew(false)}/>}
+          {showCategoryPicker && <Popup padding='false' setOpen={()=>setShowCategoryPicker(false)}><NewPrimitive.CategorySelection  setOpen={()=>setShowCategoryPicker(false)} categoryId={showCategoryPicker.categoryIds} setSelectedCategory={(d)=>{const r = showCategoryPicker.callback(d); if(r){setShowCategoryPicker()}}}/></Popup>}
           </BrowserRouter>
       </div>
   )

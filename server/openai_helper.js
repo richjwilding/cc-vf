@@ -179,6 +179,7 @@ export async function summarizeMultiple(list, options = {} ){
         }
     }
     finalPrompt =  finalPrompt + `.  Use only the information i have provided to produce the summary`
+    const format = options.markdown ? "You can you the following simple markdown in your response:\nHeader or section titles: **[text]**\nidented list item:- [text]\ndouble indented list item:-- [text\ntriple indented list item:--- [text]\n Do not use any other markdown. Do not defined the markdown format in your response and only include markdown where needed." : "Format your response as a simple string without any formatting."
     
     
     const interim = await processInChunk( list, 
@@ -187,7 +188,7 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "user", "content": listIntro}],
             [
                 {"role": "user", "content":  finalPrompt},
-                {"role": "user", "content": `Provide the result as a json object with a single field called 'summary' which conatins a string with your summary with newlines appropriate escaped. Do not put anything other than the raw json object in the response .`},
+                {"role": "user", "content": `Provide the result as a json object with a single field called 'summary'. ${format}. Do not put anything other than the raw json object in the response .`},
             ],
             {field: "summary", debug: false, engine: "gpt4p" ?? options.engine, ...options })
 

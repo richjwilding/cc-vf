@@ -773,7 +773,8 @@ class CollectionUtils{
             type: item.type,
             title: item.title,
             access: item.access,
-            relationship: item.relationship?.map(d=>d?.split(":")[0])
+            //relationship: item.relationship?.map(d=>d?.split(":")[0])
+            relationship: item.relationship//?.map(d=>d?.split(":")[0])
         }
         if( item.type === "none"){
             primitive.setField(target, null)
@@ -802,7 +803,7 @@ class CollectionUtils{
         primitive.setField(target, fullState)
     
     }
-    static equalRelationshipForFilter(or1, or2, ignoreType = true){
+    static equalRelationshipForFilter(or1, or2, ignoreType = false){
         if( or1 === or2){
             return true
         }

@@ -8,7 +8,7 @@ import useDataEvent from "./CustomHook";
 import SmallButton from "./SmallButton";
 
 
-const processText = (text) => {
+const processTextOLD = (text) => {
     const lines = text.split("\n").filter(d=>d && d.length > 0);
     const elements = [];
     let currentList = [];
@@ -45,6 +45,72 @@ const processText = (text) => {
     return [elements, lineCount > 2];
   };
 
+  const processText = (text) => {
+    const lines = text.split("\n").filter(d => d && d.length > 0);
+    const elements = [];
+    const ulClass = "ml-6 list-disc space-y-1";
+    let lineCount = 0;
+
+    const createNestedList = (lines, level = 0) => {
+        const result = [];
+        while (lines.length > 0) {
+            const line = lines[0];
+            const indentLevel = (line.match(/^-+/) || [""])[0].length;
+            const content = line.substring(indentLevel).trim();
+
+            if (indentLevel < level) {
+                break;
+            }
+
+            lines.shift();
+
+            const boldWholeLineMatch = /^\*\*(.+?)\*\*$/.exec(content);
+            let formattedLine;
+            if (boldWholeLineMatch) {
+                formattedLine = `<strong style='font-size:20px' class="font-bold">${boldWholeLineMatch[1]}</strong>`;
+            } else {
+                formattedLine = content.replaceAll(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
+            }
+
+            if (indentLevel === level) {
+                result.push(<li key={lineCount++} dangerouslySetInnerHTML={{ __html: formattedLine }} />);
+            } else if (indentLevel > level) {
+                lines.unshift(line); // Push the line back to process in the next recursion
+                result.push(<ul class={ulClass} key={`list-${lineCount}`}>{createNestedList(lines, indentLevel)}</ul>);
+            }
+        }
+        return result;
+    };
+
+    while (lines.length > 0) {
+        const line = lines[0];
+        const indentLevel = (line.match(/^-+/) || [""])[0].length;
+        const content = line.substring(indentLevel).trim();
+
+        const boldWholeLineMatch = /^\*\*(.+?)\*\*$/.exec(content);
+        let formattedLine;
+        if (boldWholeLineMatch) {
+            formattedLine = `<strong style='font-size:20px' class="font-bold">${boldWholeLineMatch[1]}</strong>`;
+        } else {
+            formattedLine = content.replaceAll(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
+        }
+
+        if (indentLevel === 0) {
+            lines.shift();
+            if (lines.length > 0 && lines[0].startsWith("-")) {
+                const nestedList = createNestedList(lines);
+                elements.push(<p key={lineCount++} dangerouslySetInnerHTML={{ __html: formattedLine }} />);
+                elements.push(<ul class={ulClass} key={`list-${lineCount}`}>{nestedList}</ul>);
+            } else {
+                elements.push(<p key={lineCount++} dangerouslySetInnerHTML={{ __html: formattedLine }} />);
+            }
+        } else {
+            elements.push(<ul class={ulClass} key={`list-${lineCount}`}>{createNestedList(lines, indentLevel)}</ul>);
+        }
+    }
+
+    return [elements, lineCount > 2];
+};
   const copyToClipboard = async (divRef) => {
     console.log(divRef)
     if (divRef.current) {
@@ -94,7 +160,7 @@ export default function SummaryCard({primitive, ...props}){
                 </div>
                 <Panel collapsable open={false} className="!mt-0 ml-1" title="Settings" titleClassName='flex w-fit text-xs text-gray-500' arrowClass="text-gray-500 ml-0.5 w-4 h-4">
                     <div className="w-full flex-col text-xs my-2 space-y-1 shrink-0">
-                        <PrimitiveCard.Parameters primitive={primitive} editing leftAlign compactList className="text-xs text-slate-500" fullList />
+                        <PrimitiveCard.Parameters primitive={primitive} hidden='summary' editing leftAlign compactList className="text-xs text-slate-500" fullList />
                     </div>
                 </Panel>
                     <div className="w-full flex space-x-2 justify-end">

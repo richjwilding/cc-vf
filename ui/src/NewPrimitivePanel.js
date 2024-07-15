@@ -57,19 +57,6 @@ export default function NewPrimitivePanel({selectedCategory,...props}) {
         }
 
         return 
-
-        const primitive = await MainStore().createPrimitive({
-            title: title,
-            type: type,
-            categoryId: selectedCategory?.id,
-            parent: props.parent,
-            parentPath: props.parentPath,
-            referenceParameters: fullParameters,
-            workspaceId: props.parent.workspaceId
-        })
-        if( primitive && props.originTask ){
-            await primitive.addRelationshipAndWait( props.originTask, "imports")
-        }
     }
 
     function closeModal() {

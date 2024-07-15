@@ -969,13 +969,34 @@ async function __OLD__filterItems(list, filters){
 
 export async function getDataForImport( source, cache = {} ){
     let fullList = []
+
+    if(source.type === "query"){
+        console.log(source.primitives)
+        let node = new Proxy(source.primitives, parser)
+        console.log("done")
+
+        const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
+        console.log(`nonImportIds = ${nonImportIds.join(", ")}`)
+        let list = await fetchPrimitives( nonImportIds)
+
+        const params = await getConfig( source) 
+        if( params.extract ){
+            const check = [params.extract].flat()
+            list = list.filter(d=>check.includes(d.referenceId))
+        }
+        list = list.filter(d=>!["segment","category","query"].includes(d.type))
+        
+        console.log(`Import from query = ${list.length} direct items`)
+        return list
+    }
+
     console.log(`Importing from other sources of ${source.plainId} / ${source.id}`)
     const sources = await primitivePrimitives(source, 'primitives.imports')
     console.log(`GOT import from ${sources.map(d=>d.plainId)}`)
 
     for( const imp of sources){
         let list = []
-        if( Object.keys(imp.primitives).includes("imports")  ){
+        if( Object.keys(imp.primitives).includes("imports")   ){
             if( cache[imp.id]){
                 list = cache[imp.id]
             }else{
@@ -1019,7 +1040,7 @@ export async function getDataForImport( source, cache = {} ){
             list = list.filter(d=>d.referenceId === params.type) 
             console.log( "After type filter ", list.length)
         }
-    const config = source.referenceParameters?.importConfig?.filter(d=>d.id === imp.id)
+        const config = source.referenceParameters?.importConfig?.filter(d=>d.id === imp.id)
         if( config && config.length > 0){
             let filterOut
             console.log(`GOT ${config.length} configs to scan`)
@@ -1160,6 +1181,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
 
     let type = primitive.referenceParameters?.type || action.type //|| category.type
     let target = primitive.referenceParameters?.target || action.target || category?.target || (Object.keys(source?.primitives ?? {}).includes("imports") ? "items" : "children")
+    //let target = primitive.referenceParameters?.target || action.target || category?.target || "children"
     let referenceId = primitive.referenceParameters?.referenceId || action.referenceId || category?.referenceId
     let field = primitive.referenceParameters?.field || action.field || "title"
 
@@ -1466,12 +1488,12 @@ export async function primitiveParents(primitive, path){
     return []
 }
 
-export async function createSummary(primitive, queryData, importData){
+export async function createSegmentQuery(primitive, queryData, importData){
     let interimSegment
 
-    if( importData ){
+//    if( importData ){
         const candidates = await primitiveChildren( primitive, "segment")
-        interimSegment = candidates.find(d=>PrimitiveConfig.checkImports( d, primitive.id, importData[0].filters ))
+        interimSegment = candidates.find(d=>PrimitiveConfig.checkImports( d, primitive.id, importData?.[0]?.filters ))
         if( !interimSegment ){
             const segmentData = {
                 parent: primitive.id,
@@ -1488,18 +1510,22 @@ export async function createSummary(primitive, queryData, importData){
             interimSegment = await createPrimitive(segmentData)
             await addRelationship( interimSegment.id, primitive.id, "imports")
         }
-    }
+  //  }
     const newPrimitiveData = {
         data: queryData,
         parent: interimSegment ?? primitive,
         workspaceId: primitive.workspaceId,
-        referenceParameters: interimSegment ? {"target":"items"} : undefined
+        referenceParameters: {"target":"items"} 
     }
 
     let newPrimitive = await createPrimitive(newPrimitiveData)
     newPrimitive = await addRelationship( newPrimitive.id, interimSegment ? interimSegment.id : primitive.id, "imports")
 
-    doPrimitiveAction(newPrimitive, "rebuild_summary")
+    if( newPrimitive.type === "query"){
+        doPrimitiveAction(newPrimitive, "custom_query")
+    }else if( newPrimitive.type === "summary"){
+        doPrimitiveAction(newPrimitive, "rebuild_summary")
+    }
 
     return {primitiveId: newPrimitive.id, segment: interimSegment?.id}
 }
@@ -1508,8 +1534,8 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     if( primitive.type === "search" ){
         return await QueryQueue().doQuery(primitive, options)
     }
-    if( actionKey === "new_summary"){
-        return await createSummary(primitive, options.queryData, options.importData)
+    if( actionKey === "new_query"){
+        return await createSegmentQuery(primitive, options.queryData, options.importData)
     }
     if( actionKey === "refetch_source"){
         await removeDocument( primitive.id )
@@ -1732,20 +1758,15 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         }
                     }
                 }else{
-                    summary = await summarizeMultiple( toProcess, {...config, focus: options.focus, debug: true, debug_content:true})
+                    summary = await summarizeMultiple( toProcess, {...config, focus: options.focus, markdown: options.markdown, debug: true, debug_content:true})
                     if( summary && summary.summary ){
                         result = summary.summary
 
-                        if( false){
-
+                        if( !options.markdown){
                             result = result.replace(/\\n/g, '\n');
                             result = result.replace(/\n+/g, '\n');
                             result = result.replace(/^\s*\d+\)?\.?\s*/gm, '');
-                            if( primitive.referenceParameters?.asList ?? options.asList ){
-                                
-                            }else{
-                                result = result.trim().replace(/\n/g, '\n\n');                 
-                            }
+                            result = result.trim().replace(/\n/g, '\n\n');                 
                         }
                     }
                 }

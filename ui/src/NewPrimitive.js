@@ -41,6 +41,12 @@ function CategoryCard({item, ...props}){
 function CategorySelection({items, ...props}){
     const [query, setQuery] = useState('')
 
+    if( !items ){
+        items = []
+        if( props.categoryId ){
+            items = getCategoryList(props)
+        }
+    }
 
     const filteredCategories =
       query === ''
@@ -53,7 +59,7 @@ function CategorySelection({items, ...props}){
     return (
         <Combobox 
             value={props.selectedCategory} onChange={props.setSelectedCategory}>
-            <div className="relative">
+            <div className="relative flex">
                 <MagnifyingGlassIcon
                     className="pointer-events-none absolute top-3.5 left-4 h-5 w-5 text-gray-400"
                     aria-hidden="true"
@@ -64,6 +70,13 @@ function CategorySelection({items, ...props}){
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                 />
+                <button
+                    type="button"
+                    onClick={props.setOpen ? ()=>props.setOpen(false) : undefined}
+                    className="place-self-center mr-2 w-fit rounded-md bg-gray-100 py-2 px-3 text-sm text-gray-400 shadow-sm hover:bg-indigo-500 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                    >
+                    Cancel
+                </button>
             </div>
             <Combobox.Options static hold>
                 <div className='p-2 divide-y divide-gray-100'>
@@ -80,19 +93,20 @@ function CategorySelection({items, ...props}){
 
     )
 }
-
-
-export default function NewPrimitive({...props}) {
-
-    const mainstore = MainStore()
-    const getCategoryList = ()=>{
-        let list = mainstore.categories().filter((d)=>props.type === undefined || [props.type].flat().includes(d.primitiveType))
+    function getCategoryList(props, mainstore){
+        if(!mainstore){
+            mainstore = MainStore()
+        } 
+        let list
         if( props.categoryId ){
             list = props.categoryId.map((id)=>mainstore.category(id))
         }else if(props.parent ){
             if( props.parent.metadata && props.parent.metadata.evidenceCategories ){
                 list = props.parent.metadata.evidenceCategories ? props.parent.metadata.evidenceCategories.map((id)=>mainstore.category(id)) : []
             }            
+        }
+        if( !list ){
+            list = MainStore().categories().filter((d)=>props.type === undefined || [props.type].flat().includes(d.primitiveType))
         }
         return list.map((d)=>{
             return {
@@ -107,7 +121,12 @@ export default function NewPrimitive({...props}) {
         })  
     }
 
-    const items = useMemo(getCategoryList, [props.type])
+
+export default function NewPrimitive({...props}) {
+
+    const mainstore = MainStore()
+
+    const items = useMemo(()=>getCategoryList(props, mainstore), [props.type])
     const [value, setValue] = useState()
     const [pickCategory, setPickCategory] = useState(false)
     const [pickWorkspace, setPickWorkspace] = useState(false)
@@ -196,7 +215,7 @@ export default function NewPrimitive({...props}) {
                 </div>}
                 {selectedCategory && items.length > 1 && <div role='button' tabIndex='0' onKeyDown={(e)=>{if(e.key=='Enter' || e.key==" " || e.key === "ArrowDown"){setPickCategory(true)}}} className='border outline-none focus:ring-2 focus:ring-indigo-600 rounded-md shadow-md mb-4 p-1'><CategoryCard onClick={()=>setPickCategory(true)} item={selectedCategory}/></div>}
                 {selectedCategory && items.length === 1 && <CategoryCard item={selectedCategory}/>}
-                {pickCategory && <Popup padding='false' setOpen={()=>setPickCategory(false)}><CategorySelection items={items} setSelectedCategory={(item)=>{changeCategory(item);setPickCategory(false)}}/></Popup>}
+                {pickCategory && <Popup padding='false' setOpen={()=>setPickCategory(false)}><CategorySelection setOpen={()=>setPickCategory(false)} items={items} setSelectedCategory={(item)=>{changeCategory(item);setPickCategory(false)}}/></Popup>}
                 <textarea
                     rows={5}
                     tabIndex={1}
@@ -262,3 +281,6 @@ export default function NewPrimitive({...props}) {
         )}
     </Popup>)
 }
+
+
+NewPrimitive.CategorySelection = CategorySelection

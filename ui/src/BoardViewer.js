@@ -11,6 +11,7 @@ import HierarchyNavigator from "./HierarchyNavigator";
 import PrimitiveConfig from "./PrimitiveConfig";
 import FilterPane from "./FilterPane";
 import CollectionInfoPane from "./CollectionInfoPane";
+import useDataEvent from "./CustomHook";
 
 export default function BoardViewer({primitive,...props}){
     const mainstore = MainStore()
@@ -23,6 +24,31 @@ export default function BoardViewer({primitive,...props}){
     const rowButton = useRef({})
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
+
+    useDataEvent("relationship_update set_parameter set_field delete_primitive", undefined, (ids)=>{
+        if( myState.current.watchList  ){
+            myState.current.framesToUpdate = myState.current.framesToUpdate || []
+            Object.keys(myState.current.watchList).forEach(frameId=>{
+                if( myState.current.watchList[frameId].filter(d=>ids.includes(d)).length > 0 ){
+                    console.log("Need to update ", frameId)
+                    
+                    myState.current.framesToUpdate.push(frameId)
+
+                    if( !myState.current.frameUpdateTimer ){
+                        myState.current.frameUpdateTimer = setTimeout(()=>{
+                            myState.current.frameUpdateTimer = undefined
+                            for( const frameId of  myState.current.framesToUpdate){
+                                console.log(`DOING REFRESH ${frameId}`)
+                                canvas.current.refreshFrame( frameId )
+                            }
+                            myState.current.framesToUpdate = []
+                        }, 150)
+                    }
+                }
+            })
+        }
+        return false
+    })
 
     const list = primitive.primitives.allUniqueView
 
@@ -42,6 +68,11 @@ export default function BoardViewer({primitive,...props}){
             await MainStore().doPrimitiveAction(primitive, action.key , actionOptions)
             },
         })
+    }
+
+    function updateWatchList(frameId, ids){
+        myState.current.watchList = myState.current.watchList || {}
+        myState.current.watchList[frameId] = [frameId, ...ids]
     }
 
     useEffect(() => {
@@ -405,8 +436,9 @@ export default function BoardViewer({primitive,...props}){
             list: items,
             callback: (d)=>{
                 primitive.addRelationship(d, "ref")
-                let position = canvas.current.framePosition(myState.activeBoardId)?.scene
-                addBoardToCanvas( d, {x:position.r +50, y: position.t, s: position.s})
+                let position = canvas.current.framePosition(myState.activeBoardId)?.scene ?? {r: 0, t: 0, s: 1}
+                addBoardToCanvas( d, {x: position.r +50, y: position.t, s: position.s})
+                return true
             }
 
         })
@@ -436,6 +468,7 @@ export default function BoardViewer({primitive,...props}){
         if(myState.activeBoard){
             let title = "Remove from board?"
             let action = ()=>primitive.removeRelationship(myState.activeBoard.primitive, "ref")
+
             if( myState.activeBoard.primitive.origin.id === primitive.id){
                 title = `Delete ${myState.activeBoard.primitive.displayType}?`
                 action = ()=>mainstore.removePrimitive( myState.activeBoard.primitive )
@@ -471,10 +504,10 @@ export default function BoardViewer({primitive,...props}){
             }
             console.log(renderOptions)
             
-            return {id: d.id, title: `${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})}
+            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})}
         }
 
-        return {id: d.id, title: `${d.title} - #${d.plainId}`, items: (stageOptions)=>renderMatrix(
+        return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, items: (stageOptions)=>renderMatrix(
             d, 
             view.list, {
                 axis: view.axis,
@@ -487,6 +520,18 @@ export default function BoardViewer({primitive,...props}){
             })
         }
 
+    }
+
+    async function addBlankView(){
+        const newPrimitive = await mainstore.createPrimitive({
+            title: "New view",
+            categoryId: 38,
+            type: "view",
+            parent: primitive,
+        })
+        if( newPrimitive ){
+            addBoardToCanvas( newPrimitive, {x:0, y: 0, s: 1})
+        }
     }
 
     function newView(){
@@ -520,7 +565,7 @@ export default function BoardViewer({primitive,...props}){
         const importData = data?.importConfig 
 
 
-        await mainstore.doPrimitiveAction( parent, "new_summary", {queryData, importData},async (result)=>{
+        await mainstore.doPrimitiveAction( parent, "new_query", {queryData, importData},async (result)=>{
             if( result ){
                 const newPrimitive = await MainStore().waitForPrimitive( result.primitiveId )
                 let position = canvas.current.framePosition(parent.id)?.scene
@@ -587,6 +632,7 @@ export default function BoardViewer({primitive,...props}){
         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
             <div className='p-3 flex place-items-start space-x-2 '>
                     <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
+                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={addBlankView} flat placement='left-start' />
                     <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
                     {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
             </div>
@@ -601,7 +647,6 @@ export default function BoardViewer({primitive,...props}){
             <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={pickBoardDescendant} flat placement='left-start' />
             <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />
             {myState.activeBoard && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
-            {myState.activeBoard && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACreateChildNode' className='w-5 h-5'/>} onClick={newDescendView} flat placement='left-start' />}
         </div>}
         <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>
             <InfiniteCanvas 
@@ -620,6 +665,7 @@ export default function BoardViewer({primitive,...props}){
                                 return RenderPrimitiveAsKonva( primitive)
                             }}
                             enableFrameSelection
+                            updateWatchList={updateWatchList}
                             callbacks={{
                                 resizeFrame,
                                 viewportWillMove:handleViewWillChange,
@@ -634,8 +680,8 @@ export default function BoardViewer({primitive,...props}){
                                 },
                                 onClick:{
                                     frame: (id)=>setActiveBoard(id),
-                                    //primitive:(id)=>mainstore.sidebarSelect(id),
-                                    primitive:(id)=>setCollectionPaneInfo({primitive: mainstore.primitive(id)}),
+                                    primitive:(id)=>mainstore.sidebarSelect(id),
+                                    //primitive:(id)=>setCollectionPaneInfo({primitive: mainstore.primitive(id)}),
                                     //canvas:(id)=>mainstore.sidebarSelect(),
                                     canvas:(id)=>setCollectionPaneInfo(),
                                     cell:(id, frameId)=>{

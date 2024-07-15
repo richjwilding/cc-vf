@@ -168,19 +168,19 @@ _setTextData() {
       if( line.length === 0){
         continue
       }
-      let padding = 1
+      let padding = 0.35
       var startIndent = 0
-      const isIndented = line.match(/^(\s*)-\s(.*)/)
+      const isIndented = line.match(/^(\s*)(-+)\s(.*)/)
       if( isIndented ){
-        const count = isIndented[1] ? 2 : 1
+        const count = isIndented[1] ? 2 : (isIndented[2].length)
         startIndent = indentWidth * count
-        line = isIndented[2]
+        line = isIndented[3]
         if( wasIndented < startIndent){
-          padding = -0.25
+          padding = 0.1
         }else if( wasIndented > startIndent){
-          padding = 1
+          padding = 0.5
         }else{
-          padding = 0.25
+          padding = 0.2
         }
       }
       
@@ -253,9 +253,9 @@ _setTextData() {
                       if (wrapIndex > 0) {
                           low = wrapIndex;
                           match = match.slice(0, low);
-                          matchMetrics = this._getTextStats(match)
-                          matchWidth = matchMetrics.width + indent;
-                      }
+                        }
+                        matchMetrics = this._getTextStats(match)
+                        matchWidth = matchMetrics.width + indent;
                   }
                   match = match.trimRight();
                   this._addMDTextLine(match, matchMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet);

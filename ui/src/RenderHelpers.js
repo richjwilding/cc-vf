@@ -254,53 +254,8 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
             col = config.columns - 1
             x = (config.padding[3] + config.spacing[1]) + ((fullWidth + config.spacing[1]) * col)
             y = ypos[col]
-            
-            const number = `${config.showExtra}`
-            const check = config.showExtra >= 0 ? number.length > 4 ? number : "more" : `Show less`
-            const fullLabel = config.showExtra >= 0 ? `**${number}**\nmore`: `Show less`
-            let size = 100
-            const t = new CustomText({
-                x: 0,
-                y: 10,
-                fontSize: size,
-                lineHeight: config.showExtra >= 0 ? 0.7 : 1.2,
-                text: fullLabel,
-                align:"center",
-               // verticalAlign:"middle",
-                withMarkdown: true,
-                fill: '#334155',
-                showPlaceHolder: false,
-                wrap: true,
-                bgFill: 'transparent',
-                width: fullWidth,
-                refreshCallback: options.imageCallback
-            })
-            while( (t.measureSize(check).width > fullWidth * 0.3) && size > 6){
-                size = size > 20 ? size -= (size * 0.1) : size - 0.25
-                t.fontSize( size )
-            }
 
-            const thisHeight = t.height() + 20
-            node = new Konva.Group({
-                id: options.id,
-                x: x,
-                y: y,
-                width: fullWidth,
-                height: thisHeight,
-                onClick: options.onClick,
-                name:"inf_track widget show_extra"
-            })
-            const r = new Konva.Rect({
-                x: 0,
-                y: 0,
-                width: fullWidth,
-                height: thisHeight,
-                cornerRadius: 4,
-                fill: '#d2d2d2',
-                hoverFill: '#a2a2a2',
-            })
-            node.add(r)
-            node.add(t)
+            node = addExtraNode( config, options, x, y, fullWidth)
         }
 
         if( node ){
@@ -379,6 +334,8 @@ function baseGridRender( options, config){
 
     let minColumns = config.minColumns
 
+    let items = options.list
+    let itemCount = items.length + (config.showExtra ? 1 : 0)
 
     if( config.minWidth ){
         minColumns = Math.max(minColumns ?? 1, 1, Math.floor(((config.minWidth - config.padding[1] - config.padding[3]) - config.spacing[1]) / (fullWidth + config.spacing[1])))
@@ -403,7 +360,7 @@ function baseGridRender( options, config){
         config.columns = Math.floor(Math.max(1, ((config.width - config.padding[1] - config.padding[3]) - config.spacing[1]) / (fullWidth + config.spacing[1])))
     }
 
-    config.rows = Math.ceil( options.list.length / config.columns )
+    config.rows = Math.ceil( itemCount / config.columns )
     
     if( heightDefined ){
         config.height ||= ((config.rows + 1) * config.spacing[0]) + (config.rows * fullHeight) + config.padding[0] + config.padding[2]
@@ -427,7 +384,6 @@ function baseGridRender( options, config){
     let x = config.padding[3] + config.spacing[1]
     let y = config.padding[0] + config.spacing[0]
 
-    const items = options.list
 
     const r = new Konva.Rect({
         x: config.padding[3],
@@ -441,21 +397,28 @@ function baseGridRender( options, config){
 
     let idx = 0
     let columnYs = new Array( config.columns ).fill( y )
-    for( const d of items ){
-        const node = RenderPrimitiveAsKonva( d, {
-            config: "default", 
-            x: x, 
-            y: columnYs[ idx ], 
-            onClick: options.primitiveClick,
-            height: fullHeight, 
-            width: fullWidth, 
-            padding: config.itemPadding, 
-            placeholder: options.placeholder !== false,
-            toggles: options.toggles,
-            imageCallback: options.imageCallback,
-            ...options.extras
-        })
-        
+    for( let dIdx = 0; dIdx < itemCount; dIdx++){
+        const d = items[dIdx]
+        let node
+
+        if( d ){
+            node = RenderPrimitiveAsKonva( d, {
+                config: "default", 
+                x: x, 
+                y: columnYs[ idx ], 
+                onClick: options.primitiveClick,
+                height: fullHeight, 
+                width: fullWidth, 
+                padding: config.itemPadding, 
+                placeholder: options.placeholder !== false,
+                toggles: options.toggles,
+                imageCallback: options.imageCallback,
+                ...options.extras
+            })
+        }else{
+            node = addExtraNode( config, options, x, y, fullWidth)
+        }
+
         g.add(node)
         let lastHeight = fullHeight ?? node.attrs.height
         columnYs[idx] += lastHeight + config.spacing[0]
@@ -484,6 +447,56 @@ function baseGridRender( options, config){
     }
 
     return g
+}
+function addExtraNode(config, options, x,y, fullWidth){
+    const number = `${config.showExtra}`
+    const check = config.showExtra >= 0 ? number.length > 4 ? number : "more" : `Show less`
+    const fullLabel = config.showExtra >= 0 ? `**${number}**\nmore`: `Show less`
+    let size = fullWidth * 5
+    let minSize = fullWidth * 0.2
+    const t = new CustomText({
+        x: 0,
+        y: 10,
+        fontSize: size,
+        lineHeight: config.showExtra >= 0 ? 0.7 : 1.2,
+        text: fullLabel,
+        align:"center",
+        withMarkdown: true,
+        fill: '#334155',
+        showPlaceHolder: false,
+        wrap: true,
+        bgFill: 'transparent',
+        width: fullWidth,
+        refreshCallback: options.imageCallback
+    })
+    while( (t.measureSize(check).width > fullWidth * 0.3) && size > minSize){
+        size = size > 20 ? size -= (size * 0.1) : size - 0.25
+        t.fontSize( size )
+    }
+
+    const thisHeight = t.height() + 20
+    let node = new Konva.Group({
+        id: options.id,
+        x: x,
+        y: y,
+        width: fullWidth,
+        height: thisHeight,
+        onClick: options.onClick,
+        name:"inf_track widget show_extra"
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: fullWidth,
+        height: thisHeight,
+        cornerRadius: 4,
+        fill: '#d2d2d2',
+        hoverFill: '#a2a2a2',
+    })
+    node.add(r)
+    node.add(t)
+
+    return node
 }
 registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primitive, options = {})=>{
     const config = {width: 200, height: 200, itemSize: 30, itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
@@ -1277,7 +1290,7 @@ export function renderMatrix( primitive, list, options ){
     }[list[0]?.primitive?.type] ?? false
     
     cellContentLimit = {
-        29: 64
+        29: 63
     }[referenceIds[0]] ?? cellContentLimit
 
     let itemColsByColumn = new Array(columnExtents.length).fill(0)

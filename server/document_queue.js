@@ -117,7 +117,7 @@ async function doDataQuery( options ) {
                 let items
                 if( scope  ){
                     const node = await fetchPrimitive( scope )
-                    if( node.type === "view" || node.type === "working" || node.type === "query"){
+                    if( node.type === "view" || node.type === "working" || node.type === "query" || node.type === "segment" ){
                         const interim = await getDataForImport(node)
 
                         if( primitive.referenceParameters.group || thisCategory.type === "iterator" ){
@@ -156,6 +156,9 @@ async function doDataQuery( options ) {
                     const ids = items?.map(d=>d.id)
                     serachScope.push({foreignId: {$in: ids}})
                     console.log(`Constrained to ${ids.length} items`)
+                    if( ids.length === 0){
+                        return
+                    }
                 }
                 
                 let keepItems = !options.remove_first

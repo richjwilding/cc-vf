@@ -3,13 +3,14 @@ import { Listbox, ListboxOption, ListboxLabel } from "./@components/listbox"
 import { Label } from "./@components/fieldset"
 import { Badge } from "./@components/badge"
 import { Dropdown, DropdownButton, DropdownItem, DropdownMenu } from './@components/dropdown'
-import { ChevronDownIcon } from '@heroicons/react/20/solid'
+import { ChevronRightIcon, ChevronDownIcon } from '@heroicons/react/20/solid'
 import { Button } from './@components/button'
 import clsx from 'clsx'
 import CollectionUtils from './CollectionHelper'
 import { useState } from 'react'
 import { PencilSquareIcon } from '@heroicons/react/24/outline'
 import { HeroIcon } from './HeroIcon'
+import { Disclosure, Transition } from '@headlessui/react'
 
 
 function AxisPicker({className, options, name, title, type, small, disabled, autoFocus,'aria-label': ariaLabel,...props}){
@@ -155,10 +156,28 @@ function MyDropdown({options, name, title, type, ...props}){
     </Dropdown>
     return control
 }
+function Panel(props){
+    return (
+      <Disclosure defaultOpen={props.open}>
+      {({ open }) => (
+        <div className={`group/panel ${props.className || ""}`}>
+            <Disclosure.Button as='div' key="title" className={`flex w-full space-x-2 place-items-center`} >
+                {props.icon ? props.icon : <></>}
+                <p>{props.title}</p>
+                <ChevronRightIcon strokeWidth={2} className={`${props.narrow ? "" :"!ml-auto !mr-0"} w-5 h-5 ${open ? '-rotate-90 transform' : ''}`}/>
+            </Disclosure.Button>
+        <Disclosure.Panel className={props.panelClassName}>
+            {typeof(props.children) === "function" ? props.children() : props.children}
+        </Disclosure.Panel>
+        </div>
+      )}
+      </Disclosure>
+    )
+}
 function OptionList({options, name, title, type, ...props}){
     const control = <Listbox name={name} value={props.value} defaultValue={props.defaultValue ?? props.default} onChange={props.onChange} placeholder={props.placeholder} zIndex={props.zIndex} small={props.small}>
         {options.map(d=>(
-            <ListboxOption value={d.id} small={props.small}>
+            <ListboxOption value={d.id} small={props.small ? true : false}>
                 {d.icon && <HeroIcon icon={d.icon} className='w-4 h-4'/>}
                 <ListboxLabel key={d.id}>{d.title}</ListboxLabel>
                 {props.showCount && <span className="inline-flex items-center rounded-full bg-gray-200 px-1.5 ml-3 text-[0.625rem] font-medium text-gray-600">{d.count ?? 0}</span>}
@@ -181,5 +200,6 @@ export default function UIHelper(props){
 }
 UIHelper.OptionList = OptionList
 UIHelper.Dropdown = MyDropdown
+UIHelper.Panel = Panel
 UIHelper.Button = MyButton
 UIHelper.AxisPicker = AxisPicker

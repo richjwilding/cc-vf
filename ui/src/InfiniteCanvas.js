@@ -338,7 +338,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         return myState.current.frames[frameId]
     }
     function setupFrameForItems( id, title, items, x, y, s, options ){
-
+        let ids, removeIds
         const existing = myState.current.frames?.find(d=>d.id === id) 
         let existingNode
         if(existing){
@@ -354,7 +354,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             if( props.board){
                 framePadding = options.canvasMargin ?? [5,5,5,5]
                 const titleText = new Konva.Text({
-                    text: title,
+                    text: typeof(title) == "function" ? title() : title,
                     x:0,
                     y: 0,
                     verticalAlign:"bottom",
@@ -375,6 +375,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             framePadding = rendered.attrs.canvasMargin ?? framePadding
 
             const root = convertItems( rendered, frame.node)
+            ids = frame.node.find('.primitive').map(d=>d.attrs.id)
             frame.cells = frame.node.find('.cell').map(d=>({id: d.attrs.id, l: d.attrs.x, t: d.attrs.y, r: (d.attrs.x + d.attrs.width), b: (d.attrs.y + d.attrs.height)}))
             const maxX = root.width() + framePadding[1] + framePadding[3]
             const maxY = root.height() + framePadding[0] + framePadding[2]
@@ -418,6 +419,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             existingNode.remove()
             stageRef.current.batchDraw()
         }
+
+        if( props.updateWatchList ){
+            props.updateWatchList(frame.id, ids)
+        }
+
         return frame
     }
 
@@ -674,7 +680,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     function refreshFrame(id, newItems ){
         const force = newItems !== undefined
         const item = myState.current.renderList.find(d=>d.id === id)
-        if( force ){
+        if( force ){            
             item.items = newItems.items            
         }
         if( item ){
@@ -735,7 +741,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 refreshLinks()
             }
         }
-//        convertItems(props)
         finalizeImages(stageRef.current, {imageCallback: processImageCallback})
 
 

@@ -152,7 +152,7 @@ export default function PrimitiveParser(obj){
                         return result
                     }
                 }
-                if( prop === "__paths" ){
+                /*if( prop === "__paths" ){
                     return function(){
                         let id = arguments[0]
                         const find = (v, path)=>{
@@ -185,7 +185,7 @@ export default function PrimitiveParser(obj){
                         }
                         return result
                     }
-                }
+                }*/
                 if( prop === "relationships"){
                     return function(){
                         let path = receiver.paths(...arguments)

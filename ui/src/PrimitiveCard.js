@@ -180,8 +180,9 @@ let mainstore = MainStore()
         if( props.activeOnly || item.activeOnly){
           //const ids = props.primitive.primitives.descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
           if( props.primitive || props.primitiveList){
-            const items = props.primitiveList ?? [props.primitive]
-            let lookups = mainstore.uniquePrimitives(mainstore.uniquePrimitives(items.map(d=>d.itemsForProcessing).flat()).map(d=>d.primitives.descendants).flat())
+            const items = mainstore.uniquePrimitives((props.primitiveList ?? [props.primitive]).map(d=>d.type === "category" ? d.origin : d))
+            const itp = items.map(d=>d.itemsForProcessing).flat()
+            let lookups = mainstore.uniquePrimitives([itp, itp.map(d=>d.primitives.descendants)].flat(Infinity))
             lookups = [...items, ...lookups]
             itemCountByType = {}
             for(const d of lookups){
@@ -1056,6 +1057,10 @@ const Parameters = function({primitive, ...props}){
     fields = fields.concat( Object.keys(primitive.referenceParameters) ).filter((d,i,a)=>a.indexOf(d) === i) 
   }
   fields = fields.filter((d)=>!parameters[d]?.hidden)
+  if( props.hidden ){
+    const hide = [props.hidden].flat()
+    fields = fields.filter((d)=>!hide.includes(d))
+  }
   let details = fields.map((k)=>{
     let config = parameters[k]
     if( !config ){
@@ -1090,24 +1095,6 @@ const Parameters = function({primitive, ...props}){
     details = details.filter((item)=>item.value || !item.extra) 
   }
 
-  /*
-  const listKeyHandler = (e, idx)=>{
-    if(e.key === "Enter"){
-      e.preventDefault()
-      setEditing( idx )
-    }
-    if (e.key === 'ArrowDown') {
-        e.currentTarget.nextSibling && e.currentTarget.nextSibling.focus()
-    }
-    if (e.key === 'ArrowUp') {
-        e.currentTarget.previousSibling && e.currentTarget.previousSibling.focus()
-    }
-  }
-
-  const stopEditing = (element)=>{
-    element?.parentElement?.focus()
-    setEditing( null )
-  }*/
 
   if( details.length === 0 ){
     return <></>
@@ -1121,6 +1108,20 @@ const Parameters = function({primitive, ...props}){
           gridTemplateColumns: props.showTitles === undefined || props.showTitles === true ? "minmax(min-content, 7rem) 1fr" : "1fr"
         }}
         className={`grid gap-2 text-sm ${props.className ?? ""}`}>
+        {props.includeTitle && <>
+            {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>Title</p>}
+                      <EditableTextField
+                          callback={(d)=>primitive.title = d}
+                          editing={true}
+                          editable
+                          value = {primitive.title}
+                          className='w-full'
+                          compact={true}
+                          border
+                          placeholder={primitive.metadata?.placeholder ?? "Empty"}
+                          fieldClassName="grow text-slate-700 p-1">
+                      </EditableTextField>
+        </>}
         {details.map((item, idx)=>(
           <>
             {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
@@ -1225,7 +1226,7 @@ const ImportList = function({primitive, ...props}){
         </span>
         }).flatMap((d, i, a)=> i < (a.length - 1) ? [d, <span className='mx-0.5 text-xs text-gray-600'>and</span>] : d)
       }).flatMap((d, i, a)=> i < (a.length - 1) ? [d, <p className='mx-0.5 text-xs text-gray-600'>or</p>] : d)
-      return <div className='px-2 hover:bg-gray-100 py-4 border-b border-b-gray-200 group'>
+      return <div className='px-2 hover:bg-gray-100 py-2 border-b border-b-gray-200 group'>
         <div className='flex w-full place-items-center'>
           <div className='grow flex space-x-1 place-items-center'><p className='text-gray-700 text-md'>{filteredSource.title}</p><p className='text-gray-500 text-sm'>- {filteredSource.metadata?.title ?? filteredSource.type} #{filteredSource.plainId}</p></div>
             <button
@@ -1240,7 +1241,7 @@ const ImportList = function({primitive, ...props}){
                 })}
                 className="shink-0 grow-0 flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-ccgreen-500 invisible group-hover:visible"
             >
-                <TrashIcon className="h-5 w-5" aria-hidden="true" />
+                <TrashIcon className="h-4 w-4" aria-hidden="true" />
             </button>
         </div>
         {filterExplanation}
@@ -1359,7 +1360,7 @@ const Details = function({primitive, ...props}){
   
   return (
         <Panel {...props} title={panelTitle} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
-          <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200 relative`}>
+          <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200 relative py-2`}>
             <Parameters primitive={primitive} editing={true} fullList={editing}/>
             {showParents && <Parameters primitive={primitive} editing={true} fullList={editing} showParents/>}
           </dl>
@@ -1487,8 +1488,6 @@ const Hero = function({primitive, ...props}){
 const Categories = function({primitive, ...props}){
   const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
   useDataEvent("set_field relationship_update", [props.relatedTo?.id, primitive.id], forceUpdate)
-  let aiProcessSummary
-  let analyzer
 
   const createCategory = async (referenceId)=>{
     const newPrim = await MainStore().createPrimitive({type: 'category', parent: primitive, categoryId: referenceId})

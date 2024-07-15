@@ -79,15 +79,15 @@ import clsx from 'clsx';
       placeholder={props.placeholder ?? props.default}
       className={clsx([
             'place-items-center outline-none bg-white resize-none overflow-hidden',
-            props.border ? "border border-gray-200 rounded-md" : "",
+            props.border ? "border border-zinc-950/10 rounded-md shadow-sm" : "",
             !props.compact && !editing ? "p-1 min-h-[2em]" : "",
             props.fieldClassName || '',
-            props.compact ? "py-1" : "px-1 py-1",
+            props.compact ? "py-1.5" : "px-1 py-1.5",
             props.fieldClassName && props.fieldClassName.search("text-") > -1 ? "" :props.secondary ? "text-gray-400" : "text-gray-800",
             showPlaceholder ? "italic text-gray-500" : "",
             props.editable && !editing ? props.clamp : "",
             props.editable && !editing && !errors ? "focus:bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-200" : "",
-            props.editable && editing && !errors ? "px-1 bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-500" : "",
+            props.editable && editing && !errors ? "px-1 focus:outline-none focus:ring-1  focus:ring-ccgreen-500" : "",
             props.editable && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
 
       ])}>  
