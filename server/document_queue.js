@@ -111,12 +111,13 @@ async function doDataQuery( options ) {
 
                 const serachScope = [{workspaceId: primitive.workspaceId}]
                 
-                const scope = options.scope ?? primitive.primitives?.params?.scope?.[0] ?? parentForScope?.primitives?.params?.scope?.[0] ?? (Object.keys(parentForScope?.primitives ?? {}).includes("imports") ? parentForScope : undefined)
+                const scope = options.scope ?? primitive.primitives?.params?.scope?.[0] ?? parentForScope?.primitives?.params?.scope?.[0] ?? (Object.keys(parentForScope?.primitives ?? {}).includes("imports") ? parentForScope.id : (Object.keys(primitive?.primitives ?? {}).includes("imports") ? primitive.primitives.imports[0] : undefined))
                 const referenceCategoryFilter = options.referenceCategoryFilter ?? primitive.referenceParameters?.referenceCategoryFilter ?? parentForScope?.referenceParameters?.referenceCategoryFilter
 
-                let items
+                let items, scopeNode
                 if( scope  ){
                     const node = await fetchPrimitive( scope )
+                    scopeNode = node
                     if( node.type === "view" || node.type === "working" || node.type === "query" || node.type === "segment" ){
                         const interim = await getDataForImport(node)
 
@@ -137,6 +138,7 @@ async function doDataQuery( options ) {
                     }
                     
                 }
+                
                 if( referenceCategoryFilter ){
                     const asNum = parseInt( referenceCategoryFilter)
                     if( !isNaN(asNum) ){
@@ -171,7 +173,29 @@ async function doDataQuery( options ) {
                     }
                 }
                 let query = primitive.referenceParameters?.query //|| primitive.title
-                console.log(`Got query ${query}`)
+                if( scope ){
+                    if( scopeNode?.type === "segment"){
+                        console.log(`WILL GET FROM SEGMENT ${scopeNode.plainId}`)
+                        if( query.includes("{segment}")){
+                            if( scopeNode?.referenceParameters?.importConfig ){
+                                const idsToLookup = []
+                                scopeNode.referenceParameters.importConfig.forEach(d=>{
+                                    return d.filters.forEach( d=>{
+                                        if( d.type === "parent"){
+                                            idsToLookup.push(d.value)
+                                        }
+                                    })
+                                })
+                                if( idsToLookup.length > 0){
+                                    const parents = await fetchPrimitives(idsToLookup)
+                                    const segmentName = parents.map(d=>d.title).join(", ")
+                                    console.log(segmentName)
+                                    query = query.replaceAll("{segment}", segmentName)
+                                }
+                            }
+                        }
+                    }
+                }
 
                 const default_metadata = {
                     "organizations": "an 'organizations' field containing an array of specific and relevant orgnaization name (where specified)", 
@@ -211,7 +235,7 @@ async function doDataQuery( options ) {
                         return a
                     },{})
                 }else{
-                    metadata = default_metadata
+                   // metadata = default_metadata
                 }
                 console.log(metadata)
                 let results
@@ -220,8 +244,10 @@ async function doDataQuery( options ) {
                     results = await processPromptOnText( query,{
                         opener: `You have access to a database of many thousands of text fragments and must answer questions or complete tasks using information in the database.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases. Here is a task or question:`,
                         //prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question. The database can also support extraction of different metadata (organizations, organization_type, responsibilities, experience_level, individuals, roles, problems, solutions, jobs to be done, value proposition, and needs), assess which of this meatadata is key to the question or task`,
-                        prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question. The database can also support extraction of different metadata (${Object.keys(metadata).join(", ")}), assess which of this meatadata is key to the question or task`,
-                        output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array, and a 'metadata' field containing the identified metadata to extract as an array`,
+                        prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
+                        //prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question. The database can also support extraction of different metadata (${Object.keys(metadata).join(", ")}), assess which of this meatadata is key to the question or task`,
+                        //output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array, and a 'metadata' field containing the identified metadata to extract as an array`,
+                        output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
                         engine: "gpt4p",
                         debug: true,
                         debug_content: true,
@@ -254,9 +280,12 @@ async function doDataQuery( options ) {
 
                         const quote = primitive.referenceParameters?.quote ?? true
                         const targetWords = doingExtracts ? "no more than 30 words" : primitive.referenceParameters?.words ?? "3 paragraphs each of 100-200 words and in a plain string format with appropriately escaped linebreaks"
+                        
+                        const includeBasicFields = !doingExtracts
 
                         const outPrompt = [
-                            `Return the result in a json object called "answer" which is an array containing every part of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in ${targetWords}`,
+                            `Return the result in a json object called "answer" which is an array containing every part of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found`,
+                            includeBasicFields ? `, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in ${targetWords}` : undefined,
                             quote ? `, a 'quote' field containing up to 50 words of the exact text used from the fragments` : undefined,
                             `, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.`,
                             (extraFields ?? "").length > 0 ? extraFields : undefined
@@ -295,10 +324,10 @@ async function doDataQuery( options ) {
                             maxTokens: 40000,
                             temperature: 1,
                             markPass: true,
-                            batch:  doingExtracts ? 10 : undefined, 
+                            batch:  doingExtracts ? 20 : undefined, 
                             idField: "ids",
                             debug: true,
-                           debug_content: true,
+                           debug_content: false,
                             field: "answer"
                         })
                         //console.log(results.output)
@@ -330,7 +359,7 @@ async function doDataQuery( options ) {
                                     markPass: true,
                                     field: 'output',
                                     debug: true,
-                                  debug_content: true,
+                                    debug_content: false,
                                 })
                                 if( compact.success && compact.output){
                                     const updates = compact.output[0]
@@ -393,7 +422,7 @@ async function doDataQuery( options ) {
                             }
 
                             for( const d of final){
-                                const extracts = metadataItems.reduce((a,c)=>{a[metadata[c]?.field ?? c] = d[metadata[c]?.field ?? c]; return a},{})
+                                const {title, ...extracts} = metadataItems.reduce((a,c)=>{a[metadata[c]?.field ?? c] = d[metadata[c]?.field ?? c]; return a},{})
                                 if( options.inheritField ){
                                     extracts[options.inheritField] = options.inheritValue
                                 }
@@ -404,7 +433,7 @@ async function doDataQuery( options ) {
                                     data:{
                                         type: extractTargetCategory?.primitiveType ?? "result",
                                         referenceId: resultCategoryId,
-                                        title: d.overview,
+                                        title: title ?? d.overview,
                                         referenceParameters: {
                                             ...extracts,
                                             description: d.answer,
@@ -415,6 +444,10 @@ async function doDataQuery( options ) {
                                 }
                                 const newPrim = await createPrimitive( newData )
                                 if( newPrim ){
+                                    if(options.addToScope && scopeNode){
+                                        await addRelationship(scopeNode.id, newPrim.id, "auto")
+
+                                    }
                                     const primitiveIds = d.ids.map(idx=>fragmentList[idx]?.id).filter((d,i,a)=>a.indexOf(d) === i )
                                     console.log(`need to link in ${primitiveIds.join(", ")}`)
                                     for(const id of primitiveIds){
@@ -729,16 +762,13 @@ export default function QueueDocument(){
 
 
     new Worker('documentQueue', async job => {
-        console.log(job.data)
         if( job.data.mode === "data_query" ){
             try{
-                console.log("go")
                 await doDataQuery(job.data)
             }catch(error){
                 console.log(`Error in doDataQuery`)
                 console.log(error)
             }
-            console.log(`resetting`, job.data)
             dispatchControlUpdate(job.data.id, job.data.field , null, {track: job.data.id})
         }
         if( job.data.mode === "questions" ){

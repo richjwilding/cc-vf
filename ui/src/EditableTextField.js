@@ -9,6 +9,9 @@ import clsx from 'clsx';
 
     const showPlaceholder = props.value === undefined ||props.value?.length === 0
 
+    useEffect(()=>{
+      updateDisplay(props.value)
+    },[props.primitiveId])
 
     const updateDisplay = (value)=>{
       value = value ?? props.value
@@ -32,11 +35,11 @@ import clsx from 'clsx';
             setErrors(true)
             return
           }
-          useTemp = true
+         // useTemp = true
         }
       }      
       editing.current = false
-      updateDisplay(useTemp ? value : undefined)
+      //updateDisplay(useTemp ? value : undefined)
     }
 
     const keyHandler = (e)=>{
@@ -91,6 +94,6 @@ import clsx from 'clsx';
             props.editable && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
 
       ])}>  
-          {props.value?.length > 0 ? props.value :  (props.default ?? props.placeholder ?? "Enter details")}
+          {(typeof(props.value) !== "string" && props.value !== undefined && props.value !== null) || props.value?.length > 0 ? props.value :  (props.default ?? props.placeholder ?? "Enter details")}
       </div>
   }

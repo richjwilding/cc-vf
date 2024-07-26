@@ -25,24 +25,46 @@ export default function BoardViewer({primitive,...props}){
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
 
-    useDataEvent("relationship_update set_parameter set_field delete_primitive", undefined, (ids)=>{
+    useDataEvent("relationship_update set_parameter set_field delete_primitive", undefined, (ids, event, info)=>{
         if( myState.current.watchList  ){
             myState.current.framesToUpdate = myState.current.framesToUpdate || []
+            let needRefresh = true
             Object.keys(myState.current.watchList).forEach(frameId=>{
-                if( myState.current.watchList[frameId].filter(d=>ids.includes(d)).length > 0 ){
-                    console.log("Need to update ", frameId)
-                    
-                    myState.current.framesToUpdate.push(frameId)
+                let checkIds = ids
+                if( myState.current.watchList[frameId].filter(d=>checkIds.includes(d)).length > 0 ){
 
-                    if( !myState.current.frameUpdateTimer ){
-                        myState.current.frameUpdateTimer = setTimeout(()=>{
-                            myState.current.frameUpdateTimer = undefined
-                            for( const frameId of  myState.current.framesToUpdate){
-                                console.log(`DOING REFRESH ${frameId}`)
-                                canvas.current.refreshFrame( frameId )
-                            }
-                            myState.current.framesToUpdate = []
-                        }, 150)
+                    if( event === "set_field"){
+                        if( info.match(/processing.ai/)){
+                            const board = myState[frameId]
+                            canvas.current.refreshFrame( board.id, renderView(board.primitive))
+                        }else if(info.startsWith('procesing.') || info.startsWith('embed_')){
+                            needRefresh = false
+                        }
+                    }
+                    if( event === "relationship_update"){
+                        needRefresh = prepareBoard( myState[frameId].primitive )
+                        if( !needRefresh){
+                            console.log(`Cancelled refresh - no changes on ${myState[frameId]?.primitive.plainId}`)
+                        }
+                    }
+
+                    if( needRefresh ){
+                        console.log("Need to update ", frameId, event, info)
+                        
+                        if( !myState.current.framesToUpdate.includes(frameId)){
+                            myState.current.framesToUpdate.push(frameId)
+                        }
+                        
+                        if( !myState.current.frameUpdateTimer ){
+                            myState.current.frameUpdateTimer = setTimeout(()=>{
+                                myState.current.frameUpdateTimer = undefined
+                                for( const frameId of  myState.current.framesToUpdate){
+                                    console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}`)
+                                    canvas.current.refreshFrame( frameId )
+                                }
+                                myState.current.framesToUpdate = []
+                            }, 220)
+                        }
                     }
                 }
             })
@@ -72,7 +94,7 @@ export default function BoardViewer({primitive,...props}){
 
     function updateWatchList(frameId, ids){
         myState.current.watchList = myState.current.watchList || {}
-        myState.current.watchList[frameId] = [frameId, ...ids]
+        myState.current.watchList[frameId] = [frameId, ...(myState[frameId].internalWatchIds ?? [] ),...ids]
     }
 
     useEffect(() => {
@@ -134,6 +156,7 @@ export default function BoardViewer({primitive,...props}){
     }
 
     function prepareBoard(d){
+        let didChange = false
         if( d.type === "view" || d.type === "query"){
             const items = d.itemsForProcessing
             const columnAxis = CollectionUtils.primitiveAxis(d, "column")
@@ -196,7 +219,6 @@ export default function BoardViewer({primitive,...props}){
             })
             
             let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columnAxis, rowAxis, viewFilters, liveFilters, viewPivot )
-            console.log(data)
 
             let filtered = CollectionUtils.filterCollectionAndAxis( data, [
                 {field: "column", exclude: filterApplyColumns},
@@ -205,9 +227,30 @@ export default function BoardViewer({primitive,...props}){
                     return {field: `filterGroup${i}`, exclude: d.filter}
                 })
             ], {columns: extents.column, rows: extents.row, hideNull})
+
+            if( myState[d.id].list ){
+                const changes = myState[d.id].list.some((d,i)=>{
+                    const n = filtered.data[i]
+                    if( !n ){
+                        return true
+                    }
+                    if( n?.primitive?.id !== d.primitive?.id ){
+                        return true
+                    }
+                    if( ([n.column].flat()).map(d=>d?.idx ?? d).join("-") != ([d.column].flat()).map(d=>d?.idx ?? d).join("-")){
+                        return true
+                    }
+                    if( ([n.row].flat()).map(d=>d?.idx ?? d).join("-") != ([d.row].flat()).map(d=>d?.idx ?? d).join("-")){
+                        return true
+                    }
+                    return false
+                })
+                didChange = changes
+            }
                         
             myState[d.id].primitive = d
             myState[d.id].list = filtered.data
+            myState[d.id].internalWatchIds = filtered.data.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
             myState[d.id].axis = {column: columnAxis, row: rowAxis}
             myState[d.id].columns = filtered.columns
             myState[d.id].viewConfig = viewConfig
@@ -230,8 +273,7 @@ export default function BoardViewer({primitive,...props}){
             }
             myState[d.id].toggles = {}
         }
-
-
+        return didChange
     }
 
 
@@ -312,15 +354,26 @@ export default function BoardViewer({primitive,...props}){
             canvas.current.refreshFrame( myState.activeBoardId )
         }
     }
+    async function updateExtents(board){
+        const isActive = myState?.activeBoardId === board.id
+        if( isActive ){
+            hideMenu()
+        }
+        
+        prepareBoard( board )
+        forceUpdateLinks()
+
+        if( isActive ){
+            canvas.current.refreshFrame( myState.activeBoardId )
+        }
+    }
 
     let boardUpdateTimer
 
     function resizeFrame(fId, width){
         const board = myState[fId]
-        console.log(`WIDTH SET = `, width)
         primitive.setField(`frames.${fId}.width`, width)
-        console.log(`WIDTH CHECK = `, primitive.frames[fId].width)
-        canvas.current.refreshFrame( board.id, renderView(board))
+        canvas.current.refreshFrame( board.id, renderView(board.primitive))
     }
 
     function setActiveBoard(e){
@@ -506,6 +559,9 @@ export default function BoardViewer({primitive,...props}){
             
             return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})}
         }
+        if( d.type === "query" && d.processing?.ai?.data_query){
+            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions})}
+        }
 
         return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, items: (stageOptions)=>renderMatrix(
             d, 
@@ -522,19 +578,31 @@ export default function BoardViewer({primitive,...props}){
 
     }
 
-    async function addBlankView(){
+    async function addBlankView(referenceCategoryId, importId, filter, options = {}){
         const newPrimitive = await mainstore.createPrimitive({
             title: "New view",
             categoryId: 38,
             type: "view",
+            referenceParameters: {
+                ...(importId ? {target: "items", importConfig: [{id: importId, filters: filter}]} : {}),
+                target: "items",
+                ...options,
+                referenceId: referenceCategoryId
+            },
             parent: primitive,
         })
         if( newPrimitive ){
-            addBoardToCanvas( newPrimitive, {x:0, y: 0, s: 1})
+            if(importId){
+                await newPrimitive.addRelationshipAndWait( mainstore.primitive(importId), "imports")
+            }
+            primitive.addRelationship(newPrimitive, "ref")
+
+            let position = (importId ? canvas.current.framePosition(importId)?.scene : undefined) ?? {x:0, y: 0, s: 1}
+            addBoardToCanvas( newPrimitive, {x:position.r + 50, y: position.t, s: position.s})
         }
     }
 
-    function newView(){
+    function newView(referenceCategoryId){
         let items = mainstore.primitives().filter(d=>d.workspaceId === primitive.workspaceId && ["activity"].includes(d.type))
             
         mainstore.globalPicker({
@@ -632,18 +700,17 @@ export default function BoardViewer({primitive,...props}){
         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
             <div className='p-3 flex place-items-start space-x-2 '>
                     <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
-                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={addBlankView} flat placement='left-start' />
+                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>addBlankView()} flat placement='left-start' />
                     <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
                     {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
             </div>
             {collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
-                <CollectionInfoPane {...collectionPaneInfo} newPrimitiveCallback={createNewQuery}/>
+                <CollectionInfoPane {...collectionPaneInfo} newPrimitiveCallback={createNewQuery} createNewView={addBlankView} updateFrameExtents={updateExtents}/>
             </div>}
         </div>
         {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
             <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
             <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
-            <DropdownButton noBorder icon={<FunnelIcon className='w-5 h-5'/>} items={undefined} flat placement='left-start' onClick={()=>showPane === "filter" ? setShowPane(false) : setShowPane("filter")} className={`hover:text-ccgreen-800 hover:shadow-md ${rowFilter || colFilter ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
             <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={pickBoardDescendant} flat placement='left-start' />
             <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />
             {myState.activeBoard && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}

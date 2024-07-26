@@ -1,4 +1,4 @@
-import { ArrowRightCircleIcon, ChevronRightIcon, PlusIcon } from "@heroicons/react/20/solid"
+import { ArrowRightCircleIcon, ChevronLeftIcon, ChevronRightIcon, PlayIcon, PlusIcon } from "@heroicons/react/20/solid"
 import Panel from "./Panel"
 import MainStore from "./MainStore"
 import { useState } from "react"
@@ -17,6 +17,11 @@ import DropdownButton from "./DropdownButton"
 import UIHelper from "./UIHelper"
 
 import { fal } from '@fortawesome/pro-light-svg-icons';
+import HierarchyNavigator from "./HierarchyNavigator"
+import CollectionUtils from "./CollectionHelper"
+import TooggleButton from "./ToggleButton"
+import PrimitiveConfig from "./PrimitiveConfig"
+import SearchSet from "./SearchSet"
 
 // Add the icons to the library
 
@@ -26,21 +31,23 @@ function classNames(...classes) {
 
 let mainstore = MainStore()
 const tabs = [
-    { name: 'Discovery', search: true},
-    { name: 'Process', referenceId: 112},
-    { name: 'Vew', list: true}
+    { name: 'Discovery', referenceId: 112, discovery: true, search: true},
+    { name: 'Process', referenceId: 112, process: true},
+    { name: 'Items', list: true}
 ]
 
 const mainTabs = [
     { name: 'Query', referenceId: 81, initial: true},
-    { name: 'Summarize', referenceId: 109},
+    //{ name: 'Summarize (singular)', referenceId: 109},
+    { name: 'Summarize', referenceId: 113}
+    //{ name: 'Process', referenceId: 112},
 ]
 
-function CategoryHeader({itemCategory, items, newItemParent, ...props}){
+function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...props}){
     const [page, setPage] = useState(0)
     const [pageItems, setPageItems] = useState(50)
     const [showItems, setShowItems] = useState(false)
-    const [activeTab, setActiveTab] = useState(mainstore.category(tabs.find(d=>d.initial)))
+    const [activeTab, setActiveTab] = useState()
     
 
     const count = items.length
@@ -50,6 +57,9 @@ function CategoryHeader({itemCategory, items, newItemParent, ...props}){
         {field: 'title', title: "Title"}
     ]}
 
+    const nestedActions = (itemCategory.actions?.filter(d=>d.collectionAction || d.showInCollection)) ?? []
+    const searchCategoryList = itemCategory.resultCategories?.map(d=> d.searchCategoryIds ? d.searchCategoryIds.map(d2=>({id: d.id, title: d.title, searchCategoryIds: [d2]})) : undefined).flat().filter(d=>d)
+    const pageCount = Math.ceil(items.length / pageItems)
 
     return  <>
                 {itemCategory && <h3 onClick={()=>setShowItems(!showItems)} className="flex w-full text-gray-500 font-medium">
@@ -80,17 +90,72 @@ function CategoryHeader({itemCategory, items, newItemParent, ...props}){
                     ))}
                     </nav>
                 </div>
-                {activeTab?.referenceId && <div className="w-full flex flex-col mt-2">
-                    <NewPrimitivePanel key={activeTab.referenceId} parent={newItemParent} primitiveList={items} selectedCategory={mainstore.category(activeTab.referenceId)}/>
+                {activeTab?.referenceId && activeTab?.process && <div className="w-full flex flex-col mt-2">
+                    <NewPrimitivePanel key={activeTab.referenceId} newPrimitiveCallback={props.newPrimitiveCallback} parent={newItemParent} primitiveList={items} selectedCategory={mainstore.category(activeTab.referenceId)}/>
                 </div>}
-                {activeTab?.list && <div className="w-full flex border bg-gray-50 border-gray-200 rounded-lg mt-2">
+                {activeTab?.list && <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2">
+                        <div className="flex p-2 space-x-1 text-gray-600">
+                            {pageCount > 1 && <>
+                                <UIHelper.Button outline icon={<ChevronLeftIcon className="w-5 h-5"/>}/>
+                                <UIHelper.Button outline icon={<ChevronRightIcon className="w-5 h-5"/>}/>
+                            </>}
+                            <UIHelper.Button 
+                                tooltip="Add items to board"
+                                outline 
+                                icon={<HeroIcon icon='FAAddView' className='w-5 h-5'/>}
+                                onClick={props.createNewView ? ()=>props.createNewView(itemCategory.id, actionAnchor.id, props.filters, {pivot: props.pivotRelationship, descend: props.pivotRelationship ? false : undefined}) : undefined}
+                            />
+                        </div>
+                        <div className="relative">
                         <PrimitiveTable 
                             page={page}
                             pageItems={pageItems}
+                            onEnter={(d)=>mainstore.sidebarSelect(d)}
                             config={cardConfig} 
                             primitives={items} 
                             className='w-full min-h-[24em] max-h-[60vh] !text-xs'/> 
+                        </div>
                     </div>}
+                {activeTab?.discovery && nestedActions.length > 0 && 
+                    <><PrimitiveCard.CardMenu 
+                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
+                            custom={nestedActions.map(d=>{
+                                const doAction = async (options)=>{
+                                    await MainStore().doPrimitiveAction( 
+                                        d.collectionAction ? items[0] : actionAnchor, 
+                                        d.collectionAction ? d.key : "auto_cascade", 
+                                        {cascade_key: d.collectionAction ?  undefined : d.key, ids: items?.map(d=>d.id), ...options},
+                                        ()=>{}
+                                        )
+                                }
+                                return {
+                                    ...d,
+                                    action: async ()=>{
+                                        if( d.actionFields){
+                                            mainstore.globalInputPopup({
+                                                primitive: newItemParent,
+                                                fields: d.actionFields,
+                                                confirm: async (inputs)=>await doAction( inputs )
+                                            })
+                                        }else{
+                                            await doAction()
+                                        }
+
+                                    }
+                                }
+                            })} 
+                            size={10}
+                        />
+                        {!props.filters && searchCategoryList && <div className="text-sm my-3 space-y-3">
+                            {searchCategoryList.map(d=>
+                                <UIHelper.Panel title={d.title}>
+                                    <SearchSet primitive={actionAnchor} resultSet={d.id} searchCategoryIds={d.searchCategoryIds}/>
+                                </UIHelper.Panel>
+                            )}
+                        </div>}
+                    </>
+
+            }
             </>}
         </>
 
@@ -99,6 +164,7 @@ function CategoryHeader({itemCategory, items, newItemParent, ...props}){
 export default function CollectionInfoPane({board, frame, primitive, filters, ...props}){
     const [activeTab, setActiveTab] = useState(mainstore.category(tabs.find(d=>d.initial)))
     const [showDetails, setShowDetails] = useState(false)
+    const [hideNull, setHideNull] = useState(frame?.referenceParameters?.explore?.hideNull)
 
     useDataEvent("relationship_update set_parameter set_field delete_primitive", [board?.id, frame?.id, primitive?.id].filter(d=>d))
 
@@ -108,7 +174,10 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
     if( frame ){
 
 
+
         const list = filters ? frame.itemsForProcessingWithFilter(filters) : frame.itemsForProcessing
+
+
         let itemCategoryId = list.map(d=>d.referenceId).filter((d,i,a)=>d && a.indexOf(d)===i)
         if( itemCategoryId.legnth > 1 ){
             console.log(`Multiple catgegory type in list`)
@@ -137,6 +206,13 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
         let descendants = mainstore.uniquePrimitives(list.map(d=>d.primitives.directDescendants).flat())
         let descendantCategories = descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d)).filter(d=>d && ["activity","evidence","entity","result"].includes(d.primitiveType))
 
+        function getAncestors(){
+            const axisOptions = CollectionUtils.axisFromCollection( list, frame )
+            const axisForPivot = axisOptions.filter(d=>["result","entity"].includes(d.category?.primitiveType) ).filter((d,i,a)=>a.findIndex(d2=>d2.category.id === d.category.id)===i).map(d=>({category: d.category, relationship: d.relationship}))
+            let parents = mainstore.uniquePrimitives(list.map(d=>d.findParentPrimitives({type: ["entity", "result"]})).flat(Infinity))
+            return [axisForPivot, parents]
+        }
+
         function clearItems(e){
             e.stopPropagation();
             mainstore.promptDelete({
@@ -155,7 +231,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
             callback:(pick)=>{
                 target.addRelationship(pick, `imports`)
             },
-            type: "view"
+            type: ["view", "query"]
           })
         }
 
@@ -163,31 +239,163 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
             const baseCategories = [54, 53,55,33, 90]
             MainStore().globalCategoryPicker({
                     categoryIds: baseCategories,
-                    callback:(d)=>{
-                        console.log(d)
+                    callback:async (d)=>{
+                        
+                        const newPrim = await mainstore.createPrimitive({type: 'category', parent: target, categoryId: d.categoryId, referenceParameters:{target:"items"}})
+                        if( newPrim ){
+                            await mainstore.waitForPrimitive( newPrim.id )
+                            mainstore.globalCategoryEditor({primitive: newPrim, originTask: target})
+                        }
 
                         return true
                     }
                 })
 
         }
+        function filterPane(){
+            const columnAxis = CollectionUtils.primitiveAxis(frame, "column")
+            const rowAxis = CollectionUtils.primitiveAxis(frame, "row")
+            const colFilter = PrimitiveConfig.decodeExploreFilter(frame.referenceParameters?.explore?.axis?.column?.filter)
+            const rowFilter = PrimitiveConfig.decodeExploreFilter(frame.referenceParameters?.explore?.axis?.row?.filter)
+            
+
+            const fullList = frame.itemsForProcessingWithFilter(filters, {ignoreFinalViewFilter: true}) 
+
+            const viewFilters = frame.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(frame, i)) ?? []            
+            let viewPivot = frame.referenceParameters?.explore?.viewPivot
+            const axisOptions = CollectionUtils.axisFromCollection( fullList, frame ).map(d=>{
+                const out = {...d}
+                if( d.relationship ){
+                    out.relationship = [d.relationship].flat()//.map(d=>d.split(":")[0])
+                    out.access = [out.relationship].flat().length
+                }
+                return out
+            })
+            const localFilters = CollectionUtils.getExploreFilters( frame, axisOptions )
+
+            let liveFilters = frame.primitives.allUniqueCategory.filter(d=>d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
+                return {
+                    type: "category",
+                    primitiveId: d.id,
+                    category: d,
+                    isLive: true,
+                    title: `Category: ${d.title}`                
+                }
+            })
+
+            let {_, extents} = CollectionUtils.mapCollectionByAxis( fullList, columnAxis, rowAxis, viewFilters, liveFilters, viewPivot )
+
+            const sets = [
+                {selection: "column", mode: "column", title: "Columns", list: colFilter},
+                {selection: "row", mode: "row", title: "Rows", list: rowFilter},
+                ...localFilters.map((d,idx)=>({selection:  `filterGroup${idx}`, title: `Filter by ${axisOptions[d.option]?.title}`, deleteIdx: idx, mode: idx, list: d.filter}))
+            ]
+
+            const addViewFilter = (item)=>{
+                const axis = axisOptions[item]
+                if( axis ){
+                    const localFilters = frame.referenceParameters?.explore?.filters ?? []
+                    const track = (frame.referenceParameters?.explore?.filterTrack ?? 0) +1
+                    const newFilter = {
+                        track: track,
+                        sourcePrimId: axis.primitiveId,
+                        type: axis.type,
+                        subtype: axis.subtype,
+                        parameter: axis.parameter,
+                        relationship: axis.relationship,
+                        access: axis.access,
+                        value: undefined
+                    }
+                    localFilters.push(newFilter)
+                    frame.setField("referenceParameters.explore.filters", localFilters)
+                    frame.setField("referenceParameters.explore.filterTrack", track)
+                    if( props.updateFrameExtents ){
+                        props.updateFrameExtents( frame )
+                    }
+                }
+            }
+            function updateHideNull(val){
+                frame.setField("referenceParameters.explore.hideNull", val)
+                setHideNull(val)
+                if( props.updateFrameExtents ){
+                    props.updateFrameExtents( frame )
+                }
+            }
+
+            const filterList = CollectionUtils.buildFilterPane(
+                sets, 
+                extents,
+                {
+                    mainstore: mainstore,
+                    updateAxisFilter: (item, mode, setAll, axisExtents)=>{
+                        let currentFilter
+                        if( mode === "row"){
+                            currentFilter = rowFilter  
+                        }else if(mode === "column"){
+                            currentFilter = colFilter  
+                        }else{
+                            currentFilter = PrimitiveConfig.decodeExploreFilter(frame.referenceParameters?.explore?.filters?.[ mode]?.filter)
+                        }
+                        CollectionUtils.updateAxisFilter(frame, mode, currentFilter, item, setAll, axisExtents,
+                            (filter)=>{
+                                if( props.updateFrameExtents ){
+                                    props.updateFrameExtents( frame )
+                                }
+                            }
+                        )
+                    },
+                    deleteViewFilter: (idx)=>{
+                        const filter = viewFilters[idx]
+                        let filters = frame.referenceParameters?.explore?.filters
+                        filters = filters.filter(d=>d.track !== filter.track )
+                        
+                        frame.setField("referenceParameters.explore.filters", filters)
+                        if( props.updateFrameExtents ){
+                            props.updateFrameExtents( frame )
+                        }
+                    }
+
+                }
+            )
+            return <>
+                    <p className="text-xs mt-1">Filtered from {fullList.length} to {list.length} items</p>
+                    <div className='w-full px-1 py-2 text-lg flex place-items-center justify-between text-gray-600 font-normal'>
+                        <TooggleButton title='Hide empty rows / columns' enabled={hideNull} setEnabled={updateHideNull}/>
+                        <HierarchyNavigator noBorder portal icon={<HeroIcon icon='FunnelPlus' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' action={(d)=>addViewFilter(d.id)} dropdownWidth='w-64' className='ml-auto hover:text-ccgreen-800 hover:shadow-md'/>
+                    </div>
+                    <div className='w-full p-2 text-sm space-y-2 overflow-y-scroll'>
+                        {filterList}
+                    </div>
+                </>
+        }
 
 
         content = <>
         <div className="p-3 space-y-4">
             {frame.type === "summary" && <SummaryCard primitive={frame}/>}
-            {frame.type === "view" && 
+            
                 <div className="space-y-2">
                     <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
-                    <UIHelper.Panel title="Categories" icon={<FontAwesomeIcon icon={fal.faTags} />}>
-                        <PrimitiveCard.Categories primitive={frame} directOnly hidePanel className='pb-2 w-full h-fit'/>
-                        <div type="button"
-                        className="flex my-2 font-medium grow-0 bg-white hover:bg-gray-100 hover:shadow-sm hover:text-gray-600 justify-center ml-2 p-1 rounded-full shrink-0 text-xs text-gray-400 "
-                        onClick={()=>addCategory(frame)}> 
-                                <PlusIcon className="w-5 h-5"/>
-                        </div>
-                    </UIHelper.Panel>
+                        <UIHelper.Panel title="Categories" icon={<FontAwesomeIcon icon={fal.faTags} />}>
+                            <PrimitiveCard.Categories primitive={frame} scope={filters ? list.map(d=>d.id) : undefined} directOnly hidePanel className='pb-2 w-full h-fit'/>
+                            <div type="button"
+                            className="flex my-2 font-medium grow-0 bg-white hover:bg-gray-100 hover:shadow-sm hover:text-gray-600 justify-center ml-2 p-1 rounded-full shrink-0 text-xs text-gray-400 "
+                            onClick={()=>addCategory(frame)}> 
+                                    <PlusIcon className="w-5 h-5"/>
+                            </div>
+                        </UIHelper.Panel>
                     </div>
+                    <div className="space-y-2">
+                        <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
+                            <UIHelper.Panel title="Filters" icon={<FontAwesomeIcon icon={fal.faFilter} />}>
+                                        {filterPane()}
+                            </UIHelper.Panel>
+                        </div>
+                    </div>
+                </div>
+            
+            {!filters && frame.type === "view" && 
+                <div className="space-y-2">
                     <div className="border rounded-md bg-gray-50">
                         <div onClick={()=>setShowDetails(!showDetails)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">
                             <p className="font-medium ">{frame.metadata.title} details</p>
@@ -229,23 +437,51 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                             <ChevronRightIcon strokeWidth={2} className={`ml-auto w-5 h-5 ${showDetails ? '-rotate-90 transform' : ''}`}/>
                         </div>
                         {showDetails && <div className="p-2 ">
-                            <PrimitiveCard.Parameters primitive={frame} includeTitle editing leftAlign compactList className="text-xs text-slate-500" fullList />
+                            <PrimitiveCard.Parameters primitive={frame} includeTitle editing leftAlign compactList className="text-xs text-slate-500" fullList showExtra/>
+                            <div className="pt-4 pb-2 text-gray-500 text-sm">
+                                <UIHelper.Panel title="Show inputs" narrow>
+                                    <div className="border p-2 rounded-md">
+                                        <PrimitiveCard.ImportList primitive={frame}/>
+                                        <div type="button"
+                                        className="flex my-2 font-medium grow-0 bg-white hover:bg-gray-100 hover:shadow-sm hover:text-gray-600 justify-center ml-2 p-1 rounded-full shrink-0 text-xs text-gray-400 "
+                                        onClick={()=>addImport(frame)}> 
+                                                <PlusIcon className="w-5 h-5"/>
+                                        </div>
+                                    </div>
+                                </UIHelper.Panel>
+                            </div>
                         </div>}
                     </div>
                 </div>
             }
             {itemCategory && <div className="px-3 py-2 bg-gray-50 border rounded-md">
-                <CategoryHeader itemCategory={itemCategory} items={list} newItemParent={newItemParent} />
+                <CategoryHeader newPrimitiveCallback={newPrimitiveCallback} itemCategory={itemCategory} items={list}  newItemParent={newItemParent} createNewView={props.createNewView} actionAnchor={frame} filters={filters}/>
             </div>}
             {descendantCategories.length > 0 && <div className="space-y-2">
                 <p className="text-sm font-medium text-gray-500">Descendants of items</p>
                 <div className="border rounded-md p-2 space-y-2">
                     {descendantCategories.map((d,i)=>(
-                        <div className="p-2 bg-gray-50 text-sm border rounded-md ">
-                            <CategoryHeader key={d.id} itemCategory={d} newItemParent={newItemParent} items={descendants.filter(d2=>d2.referenceId === d.id)}/>
+                        <div key={d.id} className="p-2 bg-gray-50 text-sm border rounded-md ">
+                            <CategoryHeader itemCategory={d} newPrimitiveCallback={newPrimitiveCallback} newItemParent={newItemParent} createNewView={props.createNewView} actionAnchor={frame} items={descendants.filter(d2=>d2.referenceId === d.id)} filters={filters}/>
                     </div>))}
                 </div>
             </div>}
+            <div className="text-gray-500 text-sm">
+                <UIHelper.Panel narrow title="Ancestors">
+                    {()=>{
+                        const [axisForPivot, parents] = getAncestors()
+                            
+                        return <div className="space-y-2 mt-2">
+                            <div className="border rounded-md p-2 space-y-2">
+                                {axisForPivot.map((d,i)=>(
+                                    <div key={d.category.id} className="p-2 bg-gray-50 text-sm border rounded-md ">
+                                        <CategoryHeader itemCategory={d.category} newPrimitiveCallback={newPrimitiveCallback} newItemParent={newItemParent} pivotRelationship={d.relationship} createNewView={props.createNewView} actionAnchor={frame} items={parents.filter(d2=>d2.referenceId === d.category.id)} filters={filters}/>
+                                </div>))}
+                            </div>
+                        </div>
+                    }}
+                </UIHelper.Panel>
+            </div>
         </div>
             <div className="mt-2">
                 <nav aria-label="Tabs" className="border-t isolate flex divide-x divide-gray-200 shadow">
@@ -290,7 +526,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                 </dl>        
             </div></>
     return <div 
-            className='w-[32rem]'>
+            className='w-[32rem] 2xl:w-[40rem]'>
                 {content}
             </div>
 }

@@ -69,7 +69,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
 
   return (
     <Menu as="div" className="relative inline-block text-left ml-auto">
-      <Float flip={10} onUpdate={()=>{}} placement={align === "right" ? "right-start" : "left-start"} offset={4}>
+      <Float portal={props.portal} shift flip={10} onUpdate={()=>{}} placement={align === "right" ? "right-start" : "left-start"} offset={4}>
       <div>
         <Menu.Button 
             onClick={(e)=>alignPath()}
@@ -94,7 +94,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
         leaveFrom="transform opacity-100 scale-100"
         leaveTo="transform opacity-0 scale-95"
       >
-        <Menu.Items static className={`z-10 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none`}>
+        <Menu.Items static className={`z-10 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none max-h-[80vh] overflow-y-auto`}>
         {path && path.length > 0 && <div >
                                         <Menu.Item>
                                         {({ active }) => (

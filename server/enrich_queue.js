@@ -11,15 +11,19 @@ import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import Parser from "@postlight/parser";
 import { extractURLsFromPage, extractURLsFromPageAlternative, fetchURLPlainText } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
+import QueueManager from "./base_queue";
 
 
 let instance
+let _queue
 
 export default function EnrichPrimitive(){    
     if( instance ){
         return instance
     }
     
+    instance = {} 
+    /*
     instance = new Queue("enrichQueue", {
         connection: { 
             host: process.env.QUEUES_REDIS_HOST, 
@@ -35,12 +39,15 @@ export default function EnrichPrimitive(){
         await instance.obliterate({ force: true });
         const newJobCount = await instance.count();
         console.log( newJobCount + " jobs in queue  (enrich)")
-    }
+    }*/
 
     instance.addToQueue = (primitive, name, description, options)=>{
-            const field = `processing.${name}`
-            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text: description})
-            instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: name, options: options, field: field})
+        const primitiveId = primitive.id
+        const workspaceId = primitive.workspaceId
+        const field = `processing.${name}`
+        dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text: description})
+        //instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: name, options: options, field: field})
+        _queue.addJob( workspaceId,  {id: primitive.id, mode: name, options: options, field: field})
     }
     instance.fromURL = (primitive, options )=>{
         instance.addToQueue( primitive, "url_as_detail", "Examining url", options )
@@ -48,61 +55,73 @@ export default function EnrichPrimitive(){
 
     instance.findArticles = (primitive, options )=>{
         if( primitive.type === "activity"){
-            const field = `processing.articles`
-            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Finding articles"})
-            instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: "find_articles", options: options, field: field})
+            //const field = `processing.articles`
+            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Finding articles"})
+            //instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: "find_articles", options: options, field: field})
+
+            instance.addToQueue( primitive, "find_articles", "Finding articles", options )
         }
     }
     instance.siteDiscovery = (primitive, options )=>{
         if( primitive.type === "entity"){
-            const field = `processing.site`
-            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining url"})
-            instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_discovery", options: options, field: field})
+            //const field = `processing.site`
+            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining url"})
+            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_discovery", options: options, field: field})
+
+            instance.addToQueue( primitive, "site_discovery", "Site discovery (short)", options )
         }
     }
     instance.generateJTBD = (primitive, options )=>{
         if( primitive.type === "entity"){
-            const field = `processing.site`
-            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining website"})
-            instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "generate_jtbd", options: options, field: field})
+            //const field = `processing.site`
+            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining website"})
+            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "generate_jtbd", options: options, field: field})
+
+            instance.addToQueue( primitive, "generate_jtbd", "JTBD generation", options )
         }
     }
     instance.siteDiscoveryShort = (primitive, options )=>{
         if( primitive.type === "entity"){
-            const field = `processing.site`
-            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining website"})
-            instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_discovery_short", options: options, field: field})
+            //const field = `processing.site`
+            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining website"})
+            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_discovery_short", options: options, field: field})
+            instance.addToQueue( primitive, "site_discovery_short", "Site discovery", options )
         }
     }
     instance.siteSummarize = (primitive, options )=>{
         if( primitive.type === "entity"){
-            const field = `processing.site`
-            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining url"})
-            instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_summarize", options: options, field: field})
+            //const field = `processing.site`
+            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining url"})
+            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_summarize", options: options, field: field})
+            instance.addToQueue( primitive, "site_summarize", "Site discovery", options )
         }
     }
     instance.findPosts = (primitive, options )=>{
         if( primitive.type === "activity"){
-            const field = `processing.posts`
-            dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Finding posts"})
-            instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "find_posts", options: options, field: field})
+            //const field = `processing.posts`
+            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Finding posts"})
+            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "find_posts", options: options, field: field})
+            instance.addToQueue( primitive, "find_posts", "Find posts", options )
         }
     }
     instance.searchCompanies = (primitive, options )=>{
         if( primitive.type === "activity"){
-            const field = `processing.expanding.0`
-            dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date()})
-            instance.add(`search_topcics_${primitive.id}` , {id: primitive.id, target: "entity", mode: "search_company", options: options})
+            //const field = `processing.expanding.0`
+            //dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date()})
+            //instance.add(`search_topcics_${primitive.id}` , {id: primitive.id, target: "entity", mode: "search_company", options: options})
+            instance.addToQueue( primitive, "search_company", "Search companies", options )
         }
     }
     instance.enrichCompany = (primitive, source, force)=>{
         if( primitive.type === "entity"){
-            dispatchControlUpdate(primitive.id, "processing.enrich", {state: "active", started: new Date(), targetFields: ['title', 'referenceParameters.url', 'referenceParameters.description', 'referenceParameters.industry']})
-            instance.add(`enrich_${primitive.id}_from_${source}` , {id: primitive.id, source: source, target: "entity", mode: "enrich", force: force, field: "processing.enrich"})
+            //dispatchControlUpdate(primitive.id, "processing.enrich", {state: "active", started: new Date(), targetFields: ['title', 'referenceParameters.url', 'referenceParameters.description', 'referenceParameters.industry']})
+            //instance.add(`enrich_${primitive.id}_from_${source}` , {id: primitive.id, source: source, target: "entity", mode: "enrich", force: force, field: "processing.enrich"})
+            instance.addToQueue( primitive, "enrich", "Enriching company", {source, force, target: "entity"} )
         }
     }
     instance.pivotCompany = async (primitive, source, action)=>{
-        if( primitive.type === "entity" || primitive.type === "activity"){
+        throw "Deprecated"
+       /* if( primitive.type === "entity" || primitive.type === "activity"){
             
             const parentId = primitive.type === "entity" ?  primitiveOrigin(primitive) : primitive.id
             let resultSet
@@ -125,7 +144,7 @@ export default function EnrichPrimitive(){
                 dispatchControlUpdate(primitive.id, "processing.pivot" , {status: "pending"}, {track: primitive.id, text:"Finding similar companies"})
                 instance.add(`pivot_${primitive.id}_from_${source}` , {id: primitive.id, action: action, source: source, target: "entity", mode: "pivot", parentId: parentId, field: field})
             }
-        }
+        }*/
     }
 
 
@@ -451,7 +470,7 @@ export default function EnrichPrimitive(){
                         opener: `here is the text from a webpage which details products from a company called ${company}:`,
                         prompt: extracts,
                         output: extractor.closer + "\n" + fields,
-                        engine: "gpt4p",
+                        engine: "gpt4o-mini",
                         field: extractor.field,
                         "debug": true
                     })
@@ -589,16 +608,16 @@ export default function EnrichPrimitive(){
                 const company = primitive.title
                 const results = await processPromptOnText( text,{
                     opener: `here is the text from the webpage of a company called ${company}:`,
-                    prompt: `Produce a summary of the companies offerings, target customers, markets and capabilities using only information explicity mentioned in the text i have provided.`,
-                    output: `Return the result in a json object called "result" with a field called 'description' containing a summary of the company in no more than 100 words (if present), an 'offerings' field containing an array of offerings with each array entry being no more than 10 words  (if present), a 'customers' field containing an array of target customers with each array entry being no more than 10 words (if present), a 'capabilities' field containing an array of capabilities with each array entry being no more than 10 words (if present),`,
+                    prompt: `Produce a summary (written in English) of the companies offerings, target customers, markets and capabilities using only information explicity mentioned in the text i have provided.`,
+                    output: `Return the result in a json object called "result" with a field called 'description' containing a summary of the company in no more than 100 words (if present), an 'offerings' field containing an array of offerings with each array entry being no more than 10 words  (if present), a 'customers' field containing an array of target customers with each array entry being no more than 10 words (if present), a 'capabilities' field containing an array of capabilities with each array entry being no more than 10 words (if present), a 'location' field containing the country where the headquaters is based (if specified) `,
                     //output: `Return the result in a json object called "result" with a field called 'description' containing a summary of the company in no more than 100 words (if present), an 'offerings' field containing an array of offerings with each array entry being no more than 10 words  (if present), a 'markets' field containing an array of geographical markets the company operates in with each array entry being no more than 10 words (if present), an 'customers' field containing an array of target customers with each array entry being no more than 10 words (if present), a 'capabilities' field containing an array of capabilities with each array entry being no more than 10 words (if present),`,
-                    engine: "gpt4p",
+                    engine: "gpt4o-mini",
                     field: "result"
                 })
                 console.log(results)
                 if( results.success ){
                     console.log("here")
-                    for(const field of ["description","offerings", "customers", "capabilities"]){
+                    for(const field of ["description","offerings", "customers", "capabilities","location"]){
                         const v = results.output?.[0]?.[field]
                         if(v){
                             console.log(`update ${field}`, v)
@@ -626,7 +645,7 @@ export default function EnrichPrimitive(){
                     url = "https://" + url
                 }
                 const list = await primitiveChildren( primitive, "result")
-                if( list.length > 0){
+                if( list.length > 0 && !options.force){
                     console.log(`Item ${primitive.id} already has site_discovery data - skipping`)
                     return 
                 }
@@ -676,7 +695,7 @@ export default function EnrichPrimitive(){
                                 const result = await categorize( urlMap, catList.map(d=>d.description),{
                                     longType: "items containing two fieds - a url of a weblink and the descriptive text for the link",
                                     matchPrompt: `For each item you must assess the best match with a category from the supplied list using information from the weblink and/or descriptive text, or determine if there is a not a strong match. Ignore any links that are most likely about shopping, purchasing, delivery, ecommerce listing or other ecommerce activities`,
-                                    engine: "gpt4p",
+                                    engine: "gpt4o-mini",
                                    // maxTokens: 80000,
                                     debug_content: true,
                                     debug: true
@@ -699,7 +718,7 @@ export default function EnrichPrimitive(){
                         }
                         
                         console.log(`done - now have ${urlsToParse.length} urls`)
-                        const limit = options.limit ?? 25
+                        const limit = options.limit ?? 60
                         if( urlsToParse.length > limit ){
                             console.log(`TRUNCATING TO FIRST ${limit} URLs`)
                             urlsToParse = urlsToParse.slice(0,limit)
@@ -724,8 +743,7 @@ export default function EnrichPrimitive(){
                 }
     }
     
-    
-    new Worker('enrichQueue', async job => {
+    const processQueue = async (job, cancelCheck) => {
         let primitive = await Primitive.findOne({_id: job.data.id})
         const options = job.data.options
         if( primitive){
@@ -795,105 +813,29 @@ export default function EnrichPrimitive(){
                 console.log(`error in ${job.data.mode}`)
                 console.log(error)
             }
-/*
-            if( job.data.mode === "site_discovery" ){
-                try{
-                    await site_discovery( primitive, options)
-                }catch(error){
-                    console.log(`error in site_discovery`)
-                    console.log(error)
-                }
-
-                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
-            }
-            if( job.data.mode === "generate_jtbd" ){
-                try{
-                    await generate_jtbd( primitive, options)
-                }catch(error){
-                    console.log(`error in generate_jtbd`)
-                    console.log(error)
-                }
-
-                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
-            }
-            if( job.data.mode === "site_discovery_short" ){
-                try{
-                    await site_discovery_short( primitive, options)
-                }catch(error){
-                    console.log(`error in site_discovery_short`)
-                    console.log(error)
-                }
-
-                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
-            }
-            if( job.data.mode === "site_summarize" ){
-                try{
-                    const primitiveCategory = await Category.findOne({id: primitive.referenceId}) 
-                    const params = Object.keys(primitiveCategory.parameters ?? {}).filter(d=>primitiveCategory.parameters[d].detailId)
-                    for( const paramKey of params){
-                        const param = primitiveCategory.parameters[paramKey]
-                        await consolidate_details( primitive, {referenceId: param.detailId})
-                    }
-                    primitive = await Primitive.findOne({_id: job.data.id})
-                    await summarize_details( primitive )
-                }catch(error){
-                    console.log(`error in site_discovery`)
-                    console.log(error)
-                }
-
-                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
-            }
-            if( job.data.mode === "find_articles" ){
-                console.log(`find_articles ${primitive.id} ${primitive.referenceParameters?.topics}`)
-                throw "DEPRECATED!!"
-  //              await fetchArticlesFromGNews( primitive, job.data.options )
-                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
-            }
-            if( job.data.mode === "find_posts" ){
-                console.log(`find_posts ${primitive.id} ${primitive.referenceParameters?.topics}`)
-                await fetchPostsFromSocialSeracher( primitive, job.data.options )
-                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
-            }
-            if( job.data.mode === "search_company" ){
-                console.log(`search_company ${primitive.id} ${primitive.referenceParameters?.topics}`)
-                await findOrganizationsFromCB( primitive, options )
-                dispatchControlUpdate(primitive.id, `processing.expanding.0`, null)
-            }
-            if( job.data.mode === "enrich" ){
-                console.log(`Processing enrichment for ${primitive.id}`)
-                if( job.data.target === "entity" ){
-                    if( job.data.source === "linkedin" ){
-                        const result = await enrichCompanyFromLinkedIn( primitive, true)
-                        SIO.notifyPrimitiveEvent( primitive, result)
-                    }
-                    if( job.data.source === "crunchbase" ){
-                        const result = await enrichFromCrunchbase( primitive, true)
-                        SIO.notifyPrimitiveEvent( primitive, result)
-                    }
-                }
-                dispatchControlUpdate(primitive.id, "processing.enrich", null)
-            }
-            if( job.data.mode === "pivot" ){
-                try{
-                    console.log(`Processing pviot for ${primitive.id}`)
-                    if( job.data.target === "entity" ){
-                        if( job.data.source === "crunchbase" ){
-                            const newPrims = await pivotFromCrunchbase(primitive, job.data.action)
-                        }
-                    }
-                }catch(error){
-                    console.log(`Error in enrichQueue.pivot `)
-                    console.log(error)
-                }
-                dispatchControlUpdate(primitive.id, "processing.pivot" , null, {track: primitive.id})
-                if( job.data.parentId ){
-                    dispatchControlUpdate(job.data.parentId, job.data.field, null)
-                }
-            }
-            */
         }
         
-    },
-    {connection: { host: process.env.QUEUES_REDIS_HOST, port: process.env.QUEUES_REDIS_PORT }});
+    }
+    
+    instance.pending = async ()=>{
+        return await _queue.status();
+    }
+    instance.purge = async (workspaceId)=>{
+        if( workspaceId ){
+            return await _queue.purgeQueue(workspaceId);
+        }else{
+            return await _queue.purgeAllQueues();
+
+        }
+    }
+    
+    _queue = new QueueManager("enrichQueue", processQueue, 3 );
+    
+    instance.myInit = async ()=>{
+        console.log("Query Queue")
+        const jobCount = await _queue.status();
+        console.log( jobCount, " jobs in queue (query)")
+    }
     return instance
+    
 }

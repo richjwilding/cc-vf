@@ -35,9 +35,10 @@ const SearchPanel = (props)=>{
 
   const filterSet = []
   if( props.type ){
+    const types = [props.type].flat()
     filterSet.push({
       name: "Type",
-      action: (p)=>p.type === props.type || (props.root && props.root.id === p.id)
+      action: (p)=>types.includes(p.type) || (props.root && props.root.id === p.id)
     })
   }
   if( props.resultCategoryId ){

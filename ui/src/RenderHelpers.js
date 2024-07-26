@@ -112,6 +112,66 @@ export function RenderPrimitiveAsKonva( primitive, options = {} ){
     return renderer(primitive, options)
 
 }
+registerRenderer( {type: "default", configs: "set_checktable"}, (primitive, options = {})=>{
+    const config = {width: 16, height: 16, padding: [2,2,2,2], ...(options.renderConfig ?? {})}
+    if( !options.list ){
+        return undefined
+    }
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+        const items = options.list
+        
+        const w = config.width - config.padding[3] - config.padding[1]
+        const h = config.height - config.padding[0] - config.padding[2]
+        const r = new Konva.Rect({
+            x: config.padding[3],
+            y: config.padding[0],
+            width: w,
+            height: h,
+            fill: '#f9fafb',
+            name: "background"
+        })
+        g.add(r)
+        if( items.length > 0 ){
+            const cScale = Math.min(w,h * 0.75) / 500 
+            const points = [
+                100, 300, 200, 400, 400, 100
+              ].map(d=>d * cScale)
+              const dim = 500 * cScale
+              
+              const polyline = new Konva.Line({
+                points: points,
+                x: config.padding[3] + ((w - dim) / 2),
+                y: config.padding[0] + ((h - dim) / 2),
+                stroke: 'black',
+                strokeWidth: 2,
+                lineJoin: 'round',
+                lineCap: 'round',
+                closed: false
+              });
+              g.add(polyline)
+
+        }
+
+
+    if( options.getConfig){
+        config.cachedNodes = g
+        return config
+    }else{
+        if( options.cachedNodes ){
+            options.cachedNodes.destroy()
+        }
+    }
+
+
+    return g
+})
 registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options = {})=>{
     const config = {width: 128, height: 128, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     if( !options.list ){
@@ -364,7 +424,6 @@ function baseGridRender( options, config){
     
     if( heightDefined ){
         config.height ||= ((config.rows + 1) * config.spacing[0]) + (config.rows * fullHeight) + config.padding[0] + config.padding[2]
-        console.log("****", config.rows, config.height)
     }
 
     if( options.getConfig && config.height){
@@ -724,7 +783,8 @@ registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function ren
     return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.snippet ?? primitive.text})
 })
 registerRenderer( {type: "categoryId", id: 34, configs: "default"}, function renderFunc(primitive, options = {}){
-    return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.description.replace(/[\*-]+/g, '')?.replace(/\n+/g, '\n')?.replace(/\s+/g, ' ').trim() ?? primitive.snippet})
+    //return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.description.replace(/[\*-]+/g, '')?.replace(/\n+/g, '\n')?.replace(/\s+/g, ' ').trim() ?? primitive.snippet})
+    return baseImageWithText(primitive, {...options, textField: primitive.snippet ??  primitive.referenceParameters?.description?.replace(/[\*-]+/g, '')?.replace(/\n+/g, '\n')?.replace(/\s+/g, ' ')?.trim()?.slice(0,200) ?? ""})
 })
 function baseImageWithText(primitive, options){
     const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
@@ -783,6 +843,8 @@ function baseImageWithText(primitive, options){
             })
             g.add( img )
         }
+
+        const textToShow = options.allText ? options.textField :options.textField.slice(0,150)
 
         const t = new CustomText({
             x: config.padding[3],
@@ -844,6 +906,119 @@ function baseImageWithText(primitive, options){
     }
     return g
 }
+registerRenderer( {type: "default", configs: "ai_processing"}, function renderFunc(primitive, options = {}){
+    const config = {showId: true, idSize: 14, width: 256, height: 212, padding: [10,10,10,10], ...options}
+    if( options.getConfig){
+        return config
+    }
+
+    let toggleWidth = 0
+    if( options.toggles){
+        toggleWidth = 26
+    }
+
+    let idHeight = config.showId ?  20 : 0
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        height: config.height,
+        onClick: options.onClick,
+        name:"inf_track primitive"
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.width,
+        height: config.height,
+        cornerRadius: 2,
+        fill: 'white',
+    })
+    g.add(r)
+    const spinner = createSpinner( 10, 60, config.width / 2, config.height / 2)
+    g.add( spinner)
+
+    var angularSpeed = 360 / 4000 / 33;
+    let lastTick, startTick
+    let count = 0
+    if( options.amimCallback ){
+        g.attrs.hasAnimationNode = spinner._id
+        options.amimCallback(spinner, (tick)=>{
+            if( !lastTick ){
+                lastTick = tick
+                startTick = tick
+            }
+            if( (tick - lastTick) < 33){
+                return false
+            }
+            lastTick = tick
+            const duration = tick - startTick
+            const rotation = (duration / 2000) * 360
+            //spinner.rotation(rotation);
+            count++
+            spinner.rotation(count * (250/9));
+            return true
+        })
+
+    }
+    
+    return g
+})
+
+function createSpinner(n, radius, centerX, centerY) {
+    const spinnerGroup = new Konva.Group({
+        x: centerX,
+        y: centerY,
+    });
+
+
+    const angleIncrement = 250 / (n - 1); // 240 degrees divided by (n-1) intervals
+    const colorIncrement = 255 / (n - 1); // Color increment for shading
+    
+    const circle = new Konva.Circle({
+        x: 0,
+        y: 0,
+        radius: radius * 1.4,
+        fill: "white"
+    })
+        spinnerGroup.add(circle);
+
+
+    for (let i = 0; i < n; i++) {
+        const angle = (angleIncrement * i) * (Math.PI / 180); // Convert degrees to radians
+        const x = radius * Math.cos(angle);
+        const y = -radius * Math.sin(angle); // Y coordinate inverted for canvas
+
+        const redValue = Math.round((i / (n - 1)) * 230); // From 0 to 230
+        const greenValue = 255; // Constant green
+        const blueValue = Math.round((i / (n - 1)) * 230); // From 0 to 230
+        const color = `rgb(${redValue}, ${greenValue}, ${blueValue})`; // Interpolated color
+
+        //const colorValue = Math.floor(255 - colorIncrement * Math.abs((n/2) - i)); // Darker in the middle, lighter on edges
+        //const color = `rgb(0, ${colorValue}, 0)`;
+
+        const circle = new Konva.Circle({
+            x: x,
+            y: y,
+            radius: radius * 0.15, // Adjust the size of the small circles
+            fill: color
+        });
+
+        spinnerGroup.add(circle);
+    }
+    spinnerGroup.offsetX(spinnerGroup.width() / 2);
+    spinnerGroup.offsetY(spinnerGroup.height() / 2);
+
+    return spinnerGroup;
+}
+
+
 registerRenderer( {type: "default", configs: "default"}, function renderFunc(primitive, options = {}){
     const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
     if( options.getConfig){
@@ -1262,8 +1437,6 @@ export function renderMatrix( primitive, list, options ){
     const columnExtents = options.columnExtents ?? [{idx:0}]
     const rowExtents = options.rowExtents ?? [{idx:0}]
     
-    console.log(`Rendering ${columnExtents.length} x ${rowExtents.length}`)
-
     const g = new Konva.Group({
         name: "view",
         x:options.x ?? 0,
@@ -1272,8 +1445,12 @@ export function renderMatrix( primitive, list, options ){
     let configName = "grid"
 
     const asCounts = options.viewConfig?.parameters?.showAsCounts
+    const asChecks = options.viewConfig?.parameters?.showAsCheck
     if( asCounts ){
         configName = "heatmap"
+    }
+    if( asChecks ){
+        configName = "checktable"
     }
 
     const columnSize = new Array(columnExtents.length).fill(0)
@@ -1286,7 +1463,8 @@ export function renderMatrix( primitive, list, options ){
     }
 
     let cellContentLimit = {
-        "result": 50
+        "result": 50,
+        "evidence": 150
     }[list[0]?.primitive?.type] ?? false
     
     cellContentLimit = {
@@ -1347,7 +1525,12 @@ export function renderMatrix( primitive, list, options ){
 
 
 
-    const minWidth = asCounts ? 128 : {29: 120}[referenceIds[0]] ?? 300
+    let minWidth = {29: 120}[referenceIds[0]] ?? 300
+    if( asCounts ){
+        minWidth = 128
+    }else if( asChecks){
+        minWidth = 64
+    }
 
     const baseRenderConfig = {
                 config: configName, 
@@ -1373,6 +1556,7 @@ export function renderMatrix( primitive, list, options ){
                 cIdx: cell.cIdx,
                 rIdx: cell.rIdx,
                 renderConfig:{
+                    asChecks,
                     showExtra: cell.showExtra,
                     columns: itemColsByColumn[cell.cIdx], minWidth: minWidth
                 },
@@ -1389,7 +1573,6 @@ export function renderMatrix( primitive, list, options ){
     const maxRowHeight = Math.max(...rowSize)
 
     let maxFont = maxRowHeight / 4
-    console.log(`${maxRowHeight}, maxfont = `, maxFont)
 
     let headerScale = Math.max(1, Math.max(columnSize.reduce((a,c)=>a+c, 0) / 2000 , rowSize.reduce((a,c)=>a+c, 0) / 4000 ))
     let headerFontSize = Math.min(12 * headerScale, maxFont, 120)
@@ -1479,7 +1662,6 @@ export function renderMatrix( primitive, list, options ){
             const coupleLength = [words, words.map((d,i,a)=> i > 0 ? a[i-1] + " " + d : undefined ).filter(d=>d)].flat()
             return coupleLength.reduce((a,c)=>c.length > a.length ? c : a, "" )
         }).reduce((a,c)=>c.length > a.length ? c : a, "" )
-        console.log(`Longest pair = `, longestPairs)
 
         let textWidth 
         let rowHeights = []
@@ -1604,6 +1786,7 @@ export function renderMatrix( primitive, list, options ){
                 rIdx: cell.rIdx,
                 id: `${cell.cIdx}-${cell.rIdx}`, 
                 renderConfig:{
+                    asChecks,
                     showExtra: cell.showExtra,
                     width: columnSize[cell.cIdx], 
                     height: rowSize[cell.rIdx] , 

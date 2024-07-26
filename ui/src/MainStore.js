@@ -128,7 +128,7 @@ function MainStore (prims){
                         if( parent && target){
                             if(parent.primitives.fromPath(entry.path)?.allIds.includes(entry.target)){
                             }else{
-                                obj.triggerCallback("relationship_update", [entry.id, entry.target])
+                                obj.triggerCallback("relationship_update", [entry.id, entry.target], {parent: entry.id, target:entry.target})
                                 parent.addRelationship(target, entry.path, true)
                             }
                         }
@@ -174,10 +174,10 @@ function MainStore (prims){
                                     }else{
                                         target.setParameter(frag.join("."), val, true, true)
                                     }
-                                    obj.triggerCallback("set_parameter", [target] )
+                                    obj.triggerCallback("set_parameter", [target], field )
                                 }else{
                                     target.setField(field, val, undefined, true)
-                                    obj.triggerCallback("set_field", [target] )
+                                    obj.triggerCallback("set_field", [target], field )
                                 }
                             })
                         }
@@ -421,7 +421,7 @@ function MainStore (prims){
                   (result) => {
                     if( obj.ajaxResponseHandler( result )){
                         console.log(result)
-                        obj.triggerCallback(callback_name, [receiver])
+                        obj.triggerCallback(callback_name, [receiver], field)
                     }
                   },
                   (error) => {
@@ -853,7 +853,7 @@ function MainStore (prims){
             })
             return id
         },
-        triggerCallback:function(e, items){
+        triggerCallback:function(e, items, data){
             let store = this
             if( this.callbacks[e] === undefined){
                 return
@@ -862,14 +862,15 @@ function MainStore (prims){
 
             items = items.map((d)=> d instanceof Object ? d.id : d)
 
-            const name = e
+            let name = e
+
             this.callbacks[e].forEach((e)=>{
                 if( e.filterIds && e.filterIds.length > 0 ){
                     if( items.filter((item)=>e.filterIds.includes(item)).length === 0){
                         return
                     }
                 }
-                e.callback(items, e)
+                e.callback(items, name, data)
             })
 
         },
@@ -1093,8 +1094,8 @@ function MainStore (prims){
                 paths.forEach((p)=>{
                     parent.addRelationship( newObj, p, true)
                 })
+                obj.triggerCallback("relationship_update", [parent, newObj], {parent: parent.id, target: newObj.id})
             }
-            obj.triggerCallback("relationship_update", [parent, newObj])
             obj.triggerCallback("new_primitive", [newObj] )
             return  newObj
         }
@@ -1281,7 +1282,7 @@ function MainStore (prims){
                         }
                         const pConfig = parameters[ root ]
                         switch( pConfig.type ){
-                            case "string": return pConfig.optional || value !== ""
+                            case "string": return (pConfig.optional ?? true) || value !== ""
                         }
                         return true
                     }
@@ -1389,6 +1390,7 @@ function MainStore (prims){
                         if( d.parentPrimitives[parent.id].filter((d)=>d === asString).length === 0){
                             d.parentPrimitives[parent.id].push(asString)
                         }
+                        d._ppIdCache = undefined
                     }
 
                 }
@@ -1404,7 +1406,8 @@ function MainStore (prims){
                         }
                         
                         d.parentPrimitives[parent.id] = d.parentPrimitives[parent.id].filter((d)=>d !== asString)
-                    }
+                        d._ppIdCache = undefined
+                    } 
 
                 }
                 if( prop === "addRelationshipAndWait"){
@@ -1674,6 +1677,22 @@ function MainStore (prims){
                             }
                         }
                     }
+                    if( prop === "filterDescription"){
+                        if( receiver.referenceParameters?.importConfig ){
+                            const idsToLookup = []
+                            receiver.referenceParameters.importConfig.forEach(d=>{
+                                return d.filters.forEach( d=>{
+                                    if( d.type === "parent"){
+                                        idsToLookup.push(d.value)
+                                    }
+                                })
+                            })
+                            if( idsToLookup.length > 0){
+                                const segmentName = idsToLookup.map(d=>obj.primitive(d)?.title).filter(d=>d).join(", ")
+                                return segmentName
+                            }
+                        }
+                    }
                     if( prop === "itemsForProcessingFromImport"){
                         return (p, o)=>receiver.itemsForProcessingWithOptions(p.id, o)
                     }
@@ -1684,8 +1703,6 @@ function MainStore (prims){
                             }
 
                             if( Object.keys(receiver.primitives).includes("imports") && receiver.type !== "query"){
-                            //if( Object.keys(receiver.primitives).includes("imports") && !["query","segment"].includes(receiver.type)){
-                                //console.log(`Importing from other sources`)
                                 let fullList = []
                                 for( const source of receiver.primitives.imports.allItems){
                                     if( id && source.id !== id){
@@ -1714,6 +1731,13 @@ function MainStore (prims){
                                     let params = options.params ?? receiver.getConfig
                                     if( params.descend ){
                                         list = list.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
+                                    }
+                                    if( receiver.referenceParameters?.pivot){
+                                        if( typeof(receiver.referenceParameters?.pivot) === "number"){
+                                            list = list.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot)).flat()
+                                        }else{
+                                            list = uniquePrimitives(list.map(d=>d.relationshipAtLevel(receiver.referenceParameters.pivot, receiver.referenceParameters.pivot.length)).flat())
+                                        }
                                     }
                                     if( params.referenceId ){
                                         const match = params.referenceId
@@ -1750,19 +1774,29 @@ function MainStore (prims){
                                     }
                                     fullList = fullList.concat(list) 
                                 }
-                                if(receiver.type === "view" && !options.ignoreFinalViewFilter){
+                                if(receiver.type === "view"  && !options.ignoreFinalViewFilter){
                                     const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
                                     fullList = uniquePrimitives(fullList)
                                     fullList = receiver.filterItems(fullList, viewFilters)
                                 }
+                                /*
                                 if( (options?.pivot !== false) && receiver.referenceParameters?.pivot){
                                     fullList = uniquePrimitives(fullList)
-                                    fullList = fullList.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot))
+                                    if( typeof(receiver.referenceParameters?.pivot) === "number"){
+                                        fullList = fullList.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot))
+                                    }else{
+                                        fullList = fullList.map(d=>d.relationshipAtLevel(receiver.referenceParameters.pivot, receiver.referenceParameters.pivot.length))
+                                    }
                                 }
+                                */
                                 return uniquePrimitives(fullList)
                             }else{
                                 let list = uniquePrimitives(Object.keys(receiver.primitives).filter(d=>d !== "imports").map(d=>receiver.primitives[d].uniqueAllItems).flat())
                                 if( receiver.type === "query" || receiver.type  === "segment"){
+                                    if( receiver.type === "query" && !options.ignoreFinalViewFilter){
+                                        const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
+                                        list = receiver.filterItems(list, viewFilters)
+                                    }
                                     let params = options.params ?? receiver.getConfig
                                     if( params.extract ){
                                         const check = [params.extract].flat()
@@ -1865,12 +1899,18 @@ function MainStore (prims){
                         return parents
                     }
                     if( prop === "parentPrimitiveIds"){
-                        return d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports")) : []
+                        if( d._ppIdCache ){
+                            return d._ppIdCache
+                        }
+
+                        console.log(`Build ppid ${d.plainId}`)
+                        d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports")) : []
+                        return d._ppIdCache
                     }
                     if( prop === "parentPrimitiveWithRelationship"){
                         return (relationship)=>{
                             let out
-                            let [rel, rId] = relationship.split(":")
+                            let [rel, rId] = relationship ? relationship.split(":") : []
                             if( rId !== undefined){
                                 rId = parseInt(rId)
                             }

@@ -159,6 +159,20 @@ const PrimitiveConfig = {
         "contact": "contact",
         "icon": "icon",
         "boolean": "boolean",
+        "segment_filter":"segment_filter"
+    },
+    decodeExploreFilter:(filter)=>{
+        if( !filter){
+            return filter
+        }
+        return filter.reduce((a,c)=>{
+            if( c instanceof Object ){
+                a[c.idx] = c
+            }else{
+                a[c === null ? undefined : c] = c === null ? undefined : c
+            }
+            return a
+        }, {}) 
     },
     encodeExploreFilter:(option, val, invert)=>{
         if( !val || val.length === 0){
@@ -197,6 +211,8 @@ const PrimitiveConfig = {
             return {type: option.type, subtype: option.subtype, map: [val].flat().map(d=>parseInt(d)), pivot: option.access, relationship: option.relationship, invert}
         }else if( option?.type === "title"){
             return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
+        }else if( option?.type === "segment_filter"){
+            return  {type: "segment_filter", value: val, pivot: option.access, relationship: option.relationship, invert}
         }else if( option.type === "parameter"){
             if( val?.bucket_min  !== undefined ){
                 return  {type: "parameter", param: option.parameter, value: {idx: val.idx, min_value: val.bucket_min, max_value: val.bucket_max}, pivot: option.access, relationship: option.relationship, invert}
@@ -207,7 +223,8 @@ const PrimitiveConfig = {
         return undefined
     },
     commonFilterSetup: (filter, isAxis = false )=>{
-        const needsValue = filter.type === "title" || filter.type === "parameter" || filter.type === "type" || filter.type === "parent"
+        //const needsValue = filter.type === "title" || filter.type === "parameter" || filter.type === "type" || filter.type === "parent"
+        const needsValue = filter.type === "type" || filter.type === "parent"
         let isRange = false
         if( !isAxis && needsValue && filter.value === undefined){
             return {skip:true}
@@ -238,6 +255,11 @@ const PrimitiveConfig = {
             }
             pivot = (pivot ?? 0) + 1
         }
+        if( filter.type === "segment_filter"){
+            resolvedFilterType = "parent"
+            pivot = 1
+            relationship = ['auto']
+        }
         if( filter.subtype === "question"){
             pivot = (pivot ?? 0) + 1
             if( relationship){
@@ -250,6 +272,7 @@ const PrimitiveConfig = {
                 relationship = ["auto"]
             }
         }
+        
         let check = [filter.map ?? filter.value].flat()
         let includeNulls = false
 
@@ -259,10 +282,12 @@ const PrimitiveConfig = {
             resolvedFilterType = "parent"
         }
 
-        if( resolvedFilterType === "parent"){
-            if( check.includes(undefined) || check.includes(null)){
+        if( check.includes(undefined) || check.includes(null)){
+            if( resolvedFilterType === "parent" || resolvedFilterType === "title"){
                 check = check.filter(d=>d !== undefined && d !== null )
                 includeNulls = true
+            }else if(resolvedFilterType === "parameter"){
+                check = [undefined, ...check.filter(d=>d !== undefined && d !== null )]
             }
         }
 
@@ -300,7 +325,7 @@ const PrimitiveConfig = {
             const ids = imp.allIds ?? imp
             if( ids.includes(id) ){
                 if( !receiver?.referenceParameters?.target || receiver?.referenceParameters?.target === "items"){
-                    if( !receiver.referenceParameters.importConfig ){
+                    if( !receiver.referenceParameters?.importConfig ){
                         return true
                     }
                     if( receiver.referenceParameters.importConfig.length === 1 ){
@@ -316,7 +341,7 @@ const PrimitiveConfig = {
                 return false
             }
         }
-        if( (!receiver?.referenceParameters?.target || receiver?.referenceParameters?.target === "items") && receiver.referenceParameters.importConfig){
+        if( (!receiver?.referenceParameters?.target || receiver?.referenceParameters?.target === "items") && receiver.referenceParameters?.importConfig){
             const candidates = receiver.referenceParameters.importConfig.filter(d=>d.id === id)
             const match = candidates.filter(d=> {
                 const thisMatch = d.filters.filter(d2 => {
@@ -359,6 +384,9 @@ const PrimitiveConfig = {
             let basicCheck = (d)=>{
                 if(d !== null && typeof(d) === "object" ){
                     return check.filter(d2=>d.includes(d2)).length > 0
+                }
+                if( d === null){
+                    return check.includes(undefined)
                 }
                 return check.includes(d)
             }

@@ -209,7 +209,27 @@ export default function PrimitiveParser(obj){
                 }
 
                 if (prop === "allIds") {
-                    const flatten = (v, acc = []) => {
+
+                    const flatten = (obj) => {
+                        const stack = [obj];
+                        const result = [];
+                        
+                        while (stack.length) {
+                            const current = stack.pop();
+                            
+                            if (current !== null && typeof current === 'object') {
+                                stack.push(...Object.values(current));
+                            } else {
+                                result.push(current);
+                            }
+                        }
+                        
+                        return result;
+                    };
+                
+                    return flatten(target);
+
+                    /*const flatten = (v, acc = []) => {
                         if (v !== null && typeof v === 'object') {
                             Object.values(v).forEach(d => flatten(d, acc));
                         } else {
@@ -217,7 +237,7 @@ export default function PrimitiveParser(obj){
                         }
                         return acc;
                     };
-                    return flatten(target);
+                    return flatten(target);*/
                 }
 
                /* if( prop === "allIds"){

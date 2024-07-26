@@ -1,5 +1,6 @@
 import {Configuration, OpenAIApi} from "openai"
 import {encode, decode} from 'gpt-3-encoder'
+import { executeConcurrently } from "./SharedFunctions"
 
 export async function consoldiateAxis( json, options = {}){
     if( json === undefined ){
@@ -179,18 +180,28 @@ export async function summarizeMultiple(list, options = {} ){
         }
     }
     finalPrompt =  finalPrompt + `.  Use only the information i have provided to produce the summary`
-    const format = options.markdown ? "You can you the following simple markdown in your response:\nHeader or section titles: **[text]**\nidented list item:- [text]\ndouble indented list item:-- [text\ntriple indented list item:--- [text]\n Do not use any other markdown. Do not defined the markdown format in your response and only include markdown where needed." : "Format your response as a simple string without any formatting."
+    const format = options.markdown ? "You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\nHeader or section titles: **[text]**\nidented list item:- [text]\ndouble indented list item:-- [text\ntriple indented list item:--- [text]\n Do not use any other markdown. Do not defined the markdown format in your response and only include markdown where needed." : "Format your response as a simple string without any formatting."
     
+    let outputFields
+    if( options.outputFields) {
+        outputFields = `Provide the result as a json object with `
+        outputFields += options.outputFields.map(d=>{
+            return `a '${d.field}' field containing ${d.prompt}`
+        })
+        outputFields += `. ${format} Do not put anything other than the raw json object in the response. Do not explicity reference the data, items or text i have (ie avoid 'the data showcases' and similar) and avoid phrases like "a variety of", "a wide range" and similar`
+    }else{
+        outputFields = `Provide the result as a json object with an single field called 'summary' which conatins a string with your summary. ${format}. Do not put anything other than the raw json object in the response .`
+    }
     
-    const interim = await processInChunk( list, 
+    let interim = await processInChunk( list, 
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": listIntro}],
             [
                 {"role": "user", "content":  finalPrompt},
-                {"role": "user", "content": `Provide the result as a json object with a single field called 'summary'. ${format}. Do not put anything other than the raw json object in the response .`},
+                {"role": "user", "content": outputFields},
             ],
-            {field: "summary", debug: false, engine: "gpt4p" ?? options.engine, ...options })
+            {wholeResponse: options.outputFields !== undefined, field: "summary", debug: false, engine: "gpt4p" ?? options.engine, ...options })
 
 
     if( Object.hasOwn(interim, "success")){
@@ -207,7 +218,7 @@ export async function summarizeMultiple(list, options = {} ){
             [
                 {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single summary to address this original prompt: ${prompt}`                    
                             },
-                {"role": "user", "content": `Provide the result as a json object with an single field called 'summary' which conatins a string with your summary. Do not put anything other than the raw json object in the response .`},
+                {"role": "user", "content": outputFields},
             ],
             {field: "summary"})
 
@@ -221,6 +232,13 @@ export async function summarizeMultiple(list, options = {} ){
 
         return {success: true, summary: final[0], interim: interim, engine: options.engine }
     }
+    if( options.outputFields) {
+        interim = interim.map(d=>{
+            return options.outputFields.map(f=>f.header ? `**${d[f.field]}**` : d[f.field]).join('\n')
+        })
+    }
+
+    console.log(interim[0])
     return {success: true, summary: interim[0]}
 
 }
@@ -370,15 +388,10 @@ export async function buildCategories(list, options = {} ){
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here are a list of numbered ${options.types || "items"}: `}],
             [
-                options.themes 
-                    ? {"role": "user", "content": `Summarize the ${options.themes} of each item in no more than 3 words`}
-                    //: {"role": "user", "content": `Categorize each item into one of no more than ${options.count || 10} categories which covers the full list. Each category should be no more than 3 words.`},
-                    : {"role": "user", "content": `Build a set of ${count} distinct and non overlapping categories which covers all entries in list. Each category should be no more than 3 words and should have a clear defintion.`},
-                options.themes 
-                    ? {"role": "user", "content": `Provide the result as a json object with an array called "summaries" with each entry as an object with a 't' field containing the title and a 'd' field containing the definition in no more than 20 words. Do not put anything other than the raw json object in the response .`}
-                    : {"role": "user", "content": `Provide the result as a json object with an array called "categories" with each entry being an object with a 't' field containing the title and a 'd' field containing the definition in no more than 20 words. Do not put anything other than the raw json object in the response .`},
+                {"role": "user", "content": `I am building a categorization map of these items.  Generate a set of ${count} distinct and non overlapping categories which can be used as an axis to compare and contrast the list. ${options.themes ? `\nFirst, review the list and filter out any items which are not relevant to theme of: **${options.themes}**, then for each remainining items consider how it relates to theme when building the categories, grouping items with similar semantic meaning together.` : "\Identify categories by grouping items with simialr semantic meaning together."} Each category should be no more than 3 words and should have a clear defintion.`},
+                {"role": "user", "content": `Provide the result as a json object with an array called "categories" with each entry being an object with a 't' field containing the title and a 'd' field containing the definition in no more than 20 words. Do not put anything other than the raw json object in the response .`}
             ],
-            {field: options.themes ? "summaries" : "categories", engine: options.engine, ...options})
+            {field: "categories", engine: options.engine, ...options})
     if( Object.hasOwn(interim, "success")){
         console.log(interim)
         return interim
@@ -580,16 +593,7 @@ export async function analyzeListAgainstTopics( list, topics, options = {}){
 
 export async function processAsSingleChunk(text, options = {}){
 
-    let engine = "gpt4p" || options.engine
-
-    let defaultTokens = 12000
-    if( engine === "gpt4" ){
-        defaultTokens = 5000
-    }
-    if( engine === "gpt4p" ){
-        defaultTokens = 80000
-    }
-    let maxTokens = options.maxTokens || defaultTokens
+    let maxTokens = tokensForModel( options.engine )
     const currentTokens = encode(text)
     if( currentTokens > maxTokens){
         return {success: false, error: `too many tokens ${currentTokens} vs ${maxTokens}`}
@@ -616,7 +620,7 @@ export async function processAsSingleChunk(text, options = {}){
         console.log(messages)
     }
     
-    const result = await executeAI( messages, {engine: engine, ...options} )
+    const result = await executeAI( messages, {...options} )
     if( result.success && result.response ){
         return {success: true, results: result.response.results ?? result.response}
     }
@@ -654,6 +658,19 @@ export async function processPromptOnText( text, options = {}){
     return {success: true, output: interim}
 }
 
+function tokensForModel(model){
+    let defaultTokens = 80000
+    if( model === "gpt4" ){
+        defaultTokens = 5000
+    }else if( model === "gpt4p" ){
+        defaultTokens = 80000
+    }else if( model === "gpt4o" ){
+        defaultTokens = 80000
+    }else if( model === "gpt3" || model === "gpt3t"){
+        defaultTokens = 12000
+    }
+    return defaultTokens 
+}
 
 async function processInChunk( list, pre, post, options = {} ){
     list = list.map(d=>{
@@ -663,27 +680,46 @@ async function processInChunk( list, pre, post, options = {} ){
         return d
     })
 
-    const field = options.field ?? "answer"
+    const field = options.wholeResponse ? undefined : (options.field ?? "answer")
     let pass = 0
     let tokensProcessed = 0
 
-    //let maxTokens = options.maxTokens || (options.engine === "gpt4" ? 5000 : 12000)
-
-
-    let defaultTokens = 12000
-    if( options.engine === "gpt4" ){
-        defaultTokens = 5000
-    }
-    if( options.engine === "gpt4p" ){
-        defaultTokens = 80000
-    }
+    let defaultTokens = tokensForModel( options.engine )
 
     let maxTokens = options.maxTokens || defaultTokens
-    const fullContent = list.map((d, idx)=>{
+    const fullContent = options.inBatch ? list : list.map((d, idx)=>{
         const start = options.no_num ? "" : (options.prefix ?  `${options.prefix} ${idx}: ` :`${idx}). `)
         return `${start}${(d instanceof Object ? d.content : d)?.replaceAll(/\n|\r/g,". ")}`
     })
+
     const maxIdx = fullContent.length - 1
+
+    if( options.batch && fullContent.length > options.batch){
+        const concurrency = 10
+        const bacthData = []
+        for(let idx = 0; idx < maxIdx; idx += options.batch)
+        {
+            bacthData.push( fullContent.slice(idx, idx + options.batch))
+        }
+        console.log(`Will split into batches of ${options.batch} - concurrency = ${concurrency}`)
+        const {results, cancelled} = await executeConcurrently( bacthData, 
+                                                                (d)=>processInChunk(d, 
+                                                                                    pre, 
+                                                                                    post, 
+                                                                                    {
+                                                                                        ...options,
+                                                                                        inBatch: true,
+                                                                                        batch: undefined
+                                                                                    }),
+                                                                                    undefined,
+                                                                                    undefined,
+                                                                                    concurrency)
+        const allResults = results.flat()
+        console.log(`Got ${results.length} batches back = ${allResults.length}`)
+        return allResults
+    }
+
+
     let interim = []
     let startIdx = 0
     let endIdx = startIdx
@@ -691,6 +727,8 @@ async function processInChunk( list, pre, post, options = {} ){
     let content = ""
     let currentCount = 0
     let lastTokensCount = maxTokens
+    let targetMaxTokens = maxTokens
+    let isReducing = false
     
     do{
         let leave
@@ -714,7 +752,11 @@ async function processInChunk( list, pre, post, options = {} ){
 
         if(startIdx > endIdx ){
             console.log( encode( fullContent[startIdx] ).length)
-            throw "Cant processes chunk"
+            console.log("Cant processes chunk - response too large?")
+            startIdx++
+            endIdx = startIdx
+            maxTokens = targetMaxTokens
+            continue
         }
 
         lastTokensCount = currentCount
@@ -743,7 +785,13 @@ async function processInChunk( list, pre, post, options = {} ){
                 throw "Token limit too low - something went wrong"
             }
             endIdx = startIdx
+            isReducing = true
         }else{
+            if(isReducing){
+                console.log(`-- resetting target size post successful process`)
+                isReducing = false
+                maxTokens = targetMaxTokens
+            }
 
             tokensProcessed += currentCount
             
@@ -821,6 +869,11 @@ async function executeAI(messages, options = {}){
     let output = 4096
     let response_format = { type: "json_object" }
 
+    if( options.engine === "gpt4o-mini" ){
+        model = "gpt-4o-mini"
+        sleepBase = 20000
+        output = 16384
+    }
     if( options.engine === "gpt4" ){
         model = "gpt-4-0613"
         sleepBase = 20000
@@ -915,10 +968,10 @@ async function executeAI(messages, options = {}){
 
 }
 
-export  async function _categorize(list, categories, options = {} ){
+export  async function categorize(list, categories, options = {} ){
     const targetType = options.types || "item"
-    //const match = options.matchPrompt || `For each ${targetType} you must assess the best match with a category from the supplied list, or determine if there is a not a strong match. Only allocate items to groups if there is a strong rationale. If there is a strong match assign the ${targetType} to the most suitable category number - otherwise assign it -1`
-    const match = options.matchPrompt || `You must assess how strongly each of the provided numbered ${targetType} aligns with each of the provided numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} using a scale of "none", "hardly", "somewhat", "likely", "clear", and then assign the numbered ${targetType} to the number of the category it best aligns with . Numbered ${targetType}s that do not have an explicit, strong or clear alignment to any category must be assigned to the number -1`
+//    const match = options.matchPrompt || `I am categorizing a list of ${options.longType ?? targetType}s.  You must assess how well each of the provided numbered ${targetType}s aligns with each of the candidate numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} based on conceptual similarity, rather than exact text matches`
+    const match = options.matchPrompt ?? `I am categorizing a list of ${options.longType ?? targetType}s. Assess how well each item aligns with the candidate categories based on conceptual similarity.`
     let tokens = 12000
     if(options.engine === "gpt4"){
         tokens = 2000
@@ -926,20 +979,76 @@ export  async function _categorize(list, categories, options = {} ){
     if(options.engine === "gpt4p"){
         tokens = 10000
     }
+
+    const scoreMap = ["Not", "Hardly", "Somewhat", "Likely", "Clear"]
+
+    let instructions = `
+    Assessment Scale:\n
+    - 0: No conceptual alignment.
+    - 1: Minimal conceptual similarity.
+    - 2: Some conceptual elements shared.
+    - 3: Significant conceptual alignment.
+    - 4: Perfect conceptual alignment.
+    
+    Steps:
+    1. Compare each item to each category.
+    2. Assign an assessment score for each item for every category using the provided scale.
+    3. Review and correct mistakes
+    4. Do this for every item`
+
+    if( options.complex){
+        instructions += `
+        
+        Return your results in a JSON object called results with the following structure:
+        [
+            {
+                id: <<item id as provided to you>>,
+                a:[ 
+                    {
+                        c: <<category 0>>,
+                        s: <<assessment score of item for category 0>>
+                    },
+                    ...<<assessments for each and every remaining category - there should be ${categories.length} in total>>
+                ] 
+            },
+            ...<<entries for each and every remmaining item>>
+        ]`
+    }else{
+        instructions += `
+        
+        Return your results in a JSON object called results with the following structure:
+        [
+            {
+                id: <<item id as provided to you>>,
+                a:[ 
+                    {
+                        c: <<id of category with highest score>>,
+                        s: <<assessment score for item associated with the catgeory with the highest score>
+                    }
+                ] 
+            },
+            ...<<entries for each and every remmaining item>>
+        ]`
+    }
     const interim = await processInChunk( list, 
             [
                 {"role": "system", "content": match},
                 {"role": "user", "content": `Here is the list of numbered ${options.longType ?? targetType}s: `}
             ],
             [
-                {"role": "user", "content": `And here are a list of numbered categories: ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
-                {"role": "user", "content": `Return your results in an object with an array called "results" which has an entry for each numbered ${targetType}. Each entry should be an object with a 'id' field set to the number of the item${options?.rationale ? ",  a 'r' field with a 5 word rationale for how it aligns with the assigned category,": ""}, an 'alignment' field detailing the level of alignment to the assigned category, and a 'category' field set to the number of the assigned category. Do not put anything other than the raw JSON in the response .`}
+                {"role": "user", "content": `And here are a list of numbered categories:\n ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
+                {"role": "user", "content": instructions}
             ],
             {field: "results", maxTokens: tokens, engine:  options.engine, ...options})
-    return interim
-}
 
-export  async function categorize(list, categories, options = {} ){
+    const remap = interim.map(d=>{
+        return {id: d.id, a: d.a?.map((d,i)=>({c: d.c, s: scoreMap[d.s]}))}
+    })
+    console.log(remap)
+        
+    return remap
+}
+export  async function _categorize(list, categories, options = {} ){
     const targetType = options.types || "item"
     const match = options.matchPrompt || `I am categorizing a list of ${options.longType ?? targetType}s.  You must assess how well each of the provided numbered ${targetType}s aligns with each of the candidate numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} based on conceptual similarity, rather than exact text matches`
     let tokens = 12000
@@ -995,7 +1104,7 @@ Return your results in a json object with a field called 'answered' set to the n
 */
 function repackLongText( text, options ){
     let list = text.split(`\n`)
-    let maxTokens = options.maxTokens || (options.engine === "gpt4" ? 5000 : 12000)
+    let maxTokens = tokensForModel(options.engine)
     list.push("")
     list = list.map((d)=>{
         if( encode(d).length > maxTokens ){

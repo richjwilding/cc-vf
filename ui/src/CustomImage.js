@@ -145,7 +145,10 @@ class CustomImage extends Shape {
 
       };
   
-      img.onerror = () => {};
+      img.onerror = (e) => {
+        console.log(`Error loadinging image ${this.attrs.url}`)
+        console.log(e)
+      };
   
       img.src = this.attrs.url
     });
@@ -268,7 +271,7 @@ class CustomImage extends Shape {
       parent = parent.parent
     }
     
-    if( this.maxImage ){
+    if( this.maxImage !== undefined){
         const ratio = (scale / (this.lastScale ?? 1)) 
         if( ratio < this.rescaleMin || ratio > this.rescaleMax){
           this.newScale = scale
@@ -277,7 +280,9 @@ class CustomImage extends Shape {
         }
       }
     }
-    context.drawImage(this.pcache._canvas, 0, 0 , width, height)
+    if( this.pcache._canvas.width > 0 && this.pcache._canvas.height > 0){
+      context.drawImage(this.pcache._canvas, 0, 0 , width, height)
+    }
   }
 
   _hitFunc(context) {

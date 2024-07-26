@@ -200,15 +200,19 @@ _setTextData() {
       }
       let idx = -1
       let segment = 0
+      let lineStartY = currentHeightPx
       for( let line of fragments ){
         idx++
-        
-
-
         let thisBold = idx % 2 === 1
         if( bold!= thisBold ){
           bold = thisBold
           getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : this.standardFont
+          if( bold ){
+            indent = startIndent
+            if( idx > 1){
+              currentHeightPx += lineHeightPx;
+            }
+          }
         }
         if( line.length === 0){
           continue
@@ -223,6 +227,7 @@ _setTextData() {
         var lineMetrics = this._getTextStats(line)
         var lineWidth = lineMetrics.width + indent;
         if (lineWidth > maxWidth) {
+          let frag = 0
           while (line.length > 0) {
               var low = 0, high = line.length, match = '', matchWidth = 0;
               while (low < high) {
@@ -258,7 +263,7 @@ _setTextData() {
                         matchWidth = matchMetrics.width + indent;
                   }
                   match = match.trimRight();
-                  this._addMDTextLine(match, matchMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet);
+                  this._addMDTextLine(match, matchMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet && (frag === 0));
                   indent = startIndent
                   textWidth = Math.max(textWidth, matchWidth);
                   currentHeightPx += lineHeightPx;
@@ -284,6 +289,7 @@ _setTextData() {
               else {
                   break;
               }
+              frag++
           }
         }else {
           this._addMDTextLine(line, lineMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet);

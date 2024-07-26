@@ -109,7 +109,7 @@ export default function GenericEditor({item, primitive,...props}) {
 
   return (
     <>
-      <Popup width='max-w-xl' setOpen={handleClose} >
+      <Popup setOpen={handleClose} >
         {({ activeOption }) => (
             <>
               

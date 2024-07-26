@@ -21,7 +21,7 @@ import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
 import Embedding from './model/Embedding';
 import { buildPage } from './htmlexporter';
-import { aggregateItems, checkAndGenerateSegments, compareItems, getSegemntDefinitions } from './task_processor';
+import { aggregateItems, checkAndGenerateSegments, compareItems, extractor, getSegemntDefinitions, iterateItems, queryByAxis, runProcess } from './task_processor';
 import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helper';
 
 Parser.addExtractor(liPostExtractor)
@@ -54,7 +54,10 @@ export async function queueReset(){
 
     try{
 
-        return await QueryQueue().purge()
+        return [
+            await QueryQueue().purge(),
+            await EnrichPrimitive().purge()
+        ]
     }catch(error){
         console.log(`Error resetting queue`)
     }
@@ -63,7 +66,10 @@ export async function queueStatus(){
 
     try{
 
-        return await QueryQueue().pending()
+        return [
+            ...(await QueryQueue().pending()),
+            ...(await EnrichPrimitive().pending())
+        ]
     }catch(error){
         console.log(`Error fetching queue status`)
     }
@@ -185,11 +191,13 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
                     {
                         $set: {deleted: true}
                     })
+
         removedIds.push( primitiveId )
     
         if( removed.referenceParameters?.notes || removed.referenceParameters?.url ){
             await removeDocument( primitiveId )
         }
+        console.time("t3")
         if( removed.parentPrimitives ){
             for( const parentId of Object.keys(removed.parentPrimitives) ){
                 if( parentId ){
@@ -197,20 +205,23 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
                 }
             }
         }
+        console.timeEnd("t3")
         if( removed.primitives ){
             const pp = new Proxy(removed.primitives, parser)
             const cascadeIds = [pp.origin.uniqueAllIds, pp.auto.uniqueAllIds].flat().filter((d, i, a)=>a.indexOf(d)===i)
             const childPrimitiveIds = pp.uniqueAllIds
 
-            for( const childId of childPrimitiveIds ){
-                await Primitive.findOneAndUpdate(
-                    {
-                        "_id": new ObjectId(childId),
-                    }, 
-                    {
-                        $unset: { [`parentPrimitives.${removed.id}`]:"" }
-                    })
-            }
+            const toRemove = childPrimitiveIds.filter(d=>!cascadeIds.includes(d))
+
+            const result = await Primitive.updateMany(
+                {
+                    "_id": {$in: toRemove},
+                    "workspaceId": removed.workspaceId,
+                    deleted: {$exists: false}
+                }, 
+                {
+                    $unset: { [`parentPrimitives.${removed.id}`]:"" }
+                })
             for( const childId of cascadeIds){
                 await removePrimitiveById( childId, removedIds, false)
             }
@@ -226,6 +237,72 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
     return removedIds
 }
 
+export async function removeRelationshipFromMultiple(receiver, targetIds, path, workspaceId){
+    if( !targetIds || targetIds.length === 0){
+        return
+    }
+    try{
+        if( path.slice(0, 11 ) != "primitives."){
+            path = "primitives." + path
+        }
+        const parentPath = `parentPrimitives.${receiver}`
+        if( path === true ){
+            console.log(`WILL DO ALL PATHS`)
+        }
+        
+        console.log(`for ${receiver} ${path} ${targetIds.length} items`)
+        const r= await Primitive.updateMany(
+            {
+                "_id": {$in: targetIds},
+                [parentPath]: { $in: [path] }
+            },
+            {
+                $pull: { [parentPath]: path }
+            }
+        );
+    
+        const r2 = await Primitive.updateMany(
+            {
+                "_id": {$in: targetIds},
+                [parentPath]: { "$exists": true, $eq: [] }
+            },
+            {
+                $unset: { [parentPath]: "" }
+            }
+        );
+
+
+        console.log(`Now receiver`)
+        const r3 = await Primitive.updateOne(
+        {
+            "_id": new ObjectId(receiver),
+        },
+        {
+            $pull: { [path]: {$in: targetIds} }
+        })
+
+        const r4 = await Primitive.updateOne(
+        {
+            "_id": new ObjectId(receiver),
+            [path]: { "$exists": true, $eq: [] }
+        },
+        {
+            $unset: {[path]: ""}
+        })
+
+        const removeUpdate = targetIds.map(d=>({
+                                                    type: "remove_relationship",
+                                                    id: receiver, 
+                                                    target: d,
+                                                    path:  path
+                                                }))
+        SIO.notifyPrimitiveEvent( workspaceId, removeUpdate)
+    }
+    catch(error){
+        console.log(error)
+        throw new Error("Couldn't find target")
+    }
+}
 export async function removeRelationship(receiver, target, path, skip_notify = false){
     try{
         if( path.slice(0, 11 ) != "primitives."){
@@ -236,30 +313,28 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
             console.log(`WILL DO ALL PATHS`)
         }
         
-        await Primitive.findOneAndUpdate(
+        await Primitive.updateOne(
             {
                 "_id": new ObjectId(target),
-                [parentPath]: {$in: [path]},
-                [`${parentPath}.1`]: { "$exists": true }
-            }, 
+                [parentPath]: { $in: [path] }
+            },
             {
-                $pull: { [parentPath]: path },
+                $pull: { [parentPath]: path }
             }
-        )
-        await Primitive.findOneAndUpdate(
+        );
+    
+        await Primitive.updateOne(
             {
                 "_id": new ObjectId(target),
-                [parentPath]: {$in: [path]},
-                [`${parentPath}.1`]: { "$exists": false }
-            }, 
+                [parentPath]: { "$exists": true, $eq: [] }
+            },
             {
-                $unset: { [parentPath]: "" },
+                $unset: { [parentPath]: "" }
             }
-        )
+        );
 
         await doRemovePrimitiveLink(receiver, target, path)
         if( !skip_notify ){
-
             const receiverPrim =  await Primitive.findOne(
                 {
                     "_id": new ObjectId(receiver)
@@ -279,25 +354,84 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
     }
 }
 
+export async function addRelationshipToMultiple(receiver, targetIds, path, workspaceId){
+    if( !targetIds || targetIds.length === 0){
+        return
+    }
+    try{
+        console.time(`m1`)
+        if( path.slice(0, 11 ) != "primitives."){
+            path = "primitives." + path
+        }
+        const parentPath = `parentPrimitives.${receiver}`
+
+        await Primitive.updateMany(
+            {
+                "_id": {$in: targetIds},
+            },{
+                "$addToSet": {
+                    [parentPath]: path
+                }
+            })
+    }
+    catch(error){
+        console.log(`Error in addRelationshipToMultiple ${receiver} ${path}`)
+        console.log(error)
+        throw new Error("Couldn't find target")
+    }
+    await Primitive.updateOne(
+        {
+            "_id": new ObjectId(receiver),
+        },{
+            "$addToSet": {
+                [path]: { $each: targetIds}
+            }
+        })
+
+    const checkItems = await Primitive.find({
+            "_id": {$in: targetIds},
+            deleted: {$exists: false}
+        },{
+            _id: 1, workspaceId: 1
+        })
+    
+    const checkIds = checkItems.map(d=>d.id)
+    const missing = targetIds.filter(d=>!checkIds.includes(d))
+
+    console.log(`${checkIds.length} / ${missing.length}`)
+    if( missing.length > 0){
+        for(const d of missing){
+            await doRemovePrimitiveLink( receiver, d, path )
+            console.log(`target ${d} removed during add relationship`)
+        }
+    }
+    console.timeEnd(`m1`)
+
+    const removeUpdate = checkIds.map(d=>({
+                                                type: "add_relationship",
+                                                id: receiver, 
+                                                target: d,
+                                                path:  path
+                                            }))
+    SIO.notifyPrimitiveEvent( workspaceId, removeUpdate)
+}
 export async function addRelationship(receiver, target, path, skipParent = false){
     if( !skipParent ){
         try{
+            console.time(`${receiver}-${target}`)
             if( path.slice(0, 11 ) != "primitives."){
                 path = "primitives." + path
             }
             const parentPath = `parentPrimitives.${receiver}`
-            await Primitive.findOneAndUpdate(
+
+            await Primitive.updateOne(
                 {
                     "_id": new ObjectId(target),
-                    [parentPath]: {$exists: false}
-                }, 
-                {$set: { [parentPath]: [path] }})
-            await Primitive.findOneAndUpdate(
-                {
-                    "_id": new ObjectId(target),
-                    [parentPath]: {$nin: [path]}
-                }, 
-                {$push: { [parentPath]: path }})
+                },{
+                    "$addToSet": {
+                        [parentPath]: path
+                    }
+                })
         }
         catch(error){
             console.log(`Error in addRelationship ${receiver} ${target} ${path}`)
@@ -305,36 +439,34 @@ export async function addRelationship(receiver, target, path, skipParent = false
             throw new Error("Couldn't find target")
         }
     }
-    let receiverPrim =  await Primitive.findOneAndUpdate(
+    await Primitive.updateOne(
         {
-                "_id": new ObjectId(receiver),
-                [path]: {$nin: [target]}
-        }, 
-        {$push: { [path]: target }},
-        {new: true})
+            "_id": new ObjectId(receiver),
+        },{
+            "$addToSet": {
+                [path]: target
+            }
+        })
 
-    if( !receiverPrim ){
-        receiverPrim =  await Primitive.findOne(
-            {
-                "_id": new ObjectId(receiver)
-            })
+    const check = await Primitive.findOne({
+            "_id": new ObjectId(target),
+            deleted: {$exists: false}
+        },{
+            _id: 1, workspaceId: 1
+        })
+    if( !check){
+        await doRemovePrimitiveLink( receiver, target, path )
+        //throw new Error(`Couldn't find target ${receiver} -> ${target}`)
+        console.log(`target removed during add relationship`)
+        return
     }
-
-    if( !skipParent ){
-        const check = await Primitive.find({"_id": new ObjectId(target)},{_id: 1})
-        if( check.length === 0){
-            await doRemovePrimitiveLink( receiver, target, path )
-            throw new Error(`Couldn't find target ${receiver} -> ${target}`)
-        }
-    }
-    SIO.notifyPrimitiveEvent( receiverPrim,
+    SIO.notifyPrimitiveEvent( check.workspaceId,
                                         [{
                                             type: "add_relationship",
                                             id: receiver, 
                                             target: target,
                                             path:  path
                                         }])
-    return receiverPrim
 }
 export async function primitiveChildren(primitive, types){
     return await primitivePrimitives(primitive, 'primitives.origin', types )
@@ -971,13 +1103,23 @@ export async function getDataForImport( source, cache = {} ){
     let fullList = []
 
     if(source.type === "query"){
-        console.log(source.primitives)
         let node = new Proxy(source.primitives, parser)
-        console.log("done")
 
         const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
-        console.log(`nonImportIds = ${nonImportIds.join(", ")}`)
         let list = await fetchPrimitives( nonImportIds)
+
+        const viewFilters = getBaseFilterForView( source ).map(d=>{
+            if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
+                return {
+                    ...d,
+                    is_range: true
+                }
+            }
+            return d
+        })
+        if( viewFilters.length > 0 ){
+            list = await filterItems( list, viewFilters)
+        }
 
         const params = await getConfig( source) 
         if( params.extract ){
@@ -992,7 +1134,6 @@ export async function getDataForImport( source, cache = {} ){
 
     console.log(`Importing from other sources of ${source.plainId} / ${source.id}`)
     const sources = await primitivePrimitives(source, 'primitives.imports')
-    console.log(`GOT import from ${sources.map(d=>d.plainId)}`)
 
     for( const imp of sources){
         let list = []
@@ -1012,11 +1153,9 @@ export async function getDataForImport( source, cache = {} ){
             let ids
 
             if( !source.referenceParameters?.path && imp.type === "segment"){
-                console.log(`loaded nested`)
                 list = await nestedItems( imp )
             }else{
                 ids = node.allIds
-                console.log(`loading leaves - ${ids.length}`)
                 list = await Primitive.find({
                     $and:[
                         {_id: {$in: ids}},
@@ -1028,17 +1167,21 @@ export async function getDataForImport( source, cache = {} ){
         }
         const params = await getConfig( source) 
         if( params.descend ){
-            console.log(`NEED TO DESCEND`)
             list = uniquePrimitives([list, await primitiveDescendents( list )].flat())
-            console.log( "After descend ", list.length)
+        }
+        console.log(`Import pivot = ` + source.referenceParameters?.pivot )
+        if( source.referenceParameters?.pivot){
+            if(typeof(source.referenceParameters.pivot ) === "number"){
+                list = await primitiveListOrigin( list, source.referenceParameters.pivot, ["result", "entity"])
+            }else{
+                list = uniquePrimitives((await multiPrimitiveAtOrginLevel( list, source.referenceParameters.pivot.length, source.referenceParameters.pivot)).flat())
+            }
         }
         if( params.referenceId ){
             list = list.filter(d=>d.referenceId === params.referenceId) 
-            console.log( "After ref filter ", list.length)
         }
         if( params.type ){
             list = list.filter(d=>d.referenceId === params.type) 
-            console.log( "After type filter ", list.length)
         }
         const config = source.referenceParameters?.importConfig?.filter(d=>d.id === imp.id)
         if( config && config.length > 0){
@@ -1055,7 +1198,6 @@ export async function getDataForImport( source, cache = {} ){
                 if( set.referenceId ){
                     const prev = list.length
                     list = (await Promise.all(list.map(async (d)=>await primitiveDescendents(d, undefined, {allPaths: true, first: true, referenceId: set.referenceId} ) ))).flat()
-                    console.log(`descend after import = ${prev} -> ${list.length}`)
                 }
             }
         }
@@ -1072,15 +1214,9 @@ export async function getDataForImport( source, cache = {} ){
             }
             return d
         })
-        console.log(`FIlters for view`, viewFilters)
         fullList = await filterItems( fullList, viewFilters)
-
     }
     
-    console.log(`Import pivot = ` + source.referenceParameters?.pivot )
-    if( source.referenceParameters?.pivot && source.referenceParameters.pivot > 0){            
-        fullList = await primitiveListOrigin( fullList, source.referenceParameters.pivot, ["result", "entity"])
-    }
     let out = uniquePrimitives(fullList)
     console.log(`IMPORT FROM ${source.plainId} = ${out.length}`)
     return out
@@ -1180,7 +1316,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
     const category = await Category.findOne({id: primitive.referenceId})
 
     let type = primitive.referenceParameters?.type || action.type //|| category.type
-    let target = primitive.referenceParameters?.target || action.target || category?.target || (Object.keys(source?.primitives ?? {}).includes("imports") ? "items" : "children")
+    let target = primitive.referenceParameters?.target || action.target || (typeof(category) === "string" ? category?.target : undefined) || (Object.keys(source?.primitives ?? {}).includes("imports") ? "items" : "children") || (source.type === "category" ? "items" : undefined)
     //let target = primitive.referenceParameters?.target || action.target || category?.target || "children"
     let referenceId = primitive.referenceParameters?.referenceId || action.referenceId || category?.referenceId
     let field = primitive.referenceParameters?.field || action.field || "title"
@@ -1463,6 +1599,23 @@ export async function dispatchControlUpdate(id, controlField, status, flags = {}
         console.log(error)
     }
 }
+export async function getFilterName( scopeNode ){
+    if( scopeNode?.referenceParameters?.importConfig ){
+        const idsToLookup = []
+        scopeNode.referenceParameters.importConfig.forEach(d=>{
+            return d.filters.forEach( d=>{
+                if( d.type === "parent"){
+                    idsToLookup.push(d.value)
+                }
+            })
+        })
+        if( idsToLookup.length > 0){
+            const parents = await fetchPrimitives(idsToLookup)
+            const segmentName = parents.map(d=>d.title).join(", ")
+            return segmentName
+        }
+    }
+}
 
 
 export async function primitiveParents(primitive, path){
@@ -1490,8 +1643,12 @@ export async function primitiveParents(primitive, path){
 
 export async function createSegmentQuery(primitive, queryData, importData){
     let interimSegment
+    let needsSegment = true
+    if( queryData.referenceId === 113 || queryData.referenceId === 112 || queryData.referenceParameters?.useAxis){
+        needsSegment = false
+    }
 
-//    if( importData ){
+    if( needsSegment){
         const candidates = await primitiveChildren( primitive, "segment")
         interimSegment = candidates.find(d=>PrimitiveConfig.checkImports( d, primitive.id, importData?.[0]?.filters ))
         if( !interimSegment ){
@@ -1510,7 +1667,7 @@ export async function createSegmentQuery(primitive, queryData, importData){
             interimSegment = await createPrimitive(segmentData)
             await addRelationship( interimSegment.id, primitive.id, "imports")
         }
-  //  }
+    }
     const newPrimitiveData = {
         data: queryData,
         parent: interimSegment ?? primitive,
@@ -1519,7 +1676,10 @@ export async function createSegmentQuery(primitive, queryData, importData){
     }
 
     let newPrimitive = await createPrimitive(newPrimitiveData)
-    newPrimitive = await addRelationship( newPrimitive.id, interimSegment ? interimSegment.id : primitive.id, "imports")
+    
+    await addRelationship( newPrimitive.id, interimSegment ? interimSegment.id : primitive.id, "imports")
+    
+    newPrimitive = await fetchPrimitive(newPrimitive.id)
 
     if( newPrimitive.type === "query"){
         doPrimitiveAction(newPrimitive, "custom_query")
@@ -1561,7 +1721,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     try{
         if( actionKey == "quick_query" ){
             const text = await getDocumentAsPlainText(primitive.id)
-            console.log(text)
 
             if( text.plain ){
                 const response = await processPromptOnText(text.plain,
@@ -1677,6 +1836,10 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 console.log(segments.length, " segments")
                 return
             }
+    if( actionKey === "run_process"){
+        await runProcess( primitive )
+        return
+    }
     if( actionKey === "auto_extract" || actionKey === "auto_summarize"){
         console.log(options)
         const source = options.source ? await fetchPrimitive( options.source ) : undefined
@@ -1688,6 +1851,17 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             let config = evidenceCategory?.ai?.summarize?.[ options.summary_type ?? "summary"] ?? {}
             if( options.summary_type === "custom" && options.prompt){
                 config.prompt = options.prompt
+
+                const segmentSource = primitive.primitives?.imports?.[0]
+                if( segmentSource ){
+                    console.log(`getting ${segmentSource}`)
+                    const segment = await fetchPrimitive( segmentSource )
+                    if( segment ){
+                        const name = (await getFilterName(segment)) ?? segment.title
+                        config.prompt = config.prompt.replaceAll('{focus}', name)
+                        config.prompt = config.prompt.replaceAll('{segment}', name)
+                    }
+                }
             }
             
             let summary
@@ -1758,7 +1932,18 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         }
                     }
                 }else{
-                    summary = await summarizeMultiple( toProcess, {...config, focus: options.focus, markdown: options.markdown, debug: true, debug_content:true})
+                    summary = await summarizeMultiple( toProcess, {
+                                                            ...config, 
+                                                            focus: options.focus, 
+                                                            markdown: options.markdown, 
+                                                            outputFields: options.summary_type === "custom" ? undefined : [
+                                                                {field:"headline", prompt:"a short overview", header: true},
+                                                                {field:"main", prompt: "the main summary", formatted: true},
+                                                                {field:"noteworthy", prompt: "a list of the top 5 most noteworthy insights as a single string in markdown format.", formatted: true},
+                                                            ],
+                                                            debug: true, 
+                                                            debug_content:true
+                                                        })
                     if( summary && summary.summary ){
                         result = summary.summary
 
@@ -1831,6 +2016,10 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
                 done = true
+            }
+            if( command === "extractor"){
+                await extractor( primitive, action )
+                return
             }
             if( command === "link_related_evidence"){
                 let category = await Category.findOne({id: primitive.referenceId})
@@ -2680,7 +2869,14 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     await compareItems( parentForScope, primitive )
                     return
                 }
-                await QueueDocument().doDataQuery( primitive, {...action, ...options, parentForScope})
+                if( thisCategory.type === "iterator"){
+                    await iterateItems( parentForScope, primitive )
+                    return
+                }
+                if( primitive.referenceParameters.useAxis && !options?.scope){
+                    await queryByAxis( parentForScope, primitive )                
+                }
+                await QueueDocument().doDataQuery( primitive, {...action, ...options, primitive})
             }
             if( command === "evidence_from_query"){
                 //await QueueDocument().extractEvidenceFromFragmentSearch( primitive, {...action, ...options})
@@ -3779,7 +3975,7 @@ export async function buildContext(primitive, category){
     if( !category || !category.ai?.process?.context){
         if( primitive.type === "evidence"){
             if( primitive.referenceParameters?.quote){
-                return `${category.title}: ${receiver.title}\nQuote:"${primitive.referenceParameters?.quote.replaceAll(/\n/g,". ")}"`
+                return `${category.title}: ${primitive.title}\nQuote:"${primitive.referenceParameters?.quote.replaceAll(/\n/g,". ")}"`
             }
             const origin = await primitiveOriginAtLevel( primitive, 1 )
             if( origin.referenceId === PrimitiveConfig.Constants.QUERY_RESULT ){                                

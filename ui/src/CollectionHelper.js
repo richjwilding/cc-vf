@@ -1,9 +1,118 @@
 import MainStore, { uniquePrimitives } from "./MainStore"
+import Panel from "./Panel"
 import PrimitiveConfig from "./PrimitiveConfig"
 import { roundCurrency } from "./RenderHelpers"
+import UIHelper from "./UIHelper"
 
 
 class CollectionUtils{
+
+    static updateAxisFilter(primitive, mode, filter, item, setAll, axisExtents, callback){
+        console.log(item, mode, setAll)
+
+        filter = filter || {}
+
+        const encodeMap = axisExtents.reduce((a,item)=>{
+            if(item.bucket_min !== undefined || item.bucket_max !== undefined ){
+                a[item.idx] = {min_value: item.bucket_min, max_value: item.bucket_max, idx: item.idx}
+            }else{
+                a[item.idx] = item.idx
+            }
+            return a
+        },{})
+
+
+        if(setAll){
+            if( item ){
+                filter = encodeMap
+            }else{
+                filter = {}
+            }
+        }else{
+            if(filter[item] === undefined){
+                filter[item] = encodeMap[item]
+            }else{
+                filter[item] = undefined
+            }
+        }
+        
+
+        let path = (mode === "column" || mode === "row") ? `referenceParameters.explore.axis.${mode}.filter` : `referenceParameters.explore.filters.${mode}.filter`
+
+        const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] ).filter(d=>d)
+
+        primitive.setField(path, keys)
+        
+        if( callback ){
+            callback(filter)
+        }
+        
+    }
+    static getExploreFilters(primitive, axisOptions){
+        const filters = primitive.referenceParameters?.explore?.filters
+        return filters ? filters.map((filter,idx)=>({
+            option: CollectionUtils.findAxisItem(primitive, idx, axisOptions), 
+            id: idx, 
+            track: filter.track,
+            filter: PrimitiveConfig.decodeExploreFilter(filter?.filter) ?? []
+        })) : []
+    }
+
+    static buildFilterPane(sets, extentMap, options){
+        let {mainstore, updateAxisFilter, deleteViewFilter} = options
+        if( !mainstore ){
+            mainstore = MainStore()
+        }
+        return sets.map(set=>{
+            const axis = extentMap[set.selection]
+            if(axis){
+                return  <Panel title={set.title} noSpace 
+                            deleteButton={
+                                set.deleteIdx === undefined
+                                    ? undefined
+                                    : (e)=>{e.preventDefault();mainstore.promptDelete({message: "Remove filter?", handleDelete:()=>{deleteViewFilter(set.deleteIdx); return true}})}
+                            }
+                            collapsable>
+                        <>
+                        <div className='flex space-x-2 justify-end'>
+                            <button
+                                type="button"
+                                className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                                onClick={()=>updateAxisFilter(false, set.mode, true, axis)}
+                            >
+                                Select all
+                            </button>
+                            <button
+                                type="button"
+                                className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                                onClick={()=>updateAxisFilter(true, set.mode, true, axis)}
+                            >
+                                Clear all
+                            </button>
+                        </div>
+                        <div className='space-y-2 divide-y divide-gray-200 flex flex-col bg-gray-50 border border-gray-200 rounded-lg text-sm p-2 mt-2'>
+                            {axis.map(d=>{
+                                return (
+                                <label
+                                    className='flex place-items-center '>
+                                    <input
+                                    aria-describedby="comments-description"
+                                    name="comments"
+                                    type="checkbox"
+                                    checked={!(set.list && set.list[d.idx])}
+                                    onChange={()=>updateAxisFilter(d.idx, set.mode, false, axis)}
+                                    className="accent-ccgreen-700"
+                                />
+                                    <p className={`p-2 ${set.list && set.list[d.idx] ? "text-gray-500" : ""}`}>{d.label}</p>
+                                </label>
+                                )})}
+                        </div> 
+                        </>
+                    </Panel>
+            }
+        })
+
+    }
     static axisToHierarchy(axisList, options = {}){
         const out = {}
         function findPath(node, path, d, route){
@@ -34,7 +143,7 @@ class CollectionUtils{
     static axisFromCollection(items, primitive, options = {}){
         const mainstore = MainStore()
         if( primitive.type === "query"){
-            if( primitive.metadata.type === "aggregator"){
+            if( primitive.metadata.type === "aggregator" || primitive.referenceParameters.useAxis){
                 const segments = uniquePrimitives(items.map(d=>d.findParentPrimitives({type: "segment", first:true})).flat())
                 const filterLength = Math.max(0, ...segments.map(d=>d.referenceParameters?.importConfig?.[0].filters?.length))
                 if( !filterLength ){
@@ -303,20 +412,24 @@ class CollectionUtils{
                 const segments = uniquePrimitives(interim.map(d=>d.primitive.findParentPrimitives({type: "segment", first:true})).flat())
 
                 const mapped = segments.map(d=>{
-                    const filterConfig = d.referenceParameters?.importConfig?.[0]?.filters?.[axis.id]
+                    const filterConfig = d.referenceParameters?.importConfig?.[0]?.filters?.[axis.id ?? 0]
                     if( filterConfig){
                         if(filterConfig.type ==="parent"){
                             if( filterConfig.value){
-                                return {idx: filterConfig.value, label: MainStore().primitive(filterConfig.value)?.title ?? "None"}
+                                //return {idx: filterConfig.value, label: MainStore().primitive(filterConfig.value)?.title ?? "None"}
+                                const segment = MainStore().primitive(filterConfig.value)
+                                let title = segment?.filterDescription ??  segment?.title  ?? "None"
+
+                                return {idx: d.id, label: title}
                             }else{
-                                return {idx: undefined, label: "None"}
+                                return {idx: d.id, label: "None"}
                             }
                         }else{
                             const value = filterConfig.value ?? "None"
-                            return {idx: value, label: value}
+                            return {idx: d.id, label: value}
                         }
                     }
-                }).filter((d,i,a)=>a.findIndex(d2=>d2.idx === d.idx)===i).sort((a,b)=>a.label.localeCompare(b.label))
+                }).filter((d,i,a)=>d && a.findIndex(d2=>d2.idx === d.idx)===i).sort((a,b)=>a.label.localeCompare(b.label))
 
 
                 console.log(mapped)
@@ -501,7 +614,8 @@ class CollectionUtils{
                         return "_N_"
                     }
                 }else if( option.type === "segment_filter"){
-                    return (p)=>p.findParentPrimitives({type: "segment", first:true})[0]?.referenceParameters?.importConfig?.[0]?.filters?.[option.id]?.value ?? null
+                    //return (p)=>p.findParentPrimitives({type: "segment", first:true})[0]?.referenceParameters?.importConfig?.[0]?.filters?.[option.id ?? 0]?.value ?? null
+                    return (p)=>p.findParentPrimitives({type: "segment", first:true})[0]?.id
                 }else if( option.type === "contact"){
                     return (d)=>d.origin.referenceParameters?.contactId
                 }else if( option.type === "type"){
@@ -532,6 +646,9 @@ class CollectionUtils{
                             })
                         }else{
                             item = item.map(d=>d?.title)
+                        }
+                        if( item.length === 0){
+                            return undefined
                         }
                         return item.length === 1 ? item[0] : item
                     }
@@ -743,7 +860,7 @@ class CollectionUtils{
             axis = primitive.referenceParameters?.explore?.filters?.[ axisName]
         }
         if( axis ){
-            if( ["question", "title", "type", "icon"].includes(axis.type)){
+            if( ["question", "title", "type", "icon","segment_filter"].includes(axis.type)){
                 return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
             }
             if( "parameter" === axis.type ){

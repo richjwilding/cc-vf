@@ -53,7 +53,7 @@ export const SIO = {
    },
    notifyPrimitiveEvent: function(primitive_or_workspace, data){
     let workspaceId
-    if( primitive_or_workspace.workspaceId ){
+    if( primitive_or_workspace?.workspaceId ){
         workspaceId = primitive_or_workspace.workspaceId
     }else{
         workspaceId = primitive_or_workspace

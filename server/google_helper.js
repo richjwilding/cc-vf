@@ -896,6 +896,58 @@ export async function replicateURLtoStorage(url, id, bucketName){
     return true
 
 }
+export async function googleKnowledgeForQuery(query, options , attempts = 3){
+    try{
+        
+        const page = options?.page ?? 1
+
+        const params = { 
+            "api_key": process.env.SCALESERP_KEY,
+            time_period: options.timeFrame ?? "last_year",
+            page: page,
+            "gl": options.country ?? "us",
+            "q": query,
+            "output":"json",
+            "include_fields": "pagination,request_info,knowledge_graph,search_information"
+        }
+        if( options.timeFrame ){
+            params.time_period = options.timeFrame
+        }
+        if( options.search_type ){
+            params.search_type = options.search_type
+            if( options.search_type === "scholar"){
+                delete params["timeFrame"]
+                params.scholar_year_min = 2016
+            }
+        }
+        
+        const url = `https://api.scaleserp.com/search?${new URLSearchParams(params).toString() }`
+        console.log(url)
+        
+        const response = await fetch(url,{
+            method: 'GET',
+        });
+        
+        if( response.status !== 200){
+            console.log(`Error from GNews`)
+            console.log(response)
+            return {error: response}
+        }
+        const data = await response.json();
+        if( data?.request_info?.success ){
+            return data.knowledge_graph
+        }
+    }catch(error){
+        console.log(`Error in fetchLinksFromWebQuery`)
+        console.log(error)
+        if( attempts > 0){
+            await new Promise(r => setTimeout(r, 2000));                    
+            console.log(`retry....${attempts}`)
+            await fetchLinksFromWebQuery(query, options, attempts - 1)
+        }
+    }
+    
+}
 
 export async function fetchLinksFromWebQuery(query, options , attempts = 3){
     try{
@@ -958,7 +1010,7 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
                     image: d.image
                 }
             })
-            console.log(mapped)
+            //console.log(mapped)
             return {
                 links: mapped,
                 nextPage: page + 1

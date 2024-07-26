@@ -25,7 +25,7 @@ export default function TooggleButton({enabled, setEnabled, ...props}) {
         />
       </Switch>
       <Switch.Label as="span" className="ml-3 text-sm">
-        <span className="font-medium text-gray-900">{props.title}</span>
+        <span className="font-medium">{props.title}</span>
       </Switch.Label>
     </Switch.Group>
   )

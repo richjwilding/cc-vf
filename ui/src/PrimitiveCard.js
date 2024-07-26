@@ -171,7 +171,7 @@ let mainstore = MainStore()
         return <div className='w-full flex'>{base}</div>
       }else if( item.type === "categoryId"){
         let list = []
-        if( props.allowNone){
+        if( props.allowNone || item.allowNone){
                 list.push({key: "none", title: "No items", categoryId: undefined, category: undefined})
         }
 
@@ -180,7 +180,15 @@ let mainstore = MainStore()
         if( props.activeOnly || item.activeOnly){
           //const ids = props.primitive.primitives.descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
           if( props.primitive || props.primitiveList){
-            const items = mainstore.uniquePrimitives((props.primitiveList ?? [props.primitive]).map(d=>d.type === "category" ? d.origin : d))
+            
+            const items = mainstore.uniquePrimitives((props.primitiveList ?? [props.primitive]).map(d=>{
+              if(d.type === "category"){
+                return d.origin
+              }else if(d.type === "query"){
+                return d.primitives.imports.allItems
+              }
+              return d
+            })).flat()
             const itp = items.map(d=>d.itemsForProcessing).flat()
             let lookups = mainstore.uniquePrimitives([itp, itp.map(d=>d.primitives.descendants)].flat(Infinity))
             lookups = [...items, ...lookups]
@@ -193,6 +201,9 @@ let mainstore = MainStore()
           }else{
             available = []
           }
+        }
+        if( item.filterForExtractor){
+          available = available.filter(d=>d.ai?.extract)
         }
         
         for( const cat of available){
@@ -219,7 +230,7 @@ let mainstore = MainStore()
         if(props.local ){
           if( item.value === undefined && (item.activeOnly || props.activeOnly)){
             if( props.primitiveList ){                
-              selectedItem = list.findIndex((d)=>(d.categoryId === props.primitiveList[0].referenceId))
+              selectedItem = list.findIndex((d)=>(d.categoryId === props.primitiveList[0]?.referenceId))
             }
           }
         }
@@ -646,7 +657,7 @@ let mainstore = MainStore()
                 return props.primitive.setParameter(item.key, value)
             }}
           />
-            <a href={item.value} className='p-1' target="_blank">
+            <a href={item.value?.startsWith("http") ? item.value : `https://${item.value}`} className='p-1' target="_blank">
                 <LinkIcon className='w-5'/>
               </a>
             </div>
@@ -684,6 +695,7 @@ let mainstore = MainStore()
       return <EditableTextField
         {...props} 
         submitOnEnter={true} 
+        primitiveId={props.primitive?.id}
         value={item.value} 
         default={item.default} 
         placeholder={item.placeholder} 
@@ -692,7 +704,7 @@ let mainstore = MainStore()
         fieldClassName={`${item.type === "long_string" ? "min-h-24" : ""} ${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
         clamp={clamp}
         callback={props.callback ? props.callback : (value)=>{
-            if( item.type === "integer"){
+            if( item.type === "integer" || item.type === "number"){
               value = parseInt( value )
             }
             return props.primitive.setParameter(item.key, value)
@@ -1089,10 +1101,12 @@ const Parameters = function({primitive, ...props}){
     return {...config, value: val, autoId: source[`${k}Id`], key: k}
   })
 
-  if( !props.fullList ){
-    details = details.filter((item)=>item.value !== undefined || item.default || item.type === "primitive_parent") 
+  if( props.fullList ){
+    if( !props.showExtra ){
+      details = details.filter((item)=>item.value || !item.extra) 
+    }
   }else{
-    details = details.filter((item)=>item.value || !item.extra) 
+    details = details.filter((item)=>item.value !== undefined || item.default || item.type === "primitive_parent") 
   }
 
 
@@ -1298,7 +1312,7 @@ const EvidenceList = function({primitive, ...props}){
                       origin = item.origin
                       item = item.primitive
                     }
-                    return <PrimitiveCard onClick={props.onCardClick ? ()=>props.onCardClick(item) : undefined} key={item.id} primitive={item} compact={true} border={true} origin={props.showOriginInfo && (origin || item.origin)} showOriginInfo={props.showOriginInfo} relationshipTo={props.relationshipTo || primitive} relationshipMode={props.relationshipMode} relationshipPath='outcomes' showCategories={props.showCategories} fields={props.cardFields}/>
+                    return <PrimitiveCard onClick={props.onCardClick ? ()=>props.onCardClick(item) : undefined} key={item.id} showSidebar primitive={item} compact={true} border={true} origin={props.showOriginInfo && (origin || item.origin)} showOriginInfo={props.showOriginInfo} relationshipTo={props.relationshipTo || primitive} relationshipMode={props.relationshipMode} relationshipPath='outcomes' showCategories={props.showCategories} fields={props.cardFields}/>
                   })}
                 </div>
               }
@@ -2056,6 +2070,14 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
               className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
               {props.showLink &&  <Link to={`/item/${primitive.id}`}><ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" /></Link>}
+          </button>
+        }
+        {(props.showSidebar) &&
+          <button
+              type="button"
+              className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+              <ArrowTopRightOnSquareIcon className="h-5 w-5" aria-hidden="true" onClick={()=>mainstore.sidebarSelect(primitive)}/>
           </button>
         }
       </>

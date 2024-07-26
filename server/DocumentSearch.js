@@ -124,7 +124,7 @@ function combineGroupsToChunks(groups, maxWords = 120) {
     return chunks;
 }
 
-function extractSentencesAndKeywords(text) {
+function __extractSentencesAndKeywords(text) {
     let doc = nlp(text);
     let sentences = doc.sentences().out('array');
     let keywords = sentences.map(sentence => {
@@ -145,6 +145,47 @@ function extractSentencesAndKeywords(text) {
     });
     return keywords;
 }
+
+function extractSentencesAndKeywords(text) {
+    const processChunk = (chunk) => {
+        console.log(`doing chunk ${chunk.length} / ${chunk.slice(0,50)}..`)
+        let doc = nlp(chunk);
+        let sentences = doc.sentences().out('array');
+        let keywords = sentences.map(sentence => {
+        let tempDoc = nlp(sentence);
+        return {
+            sentence: sentence,
+            nouns: tempDoc.nouns().out('array').map(noun => {
+            noun = noun.toLowerCase();
+            const cleaned = noun
+                .replace(/^\s*(\d+\.)+\s*(?=\w)/g, '')
+                .replace(/\b(the|a|an)\b\s*/gi, '');
+            return [cleaned, noun, PorterStemmer.stem(noun), PorterStemmer.stem(cleaned)];
+            }).flat(),
+            verbs: tempDoc.verbs().out('array').map(verb => [verb.toLowerCase(), PorterStemmer.stem(verb.toLowerCase())]).flat()
+        };
+        });
+        return keywords;
+    };
+    
+    // Function to split the text into smaller chunks
+    const chunkText = (text, chunkSize = 10000) => {
+        let chunks = [];
+        for (let i = 0; i < text.length; i += chunkSize) {
+            chunks.push(text.slice(i, i + chunkSize));
+        }
+        return chunks;
+    };
+  
+  // Main function to extract sentences and keywords from large text
+    let chunks = chunkText(text);
+    let results = [];
+    chunks.forEach(chunk => {
+      let chunkResult = processChunk(chunk);
+      results = results.concat(chunkResult);
+    });
+    return results;
+  }
 function groupNeighboringSentences(keywords) {
     let groups = [];
     let currentGroup = [keywords[0]];

@@ -24,7 +24,7 @@ export default function QueryCard({primitive, ...props}){
                 </div>
                 <Panel collapsable open={props.showDetails} className="!mt-0 ml-1">
                     <div className="w-full flex-col text-xs my-2 space-y-1 shrink-0">
-                        <PrimitiveCard.Parameters primitive={primitive} editing leftAlign compactList className="text-xs text-slate-500" fullList />
+                        <PrimitiveCard.Parameters primitive={primitive} editing leftAlign compactList className="text-xs text-slate-500" fullList showExtra={true} />
                     </div>
                 </Panel>
                 <div className="w-full flex space-x-2 justify-end">

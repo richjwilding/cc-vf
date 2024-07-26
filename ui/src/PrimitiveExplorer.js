@@ -28,34 +28,10 @@ import { heatMapPalette } from './RenderHelpers';
 const mainstore = MainStore()
 
 
-function decodeFilter(filter, extents){
-    if( !filter){
-        return filter
-    }
-    return filter.reduce((a,c)=>{
-        if( c instanceof Object ){
-            a[c.idx] = c
-        }else{
-            //a[c === null ? undefined : c] = true
-            a[c === null ? undefined : c] = c === null ? undefined : c
-        }
-        return a
-    }, {}) 
-
-} 
+const decodeFilter = PrimitiveConfig.decodeExploreFilter
 const encodeFilter = PrimitiveConfig.encodeExploreFilter
+const getExploreFilters = CollectionUtils.getExploreFilters
 
-    const getExploreFilters = (primitive, axisOptions)=>{
-        const filters = primitive.referenceParameters?.explore?.filters
-        return filters ? filters.map((filter,idx)=>({
-            option: findAxisItem(primitive, idx, axisOptions), 
-            id: idx, 
-            track: filter.track,
-            //filter: filter?.filter?.reduce((a,c)=>{a[c === null ? undefined : c] = true; return a}, {}) ?? {}
-            filter: decodeFilter(filter?.filter) ?? []
-        })) : []
-
-    }
 
     const findAxisItem = CollectionUtils.findAxisItem
 
@@ -1176,12 +1152,33 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
 
     const updateAxisFilter = (item, mode, setAll, axisExtents)=>{
+        storeCurrentOffset()
+
+        let axis, currentFilter, callback
+        if( mode === "row"){
+            currentFilter = rowFilter  
+            callback = (filter)=>setRowFilter(filter)
+        }else if(mode === "column"){
+            currentFilter = colFilter  
+            callback = (filter)=>setColFilter(filter)
+        }else{
+            currentFilter = decodeFilter(primitive.referenceParameters?.explore?.filters?.[ mode]?.filter)
+            callback = ()=>forceUpdate()
+        }
+
+        CollectionUtils.updateAxisFilter(primitive, mode, currentFilter, item, setAll, axisExtents,
+            (filter)=>{
+                    callback(filter)
+                    forceUpdateExtent()
+                }
+        )
+    }
+    const _updateAxisFilter = (item, mode, setAll, axisExtents)=>{
         let axis, filter, setter
         console.log(item, mode, setAll)
 
         const axisSetter = (filter, path)=>{
             if( primitive.referenceParameters ){
-                //const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] instanceof Object ? filter[d] : filter[d] ? d : undefined ).filter(d=>d)
                 const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] ).filter(d=>d)
                 primitive.setField(path, keys)
             }
@@ -1198,7 +1195,6 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         }else if(mode === "column"){
             axis = axisOptions[colSelection]
             filter = colFilter  
-            //setter = setColFilter
             setter = (filter)=>{
                 setColFilter(filter)
                 axisSetter(filter, `referenceParameters.explore.axis.${mode}.filter`)
@@ -1206,7 +1202,6 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         }else{
             axis = axisOptions[viewFilters[mode].option]
             if( axis ){
-                //filter = primitive.referenceParameters?.explore?.filters?.[ mode]?.filter?.reduce((a,c)=>{a[c === null ? undefined : c]=true;return a},{}) || {}
                 filter = decodeFilter(primitive.referenceParameters?.explore?.filters?.[ mode]?.filter)
                 setter = ( filter )=>{
                     axisSetter(filter, `referenceParameters.explore.filters.${mode}.filter`)
@@ -1676,62 +1671,21 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
     let filterPane
     if( showPane === "filter"){
-        filterPane = []
         const sets = [
             {selection: "column", mode: "column", title: "Columns", setter: setColFilter, list: colFilter},
             {selection: "row", mode: "row", title: "Rows", setter: setRowFilter, list: rowFilter},
             ...viewFilters.map((d,idx)=>({selection:  `filterGroup${idx}`, title: `Filter by ${axisOptions[d.option]?.title}`, deleteIdx: idx, mode: idx, list: d.filter}))
         ]
-        sets.forEach(set=>{
-            const axis = extentMap[set.selection]
-            if(axis){
-                filterPane.push(
-                    <Panel title={set.title} 
-                            deleteButton={
-                                set.deleteIdx === undefined
-                                    ? undefined
-                                    : (e)=>{e.preventDefault();mainstore.promptDelete({message: "Remove filter?", handleDelete:()=>{deleteViewFilter(set.deleteIdx); return true}})}
-                            }
-                            collapsable>
-                        <>
-                        <div className='flex space-x-2 justify-end'>
-                            <button
-                                type="button"
-                                className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                                onClick={()=>updateAxisFilter(false, set.mode, true, axis)}
-                            >
-                                Select all
-                            </button>
-                            <button
-                                type="button"
-                                className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                                onClick={()=>updateAxisFilter(true, set.mode, true, axis)}
-                            >
-                                Clear all
-                            </button>
-                        </div>
-                        <div className='space-y-2 divide-y divide-gray-200 flex flex-col bg-gray-50 border border-gray-200 rounded-lg text-sm p-2 mt-2'>
-                            {axis.map(d=>{
-                                return (
-                                <label
-                                    className='flex place-items-center '>
-                                    <input
-                                    aria-describedby="comments-description"
-                                    name="comments"
-                                    type="checkbox"
-                                    checked={!(set.list && set.list[d.idx])}
-                                    onChange={()=>updateAxisFilter(d.idx, set.mode, false, axis)}
-                                    className="accent-ccgreen-700"
-                                />
-                                    <p className={`p-2 ${set.list && set.list[d.idx] ? "text-gray-500" : ""}`}>{d.label}</p>
-                                </label>
-                                )})}
-                        </div> 
-                        </>
-                    </Panel>
-                )
+        filterPane = CollectionUtils.buildFilterPane(
+            sets, 
+            extentMap,
+            {
+                mainstore: mainstore,
+                updateAxisFilter,
+                deleteViewFilter
+
             }
-        })
+        )
     }
 
 
@@ -1762,7 +1716,9 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                     </div>
                     <div className='w-full p-2 text-lg overflow-y-scroll'>
                         <TooggleButton title='Hide empty rows / columns' enabled={hideNull} setEnabled={updateHideNull}/>
+                        <div className='w-full mt-3 space-y-3'>
                         {filterPane}
+                        </div>
                     </div>
                 </div>}
         </div>

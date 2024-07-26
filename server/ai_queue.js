@@ -1,7 +1,7 @@
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import { SIO } from './socket';
-import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitives, findPrimitiveOriginParent, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship } from "./SharedFunctions";
+import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitives, findPrimitiveOriginParent, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
@@ -15,6 +15,7 @@ import { distance } from "agglo/lib/metrics";
 import debug from "debug";
 
 
+const parser = PrimitiveParser()
 let instance
 
 function calculateCentroid(vectors) {
@@ -1067,6 +1068,7 @@ export default function QueueAI(){
                                         count: primitive.referenceParameters?.count || action.count || 8,
                                         types: types, 
                                         themes: theme, 
+                                        batch: 500,
                                         engine:  primitive.referenceParameters?.engine || action.engine,
                                         debug: true,
                                         debug_content: true}
@@ -1128,27 +1130,12 @@ export default function QueueAI(){
                                 
                                 const removeUpdate = []
                                 console.log(`Removing existing mappings`)
-                                for( const item of list ){
-                                    if( item.parentPrimitives ){
-                                        const parents = Object.keys(item.parentPrimitives ).filter((d)=>categoryIds.includes(d) )
-                                        if( parents.length > 0){
-                                            for( const parent of parents){
-                                                for( const path of item.parentPrimitives[parent]){
-                                                    await removeRelationship( parent, item._id.toString(), path, true )
-                                                    removeUpdate.push({
-                                                        type: "remove_relationship",
-                                                        id: parent, 
-                                                        target: item.id,
-                                                        path:  path
-                                                    })
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                if( removeUpdate.length > 0){
-                                    SIO.notifyPrimitiveEvent( primitive.workspaceId, removeUpdate)
-                                    console.log(`Removing existing mappings - done`)
+                                const listIds = list.map(d=>d.id)
+                                for(const category of catOptions){
+                                    const pp = new Proxy(category.primitives ?? {}, parser)
+                                    const toClear = pp.uniqueAllIds.filter(d=>listIds.includes(d))
+                                    console.log(`Category ${category.title} -> ${toClear.length}`)
+                                    await removeRelationshipFromMultiple( category.id, toClear, "ref", category.workspaceId)
                                 }
 
                                 const scoreMap = {
@@ -1430,42 +1417,46 @@ export default function QueueAI(){
                                 }else{
                                     let types = targetConfig?.mark?.type
                                     let focus = primitive.referenceParameters?.focus ?? targetConfig?.mark?.theme ??primitive.referenceParameters?.cat_theme
+                                    let batchCount = categoryList.length > 15 ? 10 : 50
 
                                     categoryAlloc = await categorize(data, categoryList, {
                                         matchPrompt:primitive.referenceParameters?.matchPrompt, 
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
                                         engine:  primitive.referenceParameters?.engine || action.engine,
+                                        complex: primitive.referenceParameters?.complex ?? action.complex ?? false,
                                         rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
-                                        batch: primitive.referenceParameters?.batch ?? action.batch ?? 25,
+                                        batch: primitive.referenceParameters?.batch ?? action.batch ?? batchCount,
                                         types: types,
                                         focus: focus,
                                         temperature: 1,//0.85,
                                         debug: true,
-                                        debug_content: false
+                                        debug_content: true
                                     })
                                     console.log( categoryAlloc )
                                     
                                     let promiseList = []
 
+                                    const categoryAllocations = {}
+
                                     for(const entry of categoryAlloc){
                                         const prim = list[entry.id]
                                         if( prim ){
-                                            console.log(`${list[entry.id].title} => ${entry.a.map(d=>`${d.c} = ${d.s}`).join(", ")}`)
-                                            for(const align of entry.a){
-                                                let idx = align.c
-                                                let d = align.s
+                                            console.log(`${list[entry.id].title} => ${entry.a?.map(d=>`${d.c} = ${d.s}`).join(", ")}`)
+                                            if( entry.a){
 
-                                                if( catOptions[idx] ){
-                                                    if( d === "Likely" || d === "Clear" || d === "Somewhat"){
-                                                        promiseList.push( addRelationship( catOptions[idx]._id.toString(), list[entry.id]._id.toString(), "ref") )
-                                                        if( promiseList.length > 100 ){
-                                                            console.log(`Syncing promiss`)
-                                                            await Promise.all( promiseList )
-                                                            promiseList = []
+                                                for(const align of entry.a){
+                                                    let idx = align.c
+                                                    let d = align.s
+                                                    
+                                                    if( catOptions[idx] ){
+                                                        if( d === "Likely" || d === "Clear" || d === "Somewhat"){
+                                                            const cId = catOptions[idx].id
+                                                            categoryAllocations[cId] = categoryAllocations[cId] || []
+                                                            categoryAllocations[cId].push( prim.id )
                                                         }
+                                                    }else{
+                                                        console.log(`Error : Exceeded expected categories ${idx} for ${list[entry.id].title}`)
                                                     }
-                                                }else{
-                                                    console.log(`Error : Exceeded expected categories ${idx} for ${list[entry.id].title}`)
                                                 }
                                             }
                                         }
@@ -1474,6 +1465,13 @@ export default function QueueAI(){
                                         console.log(`last sync`)
                                         await Promise.all( promiseList )
                                     }
+                                    for(const d of catOptions){
+                                        const items = categoryAllocations[d.id]
+                                        console.log( `${d.plainId} ${d.title} -> ${items ? items.length : 0}`)
+                                        await addRelationshipToMultiple(d.id, items, "ref", d.workspaceId )
+                                    }
+                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+                dispatchControlUpdate(job.data.targetId, job.data.field , null)
                                     return
                                 }
 

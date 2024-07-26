@@ -19,6 +19,8 @@ import CollectionUtils from './CollectionHelper';
 import test from './tests/filter.js';
 import NewPrimitive from './NewPrimitive.js';
 import Popup from './Popup.js';
+import GenericEditor from './GenericEditor.js';
+import PrimitiveConfig from './PrimitiveConfig.js';
 
 library.add(fas, faLinkedin)
 
@@ -29,6 +31,7 @@ let mainstore = MainStore()
 window.mainstore = mainstore
 window.utils = CollectionUtils
 
+window.pc = PrimitiveConfig
 window.mainstore_tests = test// MainStoreTests
 
 
@@ -46,6 +49,7 @@ function App() {
   const [manualInputPrompt, setManualInputPrompt] = React.useState(false)
   const [showNew, setShowNew] = React.useState(false)
   const [showCategoryPicker, setShowCategoryPicker] = React.useState()
+  const [showEditCategory, setShowEditCategory] = React.useState()
 
 
   const checkPrimIsLoaded = ()=>{
@@ -113,6 +117,7 @@ function App() {
   mainstore.globalInputPopup = setManualInputPrompt
   mainstore.globalNewPrimitive = setShowNew
   mainstore.globalCategoryPicker = setShowCategoryPicker
+  mainstore.globalCategoryEditor = setShowEditCategory
 
   return (
     !loaded
@@ -156,6 +161,7 @@ function App() {
           {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
           {showNew && <NewPrimitive {...showNew} done={showNew.callback ? (data)=>showNew.callback(data) : undefined} cancel={()=>setShowNew(false)}/>}
           {showCategoryPicker && <Popup padding='false' setOpen={()=>setShowCategoryPicker(false)}><NewPrimitive.CategorySelection  setOpen={()=>setShowCategoryPicker(false)} categoryId={showCategoryPicker.categoryIds} setSelectedCategory={(d)=>{const r = showCategoryPicker.callback(d); if(r){setShowCategoryPicker()}}}/></Popup>}
+          {showEditCategory && <GenericEditor target={showEditCategory.originTask} set={(p)=>showEditCategory.primitive.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>[32].includes(d.id))} primitive={showEditCategory.primitive} setOpen={()=>setShowEditCategory(null)}/> }
           </BrowserRouter>
       </div>
   )

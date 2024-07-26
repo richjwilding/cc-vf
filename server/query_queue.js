@@ -2,7 +2,7 @@ import QueueManager from './base_queue';
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import Primitive from "./model/Primitive";
-import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, findResultSetForCategoryId, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
+import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, findResultSetForCategoryId, getDataForProcessing, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { findCompanyLIPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
@@ -16,47 +16,10 @@ import { queryMetaAds } from './ad_helper';
 let instance
 let _queue
 
-/*
-async function main() {
-
-    // Example workspace and job identifiers
-    const workspaceId = 'workspace1';
-    const jobId = 'job1';
-
-    // Example job data
-    const jobData = { task: 'process data', payload: 'some payload data' };
-
-    // Add a job to the queue
-    try {
-        await queueManager.addJob(workspaceId, jobId, jobData);
-        console.log('Job added successfully');
-    } catch (error) {
-        console.error('Error adding job:', error);
-    }
-
-    // Periodically check the status of the queues
-    setInterval(async () => {
-        const status = await queueManager.status();
-        console.log('Queue Status:', status);
-    }, 10000); // Check status every 10 seconds
-
-    // Remove a job from the queue (can be triggered based on your application logic)
-    try {
-        await queueManager.removeJob(workspaceId, jobId);
-        console.log('Job removed successfully');
-    } catch (error) {
-        console.error('Error removing job:', error);
-    }
-}
-*/
-
-
 export default function QueryQueue(){    
     if( instance ){
         return instance
     }
-    
-
     
     const processQueue = async (job, cancelCheck) => {
         try{
@@ -82,9 +45,6 @@ export default function QueryQueue(){
                     if( candidatePaths.length === 0){
                         throw "Cant find result path"
                     }
-                    if( candidatePaths.length > 1){
-                        console.log(`INFO: Too many candidate paths - picking first`)
-                    }
                     const resultPath = candidatePaths.replace(".search.",".results.")
 
                     const parentSearch = (await primitiveParentsOfType( primitive, "search"))?.[0]
@@ -103,6 +63,10 @@ export default function QueryQueue(){
                             config[k] = config[k].map(d=>category.parameters[k].options.find(d2=>d2.id === d))
                         }
                     })
+                    if( parentSearch ){
+                        baseTerms = parentSearch.title
+                        console.log(`OVERRIDE WITH PARENT SEARCH TERMS`)
+                    }
                     console.log(config)
 
                     const nestCandidates = category.nestedSearch
@@ -110,15 +74,19 @@ export default function QueryQueue(){
                         const nestedReferenceCategoryId = nestCandidates.referenceCategoryId
                         origin = origin ?? await Primitive.findOne({_id: oId})
                         if( origin.referenceId !== nestedReferenceCategoryId ){
-                            const task = await Primitive.findOne({_id: await primitiveTask( primitive ) })
-                            const nestedSearches = await primitiveChildren( primitive, "search")
+                            let parentForNestedSearch = ["view","segment","query"].includes(origin.type) ? origin : (await Primitive.findOne({_id: await primitiveTask( primitive ) }))
 
+                            const nestedSearches = await primitiveChildren( primitive, "search")
                             const nestedCategory = await Category.findOne({id: nestedReferenceCategoryId})
                             const nestedSet = nestedCategory.resultCategories.find((d)=>d.searchCategoryIds?.includes(primitive.referenceId))
                             console.log(`Found ${nestedSet?.id} for ${primitive.referenceId} in ${nestedCategory.title}`)
 
-                            if( nestedSet && task ){
-                                const items = await primitiveDescendents(task, undefined, {referenceId: nestedReferenceCategoryId})
+                            if( nestedSet && parentForNestedSearch ){
+                                //const items = await primitiveDescendents(parentForNestedSearch, undefined, {referenceId: nestedReferenceCategoryId})
+
+
+                                const [items, _] = await getDataForProcessing(parentForNestedSearch, {referenceId: nestedReferenceCategoryId})
+
                                 console.log(`Got ${items.length} items and ${nestedSearches.length} nested searches of ${nestedReferenceCategoryId}`)
                                 for(const target of items){
                                     let nestedSearchForItem = nestedSearches.find(d=>Object.keys(d.parentPrimitives ?? {}).includes(target.id) )
@@ -152,6 +120,9 @@ export default function QueryQueue(){
                     
                     // Get query results
                     let topic = primitive.referenceParameters?.topic
+                    if( parentSearch ){
+                        topic = parentSearch.referenceParameters?.topic
+                    }
                     if( topic === undefined ){
                         console.log(`Fetching topic from task`)
                         const task = await Primitive.findOne({_id: await primitiveTask( primitive ) })
@@ -178,7 +149,8 @@ export default function QueryQueue(){
                                 "_id": primitive.id,
                             },
                             {
-                                ["checkCache"]: cache
+                                queryCount: 0,
+                                checkCache: cache
                             })
                     }
 
@@ -217,6 +189,7 @@ export default function QueryQueue(){
                                         "_id": primitive.id,
                                     },
                                     {
+                                        $inc: { queryCount: 1 },
                                         $push :{["checkCache.items"]: item[source.primaryField]}
                                     })
 
@@ -296,7 +269,7 @@ export default function QueryQueue(){
                                     return false
                                 }
                                 if( !topic ){
-                                    return false
+                                    return true
                                 }
                                 if(!embeddedTopic){
                                     embeddedTopic = (await buildEmbeddings( topic ))?.embeddings
@@ -321,7 +294,14 @@ export default function QueryQueue(){
                             if( type === "topic" ){
                                 if( topic ){
                                     const threshold = filter.threshold ?? 3
-                                    const result = await analyzeTextAgainstTopics(data.text, topic, {maxTokens: 2000, maxTokensToSend: 10000, stopChunk: 300, stopAtOrAbove: threshold,single:true, type: resultCategory?.title, engine: primitive.referenceParameters?.engine})
+                                    const result = await analyzeTextAgainstTopics(data.text, topic, {
+                                        maxTokens: 2000, 
+                                        maxTokensToSend: 10000, 
+                                        stopChunk: 300, 
+                                        stopAtOrAbove: threshold,
+                                        single:true, 
+                                        type: resultCategory?.title, 
+                                        engine: "gpt4o-mini" ?? primitive.referenceParameters?.engine})
                                     if( result.output >= threshold){
                                         return true
                                     }

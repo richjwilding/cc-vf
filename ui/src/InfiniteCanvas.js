@@ -337,6 +337,41 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         
         return myState.current.frames[frameId]
     }
+    function processAnimationQueue(){
+        if( myState.current.animationRequest ){
+            console.log(`defer anim request`)
+        }
+        if( myState.current.animationQueue?.length > 0){
+            myState.current.animationRequest = requestAnimationFrame(()=>{
+                const tick = performance.now()
+                for(const d of myState.current.animationQueue){
+                    if(d.callback){
+                        if( d.node.getLayer()){
+                            if(d.callback(tick)){
+                                d.node.draw()
+                            }
+                        }
+                    }
+                }
+                myState.current.animationRequest = undefined
+                processAnimationQueue()
+            })
+        }
+    }
+    function animationCallback(g, callback, options){
+        myState.current.animationQueue = myState.current.animationQueue || []
+        myState.current.animationQueue.push( {node: g, callback, options} )
+        processAnimationQueue()
+    }
+    function removeFromAnimationQueue( animationNodeId ){
+        if(myState.current.animationQueue ){
+            const old = myState.current.animationQueue.length
+            myState.current.animationQueue = myState.current.animationQueue.filter(d=>d.node._id !== animationNodeId )
+            console.log(`REMOVED ${old-myState.current.animationQueue.length} nodes`)
+        }
+
+    }
+
     function setupFrameForItems( id, title, items, x, y, s, options ){
         let ids, removeIds
         const existing = myState.current.frames?.find(d=>d.id === id) 
@@ -371,7 +406,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 frame.node.add(titleText)
             }
 
-            const rendered = items({imageCallback: processImageCallback, x: framePadding[3], y: framePadding[0]})
+            const rendered = items({imageCallback: processImageCallback, amimCallback: animationCallback, x: framePadding[3], y: framePadding[0]})
             framePadding = rendered.attrs.canvasMargin ?? framePadding
 
             const root = convertItems( rendered, frame.node)
@@ -388,7 +423,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 frameBorder.width(maxX)
                 frameBorder.height(maxY)
             }
-            console.log(maxX,maxY)
             frame.node.width(maxX)
             frame.node.height(maxY)
         }
@@ -414,8 +448,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 
             }
 
-            console.log(`Found existing frame - removing`)
-            existingNode.children.forEach(d=>d.attrs.removing = true)
+            //console.log(`Found existing frame - removing`)
+            existingNode.children.forEach(d=>{
+                if( d.attrs.hasAnimationNode ){
+                    console.log(`will remove from animation queue`)
+                    removeFromAnimationQueue(d.attrs.hasAnimationNode)
+                }
+                d.attrs.removing = true
+            })
             existingNode.remove()
             stageRef.current.batchDraw()
         }
@@ -515,6 +555,17 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             
         }
     }
+    function refreshLinksDuringDrag( override ){
+        if( myState.current.linkUpdatePending ){
+            console.log("skip")
+            return
+        }
+        myState.current.linkUpdatePending = requestAnimationFrame(()=>{
+            refreshLinks( override)
+            myState.current.linkUpdatePending = undefined            
+        })
+    }
+
     async function refreshLinks( override ){
         
         if( props.frameLinks){
@@ -777,7 +828,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             observer.unobserve(frameRef.current);
             for(const frame of myState.current.frames ?? []){
                 if( frame.allNodes ){
-                    console.log(`Restoring all nodes on ${frame.id}`)
+                    //console.log(`Restoring all nodes on ${frame.id}`)
                     frame.node.children = frame.allNodes
                 }
             }
@@ -1340,7 +1391,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                 if( updateLinksDuringMove && myState.current.dragging.isFrame){
                     const [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
-                    refreshLinks({id: myState.current.dragging.clone.attrs.id, x: fx, y: fy})
+                    refreshLinksDuringDrag({id: myState.current.dragging.clone.attrs.id, x: fx, y: fy})
                 }
             }
             

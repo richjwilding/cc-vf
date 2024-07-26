@@ -12,27 +12,26 @@ import useDataEvent from "./CustomHook";
 
 export function CategoryCardPill({primitive, ...props}){
   const [confirmRemove, setConfirmRemove] = useState(false)
-  const [editing, setEditing] = useState(false)
 
   const handleRemove = async ()=>{
     await MainStore().removePrimitive( primitive )
     setConfirmRemove(false)
   }
-  const updateTitle = (newTitle )=>{
-    primitive.title = newTitle
+  const updateItem = (d )=>{
+    const [title, description] = d.split(":")
+    primitive.title = title.trim()
+    primitive.setParameter("description", description?.trim() ?? "", false, true)
     return true
   }
 
     return (<>
         <div key={primitive.plainId} className={`${props.editable ? "w-full" : 'w-fit'} flex place-items-center mt-2 mr-2 justify-between group`}>
-            <div key='title' className={`flex group place-items-center px-1.5 text-xs py-0.5 ${primitive.referenceParameters.bgcolor || "bg-ccblue-50"} rounded-lg border w-fit nowrap ${primitive.title ? "" : "italic text-gray-400 bg-gray-100" }`}>
+            <div key='title' className={`flex group place-items-center px-1.5 text-xs py-0.5 ${primitive.referenceParameters.bgcolor || "bg-white"} rounded-lg border w-fit nowrap ${primitive.title ? "" : "italic text-gray-400 bg-gray-100" }`}>
                           {props.editable
                             ?  <EditableTextField 
-                                callback={updateTitle}
-                                editable={props.showEdit ? ()=> setEditing( true ) : undefined}
-                                stopEditing={()=>setEditing(false)}
-                                editing={editing}
-                                value = {primitive.title}
+                                callback={updateItem}
+                                editable
+                                value = {primitive.referenceParameters.description?.length > 0 ? `${primitive.title}: ${primitive.referenceParameters.description}` : primitive.title}
                                 default='<Add category>'
                                 className='w-full'
                                 compact={true}
@@ -44,14 +43,6 @@ export function CategoryCardPill({primitive, ...props}){
             </div>
             {props.editable && 
               <div className='flex space-x-2 invisible group-hover:visible -my-1'>
-                <div
-                    key='edit' 
-                    type="button"
-                        onClick={(e)=>{e.stopPropagation();setEditing(!editing)}}
-                      className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                    <PencilIcon className="h-4 w-4" aria-hidden="true" />
-                </div>
                 <div
                     key='trash' 
                     type="button"
@@ -112,7 +103,6 @@ export default function CategoryCard({primitive, ...props}){
         </Panel>
         <p key='footer' className='text-xs text-gray-400'>#{primitive.plainId}</p>
         </div>
-        {false && editPrompt && <GenericEditor target={primitive.task} actions={primitive.task?.metadata?.actions ? primitive.task.metadata.actions.filter((d)=>d.key === "categorize") : undefined} set={(p)=>p.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>d.primitiveType === "category")} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
         {editPrompt && <GenericEditor target={primitive.origin} set={(p)=>p.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>[32].includes(d.id))} primitive={primitive} setOpen={()=>setEditPrompt(null)}/> }
         </>
     )

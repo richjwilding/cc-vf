@@ -120,17 +120,19 @@ function AxisPicker({className, options, name, title, type, small, disabled, aut
     
 }
 
-function MyButton({options, name, title, type, ...props}){
+function MyButton({options, name, title, type, tooltip, icon, small, action, ...props}){
     const control = <Button 
             href={props.href} 
-            onClick={props.action ? ()=>props.action() : undefined}
+            title={tooltip}
+            onClick={action ? ()=>action() : undefined}
             color="white"
             className={clsx(
                 '!font-normal gap-x-1',
-                props.small ? '!text-xs' : '!text-sm'
+                small ? '!text-xs' : '!text-sm'
             )}
+            {...props}
             >
-                {props.icon ?? <></>}
+                {icon ?? <></>}
                 {title}
         </Button>
     return control
