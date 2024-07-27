@@ -3,49 +3,12 @@ import { Util } from 'konva/lib/Util'
 import CustomImage  from "./CustomImage";
 import CustomText from "./CustomText";
 import PrimitiveConfig from "./PrimitiveConfig";
+import CollectionUtils from "./CollectionHelper";
+import moment from "moment";
 const typeMaps = {}
 const categoryMaps = {}
 
-export const heatMapPalette = [
-    {
-        title: "Default blue",
-        name:"default",
-        colors:[
-            "#f7fcf0",
-            "#e0f3db",
-            "#ccebc5",
-            "#a8ddb5",
-            "#7bccc4",
-            "#4eb3d3",
-            "#2b8cbe",
-            "#0868ac",
-            "#084081"
-        ]
-    },{
-        title: "Purple",
-        name: "purple",
-        colors:[
-            "#003f5c",
-            "#2f4b7c",
-            "#665191",
-            "#a05195",
-            "#d45087",
-            "#f95d6a",
-            "#ff7c43",
-            "#ffa600"
-        ]
-    },{
-        title: "Heat",
-        name: "heat",
-        colors:[
-            "#f5f5ab",
-            "#fed976",
-            "#fc8c3c",
-            "#f03b20",
-            "#bd0026"
-        ]
-    }
-]
+export const heatMapPalette = PrimitiveConfig.heatMapPalette
 
 export function roundCurrency(number){
     if(number === 0){
@@ -57,7 +20,7 @@ export function roundCurrency(number){
     const scaledNumber = number / Math.pow(10, suffixIndex * 3);
     const formattedNumber = scaledNumber.toFixed( suffixIndex > 1 ? 0 : 2);
 
-    return "$" + formattedNumber.replace(/\.00$/, '') + suffixes[suffixIndex];
+    return "$" + formattedNumber.replace(/\.00$/, '') + (suffixes[suffixIndex] ?? "");
 }
 
 function registerRenderer( mappings, callback){
@@ -168,6 +131,108 @@ registerRenderer( {type: "default", configs: "set_checktable"}, (primitive, opti
             options.cachedNodes.destroy()
         }
     }
+
+
+    return g
+})
+registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, options = {})=>{
+    const config = {width: 256, height: 128, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    if( !options.list ){
+        return undefined
+    }
+
+    const renderWidth = config.width - config.padding[3] - config.padding[1]
+    const renderHeight = config.height - config.padding[0] - config.padding[2]
+
+    if( options.getConfig){
+        const years = parseInt(primitive.renderConfig?.range ?? "1") 
+        const endDate = primitive.renderConfig?.end ?? new Date()
+        const startDate = moment(endDate).subtract(years, "year")
+        config.data = CollectionUtils.convertToTimesSeries( 
+                                        options.list, 
+                                        {
+                                            field: primitive.renderConfig?.field,
+                                            startDate: startDate,
+                                            endDate: endDate,
+                                            period: "month"
+                                        })
+        return config
+    }
+    const series = options.data
+
+    
+    const g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+    const r = new Konva.Rect({
+        x: config.padding[3],
+        y: config.padding[0],
+        width: renderWidth,
+        height: renderHeight,
+        fill: "white",
+        name: "background"
+    })
+
+
+
+
+    g.add(r)
+    if( series.length > 0){
+        
+        //const maxValue = series.reduce((a,c)=>c > a ? c : a, -Infinity) + 1
+        //const minValue = series.reduce((a,c)=>c < a ? c : a, Infinity) - 1
+
+        const maxValue = (primitive.renderConfig?.align_scale === "yes" ? options.globalData.maximumValue : series.reduce((a,c)=>c > a ? c : a, -Infinity)) + 1
+        const minValue = (primitive.renderConfig?.align_scale === "yes" ? options.globalData.minimumValue : series.reduce((a,c)=>c < a ? c : a, Infinity))- 1
+
+        const range = maxValue - minValue
+        
+        const len = series.length
+        const dx = renderWidth / (len - 1)
+        const lineMargin = renderHeight * 0.1
+        const scale = (renderHeight - lineMargin - lineMargin) / range
+        const points = series.map((d,i)=>[i * dx, renderHeight - lineMargin - (scale * (d - minValue))]).flat()
+        //const lower = series.map((_,i)=>[(len - 1 - i) * dx, renderHeight - lineMargin - (scale * (series[len - i - 1] - minValue)) + (renderHeight * 0.1)]).flat()
+        const lower = series.map((_,i)=>[(len - 1 - i) * dx, renderHeight - lineMargin ]).flat()
+
+        const shaded = [
+            ...points,
+            ...lower
+        ]
+
+
+        for(const d of points){
+            if(isNaN(d)){
+                console.log('err')
+            }
+        }
+
+        const l2 = new Konva.Line({
+            points: shaded,
+            strokeEnabled: false,
+            fillLinearGradientStartPoint: { x: renderWidth / 2, y: 0 },
+            fillLinearGradientEndPoint: { x: renderWidth / 2, y: renderHeight },
+            fillLinearGradientColorStops: [0, '#e0f2fe', 0.7, 'white'],
+            closed: true
+        })
+        g.add(l2)
+
+        
+        const l = new Konva.Line({
+            points: points,
+            strokeWidth: 1,
+            strokeScaleEnabled: false,
+            stroke: "#0ea5e9"
+        })
+        g.add(l)
+    }
+
+
 
 
     return g
@@ -568,6 +633,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primiti
     
     const g = new Konva.Group({
         id: primitive.id,
+        name:"cell inf_track",
         x: (options.x ?? 0),
         y: (options.y ?? 0),
         width: width,
@@ -1442,9 +1508,9 @@ export function renderMatrix( primitive, list, options ){
         x:options.x ?? 0,
         y:options.y ?? 0
     })
-    let configName = "grid"
+    let configName = options.viewConfig?.renderType ?? "grid" 
 
-    const asCounts = options.viewConfig?.parameters?.showAsCounts
+    const asCounts = options.viewConfig?.showAsCounts
     const asChecks = options.viewConfig?.parameters?.showAsCheck
     if( asCounts ){
         configName = "heatmap"
@@ -1452,6 +1518,7 @@ export function renderMatrix( primitive, list, options ){
     if( asChecks ){
         configName = "checktable"
     }
+
 
     const columnSize = new Array(columnExtents.length).fill(0)
     const rowSize = new Array(rowExtents.length).fill(0)
@@ -1525,12 +1592,19 @@ export function renderMatrix( primitive, list, options ){
 
 
 
+    let minHeight = 0
     let minWidth = {29: 120}[referenceIds[0]] ?? 300
     if( asCounts ){
         minWidth = 128
     }else if( asChecks){
         minWidth = 64
     }
+    if( configName === "ranking"){
+        minWidth = options.width ? options.width / columnExtents.length : 600 
+        minHeight = options.height ? options.height / rowExtents.length : 600 
+    }
+
+    
 
     const baseRenderConfig = {
                 config: configName, 
@@ -1566,7 +1640,7 @@ export function renderMatrix( primitive, list, options ){
         itemColsByColumn[cell.cIdx] = Math.max(itemColsByColumn[cell.cIdx], config.columns)
         
         columnSize[cell.cIdx] = Math.max( config.width > columnSize[cell.cIdx] ? config.width : columnSize[cell.cIdx], minWidth)
-        rowSize[cell.rIdx] = Math.max( config.height > rowSize[cell.rIdx] ? config.height : rowSize[cell.rIdx], 30)
+        rowSize[cell.rIdx] = Math.max( config.height > rowSize[cell.rIdx] ? config.height : rowSize[cell.rIdx], 30, minHeight)
 
         cell.config = config
     }
@@ -1581,6 +1655,11 @@ export function renderMatrix( primitive, list, options ){
     let headerTextHeight = headerHeight - textPadding[0] - textPadding[2]
 
 
+    const globalData = {}
+    if( configName === "timeseries"){
+        globalData.maximumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a > c ? a : c, -Infinity) 
+        globalData.minimumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a < c ? a : c, Infinity) 
+    }
 
     rowSize.forEach((d,i)=>{if(d < headerHeight){
         rowSize[i] = headerHeight
@@ -1794,6 +1873,8 @@ export function renderMatrix( primitive, list, options ){
                     columns: itemColsByColumn[cell.cIdx], 
                     rows: cell.itemRows
                 },
+                data: cell.config.data,
+                globalData,
                 cachedNodes: cell.config.cachedNodes
             })
         c.x(columnX[cell.cIdx] )

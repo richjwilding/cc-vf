@@ -162,44 +162,8 @@ export default function BoardViewer({primitive,...props}){
             const columnAxis = CollectionUtils.primitiveAxis(d, "column")
             const rowAxis = CollectionUtils.primitiveAxis(d, "row")
     
-        const baseViewConfigs = [
-            {id:0, title:"Show items",parameters: {showAsCounts:false}},
-            {id:1, title:"Show counts",parameters: {
-                showAsCounts:true,
-                "props": {
-                    "hideDetails": true,
-                    "showGrid": false,
-                    showSummary: true,
-                    columns: 1,
-                    fixedWidth: '60rem'
-                }
-            }},
-            {id:2, title:"Show segment overview", 
-                    parameters: {
-                        showAsSegment: true,
-                        "props": {
-                            "hideDetails": true,
-                            "showGrid": false,
-                            showSummary: true,
-                            columns: 1,
-                            fixedWidth: '60rem'
-                        }
-
-                    }
-                },
-            {id:3, title:"Show as graph", 
-                    parameters: {
-                        showAsGraph: true,
-
-                    },
-                    "props": {
-                        columns: 1,
-                        fixedWidth: '80rem'
-                        }
-                }
-        ]
             const activeView  = d?.referenceParameters?.explore?.view
-            const viewConfigs = items?.[0]?.metadata?.renderConfig?.explore?.configs ?? baseViewConfigs
+            const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
             const viewConfig = viewConfigs?.[activeView] 
 
             let viewFilters = d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
@@ -370,9 +334,14 @@ export default function BoardViewer({primitive,...props}){
 
     let boardUpdateTimer
 
-    function resizeFrame(fId, width){
+    function resizeFrame(fId, width, height){
         const board = myState[fId]
-        primitive.setField(`frames.${fId}.width`, width)
+        if( width ){
+            primitive.setField(`frames.${fId}.width`, width)
+        }
+        if( height ){
+            primitive.setField(`frames.${fId}.height`, height)
+        }
         canvas.current.refreshFrame( board.id, renderView(board.primitive))
     }
 
@@ -545,25 +514,27 @@ export default function BoardViewer({primitive,...props}){
 
     function renderView(d){
         const view = myState[d.id]
-        if( view.config === "full"){
-            const renderOptions = {}
-            const configNames = ["width"]
-            if( primitive.frames?.[d.id]){
-                for( const name of configNames){
-                    if( primitive.frames[d.id][name] !== undefined){
-                        renderOptions[name] = primitive.frames[d.id][name]
-                    }
+        const renderOptions = {}
+        const configNames = ["width", "height"]
+        if( primitive.frames?.[d.id]){
+            for( const name of configNames){
+                if( primitive.frames[d.id][name] !== undefined){
+                    renderOptions[name] = primitive.frames[d.id][name]
                 }
             }
-            console.log(renderOptions)
+        }
+        console.log(renderOptions)
+        if( view.config === "full"){
             
-            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})}
+            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: "width", canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})}
         }
         if( d.type === "query" && d.processing?.ai?.data_query){
-            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions})}
+            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions, ...renderOptions})}
         }
 
-        return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, items: (stageOptions)=>renderMatrix(
+        const canChangeSize = view?.viewConfig?.resizable 
+
+        return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize, items: (stageOptions)=>renderMatrix(
             d, 
             view.list, {
                 axis: view.axis,
@@ -571,6 +542,7 @@ export default function BoardViewer({primitive,...props}){
                 rowExtents: view.rows,
                 viewConfig: view.viewConfig,
                 ...stageOptions,
+                ...renderOptions,
                 toggles: view.toggles,
                 expand: Object.keys(primitive.frames[ d.id ]?.expand ?? {})
             })
@@ -597,7 +569,7 @@ export default function BoardViewer({primitive,...props}){
             }
             primitive.addRelationship(newPrimitive, "ref")
 
-            let position = (importId ? canvas.current.framePosition(importId)?.scene : undefined) ?? {x:0, y: 0, s: 1}
+            let position = (importId ? canvas.current.framePosition(importId)?.scene : undefined) ?? {r:0, t: 0, s: 1}
             addBoardToCanvas( newPrimitive, {x:position.r + 50, y: position.t, s: position.s})
         }
     }

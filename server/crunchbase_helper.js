@@ -933,15 +933,15 @@ export async function enrichCompanyFunding( primitive, options = {}){
             return {error: data.error}
         }
     }
-    let funding// = data.raised_investments
+    let funding, overview
     
     if( funding === undefined){
-        funding = await fetchCompanyFundingFromCrunchbase(primitive, data.id)
+        [funding, overview] = await fetchCompanyFundingFromCrunchbase(primitive, data.id)
         
     }
     if( funding && !funding.error ){
         const uniqueRounds = funding.map((d)=>[d.funding_round_money_raised?.value_usd,d.funding_round_identifier?.uuid] ).filter((d,i,a)=>a.findIndex((d2)=>d2[1]==d[1]) === i)
-        const totalRaised = uniqueRounds.reduce((a,c)=>a+(c[0] || 0),0)
+        const totalRaised = overview?.funding_total ?? uniqueRounds.reduce((a,c)=>a+(c[0] || 0),0)
         
         const investors = funding.map((d)=>d.investor_identifier?.value).filter((c,i,a)=>a.indexOf(c)===i)
         let rounds = funding.map((d)=>[d.funding_round_identifier?.value, d.announced_on, d.funding_round_money_raised?.value_usd]).filter((c,i,a)=>a.findIndex((d)=>d[0] == c[0] && d[1] === c[1])===i).map((d)=>{return {title: d[0].split(' - ')[0], amount: d[2],annouced: new Date(d[1])}}).sort((a,b)=>a.annouced - b.annouced)
@@ -975,6 +975,8 @@ export async function enrichCompanyFunding( primitive, options = {}){
             "Series D",
             "Series E"]
 
+        dispatchControlUpdate( primitive.id, "referenceParameters.valuation", overview?.valuation?.value)
+        dispatchControlUpdate( primitive.id, "referenceParameters.valuation_date", overview?.valuation?.date)
         dispatchControlUpdate( primitive.id, "referenceParameters.funding", totalRaised)
         dispatchControlUpdate( primitive.id, "referenceParameters.investors", investors)
         dispatchControlUpdate( primitive.id, "referenceParameters.fundingRounds", rounds.map((d)=>d.title))
@@ -1332,7 +1334,7 @@ export async function lookupCompanyByName( name ){
 export async function fetchCompanyDataFromCrunchbase( primitive ){
     try{
 
-        const targetURL = primitive.referenceParameters.url
+        const targetURL = primitive.referenceParameters.url.trim()
         if( targetURL === undefined || targetURL === ""){
             return {error: "no_url"}
         }
@@ -1529,6 +1531,53 @@ export async function fetchCompanyArtcilesFromCrunchbase( primitive, cbId ){
 
     
 }
+export async function fetchFundingRoundInfoFromCrunchbase( uuid ){
+    try{
+        let attempts = 3
+
+        const doRequest = async () =>{
+            const query = new URLSearchParams({ 
+                "card_ids":["organization"]
+            }).toString()
+            
+            const url = `https://api.crunchbase.com/api/v4/entities/funding_rounds/${uuid}?${query}`
+            console.log(url)
+            
+            console.log(`Doing Crunchbase query`)
+            const response = await fetch(url,{
+                method: 'GET',
+                headers: {
+                    'X-cb-user-key': `${process.env.CRUNCHBASE_KEY}`
+                }
+            });
+            
+            if( response.status !== 200){
+                console.log(`Error from crunchbase - ${attempts--} attempts left`)
+                console.log(`-----------------`)
+                await new Promise(r => setTimeout(r, 10000));                    
+                console.log(response)
+                if( attempts > 0){
+                    return await doRequest()
+                }
+            }
+            const data = await response.json();
+            return data
+        }
+        const data = await doRequest()
+        if( data?.error){
+            return data
+        }
+        if( data ){
+            if( attempts !== 3){
+                console.log('Had error but recovered')
+            }
+            return data.cards?.organization?.[0]
+                
+        }
+    }catch(error){
+        return {error: error}
+    }
+}
 export async function fetchCompanyFundingFromCrunchbase( primitive, cbId ){
     try{
         let attempts = 3
@@ -1576,10 +1625,29 @@ export async function fetchCompanyFundingFromCrunchbase( primitive, cbId ){
 
                 const store = data.cards?.raised_investments 
                 store.founded = data.properties.founded_on
+
+
+                const uniqueRounds = store.map((d)=>d.funding_round_identifier?.uuid ).filter((d,i,a)=>d && a.indexOf( d) === i)
+                const roundData = []
+                for( const roundId of uniqueRounds ){
+                    const fullData = await fetchFundingRoundInfoFromCrunchbase(roundId) 
+                    roundData.push({
+                        funding_total: fullData.funding_total?.value_usd,
+                        equity_funding_total: fullData.equity_funding_total?.value_usd,
+                        last_funding: {value: fullData.last_funding_total?.value_usd, type: fullData.last_funding_type, date: fullData.last_funding_at},
+                        valuation: {value: fullData.valuation?.value_usd, date: fullData.valuation_date},
+
+                    })
+                    if( fullData ){
+                        break
+                    }
+                }
                 primitive.set("crunchbaseData.raised_investments", store)
+                primitive.set("crunchbaseData.investment_overview", roundData[0])
                 primitive.markModified("crunchbaseData.raised_investments")
+                primitive.markModified("crunchbaseData.investment_overview")
                 await primitive.save()
-                return store
+                return [store, roundData[0]]
             }
         }
         return {error: "no data"}

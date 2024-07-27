@@ -42,6 +42,7 @@ import CheckPill from './CheckPill';
 import SummaryCard from './SummaryCard';
 import UIHelper from './UIHelper';
 import CollectionUtils from './CollectionHelper';
+import { roundCurrency } from './RenderHelpers';
 
 export const ExpandArrow = function(props) {
   return (
@@ -697,6 +698,7 @@ let mainstore = MainStore()
         submitOnEnter={true} 
         primitiveId={props.primitive?.id}
         value={item.value} 
+        formatter={(item.type === "currency" || item.type === "funding") ? (v)=>roundCurrency(v) : undefined}
         default={item.default} 
         placeholder={item.placeholder} 
         icon={icon} 

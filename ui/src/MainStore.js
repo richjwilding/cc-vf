@@ -1903,7 +1903,6 @@ function MainStore (prims){
                             return d._ppIdCache
                         }
 
-                        console.log(`Build ppid ${d.plainId}`)
                         d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports")) : []
                         return d._ppIdCache
                     }

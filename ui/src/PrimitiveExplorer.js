@@ -348,67 +348,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         return [interim, baseFilters, extents]
     },[colSelection, rowSelection, update, updateRel, primitive.id, layerSelection, viewPivot])
 
-    const baseViewConfigs = [
-        {id:0, title:"Show items",parameters: {showAsCounts:false}},
-        {id:1, title:"Show counts",
-            config:{
-                "colors":{
-                    type: "option_list",
-                    title: "Colors",
-                    default: "default",
-                    options: heatMapPalette.map(d=>({id: d.name, title:d.title}))
-                },
-                "group_by": {
-                    type: "option_list",
-                    title:"Range source",
-                    default: "all",
-                    options: [{
-                        id: "all",
-                        title: "All data"
-                    },{
-                        id: "row",
-                        title: "Rows"
-                    },{
-                        id: "col",
-                        title: "Columns"
-                    }]
-                }
-            },
-            parameters: {
-            showAsCounts:true,
-            "props": {
-                "hideDetails": true,
-                "showGrid": false,
-                showSummary: true,
-                columns: 1,
-                fixedWidth: '60rem'
-            }            
-         }
-        },
-        {id:2, title:"Show segment overview", 
-                parameters: {
-                    showAsSegment: true,
-                    "props": {
-                        "hideDetails": true,
-                        "showGrid": false,
-                        showSummary: true,
-                        columns: 1,
-                        fixedWidth: '60rem'
-                      }
-
-                }
-            },
-        {id:3, title:"Show as graph", 
-                parameters: {
-                    showAsGraph: true,
-
-                },
-                "props": {
-                    columns: 1,
-                    fixedWidth: '80rem'
-                    }
-            }
-    ]
+    const baseViewConfigs = Object.values( PrimitiveConfig.renderConfigs )
 
     const renderType = layers?.[layerSelection]?.items ? fullList?.[0]?.primitive?.type :  (props.category?.resultCategoryId !== undefined) ? MainStore().category(props.category?.resultCategoryId).primitiveType  : "default"
     const viewConfigs = fullList?.[0]?.primitive?.metadata?.renderConfig?.explore?.configs ?? baseViewConfigs

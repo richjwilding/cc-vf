@@ -1,3 +1,4 @@
+import moment from "moment"
 import MainStore, { uniquePrimitives } from "./MainStore"
 import Panel from "./Panel"
 import PrimitiveConfig from "./PrimitiveConfig"
@@ -7,6 +8,59 @@ import UIHelper from "./UIHelper"
 
 class CollectionUtils{
 
+    static convertToTimesSeries(set, config = {}){
+       // if(!config.field){return []}
+
+        let period = config.period ?? "month"
+        let sourceData
+        sourceData = set.map(d=>d.referenceParameters.allFundingRoundInfo.map(d=>({date: d.annouced, amount: d.amount}))).flat()
+        if( sourceData.length === 0){
+            return []
+        }
+        if( config.endDate ){
+            sourceData = sourceData.filter(d=>d.date <= config.endDate)
+        }
+        if( config.startDate ){
+            sourceData = sourceData.filter(d=>d.date >= config.startDate)
+        }
+        let earliestDate = config.startDate ?  moment(config.startDate).startOf(period) : moment(sourceData.reduce((a,c)=>c.date < a.date ? c : a).date).startOf(period)
+
+        let timeSeries = sourceData.map(d=>({period: moment(d.date).startOf(period).diff(earliestDate, period), amount: d.amount}))
+
+        let maxPeriod = config.endDate ?  moment(config.endDate).endOf(period).diff(earliestDate, period) : timeSeries.reduce((a,c)=>c.period > a.period ? c : a)?.period
+
+        console.log(maxPeriod)
+
+        const values = new Array( maxPeriod + 1).fill(0)
+        for(const d of timeSeries){
+            values[d.period] += d.amount
+        }
+        return values.reduce((acc,d,i)=>{
+            if( i === 0){
+                acc.push(d)
+            }else{
+                acc.push( d + acc[i-1] )
+            }
+            return acc
+        }, [])
+    }
+    static viewConfigs( category ){
+        let metaConfigs = category?.renderConfig?.explore?.configs 
+        if( metaConfigs ){
+            metaConfigs = metaConfigs.map(d=>{
+                if( d.builtIn ){
+                    return {
+                        ...(PrimitiveConfig.renderConfigs[d.builtIn] ?? {}),
+                        title: d.title,
+                        id: d.id
+                    }
+                }
+                return d
+            })
+            return metaConfigs
+        }
+        return Object.values(PrimitiveConfig.renderConfigs)
+    }
     static updateAxisFilter(primitive, mode, filter, item, setAll, axisExtents, callback){
         console.log(item, mode, setAll)
 
@@ -864,7 +918,7 @@ class CollectionUtils{
                 return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
             }
             if( "parameter" === axis.type ){
-                return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.parameter] ?? "raw"}
+                return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.parameter] ?? PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
             }
             const connectedPrim = isNaN(axisName) ? primitive.primitives.axis[axisName].allIds[0] : primitive.referenceParameters.explore.filters[axisName].sourcePrimId            
             if( connectedPrim ){

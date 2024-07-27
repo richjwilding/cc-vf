@@ -786,19 +786,19 @@ export default function EnrichPrimitive(){
                     await findOrganizationsFromCB( primitive, options )
                 }else if( job.data.mode === "enrich" ){
                     console.log(`Processing enrichment for ${primitive.id}`)
-                    if( job.data.target === "entity" ){
-                        if( job.data.source === "linkedin" ){
+                    if( job.data.options.target === "entity" ){
+                        if( job.data.options.source === "linkedin" ){
                             const result = await enrichCompanyFromLinkedIn( primitive, true)
                             SIO.notifyPrimitiveEvent( primitive, result)
                         }
-                        if( job.data.source === "crunchbase" ){
+                        if( job.data.options.source === "crunchbase" ){
                             const result = await enrichFromCrunchbase( primitive, true)
                             SIO.notifyPrimitiveEvent( primitive, result)
                         }
                     }
                 }else if( job.data.mode === "pivot" ){
                         console.log(`Processing pviot for ${primitive.id}`)
-                        if( job.data.target === "entity" ){
+                        if( job.data.options.target === "entity" ){
                             if( job.data.source === "crunchbase" ){
                                 const newPrims = await pivotFromCrunchbase(primitive, job.data.action)
                             }

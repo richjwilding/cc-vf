@@ -400,7 +400,7 @@ async function doDataQuery( options ) {
                             }else{
                                 final = results.output
                             }
-                            if( !doingExtracts && options.consolidate){
+                            if( !doingExtracts && (options.consolidate || primitive.referenceParameters.consolidate)){
                                 const partials = JSON.stringify(final.filter(d=>d.answered).map(d=>({partial: d.answer, ids: d.ids})))
                                 console.log(`Consolidating.....`, partials)
                                 const results = await processPromptOnText(partials ,{
@@ -445,6 +445,7 @@ async function doDataQuery( options ) {
                                 const newPrim = await createPrimitive( newData )
                                 if( newPrim ){
                                     if(options.addToScope && scopeNode){
+                                        console.log(`added ${newPrim.id} / ${newPrim.plainId} to scopeNode ${scopeNode.id} / ${scopeNode.plainId}`)
                                         await addRelationship(scopeNode.id, newPrim.id, "auto")
 
                                     }
@@ -1234,7 +1235,7 @@ export async function extractEvidenceFromFragmentSearch( primitive, config){
     }
 }
 
-function compareTwoStrings(first, second) {
+export function compareTwoStrings(first, second) {
     //https://github.com/aceakash/string-similarity#readme
 	first = first.replace(/\s+/g, '')
 	second = second.replace(/\s+/g, '')

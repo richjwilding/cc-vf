@@ -2,6 +2,12 @@ import yahooFinance from "yahoo-finance2"
 import Primitive from "./model/Primitive";
 import { SIO } from "./socket";
 import { dispatchControlUpdate } from "./SharedFunctions";
+import { compareTwoStrings } from "./document_queue";
+import { fecthUSDFXRate } from "./google_helper";
+import moment from "moment";
+
+
+let fxRateCache = {}
 
 export async function fetchFinancialData( symbol, attempts = 3 ){
     if( !symbol){
@@ -27,7 +33,7 @@ export async function fetchFinancialData( symbol, attempts = 3 ){
     }
     return result
 }
-export async function lookupTicker( primitive ){
+export async function lookupTicker( primitive, fuzzy = false ){
     let ticker
     let query
     let update
@@ -41,7 +47,11 @@ export async function lookupTicker( primitive ){
         console.log(`Looking for stock = ${query}` )
         const lookup = await yahooFinance.search(query, queryOptions );
         if( lookup && lookup.quotes){
-            ticker = lookup.quotes.find(d=>d.shortname?.toLowerCase().match(primitive.title?.toLowerCase()))?.symbol
+            const scored = lookup.quotes.map(d=>{
+                return [d,Math.max(compareTwoStrings(d.shortname ?? "", primitive.title),compareTwoStrings(d.longname ?? "", primitive.title))]
+            }).sort((a,b)=>b[1]-a[1])
+            const winner = scored[0]?.[0]
+            ticker = winner?.symbol
             if( ticker ){
                 update = true
                 dispatchControlUpdate(primitive.id, `referenceParameters.stock_symbol`, ticker)
@@ -57,9 +67,28 @@ export async function lookupTicker( primitive ){
     if( !ticker ){
         ticker = await doLookup( primitive.title )
     }
+    if( !ticker ){
+        ticker = await doLookup( primitive.title, true )
+    }
 
 
     return ticker
+}
+
+export async function getFxRate(currency){
+    let fxRate = fxRateCache[currency]
+
+    if( fxRate && moment().subtract(fxRate.expiry, "s").format("X") < 0 ){
+        console.log(`===> FX from cache ${currency}`)
+    }else{
+        console.log(`===> GETTING FX ${currency}`)
+        fxRate = {
+            expiry: moment().add( 1000 * 60 * 60).format("X"),
+            rate: await fecthUSDFXRate( currency )
+        }
+        fxRateCache[currency] = fxRate
+    }
+    return fxRate.rate
 }
 
 export async function computeFinanceSignals( primitive ){
@@ -85,6 +114,9 @@ export async function computeFinanceSignals( primitive ){
     if( !data){return}
 
     const currency = data.summaryDetail?.currency
+
+
+    let fxRate = await getFxRate( currency )
     
     const marketCap = data.summaryDetail?.marketCap
     const fiftyDayAverage = data.summaryDetail?.fiftyDayAverage
@@ -105,16 +137,19 @@ export async function computeFinanceSignals( primitive ){
         revenue,
         quaterlyIncome
     }
+    const usedFx = fxRate ?? 1
     const signals = {
-        cash,
-        marketCap,
+        fxRate,
+        usedFx,
+        cash: cash ? cash / usedFx : undefined,
+        marketCap: marketCap ? marketCap / usedFx : undefined,
         currency,
-        fiftyDayAverage,
-        previousClose,
-        below_1: previousClose < 1,
+        fiftyDayAverage: fiftyDayAverage ? fiftyDayAverage / usedFx : undefined,
+        previousClose: previousClose ? previousClose / usedFx : undefined,
+       /* below_1: previousClose < 1,
         below_5: previousClose < 5,
+        below_400_100: marketCap < 400000000 && cash >= 100000000,*/
         below_cash: marketCap < cash,
-        below_400_100: marketCap < 400000000 && cash >= 100000000,
         revenue_qoq_decline: quaterlyIncome?.map(d=>d.totalRevenue).map((d,i,a)=>a[i+1] ? d - a[i+1] :0).reduce((a,c)=>a+c,0) < 0,
         preincome_qoq_decline: quaterlyIncome?.map(d=>d.netIncome).map((d,i,a)=>a[i+1] ? d - a[i+1] :0).reduce((a,c)=>a+c,0) < 0
     }
@@ -148,7 +183,7 @@ export async function computeFinanceSignals( primitive ){
         }
     )
             
-    SIO.notifyPrimitiveEvent(primitive.id, fields.flat())
+    SIO.notifyPrimitiveEvent(primitive, fields.flat())
     }catch(error){
         console.log(`Error computeFinanceSignals`)
         console.log(error)

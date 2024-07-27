@@ -8,6 +8,15 @@ import clsx from 'clsx';
     const editing = React.useRef(false)
 
     const showPlaceholder = props.value === undefined ||props.value?.length === 0
+    const showValue = (v)=>{
+      if((typeof(v) !== "string" && v !== undefined && v !== null) || (v?.length > 0)){
+        if( props.formatter){
+          return props.formatter(v)
+        }
+        return v
+      }
+      return (props.default ?? props.placeholder ?? "Enter details")
+    }
 
     useEffect(()=>{
       updateDisplay(props.value)
@@ -15,7 +24,7 @@ import clsx from 'clsx';
 
     const updateDisplay = (value)=>{
       value = value ?? props.value
-      editBox.current.textContent = editing.current ? (value  ?? ""): value?.length > 0 ? value :  (props.default ?? props.placeholder ?? "Enter details")
+      editBox.current.textContent = editing.current ? (value  ?? "") : showValue(value)  
     }
 
     const startEditing = ()=>{
@@ -37,8 +46,11 @@ import clsx from 'clsx';
           }
          // useTemp = true
         }
-      }      
-      editing.current = false
+      }else{
+        editing.current = false
+        updateDisplay()
+      }
+        editing.current = false
       //updateDisplay(useTemp ? value : undefined)
     }
 
@@ -94,6 +106,6 @@ import clsx from 'clsx';
             props.editable && errors ? "px-1 bg-red-50 focus:outline-none focus:ring-1 focus:ring-amber-500" : ""
 
       ])}>  
-          {(typeof(props.value) !== "string" && props.value !== undefined && props.value !== null) || props.value?.length > 0 ? props.value :  (props.default ?? props.placeholder ?? "Enter details")}
+          {showValue(props.value)}
       </div>
   }

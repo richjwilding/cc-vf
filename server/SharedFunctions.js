@@ -2515,7 +2515,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
             }
             if( command === "finance_signals"){
-                if( !primitive.financialData || options?.force ){
+                if( true || !primitive.financialData || options?.force ){
                     await computeFinanceSignals( primitive )
                 }
                 done = true

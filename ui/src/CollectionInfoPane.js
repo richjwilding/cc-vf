@@ -22,8 +22,10 @@ import CollectionUtils from "./CollectionHelper"
 import TooggleButton from "./ToggleButton"
 import PrimitiveConfig from "./PrimitiveConfig"
 import SearchSet from "./SearchSet"
+import { heatMapPalette } from './RenderHelpers';
 
 // Add the icons to the library
+
 
 function classNames(...classes) {
     return classes.filter(Boolean).join(' ')
@@ -165,17 +167,24 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
     const [activeTab, setActiveTab] = useState(mainstore.category(tabs.find(d=>d.initial)))
     const [showDetails, setShowDetails] = useState(false)
     const [hideNull, setHideNull] = useState(frame?.referenceParameters?.explore?.hideNull)
+    const [activeView, setActiveView] = useState(frame?.referenceParameters?.explore?.view ?? 0)
 
     useDataEvent("relationship_update set_parameter set_field delete_primitive", [board?.id, frame?.id, primitive?.id].filter(d=>d))
 
     let newPrimitiveCallback = props.newPrimitiveCallback
 
+    function updateFrame(){
+        if( props.updateFrameExtents && frame){
+            props.updateFrameExtents( frame )
+        }
+    }
     let content
     if( frame ){
 
 
-
         const list = filters ? frame.itemsForProcessingWithFilter(filters) : frame.itemsForProcessing
+        const viewConfigs = CollectionUtils.viewConfigs(list?.[0]?.metadata)
+        const viewConfig = viewConfigs?.[activeView] 
 
 
         let itemCategoryId = list.map(d=>d.referenceId).filter((d,i,a)=>d && a.indexOf(d)===i)
@@ -235,6 +244,13 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
           })
         }
 
+        const updateViewMode = (value)=>{
+            frame.setField(`referenceParameters.explore.view`, value)
+            setActiveView( value )
+            if( props.updateFrameExtents ){
+                props.updateFrameExtents( frame )
+            }
+        }
         const addCategory = (target)=>{
             const baseCategories = [54, 53,55,33, 90]
             MainStore().globalCategoryPicker({
@@ -375,6 +391,17 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
             {frame.type === "summary" && <SummaryCard primitive={frame}/>}
             
                 <div className="space-y-2">
+                    <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
+                        <UIHelper.Panel title="View configuration" icon={<FontAwesomeIcon icon={fal.faTags} />}>
+                            <div className="p-2 text-sm space-y-2">
+                                <UIHelper.OptionList title="View Mode" options={viewConfigs} onChange={(id)=>updateViewMode(viewConfigs.findIndex(d=>d.id === id))} value={viewConfigs[activeView]?.id}/>
+                                <div className='w-full text-lg overflow-y-scroll sapce-y-2 max-h-[50vh]'>
+                                    {viewConfig && (!viewConfig.config || viewConfig.config.length === 0) && <p className='text-sm text-gray-500 text-center'>No settings</p>}
+                                    {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d=><UIHelper {...viewConfig.config[d]} value={frame.renderConfig?.[d]} onChange={async (v)=>{await frame.setField(`renderConfig.${d}`, v); updateFrame()}}/>)}
+                                </div>
+                            </div>
+                        </UIHelper.Panel>
+                    </div>
                     <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
                         <UIHelper.Panel title="Categories" icon={<FontAwesomeIcon icon={fal.faTags} />}>
                             <PrimitiveCard.Categories primitive={frame} scope={filters ? list.map(d=>d.id) : undefined} directOnly hidePanel className='pb-2 w-full h-fit'/>

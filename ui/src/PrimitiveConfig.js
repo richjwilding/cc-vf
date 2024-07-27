@@ -1,4 +1,43 @@
-
+const heatMapPalette = [
+    {
+        title: "Default blue",
+        name:"default",
+        colors:[
+            "#f7fcf0",
+            "#e0f3db",
+            "#ccebc5",
+            "#a8ddb5",
+            "#7bccc4",
+            "#4eb3d3",
+            "#2b8cbe",
+            "#0868ac",
+            "#084081"
+        ]
+    },{
+        title: "Purple",
+        name: "purple",
+        colors:[
+            "#003f5c",
+            "#2f4b7c",
+            "#665191",
+            "#a05195",
+            "#d45087",
+            "#f95d6a",
+            "#ff7c43",
+            "#ffa600"
+        ]
+    },{
+        title: "Heat",
+        name: "heat",
+        colors:[
+            "#f5f5ab",
+            "#fed976",
+            "#fc8c3c",
+            "#f03b20",
+            "#bd0026"
+        ]
+    }
+]
 
 
 const PrimitiveConfig = {
@@ -154,6 +193,10 @@ const PrimitiveConfig = {
         "options": "raw",
         "title": "raw",
         "currency": "currency",
+        "marketCap": "currency",
+        "previousClose": "currency",
+        "fiftyDayAverage": "currency",
+        "valuation": "funding",
         "employee_count": "number",
         "funding": "funding",
         "contact": "contact",
@@ -161,6 +204,36 @@ const PrimitiveConfig = {
         "boolean": "boolean",
         "segment_filter":"segment_filter"
     },
+    heatMapPalette:heatMapPalette,
+    renderConfigs:{
+            default: {title:"Show items",parameters: {showAsCounts:false}},
+            counts: {id:1, title:"Show counts",
+                config:{
+                    "colors":{
+                        type: "option_list",
+                        title: "Colors",
+                        default: "default",
+                        options: heatMapPalette.map(d=>({id: d.name, title:d.title}))
+                    },
+                    "group_by": {
+                        type: "option_list",
+                        title:"Range source",
+                        default: "all",
+                        options: [{
+                            id: "all",
+                            title: "All data"
+                        },{
+                            id: "row",
+                            title: "Rows"
+                        },{
+                            id: "col",
+                            title: "Columns"
+                        }]
+                    }
+                },
+                showAsCounts:true
+            }
+        },
     decodeExploreFilter:(filter)=>{
         if( !filter){
             return filter

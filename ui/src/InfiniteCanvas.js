@@ -1943,7 +1943,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 rotateEnabled:false, 
                 resizeEnabled: true,
                 flipEnabled: false,
-                enabledAnchors: frame?.canChangeSize ? ['top-left', 'top-right', 'middle-right', 'bottom-left', 'bottom-right'] : ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+                enabledAnchors: frame?.canChangeSize === "width" ? 
+                        ['top-left', 'top-right', 'middle-right', 'bottom-left', 'bottom-right'] : 
+                        frame?.canChangeSize ? ['top-left', 'top-right', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right']
+                        : ['top-left', 'top-right', 'bottom-left', 'bottom-right']
             })
             myState.current.frameSelect.transformer.on('transformstart',()=>{
                 myState.current.frameSelect.transforming = true
@@ -1958,6 +1961,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         const innerWidth = newWidth - (frame.canvasMargin[1] + frame.canvasMargin[3])
                         if( props.callbacks.resizeFrame ){
                             props.callbacks.resizeFrame( frame.id, innerWidth)                        
+                        }
+                        return
+                    }else if( myState.current.frameSelect.transformer._movingAnchorName === "bottom-center"){
+                        const newHeight = (myState.current.frameSelect.transformer.height() / myState.current.viewport.scale) / frame.scale
+                        const innerHeight = newHeight - (frame.canvasMargin[0] + frame.canvasMargin[2])
+                        if( props.callbacks.resizeFrame ){
+                            props.callbacks.resizeFrame( frame.id, undefined, innerHeight)                        
                         }
                         return
                     }else{
