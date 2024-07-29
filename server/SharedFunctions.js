@@ -21,7 +21,7 @@ import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
 import Embedding from './model/Embedding';
 import { buildPage } from './htmlexporter';
-import { aggregateItems, checkAndGenerateSegments, compareItems, extractor, getSegemntDefinitions, iterateItems, queryByAxis, runProcess } from './task_processor';
+import { aggregateItems, checkAndGenerateSegments, compareItems, extractor, getSegemntDefinitions, iterateItems, queryByAxis, resourceLookupQuery, runProcess } from './task_processor';
 import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helper';
 
 Parser.addExtractor(liPostExtractor)
@@ -471,13 +471,22 @@ export async function addRelationship(receiver, target, path, skipParent = false
 export async function primitiveChildren(primitive, types){
     return await primitivePrimitives(primitive, 'primitives.origin', types )
 }
-export async function fetchPrimitives(ids){
+export async function fetchPrimitives(ids, queryOptions, projection){
     ids = [ids].flat()
-    return (await Primitive.find({
-        $and:[
+
+    let query = [
             {_id: {$in: ids}},
             { deleted: {$exists: false}}
-        ]})) ?? []
+    ]
+    if(queryOptions){
+        query = [...query, ...[queryOptions].flat()]   
+    }
+
+    return (await Primitive.find(
+        {
+            $and:query
+        }, 
+        projection)) ?? []
 }
 export async function fetchPrimitive(id){
     return (await fetchPrimitives(id))?.[0]
@@ -1105,7 +1114,7 @@ export async function getDataForImport( source, cache = {} ){
     if(source.type === "query"){
         let node = new Proxy(source.primitives, parser)
 
-        const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
+        const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
         let list = await fetchPrimitives( nonImportIds)
 
         const viewFilters = getBaseFilterForView( source ).map(d=>{
@@ -1513,7 +1522,7 @@ export async function updateFieldWithCallbacks(id, field, value, req = {}){
             },
             {new: true})
         
-            if( field === 'referenceParameters.url' || field === 'referenceParameters.notes'){                
+            if( field === 'referenceParameters.notes'){                
                 console.log(`Queue purging of old document for ${id}`)
                 QueueDocument().add(`doc_refresh_${id}`, 
                     {
@@ -1611,7 +1620,15 @@ export async function getFilterName( scopeNode ){
         })
         if( idsToLookup.length > 0){
             const parents = await fetchPrimitives(idsToLookup)
-            const segmentName = parents.map(d=>d.title).join(", ")
+            const fargments = []
+            for(const d of parents){
+                let name = d.title
+                if( d.type === "segment"){
+                    name = await getFilterName( d)
+                }
+                fargments.push( name )
+            }
+            const segmentName = fargments.join(", ")
             return segmentName
         }
     }
@@ -2871,6 +2888,10 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
                 if( thisCategory.type === "iterator"){
                     await iterateItems( parentForScope, primitive )
+                    return
+                }
+                if( thisCategory.type === "lookup"){
+                    await resourceLookupQuery( parentForScope, primitive )
                     return
                 }
                 if( primitive.referenceParameters.useAxis && !options?.scope){

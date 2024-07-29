@@ -1791,7 +1791,7 @@ function MainStore (prims){
                                 */
                                 return uniquePrimitives(fullList)
                             }else{
-                                let list = uniquePrimitives(Object.keys(receiver.primitives).filter(d=>d !== "imports").map(d=>receiver.primitives[d].uniqueAllItems).flat())
+                                let list = uniquePrimitives(Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>receiver.primitives[d].uniqueAllItems).flat())
                                 if( receiver.type === "query" || receiver.type  === "segment"){
                                     if( receiver.type === "query" && !options.ignoreFinalViewFilter){
                                         const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
@@ -2151,7 +2151,7 @@ function MainStore (prims){
                     let out = {}
                     let category = receiver.metadata
                     if( category ){
-                        for(const p of Object.keys(category.parameters)){
+                        for(const p of Object.keys(category.parameters ?? {})){
                             if( category.parameters[p].default ){
                                 out[p] = category.parameters[p].default
                             }

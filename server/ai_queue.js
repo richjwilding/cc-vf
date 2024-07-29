@@ -1418,12 +1418,14 @@ export default function QueueAI(){
                                     let types = targetConfig?.mark?.type
                                     let focus = primitive.referenceParameters?.focus ?? targetConfig?.mark?.theme ??primitive.referenceParameters?.cat_theme
                                     let batchCount = categoryList.length > 15 ? 10 : 50
+                                    const complex = primitive.referenceParameters?.complex ?? action.complex ?? false
+                                    console.log(`Compexity = ${complex} (${primitive.referenceParameters?.complex} / ${action.complex})`)
 
                                     categoryAlloc = await categorize(data, categoryList, {
                                         matchPrompt:primitive.referenceParameters?.matchPrompt, 
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
                                         engine:  primitive.referenceParameters?.engine || action.engine,
-                                        complex: primitive.referenceParameters?.complex ?? action.complex ?? false,
+                                        complex: complex,
                                         rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
                                         batch: primitive.referenceParameters?.batch ?? action.batch ?? batchCount,
                                         types: types,
@@ -1438,6 +1440,15 @@ export default function QueueAI(){
 
                                     const categoryAllocations = {}
 
+                                    const thresholdName = primitive.referenceParameters?.thresholds ?? action.thresholds ?? "standard"
+                                    const thresholds ={
+                                        "standard": ["likely", "clear" ,"somewhat"],
+                                        "high": ["likely", "clear"],
+                                    }[thresholdName]
+                                    
+                                    
+                                    console.log(`Thresholds to keep = ${thresholds.join(", ")}`)
+
                                     for(const entry of categoryAlloc){
                                         const prim = list[entry.id]
                                         if( prim ){
@@ -1449,7 +1460,8 @@ export default function QueueAI(){
                                                     let d = align.s
                                                     
                                                     if( catOptions[idx] ){
-                                                        if( d === "Likely" || d === "Clear" || d === "Somewhat"){
+                                                        //if( d === "Likely" || d === "Clear" || d === "Somewhat"){
+                                                        if( thresholds.includes(d.toLowerCase()) ){
                                                             const cId = catOptions[idx].id
                                                             categoryAllocations[cId] = categoryAllocations[cId] || []
                                                             categoryAllocations[cId].push( prim.id )

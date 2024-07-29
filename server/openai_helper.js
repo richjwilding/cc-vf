@@ -996,7 +996,7 @@ export  async function categorize(list, categories, options = {} ){
     3. Review and correct mistakes
     4. Do this for every item`
 
-    if( options.complex){
+    if( false && options.complex){
         instructions += `
         
         Return your results in a JSON object called results with the following structure:
@@ -1023,7 +1023,8 @@ export  async function categorize(list, categories, options = {} ){
                 a:[ 
                     {
                         c: <<id of category with highest score>>,
-                        s: <<assessment score for item associated with the catgeory with the highest score>
+                        s: <<assessment score for item associated with the catgeory with the highest score>,
+                        r:<<5 word rationale for score for winning category>>
                     }
                 ] 
             },

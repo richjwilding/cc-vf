@@ -1,6 +1,7 @@
+import { fetchFragmentsForTerm } from "./DocumentSearch";
 import PrimitiveConfig from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
-import { addRelationship, createPrimitive, doPrimitiveAction, fetchPrimitive, getConfig, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveOrigin, primitiveParents, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
+import { addRelationship, addRelationshipToMultiple, createPrimitive, doPrimitiveAction, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParents, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { extractURLsFromPage, fetchLinksFromWebQuery, googleKnowledgeForQuery, queryGoogleSERP } from "./google_helper";
 import Category from "./model/Category"
@@ -602,4 +603,41 @@ export async function queryByAxis( parent, primitive, options = {}){
         console.log(`Doing query for segment ${segment.plainId}`)
         await doPrimitiveAction( primitive, "custom_query", {scope: segment.id, addToScope: true})
     }
+}
+export async function resourceLookupQuery( parentForScope, primitive){
+    const scopeIds = primitive.primitives.params?.scope ?? parentForScope.primitives.params?.scope 
+    if( !scopeIds || scopeIds.length === 0){
+        console.log(`No scopes`)
+    }
+    const scopes = await fetchPrimitives(scopeIds)
+    const constrainedReferenceId = primitive.referenceParameters?.constrainedReferenceId ?? parentForScope.referenceParameters?.constrainedReferenceId
+    let constrained = []
+    const cache = {}
+    for(const d of scopes){
+        const items = await getDataForImport( d, cache)
+        const descendant = await primitiveDescendents(items, "result")
+        constrained.push( descendant )
+    }
+    constrained = uniquePrimitives( constrained.flat() )
+    if( constrainedReferenceId ){
+        console.log(`doing ref constrain - had ${constrained.length}`)
+        constrained = constrained.filter(d=>d.referenceId === constrainedReferenceId)
+    }
+    console.log(`Constrained to ${constrained.length}`)
+    const ids = constrained.map(d=>d.id)
+    const threshold_min = primitive.referenceParameters?.thresholdMin ?? 0.9
+    const searchTerms = primitive.referenceParameters?.candidateCount ?? 1000
+    const scanRatio = primitive.referenceParameters?.scanRatio ?? 0.15
+    const prompts = primitive.referenceParameters?.query?.split(",")
+    
+
+    const serachScope = [
+        {workspaceId: primitive.workspaceId},
+        {foreignId: {$in: ids}}
+    ]
+    let fragments =  await fetchFragmentsForTerm(prompts, {serachScope,searchTerms, scanRatio, threshold_min}) 
+    console.log(`have ${Object.keys(fragments).length} fragments`)
+    const resultIds = fragments.map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i)
+    await addRelationshipToMultiple(primitive.id, resultIds, "ref", primitive.workspaceId)
+    
 }

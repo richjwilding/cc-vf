@@ -516,25 +516,9 @@ export default function BoardViewer({primitive,...props}){
         const view = myState[d.id]
         const renderOptions = {}
         const configNames = ["width", "height"]
-        if( primitive.frames?.[d.id]){
-            for( const name of configNames){
-                if( primitive.frames[d.id][name] !== undefined){
-                    renderOptions[name] = primitive.frames[d.id][name]
-                }
-            }
-        }
-        console.log(renderOptions)
-        if( view.config === "full"){
-            
-            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: "width", canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})}
-        }
-        if( d.type === "query" && d.processing?.ai?.data_query){
-            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions, ...renderOptions})}
-        }
 
-        const canChangeSize = view?.viewConfig?.resizable 
 
-        return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize, items: (stageOptions)=>renderMatrix(
+        const mapMatrix = (stageOptions, d, view)=>renderMatrix(
             d, 
             view.list, {
                 axis: view.axis,
@@ -546,20 +530,50 @@ export default function BoardViewer({primitive,...props}){
                 toggles: view.toggles,
                 expand: Object.keys(primitive.frames[ d.id ]?.expand ?? {})
             })
+
+        if( primitive.frames?.[d.id]){
+            for( const name of configNames){
+                if( primitive.frames[d.id][name] !== undefined){
+                    renderOptions[name] = primitive.frames[d.id][name]
+                }
+            }
         }
+        console.log(renderOptions)
+        if( view.config === "full"){
+            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})
+            if( d.referenceId === 118){
+                const boardToCombine = d.primitives.imports.allItems
+                if( boardToCombine.length >0 ){
+
+                    render = (stageOptions)=>{
+                        const partials = boardToCombine.map(d=>mapMatrix(stageOptions, d, myState[d.id]))
+                        console.log("DID PARTIALS",partials)
+                        return RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, partials})
+                    }
+                }
+            }
+            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: "width", canvasMargin: [20,20,20,20], items: render}
+        }
+        if( d.type === "query" && d.processing?.ai?.data_query){
+            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions, ...renderOptions})}
+        }
+
+        const canChangeSize = view?.viewConfig?.resizable 
+
+        return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
 
     }
 
-    async function addBlankView(referenceCategoryId, importId, filter, options = {}){
+    async function addBlankView(cat_or_id = 38, importId, filter, options = {}){
+        const category = typeof(cat_or_id) === "number" ? mainstore.category(cat_or_id) : cat_or_id
         const newPrimitive = await mainstore.createPrimitive({
-            title: "New view",
-            categoryId: 38,
-            type: "view",
+            title: `New ${category.primitiveType}`,
+            categoryId: category.id,
+            type: category.primitiveType,
             referenceParameters: {
                 ...(importId ? {target: "items", importConfig: [{id: importId, filters: filter}]} : {}),
                 target: "items",
                 ...options,
-                referenceId: referenceCategoryId
             },
             parent: primitive,
         })
@@ -646,6 +660,21 @@ export default function BoardViewer({primitive,...props}){
             addBoardToCanvas( newPrimitive, {x:position.r +50, y: position.t, s: position.s})
         }*/
     }
+    function findSpace(){
+        return {x:0, y:0, s:1}
+    }
+    function pickNewItem(){
+       // addBlankView()
+        mainstore.globalNewPrimitive({
+            title: "Add to board",
+            categoryId: [38, 117, 81, 118],
+            parent: primitive,
+            callback:(d)=>{
+                addBoardToCanvas( d, findSpace())
+                return true
+            }
+        })
+    }
 
     function newDescendView(){
         if(myState.activeBoard){
@@ -672,7 +701,7 @@ export default function BoardViewer({primitive,...props}){
         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
             <div className='p-3 flex place-items-start space-x-2 '>
                     <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
-                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>addBlankView()} flat placement='left-start' />
+                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={pickNewItem} flat placement='left-start' />
                     <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
                     {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
             </div>

@@ -933,11 +933,14 @@ export async function enrichCompanyFunding( primitive, options = {}){
             return {error: data.error}
         }
     }
-    let funding, overview
+    let funding = data?.raised_investments
+    let overview
     
-    if( funding === undefined){
+    if( funding === undefined || options.force){
         [funding, overview] = await fetchCompanyFundingFromCrunchbase(primitive, data.id)
         
+    }else{
+        console.log(`USING CACHED CB DATA`)
     }
     if( funding && !funding.error ){
         const uniqueRounds = funding.map((d)=>[d.funding_round_money_raised?.value_usd,d.funding_round_identifier?.uuid] ).filter((d,i,a)=>a.findIndex((d2)=>d2[1]==d[1]) === i)
@@ -1642,6 +1645,8 @@ export async function fetchCompanyFundingFromCrunchbase( primitive, cbId ){
                         break
                     }
                 }
+
+
                 primitive.set("crunchbaseData.raised_investments", store)
                 primitive.set("crunchbaseData.investment_overview", roundData[0])
                 primitive.markModified("crunchbaseData.raised_investments")

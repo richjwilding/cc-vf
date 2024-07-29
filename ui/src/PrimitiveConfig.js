@@ -242,7 +242,7 @@ const PrimitiveConfig = {
             if( c instanceof Object ){
                 a[c.idx] = c
             }else{
-                a[c === null ? undefined : c] = c === null ? undefined : c
+                a[c === null ? "_N_" : c] = c
             }
             return a
         }, {}) 
@@ -311,7 +311,7 @@ const PrimitiveConfig = {
         }
 
         if( isRange ){
-            console.warn("RANGE NOT IMPLEMENTED")
+//            console.warn("RANGE NOT IMPLEMENTED")
         }
         let pivot = isAxis ? (filter.access ?? filter.pivot) : filter.pivot 
         let relationship = filter.relationship
@@ -480,7 +480,7 @@ const PrimitiveConfig = {
                     data = lookups[idx].map(d=>d.title)
                 }
                 else if( resolvedFilterType === "parameter"){
-                    data = lookups[idx].map(d=>d.referenceParameters?.[filter.param])//.filter(d=>d)
+                    data = lookups[idx].map(d=>d.referenceParameters?.[filter.param]).flat()//.filter(d=>d)
                 }else if( resolvedFilterType === "type"){
                     data = lookups[idx].map(d=>d.referenceId)
                 }else if( resolvedFilterType === "not_category_level1"){

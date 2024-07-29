@@ -449,20 +449,23 @@ async function doDataQuery( options ) {
                                         await addRelationship(scopeNode.id, newPrim.id, "auto")
 
                                     }
-                                    const primitiveIds = d.ids.map(idx=>fragmentList[idx]?.id).filter((d,i,a)=>a.indexOf(d) === i )
-                                    console.log(`need to link in ${primitiveIds.join(", ")}`)
-                                    for(const id of primitiveIds){
-                                        if( options.linkAsChild ){
-                                            try{
-                                                await addRelationship(id, newPrim.id, 'auto')
-                                            }catch(error){
-                                                console.log(`Couldnt link in ${id} - >${newPrim.id} link`)
-                                            }
-                                        }else{
-                                            try{
-                                                await addRelationship(newPrim.id, id, 'link')
-                                            }catch(error){
-                                                console.log(`Couldnt link in ${newPrim.id} - >${id} link`)
+                                    if( d.ids ){
+
+                                        const primitiveIds = d.ids.map(idx=>fragmentList[idx]?.id).filter((d,i,a)=>a.indexOf(d) === i )
+                                        console.log(`need to link in ${primitiveIds.join(", ")}`)
+                                        for(const id of primitiveIds){
+                                            if( options.linkAsChild ){
+                                                try{
+                                                    await addRelationship(id, newPrim.id, 'auto')
+                                                }catch(error){
+                                                    console.log(`Couldnt link in ${id} - >${newPrim.id} link`)
+                                                }
+                                            }else{
+                                                try{
+                                                    await addRelationship(newPrim.id, id, 'link')
+                                                }catch(error){
+                                                    console.log(`Couldnt link in ${newPrim.id} - >${id} link`)
+                                                }
                                             }
                                         }
                                     }

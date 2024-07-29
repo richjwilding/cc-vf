@@ -135,13 +135,69 @@ registerRenderer( {type: "default", configs: "set_checktable"}, (primitive, opti
 
     return g
 })
+registerRenderer( {type: "default", configs: "set_totalValue"}, (primitive, options = {})=>{
+    const config = {width: 80, height: 60, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+
+    const renderWidth = (config.width - config.padding[3] - config.padding[1]) 
+    const renderHeight = config.height - config.padding[0] - config.padding[2]
+
+    if( options.getConfig){
+        const field = primitive.renderConfig?.field ?? "funding"
+        const values = options.list.map(d=>d.referenceParameters?.[field] ?? 0)
+        config.data = values.reduce((a,c)=>a+c,0)
+        return config
+    }
+    const total = options.data ?? 0
+    
+    const g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+    const r = new Konva.Rect({
+        x: config.padding[3],
+        y: config.padding[0],
+        width: config.width - config.padding[3] - config.padding[1],
+        height: renderHeight,
+        fill: "white",
+        name: "background"
+    })
+    const t = new CustomText({
+        x: config.padding[3],
+        y: config.padding[0],
+        fontSize: 16,
+        lineHeight: 1.5,
+        text: roundCurrency( total ),
+        align:"center",
+        verticalAlign:"middle",
+        fill: '#334155',
+        wrap: false,
+        width: renderWidth,
+        refreshCallback: options.imageCallback
+    })
+    t.y (config.padding[0] + (renderHeight - t.height())/2 )
+    g.add(r)
+    g.add(t)
+
+    return g
+})
 registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, options = {})=>{
-    const config = {width: 256, height: 128, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    const config = {width: 256, height: 80, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     if( !options.list ){
         return undefined
     }
+    const alignScale = primitive.renderConfig?.align_scale
+    const doBoth = alignScale === "both"
+    if( doBoth && options.getConfig){
+        if( !options.renderConfig.width){
+            options.config = options.config * 2
+        }
+    }
 
-    const renderWidth = config.width - config.padding[3] - config.padding[1]
+    const renderWidth = (config.width - config.padding[3] - config.padding[1]) * (doBoth ? 0.45 : 1)
     const renderHeight = config.height - config.padding[0] - config.padding[2]
 
     if( options.getConfig){
@@ -172,7 +228,7 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
     const r = new Konva.Rect({
         x: config.padding[3],
         y: config.padding[0],
-        width: renderWidth,
+        width: config.width - config.padding[3] - config.padding[1],
         height: renderHeight,
         fill: "white",
         name: "background"
@@ -181,14 +237,11 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
 
 
+    let offsetX = 0
     g.add(r)
-    if( series.length > 0){
-        
-        //const maxValue = series.reduce((a,c)=>c > a ? c : a, -Infinity) + 1
-        //const minValue = series.reduce((a,c)=>c < a ? c : a, Infinity) - 1
-
-        const maxValue = (primitive.renderConfig?.align_scale === "yes" ? options.globalData.maximumValue : series.reduce((a,c)=>c > a ? c : a, -Infinity)) + 1
-        const minValue = (primitive.renderConfig?.align_scale === "yes" ? options.globalData.minimumValue : series.reduce((a,c)=>c < a ? c : a, Infinity))- 1
+    function renderPlot(alignScale){
+        const maxValue = (alignScale ? options.globalData.maximumValue : series.reduce((a,c)=>c > a ? c : a, -Infinity)) + 1
+        const minValue = (alignScale ? options.globalData.minimumValue : series.reduce((a,c)=>c < a ? c : a, Infinity))- 1
 
         const range = maxValue - minValue
         
@@ -196,9 +249,9 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
         const dx = renderWidth / (len - 1)
         const lineMargin = renderHeight * 0.1
         const scale = (renderHeight - lineMargin - lineMargin) / range
-        const points = series.map((d,i)=>[i * dx, renderHeight - lineMargin - (scale * (d - minValue))]).flat()
+        const points = series.map((d,i)=>[offsetX + (i * dx), renderHeight - lineMargin - (scale * (d - minValue))]).flat()
         //const lower = series.map((_,i)=>[(len - 1 - i) * dx, renderHeight - lineMargin - (scale * (series[len - i - 1] - minValue)) + (renderHeight * 0.1)]).flat()
-        const lower = series.map((_,i)=>[(len - 1 - i) * dx, renderHeight - lineMargin ]).flat()
+        const lower = series.map((_,i)=>[ offsetX + (len - 1 - i) * dx, renderHeight - lineMargin ]).flat()
 
         const shaded = [
             ...points,
@@ -230,6 +283,15 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
             stroke: "#0ea5e9"
         })
         g.add(l)
+        offsetX += renderWidth + (renderWidth / 4.5)
+    }
+    if( series.length > 0){
+        if(doBoth || alignScale === "yes"){
+            renderPlot(true)
+        }
+        if(doBoth || alignScale === "no"){
+            renderPlot(false)
+        }
     }
 
 
@@ -414,6 +476,59 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
 
     r.height( height )
     g.height( config.height)
+
+    return g
+})
+registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive, options = {})=>{
+    const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
+    if( options.getConfig){
+        return config
+    }
+
+
+    let availableWidth = config.width - config.padding[1] - config.padding[3]
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        onClick: options.onClick,
+        name:"inf_track primitive"
+    })
+    const r = new Konva.Rect({
+        x: config.padding[3],
+        y: config.padding[0],
+        width: availableWidth,
+        cornerRadius: 2,
+        fill: 'white',
+    })
+    g.add(r)
+
+    const title = options.partials ? `Have ${options.partials.length} partials` : primitive.title
+
+    //const rowUnion = options.partials.map(d=>d.rowExtents).flat()
+    //const rowLabels = rowUnion.map(d=>d.label ?? "")
+
+    const t = new CustomText({
+        x: config.padding[3],
+        y: config.padding[0],
+        fontSize: 16,
+        lineHeight: 1.5,
+        text: title,
+        fill: '#334155',
+        wrap: true,
+        width: availableWidth,
+        refreshCallback: options.imageCallback
+    })
+    const h = 50//t.height()
+
+    g.height( h + config.padding[0] + config.padding[2])
+    r.height( h)
+    g.add(t)
+
 
     return g
 })
@@ -1500,8 +1615,10 @@ function imageHelper(url, options){
 }
 
 export function renderMatrix( primitive, list, options ){
-    const columnExtents = options.columnExtents ?? [{idx:0}]
-    const rowExtents = options.rowExtents ?? [{idx:0}]
+    const columnExtents = options.columnExtents ? options.columnExtents.slice(0,100) : [{idx:0}]
+    const rowExtents = options.rowExtents ? options.rowExtents.slice(0,100) : [{idx:0}]
+
+    
     
     const g = new Konva.Group({
         name: "view",

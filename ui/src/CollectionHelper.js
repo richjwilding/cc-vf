@@ -70,11 +70,16 @@ class CollectionUtils{
             if(item.bucket_min !== undefined || item.bucket_max !== undefined ){
                 a[item.idx] = {min_value: item.bucket_min, max_value: item.bucket_max, idx: item.idx}
             }else{
-                a[item.idx] = item.idx
+                if( item.idx === undefined){
+                    a["_N_"] = null
+                }else{
+                    a[item.idx] = item.idx
+                }
             }
             return a
         },{})
 
+        const resolvedKey = item === undefined ? "_N_" : item
 
         if(setAll){
             if( item ){
@@ -83,17 +88,18 @@ class CollectionUtils{
                 filter = {}
             }
         }else{
-            if(filter[item] === undefined){
-                filter[item] = encodeMap[item]
+            if( filter[resolvedKey] !== undefined){
+                delete filter[resolvedKey]
             }else{
-                filter[item] = undefined
+                filter[resolvedKey] = encodeMap[resolvedKey]
             }
         }
         
 
         let path = (mode === "column" || mode === "row") ? `referenceParameters.explore.axis.${mode}.filter` : `referenceParameters.explore.filters.${mode}.filter`
 
-        const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] ).filter(d=>d)
+        //const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] ).filter(d=>d)
+        const keys = Object.keys(filter ?? {}).map(d=>d === "_N_" ? undefined : encodeMap[d])
 
         primitive.setField(path, keys)
         
@@ -108,7 +114,8 @@ class CollectionUtils{
             option: CollectionUtils.findAxisItem(primitive, idx, axisOptions), 
             id: idx, 
             track: filter.track,
-            filter: PrimitiveConfig.decodeExploreFilter(filter?.filter) ?? []
+            filter: PrimitiveConfig.decodeExploreFilter(filter?.filter) ?? [],
+            rawFilter: filter?.filter ?? []
         })) : []
     }
 
@@ -153,7 +160,7 @@ class CollectionUtils{
                                     aria-describedby="comments-description"
                                     name="comments"
                                     type="checkbox"
-                                    checked={!(set.list && set.list[d.idx])}
+                                    checked={!(set.list && set.list[d.idx === undefined ? "_N_" : d.idx] !== undefined)}
                                     onChange={()=>updateAxisFilter(d.idx, set.mode, false, axis)}
                                     className="accent-ccgreen-700"
                                 />
@@ -868,7 +875,7 @@ class CollectionUtils{
 
         const removeList = new Set()
 
-        items = [items].flat().map(d=>d instanceof Object ? d.idx : d)
+        items = [items].flat().map(d=>d instanceof Object ? d.idx : d).map(d=>d === null ? undefined : d)
         var outList = []
         
         for(const d of list){

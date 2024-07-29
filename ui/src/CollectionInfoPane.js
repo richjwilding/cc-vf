@@ -42,6 +42,7 @@ const mainTabs = [
     { name: 'Query', referenceId: 81, initial: true},
     //{ name: 'Summarize (singular)', referenceId: 109},
     { name: 'Summarize', referenceId: 113}
+//    { name: 'Lookup', referenceId: 117}
     //{ name: 'Process', referenceId: 112},
 ]
 
@@ -105,7 +106,7 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
                                 tooltip="Add items to board"
                                 outline 
                                 icon={<HeroIcon icon='FAAddView' className='w-5 h-5'/>}
-                                onClick={props.createNewView ? ()=>props.createNewView(itemCategory.id, actionAnchor.id, props.filters, {pivot: props.pivotRelationship, descend: props.pivotRelationship ? false : undefined}) : undefined}
+                                onClick={props.createNewView ? ()=>props.createNewView(38, actionAnchor.id, props.filters, {referenceId: itemCategory.id, pivot: props.pivotRelationship, descend: props.pivotRelationship ? false : undefined}) : undefined}
                             />
                         </div>
                         <div className="relative">
@@ -224,15 +225,33 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
 
         function clearItems(e){
             e.stopPropagation();
-            mainstore.promptDelete({
-                prompt: `Delete ${list.length} items?`,
-                handleDelete:async ()=>{
-                    for(const d of list){
-                        await mainstore.removePrimitive(d)
+            const pathMap = {}
+            list.forEach(d=>{
+                (d.parentPaths(frame) ?? []).forEach(p=>{
+                    if(p === "ref" || p==="link" || p === "origin"  ){
+                        pathMap[p] ||= []
+                        pathMap[p].push(d)
                     }
-                    return true
-                }
+                })
             })
+            for(const path of Object.keys(pathMap)){
+                if( path !== "origin"){
+                    for(const d of pathMap[path]){
+                        frame.removeRelationship(d, path)
+                    }
+                }
+            }
+            if( pathMap.origin){
+                mainstore.promptDelete({
+                    prompt: `Delete ${list.length} items?`,
+                    handleDelete:async ()=>{
+                        for(const d of pathMap.origin){
+                            await mainstore.removePrimitive(d)
+                        }
+                        return true
+                    }
+                })
+            }
         }
         const addImport = (target)=>{
           MainStore().globalPicker({
@@ -421,7 +440,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                     </div>
                 </div>
             
-            {!filters && frame.type === "view" && 
+            {!filters && (frame.type === "view" || frame.type === "summary") && 
                 <div className="space-y-2">
                     <div className="border rounded-md bg-gray-50">
                         <div onClick={()=>setShowDetails(!showDetails)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">

@@ -9,6 +9,7 @@ import { HeroIcon } from './HeroIcon';
 import Popup from './Popup';
 import { ExclamationCircleIcon, ExclamationTriangleIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { PrimitiveCard } from './PrimitiveCard';
+import { main } from '@popperjs/core';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -150,10 +151,13 @@ export default function NewPrimitive({...props}) {
             ...props.parameters,
             ...parameters
         }
+        const asRelationships = Object.keys(fullParameters).filter(d=>baseParams[d]?.type === "primitive")
+        console.log(`Relationships = ${asRelationships.join(", ")}`)
+        asRelationships.forEach(d=>delete fullParameters[d])
 
         if( Object.keys(baseParams ?? {}).filter(d=>baseParams[d].required).filter(d=>fullParameters[d] === undefined).length > 0){
             console.log(`Missing fields`)
-            return 
+          //  return 
         }
 
         console.log(fullParameters)
@@ -169,6 +173,11 @@ export default function NewPrimitive({...props}) {
         })
         if( primitive && props.originTask ){
             await primitive.addRelationshipAndWait( props.originTask, "imports")
+        }
+        for(const d of asRelationships){
+            const targetParam = mainstore.primitive(parameters[d])
+            console.log(`-- add ${d} = ${targetParam.id}`)
+            await primitive.addRelationshipAndWait( targetParam, `params.${d}`)
         }
         if( props.done ){
             const r = props.done(primitive)

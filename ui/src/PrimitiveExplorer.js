@@ -310,6 +310,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
             cancelRender = true
         }
         const filters = getExploreFilters( primitive, labelled )
+        //let filters = primitive.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(primitive, i)) ?? []
         console.log(filters)
 
         const liveFilters = CollectionUtils.findLiveFilters( labelled)
@@ -322,12 +323,12 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
 
 
 
-    let [fullList, baseFilters, extentMap] = React.useMemo(()=>{
+    let [fullList, extentMap] = React.useMemo(()=>{
         console.log(`REDO FULL LIST`)
 
         
         let {data: interim, extents} = CollectionUtils.mapCollectionByAxis( items, axisOptions[colSelection], axisOptions[rowSelection], viewFilters.map(d=>axisOptions[d.option]), liveFilters, viewPivot )
-        let baseFilters = []
+        /*let baseFilters = []
 
         if( viewFilters && viewFilters.length > 0){
             for(const d of viewFilters){
@@ -343,9 +344,10 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                     baseFilters.push( thisFilter )
                 }
             }
-        }
+        }*/
 
-        return [interim, baseFilters, extents]
+
+        return [interim, extents]
     },[colSelection, rowSelection, update, updateRel, primitive.id, layerSelection, viewPivot])
 
     const baseViewConfigs = Object.values( PrimitiveConfig.renderConfigs )
@@ -360,18 +362,21 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
         let columns = extentMap.column ?? []
         let rows = extentMap.row ?? []
 
-        let filterApplyColumns = colFilter ? Object.keys(colFilter).filter(d=>colFilter[d]) : []
-        let filterApplyRows = rowFilter ? Object.keys(rowFilter).filter(d=>rowFilter[d]) : []
+        //let filterApplyColumns = colFilter ? Object.keys(colFilter).filter(d=>colFilter[d]) : []
+        //let filterApplyRows = rowFilter ? Object.keys(rowFilter).filter(d=>rowFilter[d]) : []
 
-        filterApplyColumns = filterApplyColumns.map(d=>d === "undefined" ? undefined : d)
-        filterApplyRows = filterApplyRows.map(d=>d === "undefined" ? undefined : d)
+        //filterApplyColumns = filterApplyColumns.map(d=>d === "undefined" ? undefined : d)
+        //filterApplyRows = filterApplyRows.map(d=>d === "undefined" ? undefined : d)
+        let filterApplyColumns = primitive.referenceParameters?.explore?.axis?.column?.filter ?? []
+        let filterApplyRows = primitive.referenceParameters?.explore?.axis?.row?.filter ?? []
 
 
         let filtered = CollectionUtils.filterCollectionAndAxis( fullList, [
             {field: "column", exclude: filterApplyColumns},
             {field: "row", exclude: filterApplyRows},
             ...viewFilters.map((d,i)=>{
-                return {field: `filterGroup${i}`, exclude: Object.keys(d.filter).filter(d2=>d.filter[d2] !== undefined).map(d2=>d2 === "undefined" ? undefined : d.filter[d2]) }
+                //return {field: `filterGroup${i}`, exclude: Object.keys(d.filter).filter(d2=>d.filter[d2] !== undefined).map(d2=>d2 === "undefined" ? undefined : d.filter[d2]) }
+                return {field: `filterGroup${i}`, exclude: d.rawFilter}
             })
         ], {columns, rows, hideNull})
 
