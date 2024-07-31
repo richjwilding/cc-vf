@@ -21,13 +21,14 @@ import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
 import Embedding from './model/Embedding';
 import { buildPage } from './htmlexporter';
-import { aggregateItems, checkAndGenerateSegments, compareItems, extractor, getSegemntDefinitions, iterateItems, queryByAxis, resourceLookupQuery, runProcess } from './task_processor';
+import { aggregateItems, checkAndGenerateSegments, compareItems, extractor, getSegemntDefinitions, iterateItems, queryByAxis, replicateFlow, resourceLookupQuery, runProcess } from './task_processor';
 import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helper';
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
 
 const parser = PrimitiveParser()
+export const DONT_LOAD = {crunchbaseData: 0, linkedInData: 0, financialData: 0, action_tracker: 0, checkCache:0}
 
 export function uniquePrimitives(list){
     let ids = {}
@@ -513,7 +514,7 @@ export async function primitivePrimitives(primitive, path, types, deleted = fals
         $and:[
             {_id: {$in: node}},
             { deleted: {$exists: deleted}}
-        ]}) ?? []
+        ]}, DONT_LOAD) ?? []
 
     if( types ){
         const a = [types].flat()
@@ -527,13 +528,19 @@ export async function primitiveDescendents(primitive, types, options={}){
     let out = []
     let list
     
-    const fullDocument = options.fullDocument === undefined ? true : options.fullDocument
     let paths = options.paths === undefined ? ["origin", "auto","link"] : options.paths
+    const lookThrough = options.through ?? false
+    const filterAtStep = options.filterAtStep ?? false
+
     if( options.allPaths ){
         paths = undefined
     }
     const unique = options.unique === undefined ? true : options.unique
-    const fields = fullDocument ? undefined :"_id primitives type" 
+    let fields = DONT_LOAD
+    if(!options.fullDocument || options.fields){
+        fields = `_id primitives type ${options.fields ?? ""}`.trim()
+    }
+    console.log(fields)
 
     const a = Array.isArray(types) ? types : [types]
 
@@ -547,7 +554,6 @@ export async function primitiveDescendents(primitive, types, options={}){
                 return
             }
             if( item ){
-                //Object.values(item).forEach((value)=>{
                 Object.keys(item).forEach((key)=>{
                     if( key === "imports"){
                         console.log(`NOT FOLLOWING IMPORTS`)
@@ -582,7 +588,12 @@ export async function primitiveDescendents(primitive, types, options={}){
         out = out.concat(list)
 
         ids = list.map((d)=>{
-            if(!types || !a.includes(d.type) ){
+            if( filterAtStep){
+                if(types && !a.includes(d.type)){
+                    return undefined
+                }
+            }
+            if(lookThrough || !types || !a.includes(d.type) ){
                 const nextIds = getIds(d)
                 return nextIds
             }
@@ -597,8 +608,11 @@ export async function primitiveDescendents(primitive, types, options={}){
     if( options?.referenceId ){
         out = out.filter((d)=>d.referenceId === options.referenceId)
     }
+    console.log(`RUN UNIQUE`)
 
     if( unique){
+        return uniquePrimitives(out)
+        /*
         const fc = {}
         return  out.filter((d)=>{
             const id = d._id.toString()
@@ -607,7 +621,7 @@ export async function primitiveDescendents(primitive, types, options={}){
             }
             fc[id] = true
             return true
-        })
+        })*/
     }
 
     return out
@@ -1115,7 +1129,7 @@ export async function getDataForImport( source, cache = {} ){
         let node = new Proxy(source.primitives, parser)
 
         const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
-        let list = await fetchPrimitives( nonImportIds)
+        let list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
 
         const viewFilters = getBaseFilterForView( source ).map(d=>{
             if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
@@ -1145,6 +1159,7 @@ export async function getDataForImport( source, cache = {} ){
     const sources = await primitivePrimitives(source, 'primitives.imports')
 
     for( const imp of sources){
+        console.log(`Doing source ${imp.id}`)
         let list = []
         if( Object.keys(imp.primitives).includes("imports")   ){
             if( cache[imp.id]){
@@ -1165,12 +1180,7 @@ export async function getDataForImport( source, cache = {} ){
                 list = await nestedItems( imp )
             }else{
                 ids = node.allIds
-                list = await Primitive.find({
-                    $and:[
-                        {_id: {$in: ids}},
-                        { deleted: {$exists: false}}
-                    ]
-                })
+                list = await fetchPrimitives(ids, undefined, DONT_LOAD)
                 console.log(`loaded leaves`)
             }
         }
@@ -1624,7 +1634,10 @@ export async function getFilterName( scopeNode ){
             for(const d of parents){
                 let name = d.title
                 if( d.type === "segment"){
-                    name = await getFilterName( d)
+                    const parentName = await getFilterName( d)
+                    if( parentName && parentName !== "New segment"){
+                        name = parentName
+                    }
                 }
                 fargments.push( name )
             }
@@ -1710,6 +1723,18 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
 
     if( primitive.type === "search" ){
         return await QueryQueue().doQuery(primitive, options)
+    }
+    if( actionKey === "d_test"){
+        const ids = options.ids
+
+        console.time(`Fetching base`)
+        const prims = await fetchPrimitives( ids, undefined, {_id: 1, referenceId:1} )
+        console.timeEnd(`Fetching base`)
+        console.time(`descend`)
+        const items = [prims.filter(d=>d.type==="result"), await primitiveDescendents( prims, "result", false)].flat()
+        console.timeEnd(`descend`)
+        return
+
     }
     if( actionKey === "new_query"){
         return await createSegmentQuery(primitive, options.queryData, options.importData)
@@ -1977,6 +2002,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         }
         return undefined
     }
+    if( actionKey === "replicate_flow"){
+        await replicateFlow( primitive, options.target )
+        return
+
+    }
 
     const category = await Category.findOne({id: primitive.referenceId})
     let done = false
@@ -1992,7 +2022,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
 
         }
 
-        const action = category.actions.find((d)=>d.key === actionKey)
+        let action = category.actions.find((d)=>d.key === actionKey)
         if( action ){
             const command = action?.command || actionKey
             console.log(action)

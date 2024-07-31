@@ -3,12 +3,10 @@ import React, { useEffect, useMemo, useReducer } from 'react';
 import { ArrowsPointingInIcon } from '@heroicons/react/24/outline';
 import { PrimitiveCard } from './PrimitiveCard';
 import html2canvas from 'html2canvas';
-import MiroExporter from './MiroExporter'; 
 import Panel from './Panel';
 
 const mainstore = MainStore()
 window.html2canvas = html2canvas
-window.miroExporter = MiroExporter()
 
 export default function EvidenceExplorer({primitive, ...props}){
     const [filters, setFilters] = React.useState([(d)=>d.referenceId === 10 ])//&& d.referenceParameters.scale > 5 && d.referenceParameters.specificity > 5])

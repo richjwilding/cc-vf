@@ -234,7 +234,7 @@ const SearchPanel = (props)=>{
                                     {({ active }) => {
                                       return (
                                       <>
-                                        <HeroIcon className='w-5 h-5 shrink-0' icon={primitive.metadata?.icon}/><span className="ml-3 flex-auto truncate">{primitive.title}</span>
+                                        <HeroIcon className='w-5 h-5 shrink-0' icon={primitive.metadata?.icon}/><span className="ml-3 flex-auto truncate">{primitive.origin?.isTask ? `${primitive.origin.title} / `: ""}{primitive.title}</span>
                                         {active && (
                                           <ChevronRightIcon
                                             className="ml-3 h-5 w-5 flex-none text-gray-400"

@@ -71,13 +71,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const lineLayerRef = useRef()
     const myState = useRef({renderList: props.render})
 
-    /*
-    useEffect(()=>{
-        myState.current.renderList = props.render
-        console.log(`----- RL CHANGE`)
-        console.log(myState.current.renderList)
-    }, [props.render, props.update])*/
-    
 
     useEffect(()=>{
         refreshLinks()
@@ -86,6 +79,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const chunkWidth = 800
     const chunkHeight = 800
 
+    const frameNode = (id)=>{
+        if(!myState.current?.frames){
+            return undefined
+        }
+        const frame = myState.current.frames.find(d=>d.id === id)
+        return frame?.node
+    }
     const framePosition = (id)=>{
         if(!myState.current?.frames){
             return undefined
@@ -160,6 +160,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             addFrame,
             removeFrame,
             framePosition,
+            frameNode,
+            stageNode: ()=>stageRef.current,
             size: ()=>[myState.current.width,myState.current.height],
             refreshFrame
         };

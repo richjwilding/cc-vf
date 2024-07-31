@@ -12,6 +12,7 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import FilterPane from "./FilterPane";
 import CollectionInfoPane from "./CollectionInfoPane";
 import useDataEvent from "./CustomHook";
+import { exportKonvaToPptx } from "./PptHelper";
 
 export default function BoardViewer({primitive,...props}){
     const mainstore = MainStore()
@@ -259,6 +260,9 @@ export default function BoardViewer({primitive,...props}){
         console.log(`redo linklist ${updateLinks}`)
         return boards.map(left=>{
             return boards.map(right=>{
+                                if( right.referenceId === 118){
+                                    return
+                                }
                 if( left.id !== right.id){
                     let segment
                     if( right.parentPrimitiveIds.includes(left.id) ){
@@ -542,11 +546,23 @@ export default function BoardViewer({primitive,...props}){
         if( view.config === "full"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})
             if( d.referenceId === 118){
-                const boardToCombine = d.primitives.imports.allItems
+                let boardToCombine = d.primitives.imports.allItems
+                if(d.order){
+                    boardToCombine.sort((a,b)=>d.order.indexOf(a.id) - d.order.indexOf(b.id))
+                }
                 if( boardToCombine.length >0 ){
 
                     render = (stageOptions)=>{
-                        const partials = boardToCombine.map(d=>mapMatrix(stageOptions, d, myState[d.id]))
+                        const partials = boardToCombine.map(d=>{
+                            const board = myState[d.id]
+                            return {
+                                primitive: d,
+                                axis: board.axis,
+                                columnExtents: board.columns,
+                                rowExtents: board.rows,
+                                viewConfig: board.viewConfig,
+                                list: board.list
+                        }})
                         console.log("DID PARTIALS",partials)
                         return RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, partials})
                     }
@@ -675,6 +691,15 @@ export default function BoardViewer({primitive,...props}){
             }
         })
     }
+    async function exportFrame(){
+        if(myState.activeBoard){
+            const root = canvas.current.frameNode( myState.activeBoardId )
+            await exportKonvaToPptx( root )
+        }else{
+            await exportKonvaToPptx( canvas.current.stageNode() )
+        }
+
+    }
 
     function newDescendView(){
         if(myState.activeBoard){
@@ -704,6 +729,7 @@ export default function BoardViewer({primitive,...props}){
                     <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={pickNewItem} flat placement='left-start' />
                     <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
                     {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
+                    {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={exportFrame} flat placement='left-start' />}
             </div>
             {collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
                 <CollectionInfoPane {...collectionPaneInfo} newPrimitiveCallback={createNewQuery} createNewView={addBlankView} updateFrameExtents={updateExtents}/>

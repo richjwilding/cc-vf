@@ -93,9 +93,13 @@ function MainStore (prims){
             console.log(`Removing ${toPurge.length} items`)
 
             const response = await fetch(`/api/primitives?workspace=${obj.activeWorkspaceId}`)
+            console.log(`Got primitives step 1`)
             const buffer =  await response.arrayBuffer()
+            console.log(`Got primitives step 2`)
             const data = unpack(new Uint8Array(buffer))
+            console.log(`Got primitives step 3`)
             obj.data.primitives = data.reduce((o,d)=>{o[d._id] = primitive_access(d, "primitive"); return o}, {})
+            console.log(`Got primitives step 4`)
 
             obj.joinChannel(obj.activeWorkspaceId)
             obj.loadControl(true)
@@ -2242,7 +2246,7 @@ function MainStore (prims){
             const contacts = fetch('/api/contacts').then(response => {obj.loadProgress.push('contacts');return response.json()})
             const categories = fetch('/api/categories').then(response => {obj.loadProgress.push('categories');return response.json()})
             //const primitives = fetch('/api/primitives').then(response => {obj.loadProgress.push('primitives');return response.json()})
-            const primitives = fetch('/api/primitives').then(response => response.arrayBuffer()).then(buffer => {obj.loadProgress.push('primitives');return unpack(new Uint8Array(buffer))})
+            const primitives = fetch('/api/primitives').then(response => response.arrayBuffer()).then(buffer => {obj.loadProgress.push('primitives');console.log("Unpacking...");return unpack(new Uint8Array(buffer))})
             const workspaces = fetch('/api/workspaces').then(response => {obj.loadProgress.push('workspaces');return response.json()})
             const frameworks = fetch('/api/frameworks').then(response => {obj.loadProgress.push('frameworks');return response.json()})
             

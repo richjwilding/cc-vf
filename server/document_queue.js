@@ -132,7 +132,8 @@ async function doDataQuery( options ) {
 
                         console.log(`Got ${interim.length} for view `)
                         //items = await primitiveDescendents( interim, "result")
-                        items = [interim.filter(d=>d.type==="result"), await primitiveDescendents( interim, "result")].flat()
+                        items = [interim.filter(d=>d.type==="result"), await primitiveDescendents( interim, "result", {fields: "referenceId"})].flat()
+                        console.log(`BACK FROM DESCEND`)
                     }else{
                         items = [node, ...(await primitiveDescendents( node, "result"))]
                     }

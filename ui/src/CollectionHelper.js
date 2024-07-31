@@ -13,7 +13,7 @@ class CollectionUtils{
 
         let period = config.period ?? "month"
         let sourceData
-        sourceData = set.map(d=>d.referenceParameters.allFundingRoundInfo.map(d=>({date: d.annouced, amount: d.amount}))).flat()
+        sourceData = set.map(d=>(d.referenceParameters.allFundingRoundInfo ?? []).map(d=>({date: d.annouced, amount: d.amount}))).flat()
         if( sourceData.length === 0){
             return []
         }
@@ -647,8 +647,9 @@ class CollectionUtils{
         }else if( axis.type === "category"){
             const subCats = MainStore().primitive(axis.primitiveId)?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, label:d.title})) ?? []
             out = {
-                values: [{idx: "_N_", label: "None"}, ...subCats],
+                values: [{idx: "_N_", label: "None"}, ...subCats].sort((a,b)=>a.label.localeCompare(b.label)),
             }
+            
         }else{
             const parser = bucket[axis.passType]
             if( !parser ){

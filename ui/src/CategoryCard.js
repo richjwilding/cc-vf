@@ -80,7 +80,7 @@ export default function CategoryCard({primitive, ...props}){
             editButton={(e)=>{e.stopPropagation();setEditPrompt(primitive)}}
             title={<div key='title' className="flex place-items-center w-full" >
                     <p>{primitive.title}</p>
-                    {primitive.primitives.allCategory.length > 0 && 
+                    {(primitive.metadata.mapMode === "evaluate" || primitive.primitives.allCategory.length > 0) && 
                         <AIProcessButton 
                             active="mark_categories"
                             markOnProcess

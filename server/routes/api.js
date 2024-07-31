@@ -9,7 +9,7 @@ import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { buildEmbeddingsForPrimitives, getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
-import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive, recoverPrimitive, doPurge} from '../SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive, recoverPrimitive, doPurge, fetchPrimitives, DONT_LOAD, executeConcurrently} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
 import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
@@ -371,7 +371,28 @@ router.get('/primitives', async function(req, res, next) {
         
         
         //const results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0})
-        const results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0})
+        console.log(`Doing fetch....`)
+        let results
+        if( workspaceId ){
+            console.time(`multi`)
+            const ids = (await Primitive.find(query,{_id: 1})).map(d=>d.id)
+            const chunks = [], chunkCount = 2000, len = ids.length
+            for(let i = 0; i < len; i+= chunkCount){
+                chunks.push(ids.slice(i, i + chunkCount))
+            }
+            console.log(`Got ${ids.length} - split to ${chunks.length}`)
+            async function getData(ids){
+                return await fetchPrimitives(ids, undefined, DONT_LOAD)
+            }
+            const {results:data} = await executeConcurrently(chunks, getData, undefined, undefined, 10)
+            results = data.flat()
+            console.log(`Back with ${results.length}`)
+            console.timeEnd(`multi`)
+        }else{
+            results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0})
+        }
+
+        console.log(`Packing....`)
         //res.json(results)
 
         res.setHeader('Content-Type', 'application/msgpack');

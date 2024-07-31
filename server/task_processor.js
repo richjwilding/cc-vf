@@ -1,7 +1,7 @@
 import { fetchFragmentsForTerm } from "./DocumentSearch";
 import PrimitiveConfig from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
-import { addRelationship, addRelationshipToMultiple, createPrimitive, doPrimitiveAction, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParents, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
+import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { extractURLsFromPage, fetchLinksFromWebQuery, googleKnowledgeForQuery, queryGoogleSERP } from "./google_helper";
 import Category from "./model/Category"
@@ -640,4 +640,105 @@ export async function resourceLookupQuery( parentForScope, primitive){
     const resultIds = fragments.map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i)
     await addRelationshipToMultiple(primitive.id, resultIds, "ref", primitive.workspaceId)
     
+}
+export async function replicateFlow(start, target, options = {}){
+    if( typeof(target) === "string"){
+        target = await fetchPrimitive( target )
+    }
+    const steps = await primitiveDescendents(start, ["view", "query"], {through: true, filterAtStep: true})
+    const sourceBoardPrimitive = (await primitiveParentsOfType( start, "board"))?.[0]
+    const targetBoardPrimitive = (await primitiveParentsOfType( target, "board"))?.[0]
+
+    console.log(`Got ${steps.length} to replicate from ${start.plainId} / ${start.id} on board ${sourceBoardPrimitive.plainId} / ${sourceBoardPrimitive.id}`)
+    if( !target){
+        console.log(`Dont have target`)
+        return
+    }
+    if( !sourceBoardPrimitive || !targetBoardPrimitive ){
+        console.log(`Dont have board primitives ${sourceBoardPrimitive ? "" : "source"} ${targetBoardPrimitive ? "" : "target"}`)
+        return
+    }
+    console.log(`Replicate to ${target.plainId} / ${target.id} on board ${targetBoardPrimitive.plainId} / ${targetBoardPrimitive.id}`)
+
+    console.log(steps.map(d=>d.plainId ).join(", "))
+
+    const flow = {}
+
+    function addNodeToFlow( node, parentId ){
+        if( flow[node.id]){
+            throw `${node.id} already in flow`
+        }
+        const {importConfig, ...paramsToClone} = node.referenceParameters
+        const pp = new Proxy(node.primitives ?? {}, parser)
+
+        const childPrimitives = pp.origin.uniqueAllIds.map(d=>steps.find(d2=>d2.id === d)).filter(d=>d)
+        
+        childPrimitives.forEach(d=>{
+            addNodeToFlow(d, node.id)
+        })
+        if( childPrimitives.length >0){
+            debugger
+        }
+
+        flow[node.id] = {
+            sourceId: node.id,
+            sourcePlainId: node.plainId,
+            children: childPrimitives.map(d=>flow[d.id]),
+            linkParentAsImport: pp.imports.allIds.includes(parentId),
+            workspaceId: node.workspaceId,            
+            data:{
+                title:node.title,
+                type: node.type,
+                referenceId: node.referenceId,
+                referenceParameters: paramsToClone,
+            }
+        }
+    }
+
+    const initalNodesToAdd = steps.filter(d=>Object.keys(d.parentPrimitives).includes(start.id))
+
+    for( const d of initalNodesToAdd){
+        addNodeToFlow( d, start.id )
+    }
+
+    function logNode(node, i = 0){
+        const {children, ...info} = node
+        const indent = "   ".repeat(i)
+        console.log("----".repeat(i))
+        for(const d of Object.keys(info)){
+            console.log(`${indent}${d}: ${d === "data" ? JSON.stringify(info[d]) : info[d]}`)
+        }
+        for(const d of node.children){
+            console.log(`${indent}${d.sourcePlainId} / ${d.sourceId} - ${d.data.type} ${d.data.title}}`)
+            logNode(d, i + 1)
+        }
+    }
+    async function replicateNodeToTarget( node, targetId){
+        const newData = {
+            parent: targetId,
+            workspaceId: node.workspaceId,
+            data:node.data
+        }
+        const replicant = await createPrimitive(newData)
+        if( replicant ){
+            console.log(`Will add `, newData, `to ${targetId}`)
+            await addRelationship( replicant.id, targetId, "imports")
+            await addRelationship( targetBoardPrimitive.id, replicant.id, "ref")
+            node.replicatedTo = replicant.id
+            
+            for(const d of node.children){
+                await replicateNodeToTarget( d, replicant.id)
+            }
+        }
+    }
+
+    for(const d of initalNodesToAdd){
+        await replicateNodeToTarget(flow[d.id], target.id)
+    }
+    const mappings = Object.values(flow).reduce((a,c)=>{a[c.sourceId] = c.replicatedTo; return a}, {})
+    console.log(mappings)
+    const locationMapping = Object.keys(sourceBoardPrimitive.frames).reduce((a,c)=>{a[mappings[c]] = sourceBoardPrimitive.frames[c]; return a}, {})
+    console.log(locationMapping)
+
+    await dispatchControlUpdate(targetBoardPrimitive.id, "frames", locationMapping)
 }

@@ -255,7 +255,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
         }
         const addImport = (target)=>{
           MainStore().globalPicker({
-            root: undefined,
+            root: target.referenceId === 118 ? board : undefined,
             callback:(pick)=>{
                 target.addRelationship(pick, `imports`)
             },

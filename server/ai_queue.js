@@ -1365,7 +1365,25 @@ export default function QueueAI(){
                                     if( primitive.referenceParameters.conditions){
                                         opener = `Here is some context about a task you will perform: ${primitive.referenceParameters.conditions}.\n\nAnd here is a list of items `
                                     }
-                                    let prompt = `For each item in the list provided, undertake the following evaluation and assess the likelihood of it being true on the scale of "not at all", "possibly", "likely", "clearly": ${primitive.referenceParameters.evaluation}`
+                                    const categoryLabels = ["not at all", "possibly", "likely", "clearly"]
+                                    const missing = categoryLabels.filter(d=>!catOptions.map(d=>d.title).includes(d))
+
+                                    console.log(`Need to create ${missing.join(",")}`)
+                                    for(const d of missing){
+                                        const newCat = await createPrimitive({
+                                            workspaceId: primitive.workspaceId,
+                                            parent: primitive.id,
+                                            data:{
+                                                type: "category",
+                                                title: d
+                                            }
+                                        })
+                                        if( newCat ){
+                                            catOptions.push(newCat)
+                                        }
+                                    }
+
+                                    let prompt = `For each item in the list provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
                                     const result = await processPromptOnText( data, {
                                         opener,
                                         prompt,
@@ -1377,7 +1395,7 @@ export default function QueueAI(){
                                         batch: 50
                                     })
                                     console.log(result)
-                                    const resultCache = catOptions.reduce((a,c)=>{a[c.title] = c; return a}, {} )
+                                    const resultCache = catOptions.reduce((a,c)=>{a[c.title] = {ids: [], categoryId: c.id}; return a}, {} )
                                     if( result.success ){
                                         for(const d of result.output){
                                             const item = list[d.id]
@@ -1386,9 +1404,14 @@ export default function QueueAI(){
                                                 console.log(`WARN: couldnt align`, d)
                                             }
                                             if( item && category){
-                                                await addRelationship( category.id, item.id, 'ref' )
+                                                category.ids.push(item.id)
+                                                //await addRelationship( category.id, item.id, 'ref' )
                                             }
                                         }
+                                    }
+                                    for( const d of Object.keys(resultCache)){
+                                        console.log(`Setting ${d} -> ${resultCache[d].ids.length} items`)
+                                        await addRelationshipToMultiple(resultCache[d].categoryId, resultCache[d].ids, 'ref', primitive.workspaceId)
                                     }
                                     throw "done"
                                 }

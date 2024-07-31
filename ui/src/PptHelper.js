@@ -23,7 +23,7 @@ export async function exportKonvaToPptx( konva ){
     // 4. Save the Presentation
     await pres.writeFile({ fileName: "Sample Presentation.pptx" });
 }*/
-export async function exportKonvaToPptx( stage, pptx ){
+export async function exportKonvaToPptx( stage, pptx, options ){
     let savePptx = false
     
     let widthInInches = 10 * 4
@@ -41,24 +41,35 @@ export async function exportKonvaToPptx( stage, pptx ){
 
     let slide = pptx.addSlide();
 
+    let minX = 0, minY = 0
     let maxX = 0, maxY = 0
-    for( const layer of stage.children){
-        for( const konvaNode of layer.children ){
-            const r = konvaNode.x() + konvaNode.width()
-            const b = konvaNode.y() + konvaNode.height()
-            if( r > maxX){ maxX = r}
-            if( b > maxY){ maxY = b}
+    let rootScale = 1
+    if( stage.getClassName() == "Stage"){
+        for( const layer of stage.children){
+            for( const konvaNode of layer.children ){
+                const r = konvaNode.x() + konvaNode.width()
+                const b = konvaNode.y() + konvaNode.height()
+                if( r > maxX){ maxX = r}
+                if( b > maxY){ maxY = b}
+            }
         }
+        const stageNode = stage.container()
+        if( stageNode.style.backgroundColor && stageNode.style.backgroundColor !== ""){
+            slide.background = {color: toHex(stageNode.style.backgroundColor)}
+
+        }
+    }else{
+        rootScale = stage.scaleX() 
+        maxX = stage.width()  * rootScale
+        maxY = stage.height() * rootScale
+        rootScale = 1
+
+        console.log(minX, minY, maxX, maxY, rootScale)
     }
 
     const gScale = Math.min( widthInInches / maxX, heightInInches / maxY )
     const fontScale = gScale * 72 // 0.95
 
-    const stageNode = stage.container()
-    if( stageNode.style.backgroundColor && stageNode.style.backgroundColor !== ""){
-        slide.background = {color: toHex(stageNode.style.backgroundColor)}
-
-    }
 
     function toHex(col){
         if( !col ){
@@ -76,10 +87,10 @@ export async function exportKonvaToPptx( stage, pptx ){
         let h = '#' + (r.r.toString(16).padStart(2, '0')) + (r.g.toString(16).padStart(2, '0')) + (r.b.toString(16).padStart(2, '0'))
         return h
     }
-    function processNode( konvaNode, ox = 0, oy = 0, pScale = 1 ){
+    function processNode( konvaNode, ox = 0, oy = 0, pScale = 1, first = false ){
         
-        const x = ox + (konvaNode.x() * pScale)
-        const y = oy + (konvaNode.y() * pScale)
+        const x = first ? 0 : ( ox + (konvaNode.x() * pScale))
+        const y = first ? 0 : (oy + (konvaNode.y() * pScale))
         
         let thisScale = konvaNode.scale()?.x ?? 1
         thisScale *= pScale
@@ -137,7 +148,35 @@ export async function exportKonvaToPptx( stage, pptx ){
             });
             console.log(`img ${konvaNode.width() * scale * thisScale} ${konvaNode.height() * scale * thisScale}`)
         } else if (konvaNode instanceof Konva.Line) {
-            const points = konvaNode.points();
+
+            let gradientFill = undefined
+
+            if( konvaNode.fillLinearGradientStartPoint && konvaNode.fillLinearGradientEndPoint){
+                const stops = konvaNode.fillLinearGradientColorStops()
+                if(stops ){
+                    gradientFill = {
+                        type: 'gradient',
+                        stops: [
+                            { pos: stops[0] * 100, color: stops[1].slice(1)},
+                            { pos: stops[2] * 100, color: stops[3].slice(1)},
+                        ]
+                    };
+                    gradientFill = {
+                        type: "linearGradient",
+                        stops: [
+                            { position: 0, color: '000000', transparency: 10 },
+                            { position: 100, color: '333333', transparency: 50 },
+                        ],
+                        angle: 45,
+                        scaled: 1,
+                        rotWithShape: false,
+                        tileRect: { t: 0, r: 0.5, b: 0.25, l: 1 },
+                        flip: 'xy',
+                    }
+                }
+            }
+
+            const points = [...konvaNode.points()];
             const nodes = []
             let l, r, t, b
             console.log(points)
@@ -156,7 +195,7 @@ export async function exportKonvaToPptx( stage, pptx ){
             const sy = b-t
             console.log(sx,sy)
 
-            const outNodes = nodes.map(d=>({x: (d[0] - l) * scale, y: (d[1] - t) * scale }))
+            const outNodes = nodes.map(d=>({x: (d[0] - l) * thisScale * scale, y: (d[1] - t) * thisScale *  scale }))
             console.log(outNodes)
 
             slide.addShape(pptx.shapes.CUSTOM_GEOMETRY, {
@@ -164,7 +203,8 @@ export async function exportKonvaToPptx( stage, pptx ){
                 y: (y * scale) + (t * scale * thisScale),
                 w: sx * scale * thisScale,
                 h: sy * scale * thisScale,
-                line: { color: toHex(konvaNode.stroke()), width: konvaNode.strokeWidth() },
+                fill: gradientFill,
+                line: konvaNode.strokeEnabled() ? { color: toHex(konvaNode.stroke()), width: konvaNode.strokeWidth() } : undefined,
                 points: outNodes
             });
         } else if (konvaNode instanceof Konva.Group) {
@@ -174,10 +214,14 @@ export async function exportKonvaToPptx( stage, pptx ){
         }
     }
 
-    for( const layer of stage.children){
-        for( const konvaNode of layer.children ){
-            processNode( konvaNode )
+    if( stage.getClassName() == "Stage"){
+        for( const layer of stage.children){
+            for( const konvaNode of layer.children ){
+                processNode( konvaNode )
+            }
         }
+    }else{
+        processNode(stage, 0, 0, rootScale, true)
     }
 
     if( savePptx ){
