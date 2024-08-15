@@ -3,7 +3,7 @@ import { useState } from "react";
 import { PrimitiveCard} from "./PrimitiveCard";
 import { PencilIcon, ArrowPathIcon, TrashIcon } from "@heroicons/react/24/outline";
 import Panel from "./Panel";
-import GenericEditor from './GenericEditor';
+import GenericEditor from './CategoryEditor';
 import MainStore from "./MainStore";
 import ConfirmationPopup from "./ConfirmationPopup";
 import EditableTextField from "./EditableTextField";
@@ -80,7 +80,7 @@ export default function CategoryCard({primitive, ...props}){
             editButton={(e)=>{e.stopPropagation();setEditPrompt(primitive)}}
             title={<div key='title' className="flex place-items-center w-full" >
                     <p>{primitive.title}</p>
-                    {(primitive.metadata.mapMode === "evaluate" || primitive.primitives.allCategory.length > 0) && 
+                    {(primitive.metadata.mapMode === "evaluate" || primitive.metadata.mapMode === "extract_score"|| primitive.primitives.allCategory.length > 0) && 
                         <AIProcessButton 
                             active="mark_categories"
                             markOnProcess

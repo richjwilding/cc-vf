@@ -3,7 +3,7 @@ import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import { getDocumentAsPlainText, importDocument, locateQuote, removeDocument } from "./google_helper";
 import Primitive from "./model/Primitive";
-import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getDataForImport, getDataForProcessing, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
+import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getDataForImport, getDataForProcessing, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
 import Category from "./model/Category";
 import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
 import Contact from "./model/Contact";
@@ -119,15 +119,31 @@ async function doDataQuery( options ) {
                     const node = await fetchPrimitive( scope )
                     scopeNode = node
                     if( node.type === "view" || node.type === "working" || node.type === "query" || node.type === "segment" ){
-                        const interim = await getDataForImport(node)
+                        let interim
+                        if( Object.keys(node?.primitives ?? {}).filter(d=>d !== "imports").length > 0){
+                            interim = await getDataForImport(node)
+                        }else if(Object.keys(primitive?.primitives ?? {}).includes("imports")){
+                            interim = await getDataForImport(node, undefined, true)
+                        }else{
+                            interim =  await getDataForImport(primitive, undefined, true) 
+                        }
+
+                        
 
                         if( primitive.referenceParameters.group || thisCategory.type === "iterator" ){
+                        //if(  thisCategory.type === "iterator" ){
                             console.log(`Will go via groups - have ${interim.length} to do`)
-                            for(const d of interim){
+                            /*for(const d of interim){
                                     console.log(`++ Doing for ${d.plainId} / ${d.title}`)
                                     await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: true})
-                            }
-                            return
+                            }*/
+
+                            await executeConcurrently(interim, async (d, idx)=>{
+
+                                console.log(`++ Doing iter ${idx} for ${d.plainId} / ${d.title}`)
+                                await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: true})
+                                return
+                            }, undefined, undefined, 10)
                         }
 
                         console.log(`Got ${interim.length} for view `)
@@ -154,6 +170,14 @@ async function doDataQuery( options ) {
                             items = items?.filter(d=>d.referenceId === asNum)
                         }
                     }
+                }
+                if( primitive.referenceParameters.onlyNew ){
+                    console.log(`Filtering for only new items on ${primitive.plainId} (${items.length})`)
+                    const existing = await primitiveChildren(primitive)
+                    const linked = existing.map(d=>d.primitives?.link).flat().filter(d=>d)
+                    console.log(`Have ${existing.length} existing / ${linked.length}`)
+                    items = items.filter(d=>!linked.includes(d.id) )
+                    console.log(`Filtered scepe to ${items.length} without results`)
                 }
                 if(items){
                     const ids = items?.map(d=>d.id)
@@ -293,15 +317,16 @@ async function doDataQuery( options ) {
                         ].filter(d=>d).join("") + "."
 
                         if( prompts ){
-                            let fragments = []
                             const threshold_min = primitive.referenceParameters?.thresholdMin ?? 0.85
                             const threshold_seek = primitive.referenceParameters?.thresholdSeek ?? 0.005
                             const searchTerms = primitive.referenceParameters?.candidateCount ?? 1000
                             const scanRatio = primitive.referenceParameters?.scanRatio ?? 0.15
+                            let fragments = await fetchFragmentsForTerm(prompts, {searchTerms, scanRatio, threshold_seek, threshold_min, serachScope})
+                            /*
                             for( const prompt of prompts ){
                                 console.log(`Fetching for ${prompt}`)
                                 fragments = fragments.concat( await fetchFragmentsForTerm(prompt, {searchTerms, scanRatio, threshold_seek, threshold_min, serachScope}) )
-                            }
+                            }*/
                             console.log(`have ${Object.keys(fragments).length} fragments`)
                             fragments = fragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i)
                             console.log(`have ${Object.keys(fragments).length} fragments`)
@@ -407,7 +432,8 @@ async function doDataQuery( options ) {
                                 const results = await processPromptOnText(partials ,{
                                     opener: `Here is a JOSN structure holding partial responses to a question - each partial includes a 'partal' string and a list of ids in 'ids'`,
                                     prompt: `Consolidate the partial responses based on the questions or topics they are answering to produce an answer to following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer but be concise in your phrasing and the level of detail.`,
-                                    output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was present in the partials, an 'answer' field containing a consolidated and comprehensive answer from those partials focussed on the same topic in ${targetWords}, an 'overview' field providing a 30-40 word summary of your consolidated answer, and an 'ids' field containing a consolidated list of ids from the partials used to form the consolidated answer`,
+                                    output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was present in the partials, an 'answer' field containing a consolidated and comprehensive answer from those partials in the format specified above, and an 'ids' field containing a consolidated list of ids from the partials used to form the consolidated answer`,
+                                    //output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was present in the partials, an 'answer' field containing a consolidated and comprehensive answer from those partials focussed on the same topic in ${targetWords}, an 'overview' field providing a 30-40 word summary of your consolidated answer, and an 'ids' field containing a consolidated list of ids from the partials used to form the consolidated answer`,
                                     engine: "gpt4p",
                                     no_num: false,
                                     maxTokens: 60000,
@@ -423,6 +449,8 @@ async function doDataQuery( options ) {
                             }
 
                             for( const d of final){
+                                console.log(`--- Consolidating`)
+                                console.log(d)
                                 const {title, ...extracts} = metadataItems.reduce((a,c)=>{a[metadata[c]?.field ?? c] = d[metadata[c]?.field ?? c]; return a},{})
                                 if( options.inheritField ){
                                     extracts[options.inheritField] = options.inheritValue
@@ -436,8 +464,8 @@ async function doDataQuery( options ) {
                                         referenceId: resultCategoryId,
                                         title: title ?? d.overview,
                                         referenceParameters: {
-                                            ...extracts,
                                             description: d.answer,
+                                            ...extracts,
                                             quote:d.quote
                                         },
                                         source: d.ids?.map(d=>{return {primitive: d.id, part: d.part}})
@@ -774,6 +802,7 @@ export default function QueueDocument(){
                 console.log(`Error in doDataQuery`)
                 console.log(error)
             }
+            console.log(`FINISHED QUERY - CLAER DCU`)
             dispatchControlUpdate(job.data.id, job.data.field , null, {track: job.data.id})
         }
         if( job.data.mode === "questions" ){

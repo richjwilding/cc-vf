@@ -5,6 +5,7 @@ import CustomText from "./CustomText";
 import PrimitiveConfig from "./PrimitiveConfig";
 import CollectionUtils from "./CollectionHelper";
 import moment from "moment";
+import MainStore from "./MainStore";
 const typeMaps = {}
 const categoryMaps = {}
 
@@ -63,6 +64,9 @@ export function RenderSetAsKonva( primitive, list, options = {} ){
     return renderer(primitive, {list:list, ...options, config: options.config} )
 }
 export function RenderPrimitiveAsKonva( primitive, options = {} ){
+    if( !primitive){
+        return
+    }
     let config = options.config || "default"
     let renderer = categoryMaps[primitive.referenceId]?.[config] ?? typeMaps[ primitive.type ]?.[config]
     if( !renderer ){
@@ -75,8 +79,8 @@ export function RenderPrimitiveAsKonva( primitive, options = {} ){
     return renderer(primitive, options)
 
 }
-registerRenderer( {type: "default", configs: "set_checktable"}, (primitive, options = {})=>{
-    const config = {width: 16, height: 16, padding: [2,2,2,2], ...(options.renderConfig ?? {})}
+registerRenderer( {type: "default", configs: "set_TEMP_dials"}, (primitive, options = {})=>{
+    const config = {width: 60, height: 45, padding: [2,2,2,2], ...(options.renderConfig ?? {})}
     if( !options.list ){
         return undefined
     }
@@ -101,24 +105,252 @@ registerRenderer( {type: "default", configs: "set_checktable"}, (primitive, opti
             name: "background"
         })
         g.add(r)
+
+        const colorscheme = primitive.renderConfig?.colors ?? "green"
+        const colors = {
+            green: [undefined, "#bbf7d0", "#86efac", "#4ade80"],
+            blue: [undefined, "#bfdbfe", "#93c5fd", "#3b82f6"],
+        }[colorscheme]
+
+
         if( items.length > 0 ){
-            const cScale = Math.min(w,h * 0.75) / 500 
-            const points = [
-                100, 300, 200, 400, 400, 100
-              ].map(d=>d * cScale)
-              const dim = 500 * cScale
-              
-              const polyline = new Konva.Line({
-                points: points,
-                x: config.padding[3] + ((w - dim) / 2),
-                y: config.padding[0] + ((h - dim) / 2),
-                stroke: 'black',
-                strokeWidth: 2,
-                lineJoin: 'round',
-                lineCap: 'round',
-                closed: false
-              });
-              g.add(polyline)
+            let showTitle = true
+            if( options.checkMap ){
+                const score = items.map(d=>d.parentPrimitiveIds.map(d=>options.checkMap[d] ?? 0)).flat().reduce((a,c)=>a > c ? a : c, 0)
+
+                if( showTitle ){
+                    const text = new CustomText({
+                        fontSize: 7,
+                        text: primitive.title,
+                        align:"center",
+                        wrap: false,
+                        ellipsis: true,
+                        verticalAlign:"middle",
+                        bgFill:"#f3f4f6",
+                        x: 0,
+                        y: config.height - 9,
+                        width: config.width,
+                        height: 12,
+                        refreshCallback: options.imageCallback
+                    })
+                    g.add(text)
+                }
+                const ay = config.padding[0] + h - (showTitle ? 10 : 0)
+                if( score < 3){
+                    var arc1 = new Konva.Arc({
+                        x: config.padding[3] + (w/ 2),
+                        y: ay,
+                        innerRadius: w * 0.15,
+                        outerRadius: w * 0.4,
+                        angle: 180,
+                        rotation: 180,
+                        fill: '#eee',
+                        stroke: '#ccc',
+                        strokeWidth: 0.5,
+                    });
+                  g.add(arc1)
+                }
+                    var arc = new Konva.Arc({
+                        x: config.padding[3] + (w/ 2),
+                        y: ay,
+                        innerRadius: w * 0.15,
+                        outerRadius: w * 0.4,
+                        angle: 60 * score,
+                        rotation: 180,
+                        fill: colors[score],
+                        stroke: '#ccc',
+                        strokeWidth: 0.5,
+                    });
+                  g.add(arc)
+            }
+
+        }
+
+    if( options.getConfig){
+        config.cachedNodes = g
+        return config
+    }else{
+        if( options.cachedNodes ){
+            options.cachedNodes.destroy()
+        }
+    }
+
+
+    return g
+})
+registerRenderer( {type: "default", configs: "set_dials"}, (primitive, options = {})=>{
+    const config = {width: 60, height: 30, padding: [2,2,2,2], ...(options.renderConfig ?? {})}
+    if( !options.list ){
+        return undefined
+    }
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+        const items = options.list
+
+        const pad = options.inTable ? config.height / 2 : 0
+        
+        const w = config.width - config.padding[3] - config.padding[1]
+        const h = (config.height - pad - config.padding[0] - config.padding[2])
+        const r = new Konva.Rect({
+            x: config.padding[3],
+            y: config.padding[0] + (pad / 2),
+            width: w,
+            height: h,
+            fill: '#f9fafb',
+            name: "background"
+        })
+        g.add(r)
+
+        const colorscheme = primitive.renderConfig?.colors ?? "green"
+        const colors = {
+            green: [undefined, "#bbf7d0", "#86efac", "#4ade80"],
+            blue: [undefined, "#bfdbfe", "#93c5fd", "#3b82f6"],
+        }[colorscheme]
+
+
+        if( items.length > 0 ){
+            let showTitle = !options.inTable
+            if( options.checkMap ){
+                const score = items.map(d=>d.parentPrimitiveIds.map(d=>options.checkMap[d] ?? 0)).flat().reduce((a,c)=>a > c ? a : c, 0)
+
+                if( showTitle ){
+                    const text = new CustomText({
+                        fontSize: 7,
+                        text: primitive.title,
+                        align:"center",
+                        wrap: false,
+                        ellipsis: true,
+                        verticalAlign:"middle",
+                        bgFill:"#f3f4f6",
+                        x: 0,
+                        y: config.height - 9,
+                        width: config.width,
+                        height: 12,
+                        refreshCallback: options.imageCallback
+                    })
+                    g.add(text)
+                }
+                const ah = h - (showTitle ? 10 : 0)
+                    var arc1 = new Konva.Rect({
+                        x: config.padding[3],
+                        y: config.padding[0] + (pad / 2),
+                        width: w,
+                        height: ah,
+                        fill: '#eee',
+                        stroke: '#ccc',
+                        strokeWidth: 0.5,
+                    });
+                  g.add(arc1)
+                const p = w / 3
+                const dx = p * 0.1
+                for(let i = 0; i < score; i++){
+                    var arc = new Konva.Rect({
+                        x: config.padding[3] + (p * i) + dx,
+                        y: config.padding[0] + dx + (pad / 2),
+                        width: p - dx - dx,
+                        height: ah - dx - dx,
+                        fill: colors[i + 1],
+                        stroke: '#ccc',
+                        strokeWidth: 0.5,
+                    });
+                    g.add(arc)
+                }
+            }
+
+        }
+
+    if( options.getConfig){
+        config.cachedNodes = g
+        return config
+    }else{
+        if( options.cachedNodes ){
+            options.cachedNodes.destroy()
+        }
+    }
+
+
+    return g
+})
+registerRenderer( {type: "default", configs: "set_checktable"}, (primitive, options = {})=>{
+    const config = {width: 60, height: 60, padding: [2,2,2,2], ...(options.renderConfig ?? {})}
+    if( !options.list ){
+        return undefined
+    }
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+        const items = options.list
+        
+        const w = config.width - config.padding[3] - config.padding[1]
+        const h = config.height - config.padding[0] - config.padding[2]
+        const r = new Konva.Rect({
+            x: config.padding[3],
+            y: config.padding[0],
+            width: w,
+            height: h,
+            fill: '#f9fafb',
+            name: "background"
+        })
+        g.add(r)
+
+        //const colors = [undefined, "#aaa", "#666", "black"]
+        const colors = [undefined, "#bbf7d0", "#86efac", "#4ade80"]
+
+        if( items.length > 0 ){
+            if( options.checkMap ){
+                const score = items.map(d=>d.parentPrimitiveIds.map(d=>options.checkMap[d] ?? 0)).flat().reduce((a,c)=>a > c ? a : c, 0)
+
+                var circle = new Konva.Circle({
+                    x: config.padding[3] + (w/ 2),
+                    y: config.padding[0] + (h / 2),
+                    radius: w * 0.4,
+                    fill: 'white',
+                    stroke: "black",
+                    strokeWidth:1,
+                  });
+                  g.add(circle)
+                var arc = new Konva.Arc({
+                    x: config.padding[3] + (w/ 2),
+                    y: config.padding[0] + (h / 2),
+                    innerRadius: 0,
+                    outerRadius: w * 0.4,
+                    angle: 120 * score,
+                    rotation: 270,
+                    fill: colors[score],
+                    strokeWidth: 1,
+                  });
+                  g.add(arc)
+            }else{
+
+                const cScale = Math.min(w,h * 0.75) / 500 
+                const dim = 500 * cScale
+                const points = [
+                    100, 300, 200, 400, 400, 100
+                ].map(d=>d * cScale)
+                
+                const polyline = new Konva.Line({
+                    points: points,
+                    x: config.padding[3] + ((w - dim) / 2),
+                    y: config.padding[0] + ((h - dim) / 2),
+                    stroke: "black",
+                    strokeWidth: 2,
+                    lineJoin: 'round',
+                    lineCap: 'round',
+                    closed: false
+                });
+                g.add(polyline)
+            }
 
         }
 
@@ -251,8 +483,8 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
     let offsetX = 0
     g.add(r)
     function renderPlot(alignScale){
-        const maxValue = (alignScale ? options.globalData.maximumValue : series.reduce((a,c)=>c > a ? c : a, -Infinity)) + 1
-        const minValue = (alignScale ? options.globalData.minimumValue : series.reduce((a,c)=>c < a ? c : a, Infinity))- 1
+        const maxValue = (alignScale ? (options.globalData?.maximumValue ?? 0) : series.reduce((a,c)=>c > a ? c : a, -Infinity)) + 1
+        const minValue = (alignScale ? (options.globalData?.minimumValue ?? 0): series.reduce((a,c)=>c < a ? c : a, Infinity))- 1
 
         const range = maxValue - minValue
         
@@ -493,6 +725,111 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
 
     return g
 })
+registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})=>{
+    const config = {showId: true, fontSize: 16, width: 128, padding: [10,10,10,10], ...options}
+    if( config.minWidth){
+        config.width = config.minWidth
+    }
+
+    const g = new Konva.Group({
+        name:"inf_track primitive",
+        id: primitive.id,
+        x:options.x ?? 0,
+        y:options.y ?? 0
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        fill: '#f9fafb',
+        name: "background"
+    })
+    g.add(r)
+
+    const w = config.width
+    let h = config.height ?? 40
+    const fullWidth = config.width - config.padding[3] - config.padding[1]
+
+
+    if( options.field === "icon"){
+        if(!options.getConfig){
+            const logo = imageHelper( `/api/image/${primitive.id}`, {
+                size: config.width,
+                y: options.getConfig ? undefined : (h - config.padding[0] - config.padding[2]- config.width)/2,
+                padding: config.padding,
+                center: true,
+                imageCallback: options.imageCallback,
+                placeholder: options.placeholder !== false
+            })
+            g.add(logo)
+        }
+    }else{
+
+        let value = options.field === "title" ? primitive.title : primitive.referenceParameters[options.field]
+        if( options.field.startsWith("cat_")){
+            const topCat = options.field.slice(4)
+            const matches = primitive.parentPrimitives.filter(d=>d.parentPrimitiveIds.includes(topCat))
+            if( matches.length > 0 ){
+                value = matches.map(d=>d.title).join("\n")   
+            }else{
+                value = "None"
+            }
+
+        }
+        let text = value
+        if( options.type === "currency" || options.type === "funding"){
+            if( primitive.referenceParameters?.ipo === "public" || primitive.referenceParameters?.ipo === "delisted"  ){
+                text = "Private"
+            }else{
+                if( value ){
+                    text = roundCurrency(value ?? 0)
+                }else{
+                    text = "-"
+                }
+            }
+        }else if( options.type === "date_string"){
+            text = value?.match(/(\d+)-/)?.[1] ?? "-"
+        }
+        
+        if( text ){
+            const textHeight = options.getConfig ? undefined : h - config.padding[0] - config.padding[2] 
+            
+            const t = new CustomText({
+                x: config.padding[3],
+                y: config.padding[0],
+                fontSize: config.fontSize,
+                lineHeight: 1.1,
+                text: text,
+                fill: '#334155',
+                showPlaceHolder: false,
+                wrap: true,
+                bgFill: 'transparent',
+                width: fullWidth,
+                ellipsis: true,
+                refreshCallback: options.imageCallback
+            })
+            g.add(t)
+            if( t.height() > textHeight){
+                t.height(textHeight)
+            }
+            const th = Math.max(t.height(), textHeight ?? 0)
+            
+            t.y( config.padding[0] + (th - t.height())  /2)
+        }
+    }
+
+    r.width(w)
+    r.height(h)
+    g.width(w)
+    g.height(h)
+    if( options.getConfig){
+        config.width = w
+        config.height = h
+        return config
+    }
+    return g
+})
 registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive, options = {})=>{
     const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
     if( options.getConfig){
@@ -517,10 +854,64 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
         name: "background"
     })
     g.add(r)
-
-    const partials = options.partials ?? []
+    
+    let partials = options.partials ?? []
     const rowUnion = partials.map(d=>d.rowExtents).flat()
-    const rowLabels = rowUnion.map(d=>d.label ?? "").filter((d,i,a)=>a.indexOf(d)===i).sort()
+    let rowLabels = rowUnion.map(d=>d.label ?? "").filter((d,i,a)=>a.indexOf(d)===i).sort()
+    let mainPartial = partials[0]
+
+    let primColumns = []
+    let skipMainPrim = false
+    if(primitive.referenceParameters?.fields ){
+        let fieldList = primitive.referenceParameters?.fields?.split(",").map(d=>d.trim())
+        if( fieldList.includes("SKIP")){
+            fieldList = fieldList.filter(d=>d!=="SKIP")
+            skipMainPrim = true
+            partials = partials.slice(1)
+        }
+        
+        const row = mainPartial.rowExtents?.find(d=>(d.label ?? "") === rowLabels[0])
+        let subList = row ? mainPartial.list.filter((item)=>(Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive) : []
+        const category = subList[0].metadata
+        if( subList[0]){
+
+            primColumns = fieldList.map(src=>{
+                let [d,w] = src.split("|")
+
+                d = d.trim()
+                if(d==="title"){
+                    return {
+                        label: "Name",
+                        field: d,
+                        width: w ? parseInt(w) : 200,
+                        type: "string"
+                    }
+                }else if(d==="icon"){
+                    return {
+                        label: "",
+                        field: d,
+                        width: w ? parseInt(w) : 60,
+                        type: "icon"
+                    }
+                }
+                const param = category.parameters[d]
+                    let width = w ? parseInt(w) : (param?.type === "string" || param?.type === "long_string" ? 200 : 100)
+                    let height
+                    if( d === "description"){
+                        width = 600
+                        height = 80
+                    }
+                    return {
+                        label: param?.title ?? d,
+                        field: d,
+                        width,
+                        height,
+                        type: param?.type
+                    }
+            }).filter(d=>d)
+            console.log(`FIELDS`, primColumns)
+        }
+    }
     
     const baseRenderConfig = {
                 placeholder: options.placeholder !== false, 
@@ -529,14 +920,29 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
 
     const cells = []
     let rIdx = 0
+    const columns = []
     for(const thisLabel of rowLabels){
         let cIdx = 0
+        const row = mainPartial.rowExtents.find(d=>(d.label ?? "") === thisLabel)
+        let subList = row ? mainPartial.list.filter((item)=>(Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive) : []
+        for( const d of primColumns){
+            const cell = {
+                cIdx,
+                rIdx,
+                orIdx: rIdx,
+                primitive: subList[0],
+                present: row !== undefined,
+            }
+            cells.push(cell)
+            cIdx++
+        }
         for(const partial of partials){
             const row = partial.rowExtents.find(d=>(d.label ?? "") === thisLabel)
             let subList = row ? partial.list.filter((item)=>(Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive) : []
             const cell = {
                 cIdx,
                 rIdx,
+                orIdx: rIdx,
                 list: subList,
                 listLength: subList.length,
                 present: row !== undefined,
@@ -548,19 +954,104 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
         cIdx = 0
     }
     rIdx = 0
+    const mainstore = MainStore()
+    const partialConfig = []
+    const pcLength = primColumns.length
+    const pScores = []
+
+    let cIdx = pcLength
+    for(const partial of partials){
+        let configName = partial.viewConfig?.renderType ?? "grid" 
+        partialConfig[cIdx - pcLength] = {}
+        if( configName === "checktable"){
+            const checkFor = [
+                partial.axis.column,
+                partial.axis.row,
+            ].filter(d=>d.type == "category").map(d=>mainstore.primitive(d.primitiveId)).filter(d=>d.referenceId === PrimitiveConfig.Constants.EVALUATOR)                
+            const scoreMap = checkFor.reduce((a,d)=>{
+                d.primitives.allItems.forEach(d=>{
+                    if( d.title === "clearly"){
+                        a[d.id] = 3
+                    }else if( d.title === "likely"){
+                        a[d.id] = 2
+                    }else if( d.title === "possibly"){
+                        a[d.id] = 1
+                    }
+                })
+                return a
+            }, {})
+            partialConfig[cIdx - pcLength].checkMap = scoreMap
+            rIdx = 0
+            for(const thisLabel of rowLabels){
+                const cell = cells.find(d=>d.cIdx === cIdx && d.rIdx === rIdx)
+                const score = cell.list.map(d=>d.parentPrimitiveIds.map(d=>partialConfig[cIdx - pcLength].checkMap[d] ?? 0)).flat().reduce((a,c)=>a > c ? a : c, 0)
+                pScores[rIdx] = (pScores[rIdx] ?? 0) + (score * score)
+                rIdx++
+            }
+        }else if( configName === "dials"){
+            const checkFor = [
+                partial.axis.column,
+                partial.axis.row,
+            ].filter(d=>d.type == "category").map(d=>mainstore.primitive(d.primitiveId)).filter(d=>d.referenceId === PrimitiveConfig.Constants.SCORE)                
+            const scoreMap = checkFor.reduce((a,d)=>{
+                d.primitives.allItems.forEach(d=>{
+                    if( d.title === "high"){
+                        a[d.id] = 3
+                    }else if( d.title === "medium"){
+                        a[d.id] = 2
+                    }else if( d.title === "low"){
+                        a[d.id] = 1
+                    }
+                })
+                return a
+            }, {})
+            partialConfig[cIdx - pcLength].checkMap = scoreMap
+            rIdx = 0
+        }
+        cIdx++
+    }
+    
+    if( pScores.length > 0){
+        const newOrder = rowLabels.map((d,i)=>[d,i]).sort((a,b)=>pScores[b[1]]-pScores[a[1]])
+        newOrder.forEach((d,idx)=>{
+            cells.filter(c=>c.orIdx === d[1]).forEach(c=>c.rIdx = idx)
+            rowLabels[idx] = d[0]
+        })
+    }
+
+    rIdx = 0
     for(const thisLabel of rowLabels){
         let cIdx = 0
+        for( const d of primColumns){
+            const config ={
+                    ...baseRenderConfig,
+                    config: "field",
+                    field: d.field,
+                    type: d.type,
+                    width: d.width,
+                    showId: false,  
+                    inTable: true,
+                    padding:[5,8,5,8],
+                    renderConfig:{
+                    }                
+            }
+            const cell = cells.find(d=>d.cIdx === cIdx && d.rIdx === rIdx)
+            const updateConfig = RenderPrimitiveAsKonva( cell.primitive, {...config, getConfig: true})    
+            cell.config = {
+                ...config,
+                ...updateConfig,
+                getConfig: false
+            }
+            cIdx++
+        }
         for(const partial of partials){
             let minWidth = 100
-            const row = partial.rowExtents.find(d=>(d.label ?? "") === thisLabel)
-            
             const range = rowLabels.map((_,i)=>cells.filter(d=>d.cIdx === cIdx && d.rIdx === i).map(d=>d.listLength))
-            //let subList = list.filter((item)=>(Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx) && (Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive)
             const cell = cells.find(d=>d.cIdx === cIdx && d.rIdx === rIdx)
             
             let configName = partial.viewConfig?.renderType ?? "grid" 
             const asCounts = partial.viewConfig?.showAsCounts
-            const asChecks = partial.viewConfig?.parameters?.showAsCheck
+            const asChecks = partial.viewConfig?.parameters?.showAsCheck ?? configName == "checktable"
             if( asCounts ){
                 configName = "heatmap"
             }
@@ -568,12 +1059,13 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
                 configName = "checktable"
             }
             
+            
             const config ={
                     ...baseRenderConfig,
+                    partial: partial.primitive,
                     config: configName,
-                    cIdx: cIdx,
-                    rIdx: rIdx,
                     range: [Math.min(...range), Math.max(...range)],
+                    ...partialConfig[cIdx - pcLength],
                     renderConfig:{
                         showId: false,  
                         inTable: true,
@@ -583,18 +1075,19 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
                         columns: 1,
                     }                
             }
+            if(primitive.widths?.[cIdx] ){
+                config.renderConfig.width = 80//primitive.widths[cIdx]
+            }
             let updateConfig 
             if( cell.list.length === 1 && cell.list[0].type === "summary"){
-                updateConfig = RenderPrimitiveAsKonva( cell.list[0], {
-                        config: "default", 
-                        onClick: options.primitiveClick,
-                        padding:[5,8,5,8],
-                        showId: false,
-                        fontSize:18,
-                        placeholder: options.placeholder !== false,
-                        imageCallback: options.imageCallback,
-                        getConfig: true
+                   const configForSummary = configName === "grid" ? "default" : configName 
+                   updateConfig = RenderPrimitiveAsKonva( cell.list[0], {
+                       ...config,
+                       config: configForSummary,
+                       ...config.renderConfig,
+                       getConfig: true
                     })
+                    updateConfig.config = configForSummary
             }else{
                 updateConfig = RenderSetAsKonva( partial.primitive, cell.list, {...config, getConfig: true})    
             }
@@ -608,8 +1101,8 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
         rIdx++
     }
     console.log(`Got ${cells.length} cells`)
-    const columnWidths = partials.map((_,i)=>Math.max(0,...cells.filter(d=>d.cIdx === i).map(d=>d.config.width)))
-    const rowHeights = rowLabels.map((_,i)=>Math.max(0,...cells.filter(d=>d.rIdx === i).map(d=>d.config.height)))
+    const columnWidths = [primColumns,partials].flat().map((_,i)=>Math.max(0,...cells.filter(d=>d.cIdx === i).map(d=>d.config.width)))
+    const rowHeights = rowLabels.map((_,i)=>Math.max(0,...cells.filter(d=>d.rIdx === i).map(d=>d.config.height ?? 0)))
     
     for(const cell of cells){
         cell.config.renderConfig.width = columnWidths[cell.cIdx]
@@ -618,23 +1111,38 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
     let x = 0, y = 80, h = 0 
 
     rowLabels.forEach((_,rIdx)=>{
-        partials.forEach((partial,cIdx)=>{
+        primColumns.forEach((column,cIdx)=>{
             const cell = cells.find(d=>d.cIdx === cIdx && d.rIdx === rIdx)
             if( rIdx === 0){
-                g.add( addHeader(partial.primitive.title, {x: x, y: 0, width: cell.config.renderConfig.width, height: 80, imageCallback: options.imageCallback}))
+                g.add( addHeader(column.label, {x: x, y: 0, width: cell.config.renderConfig.width, height: 80, imageCallback: options.imageCallback, class: "column_header"}))
+            }
+            if( cell.primitive ){
+
+                const renderedCell = RenderPrimitiveAsKonva( cell.primitive, 
+                    {
+                        ...cell.config, 
+                        ...cell.config.renderConfig,
+                        id: `${cell.cIdx}-${cell.rIdx}`, 
+                    })    
+                    renderedCell.x(x)
+                    renderedCell.y(y)
+                    g.add(renderedCell)
+            }
+            x += columnWidths[cIdx]
+        })
+        partials.forEach((partial,pIdx)=>{
+            let cIdx = pIdx + primColumns.length
+            const cell = cells.find(d=>d.cIdx === cIdx && d.rIdx === rIdx)
+            if( rIdx === 0){
+                g.add( addHeader(partial.primitive.title, {x: x, y: 0, width: cell.config.renderConfig.width, height: 80, imageCallback: options.imageCallback, class: "column_header"}))
             }
             let renderedCell
             if( cell.list.length === 1 && cell.list[0].type === "summary"){
                 renderedCell = RenderPrimitiveAsKonva( cell.list[0], {
-                        config: "default", 
-                        onClick: options.primitiveClick,
-                        height: cell.config.renderConfig.height, 
-                        padding:[5,8,5,8],
-                        fontSize:18,
-                        showId: false,
-                        width: cell.config.renderConfig.width, 
-                        placeholder: options.placeholder !== false,
-                        imageCallback: options.imageCallback,
+                        ...cell.config,
+                        ...config.renderConfig,
+                        ...cell.config.renderConfig,
+                        getConfig: false
                     })
             }else{
                 renderedCell = RenderSetAsKonva( partial.primitive, cell.list, 
@@ -645,7 +1153,6 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
             }
             renderedCell.x(x)
             renderedCell.y(y)
-            console.log(renderedCell, x, y)
             g.add(renderedCell)
             x += columnWidths[cIdx]
         })
@@ -667,7 +1174,7 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
 function addHeader( title, options ={}){
     let config = {x: 0, y: 0, width: 100, fontSize: 12, height:25, padding: [2,2,2,2], textPadding:[2,2,2,2], ...options}
     const group = new Konva.Group({
-        name: "inf_track row_header",
+        name: `inf_track ${options.class ?? "row_header"}`,
         x: config.x,
         y: config.y,
         width: config.width,
@@ -682,7 +1189,7 @@ function addHeader( title, options ={}){
     })
     group.add(bg)
     const t = new CustomText({
-        fontFamily: "system-ui",
+        //fontFamily: "system-ui",
         fontSize: config.fontSize,
         text: title,
         wrap: true,
@@ -738,7 +1245,7 @@ function baseGridRender( options, config){
     const heightDefined = config.itemHeight || config.itemSize
     
     const fullHeight =  heightDefined ? (config.itemHeight ?? config.itemSize) + config.itemPadding[0] + config.itemPadding[2] : undefined
-    const fullWidth = (config.itemWidth ?? config.itemSize) + config.itemPadding[1] + config.itemPadding[3]
+    const fullWidth = ((config.columns === 1 ? Math.max(config.itemWidth ?? 0, config.minWidth ?? 0 ) : config.itemWidth ?? config.itemSize)) + config.itemPadding[1] + config.itemPadding[3]
 
     let minColumns = config.minColumns
 
@@ -905,13 +1412,13 @@ function addExtraNode(config, options, x,y, fullWidth){
 
     return node
 }
-registerRenderer( {type: "categoryId", id: 29, configs: "set_overview"}, (primitive, options = {})=>{
-    const config = {width: 300, height: 700, itemSize: 100, itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
-    if( options.getConfig){
-        return config
+registerRenderer( {type: "default", configs: "set_overview"}, (primitive, options = {})=>{
+    const config = {width: 300, spacing: 10,/*height: 1400,*/count: 4, itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
+    if( primitive.renderConfig?.count){
+        config.count = primitive.renderConfig?.count
     }
     const width = config.width 
-    const height = config.height 
+    const height = config.count ? undefined : config.height 
     
     
     const g = new Konva.Group({
@@ -933,30 +1440,115 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_overview"}, (primit
     g.add(r)
     let x = 0
     let y = config.padding[0]
-    const fullHeight = config.itemSize + config.itemPadding[0] + config.itemPadding[2]
 
-    const items = options.list.filter(d=>d.referenceParameters?.funding).sort((a,b)=>b.referenceParameters.funding - a.referenceParameters.funding)
+
+    //const items = options.list.filter(d=>d.referenceParameters?.funding).sort((a,b)=>b.referenceParameters.funding - a.referenceParameters.funding)
+    let items = options.list
+    /*
+    const mode = primitive.renderConfig?.mode ?? "none"
+    if( mode == "funding"){
+        items = options.list.filter(d=>d.referenceParameters?.funding).sort((a,b)=>b.referenceParameters.funding - a.referenceParameters.funding)
+    }else{
+        items = options.list
+    }*/
     const maxScale = items.map(d=>d.referenceParameters.funding).reduce((a,c)=>c > a ? c : a, 0)
 
-    for( const d of items ){
+    let renderList = config.count ? items.slice(0, config.count) : items
+    for( const d of renderList ){
         const node = RenderPrimitiveAsKonva( d, {
             config: "overview", 
             x: x, 
             y: y, 
-            height: fullHeight, 
             width: width - config.itemPadding[1] - config.itemPadding[3], 
             imageCallback: options.imageCallback,
             padding: config.itemPadding, imageCallback: options.imageCallback})
-        if( node ){
-            g.add(node)
-        }
-        y += fullHeight
-        if( (y + fullHeight) > height){
-            break
-        }
+        
+        g.add(node)
+        y += node.height() + config.spacing
+    }
+    g.height( y + config.padding[2])
+
+    if( options.getConfig){
+        config.height = g.height()
+        return config
     }
 
     return g
+})
+//registerRenderer( {type: "default", configs: "overview"}, (primitive, options = {})=>{
+registerRenderer( {type: "default",  configs: "overview"}, (primitive, options = {})=>{
+    
+    const config = {width: 300, padding: [10,10,10,10], fontSize: 10, leftSize: 150, maxScale: 100, parameter: "funding", ...options}
+    if( options.getConfig){
+        return config
+    }
+
+    let availableWidth = config.width - config.padding[1] - config.padding[3]
+    let availableHeight = config.height ? (config.height - config.padding[0] - config.padding[2]) :undefined
+    let ox =  config.padding[3]
+    let oy =  config.padding[0]
+
+
+
+    const g = new Konva.Group({
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height,
+        name:"inf_track primitive"
+    })
+    if( g ){
+        const r = new Konva.Rect({
+            x: 0,
+            y: 0,
+            width: config.width,
+            height: config.height,
+            cornerRadius: 2,
+            fill: 'white',
+        })
+        g.add(r)
+
+
+        let tx = ox 
+        const title = new CustomText({
+            fontSize: config.fontSize - 2,
+            fontStyle:"bold",
+            text: primitive.title,
+            y: oy + config.padding[0],
+            x: tx,
+            width: availableWidth - tx,
+            height: 16,
+            wrap: false,
+            ellipsis: true,
+            refreshCallback: options.imageCallback
+        })
+        g.add(title);
+        
+        const t = new CustomText({
+            x: tx,
+            y: config.padding[0] + oy + 16,
+            fontSize: config.fontSize,
+            lineHeight: 1.5,
+            text: primitive.referenceParameters.description.slice(0,150),
+            fill: '#334155',
+            wrap: true,
+            refreshCallback: options.imageCallback,
+            ellipsis: true,
+            width: availableWidth - tx,
+            height: availableHeight ? availableHeight - (config.padding[0] +oy+16) : undefined,
+        })
+        g.add(t)
+        //const h = Math.max( t.height() + t.y(), (config.itemSize ?? 0) + oy) + config.padding[2]
+        const h = t.height() + t.y()
+        r.height(h)
+        g.height(h)
+
+
+
+    }
+    return g
+
+
 })
 registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive, options = {})=>{
     const config = {width: 300, height: 100, itemSize: 60, padding: [10,10,10,10], fontSize: 10, leftSize: 150, maxScale: 100, parameter: "funding", ...options}
@@ -965,7 +1557,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
     }
 
     let availableWidth = config.width - config.padding[1] - config.padding[3]
-    let availableHeight = config.height - config.padding[0] - config.padding[2]
+    let availableHeight = config.height ? (config.height - config.padding[0] - config.padding[2]) :undefined
     let ox =  config.padding[3]
     let oy =  config.padding[0]
 
@@ -1024,15 +1616,20 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
             y: config.padding[0] + oy + 16,
             fontSize: config.fontSize,
             lineHeight: 1.5,
-            text: primitive.referenceParameters.description.slice(0,150),
+            text: primitive.referenceParameters?.description?.slice(0,150) ?? "",
             fill: '#334155',
             wrap: true,
             refreshCallback: options.imageCallback,
             ellipsis: true,
             width: availableWidth - tx,
-            height: availableHeight - (config.padding[0] +oy+16),
+            height: availableHeight ? availableHeight - (config.padding[0] +oy+16) : undefined,
         })
         g.add(t)
+        if( !availableHeight){
+            const h = Math.max( t.height() + t.y(), config.itemSize + oy) + config.padding[2]
+            r.height(h)
+            g.height(h)
+        }
 
 
 
@@ -1170,12 +1767,24 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
 })
 
 
+registerRenderer( {type: "categoryId", id: 109, configs: "dials"}, function renderFunc(primitive, options = {}){
+    return typeMaps[ "default" ]["set_dials"](options.partial, {...options, list:[primitive]})
+})
+registerRenderer( {type: "categoryId", id: 109, configs: "checktable"}, function renderFunc(primitive, options = {}){
+    return typeMaps[ "default" ]["set_checktable"](options.partial, {...options, list:[primitive]})
+})
+registerRenderer( {type: "categoryId", id: 82, configs: "default"}, function renderFunc(primitive, options = {}){
+    return categoryMaps[109]["default"](primitive, {...options, field:"description"})
+})
 registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function renderFunc(primitive, options = {}){
 
-    const config = {showId: true, idSize: 14, fontSize: 16, width: 800, padding: [10,10,10,10], ...options}
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 800, maxHeight: 3000, padding: [10,10,10,10], ...options}
     let toggleWidth = 0
     if( options.toggles){
         toggleWidth = 26
+    }
+    if( config.minWidth){
+        config.width = Math.max(config.width ?? 0, config.minWidth)
     }
 
     let idHeight = config.showId ?  20 : 0
@@ -1201,6 +1810,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
             width: config.width,
             cornerRadius: 2,
             fill: 'white',
+            name:"background"
         })
         g.add(r)
         const t = new CustomText({
@@ -1208,13 +1818,16 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
             y: config.padding[0],
             fontSize: config.fontSize,
             lineHeight: 1.5,
-            text: primitive.referenceParameters.summary,
+            text: primitive.referenceParameters[config.field],
             withMarkdown: true,
             fill: '#334155',
             wrap: true,
             width: availableWidth,
         })
         t.attrs.refreshCallback = options.imageCallback
+        if( options.inTable && options.height ){
+            t.y((options.height - t.height()) / 2)
+        }
 
         let h = t.height()
         if( availableHeight ){
@@ -1246,6 +1859,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
 
         if( config.showId ){
             const idText = new CustomText({
+                name:"plainId",
                 x: config.padding[3],
                 y: totalheight - config.padding[2] - config.idSize ,
                 fontSize: config.idSize,
@@ -1549,6 +2163,7 @@ registerRenderer( {type: "default", configs: "default"}, function renderFunc(pri
             fontSize: 16,
             lineHeight: 1.5,
             text: primitive.title,
+            verticalAlign: options.inTable ? "middle" : undefined,
             fill: '#334155',
             wrap: true,
             width: availableWidth,
@@ -1873,18 +2488,38 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
         name:"inf_track primitive inf_keep"
     })
     if( g ){
+        let showName = false
 
         const logo = imageHelper( `/api/image/${primitive.id}`, {
             x: 0,
             y: 0,
             padding: config.padding,
             width: config.width,
-            height: config.height,
+            height: config.height - (showName ? 12 : 0),
             center: true,
+            alt: primitive.title,
             imageCallback: options.imageCallback,
             placeholder: options.placeholder !== false
         })
         g.add( logo )
+        if( showName ){
+                const text = new CustomText({
+                    fontSize: 5,
+                    text: primitive.title,
+                    align:"center",
+                    wrap: false,
+                    ellipsis: true,
+                    verticalAlign:"middle",
+                    bgFill:"#f3f4f6",
+                    x: 0,
+                    y: config.height - 6,
+                    width: config.width,
+                    height: 12,
+                    refreshCallback: options.imageCallback
+                })
+                g.add(text)
+
+        }
 
     }
     return g
@@ -1922,8 +2557,14 @@ function imageHelper(url, options){
 }
 
 export function renderMatrix( primitive, list, options ){
-    const columnExtents = options.columnExtents ? options.columnExtents.slice(0,100) : [{idx:0}]
-    const rowExtents = options.rowExtents ? options.rowExtents.slice(0,100) : [{idx:0}]
+    let columnExtents = options.columnExtents ? options.columnExtents.slice(0,200) : [{idx:0}]
+    let rowExtents = options.rowExtents ? options.rowExtents.slice(0,200) : [{idx:0}]
+    if( columnExtents.length === 0){
+        columnExtents = [{idx:0}]
+    }
+    if( rowExtents.length === 0){
+        rowExtents = [{idx:0}]
+    }
 
     
     
@@ -1935,7 +2576,7 @@ export function renderMatrix( primitive, list, options ){
     let configName = options.viewConfig?.renderType ?? "grid" 
 
     const asCounts = options.viewConfig?.showAsCounts
-    const asChecks = options.viewConfig?.parameters?.showAsCheck
+    const asChecks = options.viewConfig?.parameters?.showAsCheck ?? configName === "checktable"
     if( asCounts ){
         configName = "heatmap"
     }
@@ -1953,8 +2594,12 @@ export function renderMatrix( primitive, list, options ){
         console.log(`Multiple types in list, selecting first`)
     }
     
+    const globalData = {}
+    let checkMap
+    const mainstore = MainStore()
     let cellContentLimit
-    if( configName === "grid"){
+    if( configName === "grid" ){//&& !asCounts ){
+
 
         cellContentLimit = {
             "result": 50,
@@ -1964,6 +2609,54 @@ export function renderMatrix( primitive, list, options ){
         cellContentLimit = {
             29: 63
         }[referenceIds[0]] ?? cellContentLimit
+    }else if(configName === "checktable" || configName === "dials"){
+        const evaluatorMap = (axis)=>{
+            if( !axis){return}
+            if( axis.type == "category" ){
+                const axisPrim = mainstore.primitive(axis.primitiveId)
+                if(axisPrim?.referenceId === PrimitiveConfig.Constants.SCORE){
+                    return axisPrim.primitives.allItems.reduce((a,d)=>{
+                        if( d.title === "high"){
+                            a[d.id] = 3
+                        }else if( d.title === "medium"){
+                            a[d.id] = 2
+                        }else if( d.title === "low"){
+                            a[d.id] = 1
+                        }
+                        return a
+                    },{})
+                }
+                if(axisPrim?.referenceId === PrimitiveConfig.Constants.EVALUATOR){
+                    return axisPrim.primitives.allItems.reduce((a,d)=>{
+                        if( d.title === "clearly"){
+                            a[d.id] = 3
+                        }else if( d.title === "likely"){
+                            a[d.id] = 2
+                        }else if( d.title === "possibly"){
+                            a[d.id] = 1
+                        }
+                        return a
+                    },{})
+                }
+            }
+            return undefined
+
+        }
+        const colEvalMap =  evaluatorMap({type: "category", primitiveId: options.axis?.column?.primitiveId})
+        const rowEvalMap =  evaluatorMap({type: "category", primitiveId:options.axis?.row?.primitiveId})
+        if( colEvalMap ){
+            console.log(`Got evaluator in view ${primitive.plainId}`)
+            console.log(colEvalMap)
+            list = list.map(d=>({...d, column: 0}))
+            columnExtents = [{idx:0}]
+        }
+        if( colEvalMap || rowEvalMap){
+            checkMap ={
+                ...(colEvalMap ?? {}),
+                ...(rowEvalMap ?? {})
+            }
+        }
+
     }
 
     let itemColsByColumn = new Array(columnExtents.length).fill(0)
@@ -2021,10 +2714,13 @@ export function renderMatrix( primitive, list, options ){
 
 
     let minHeight = 0
-    let minWidth = {29: 120}[referenceIds[0]] ?? 300
+    let minWidth = options.width ?? 300
+    if( referenceIds[0] === 29){
+        minWidth = options.hideColumnHeader ? 60 : 120
+    }
     if( asCounts ){
         minWidth = 128
-    }else if( asChecks){
+    }else if( asChecks || configName === "checktable" || configName === "dials"){
         minWidth = 64
     }
     if( configName === "ranking"){
@@ -2058,10 +2754,13 @@ export function renderMatrix( primitive, list, options ){
                 cIdx: cell.cIdx,
                 rIdx: cell.rIdx,
                 renderConfig:{
+                    ...(options.renderConfig ?? {}),
                     asChecks,
                     showExtra: cell.showExtra,
-                    columns: itemColsByColumn[cell.cIdx], minWidth: minWidth
+                    columns: itemColsByColumn[cell.cIdx], 
+                    minWidth: minWidth,
                 },
+                checkMap,
                 getConfig: true
             } )    
         
@@ -2074,102 +2773,108 @@ export function renderMatrix( primitive, list, options ){
     }
     const maxRowHeight = Math.max(...rowSize, 0)
 
+    let headerHeight = 0
     let maxFont = maxRowHeight / 4
-
     let headerScale = Math.max(1, Math.max(columnSize.reduce((a,c)=>a+c, 0) / 2000 , rowSize.reduce((a,c)=>a+c, 0) / 4000 ))
     let headerFontSize = Math.min(12 * headerScale, maxFont, 120)
     let textPadding = new Array(4).fill(headerFontSize * 0.3 )
-    let headerHeight = (headerFontSize * 4)
-    let headerTextHeight = headerHeight - textPadding[0] - textPadding[2]
-
-
-    const globalData = {}
-    if( configName === "timeseries"){
-        globalData.maximumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a > c ? a : c, -Infinity) 
-        globalData.minimumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a < c ? a : c, Infinity) 
-    }
-
-    rowSize.forEach((d,i)=>{if(d < headerHeight){
-        rowSize[i] = headerHeight
-    }})
-
-    const iconSize = 100
-    let columnLabelAsText = true
     let rowLabelAsText = true
-
-    const columnLabels = columnExtents.map((d,idx)=>{
-        const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding: [5,5,5,5]}
-        if( options.axis?.column?.type === "icon"){
-            columnLabelAsText = false
-            const logo = imageHelper( `/api/image/${d.idx}`, {
-                x: cellConfig.padding[3] + textPadding[3],
-                y: cellConfig.padding[0] + textPadding[0],
-                size: iconSize,
-                center: true,
-                imageCallback: options.imageCallback,
-                placeholder: options.placeholder !== false
-            })
-            return logo
-        }else{
-            const longestWord = `${(d.label ?? "")}`.split(" ").reduce((a,c)=>a.length > c.length ? a : c, 0)
-            const colWidth = columnSize[idx] - textPadding[1] - textPadding[3] - cellConfig.padding[3] - cellConfig.padding[1] 
-
-            const text = new CustomText({
-                fontFamily: "system-ui",
-                fontSize: headerFontSize,
-                text: longestWord,
-                align:"center",
-                wrap: true,
-                verticalAlign:"middle",
-                bgFill:"#f3f4f6",
-                x: cellConfig.padding[3] + textPadding[3],
-                y: cellConfig.padding[0] + textPadding[0],
-                width: colWidth,
-                height: "auto",
-                refreshCallback: options.imageCallback
-            })
-
-            while( text.measureSize(longestWord).width > colWidth && headerFontSize > 6){
-                headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
-                text.fontSize( headerFontSize )
-            } 
-            text.text( d.label ?? "" )  
-
-            return text
-        }
-    })
-    
-
-    function isColumnHeaderOverflowing(labels, height){
-        return labels.filter(d=>d.height() > height).length >0
-    }
-    function isRowHeaderOverflowing(labels, heights){
-        return labels.filter((d,i)=>d.height() > heights[i]).length >0
-    }
-    
     let recalc = false
     let recalcRow = false
-    if( columnLabelAsText ){
+    let columnLabelAsText = true
+    const iconSize = 100
+    let columnLabels
+    let headerTextHeight = 0
 
-        while( isColumnHeaderOverflowing( columnLabels, headerTextHeight) && headerFontSize > 6){
-            headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
-            columnLabels.forEach(d=>d.fontSize(headerFontSize))
-            recalc = true
+    if( options.hideColumnHeader !== true){
+
+        headerHeight = (headerFontSize * 4)
+        headerTextHeight = headerHeight - textPadding[0] - textPadding[2]
+        
+        
+        if( configName === "timeseries"){
+            globalData.maximumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a > c ? a : c, -Infinity) 
+            globalData.minimumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a < c ? a : c, Infinity) 
         }
-        columnLabels.forEach(d=>d.fontSize(headerFontSize))
+        
+        
+        rowSize.forEach((d,i)=>{if(d < headerHeight){
+            rowSize[i] = headerHeight
+        }})
+        
+        
+        columnLabels = columnExtents.map((d,idx)=>{
+            const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding: [5,5,5,5]}
+            if( options.axis?.column?.type === "icon"){
+                columnLabelAsText = false
+                const logo = imageHelper( `/api/image/${d.idx}`, {
+                    x: cellConfig.padding[3] + textPadding[3],
+                    y: cellConfig.padding[0] + textPadding[0],
+                    size: iconSize,
+                    center: true,
+                    imageCallback: options.imageCallback,
+                    placeholder: options.placeholder !== false
+                })
+                return logo
+            }else{
+                const longestWord = `${(d.label ?? "")}`.split(" ").reduce((a,c)=>a.length > c.length ? a : c, 0)
+                const colWidth = columnSize[idx] - textPadding[1] - textPadding[3] - cellConfig.padding[3] - cellConfig.padding[1] 
+                
+                const text = new CustomText({
+                    //fontFamily: "system-ui",
+                    fontSize: headerFontSize,
+                    text: longestWord,
+                    align:"center",
+                    wrap: true,
+                    verticalAlign:"middle",
+                    bgFill:"#f3f4f6",
+                    x: cellConfig.padding[3] + textPadding[3],
+                    y: cellConfig.padding[0] + textPadding[0],
+                    width: colWidth,
+                    height: "auto",
+                    refreshCallback: options.imageCallback
+                })
+                
+                while( text.measureSize(longestWord).width > colWidth && headerFontSize > 6){
+                    headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
+                    text.fontSize( headerFontSize )
+                } 
+                text.text( d.label ?? "" )  
+                
+                return text
+            }
+        })
+        
+        
+        function isColumnHeaderOverflowing(labels, height){
+            return labels.filter(d=>d.height() > height).length >0
+        }
+        
+        if( columnLabelAsText ){
+            
+            while( isColumnHeaderOverflowing( columnLabels, headerTextHeight) && headerFontSize > 6){
+                headerFontSize = headerFontSize > 50 ? headerFontSize -= (headerFontSize * 0.1) : headerFontSize - 0.25
+                columnLabels.forEach(d=>d.fontSize(headerFontSize))
+                recalc = true
+            }
+            columnLabels.forEach(d=>d.fontSize(headerFontSize))
+        }
+        
     }
-
-    let showRowheaders = rowExtents.length > 1 || rowExtents[0]?.label?.length > 0
+    let showRowheaders =  (options.hideRowHeaders !== true ) && (rowExtents.length > 1 || rowExtents[0]?.label?.length > 0)
     let headerWidth = 0
     let rowLabels
-
+    
     if( showRowheaders ){
+        function isRowHeaderOverflowing(labels, heights){
+            return labels.filter((d,i)=>d.height() > heights[i]).length >0
+        }
         const longestPairs = rowExtents.map(d=>{
             const words = `${(d.label  ?? "")}`.split(" ")
             const coupleLength = [words, words.map((d,i,a)=> i > 0 ? a[i-1] + " " + d : undefined ).filter(d=>d)].flat()
             return coupleLength.reduce((a,c)=>c.length > a.length ? c : a, "" )
         }).reduce((a,c)=>c.length > a.length ? c : a, "" )
-
+        
         let textWidth 
         let rowHeights = []
         rowLabels = rowExtents.map((d,idx)=>{
@@ -2191,7 +2896,7 @@ export function renderMatrix( primitive, list, options ){
             }else{
 
                 const text = new CustomText({
-                    fontFamily: "system-ui",
+                    //fontFamily: "system-ui",
                     fontSize: headerFontSize,
                     text: textWidth ? (d.label  ?? "") : ` ${longestPairs} `,
                     wrap: true,
@@ -2228,12 +2933,14 @@ export function renderMatrix( primitive, list, options ){
         headerTextHeight = columnLabels.reduce((a,c)=>c.height() > a ? c.height() : a, 0)
         headerHeight = headerTextHeight + textPadding[0] + textPadding[2] 
     }
-    columnLabels.forEach(d=>{
-        d.y(d.y() + ((headerTextHeight - d.height())/2) )
-    })
+    if( options.hideColumnHeader !== true){
+        columnLabels.forEach(d=>{
+            d.y(d.y() + ((headerTextHeight - d.height())/2) )
+        })
+    }
     let headerPadding = cells[0]?.config.padding[0] ?? 0
 
-    const columnY = rowSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), headerHeight + headerPadding))
+    const columnY = rowSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), options.hideColumnHeader ? 0 : headerHeight + headerPadding))
     
     if( showRowheaders ){
         rowExtents.forEach((header,idx)=>{
@@ -2261,28 +2968,29 @@ export function renderMatrix( primitive, list, options ){
 
 
     const columnX = columnSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), headerWidth ))
-
-    columnExtents.forEach((header,idx)=>{
-        const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding:[0,0,0,0]}
-        const group = new Konva.Group({
-            name: "inf_track column_header",
-            x: columnX[idx],
-            y: 0,
-            width: columnSize[idx],
-            height: headerHeight
-        }) 
-        const bg = new Konva.Rect({
-            x: cellConfig.padding[3],
-            y: cellConfig.padding[0],
-            width: columnSize[idx] - cellConfig.padding[3] - cellConfig.padding[1] ,
-            height: headerHeight,
-            fill:'#f3f4f6'
+    if( options.hideColumnHeader !== true){
+        columnExtents.forEach((header,idx)=>{
+            const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding:[0,0,0,0]}
+            const group = new Konva.Group({
+                name: "inf_track column_header",
+                x: columnX[idx],
+                y: 0,
+                width: columnSize[idx],
+                height: headerHeight
+            }) 
+            const bg = new Konva.Rect({
+                x: cellConfig.padding[3],
+                y: cellConfig.padding[0],
+                width: columnSize[idx] - cellConfig.padding[3] - cellConfig.padding[1] ,
+                height: headerHeight,
+                fill:'#f3f4f6'
+            })
+            group.add(bg)
+            group.add(columnLabels[idx])
+            g.add(group)
         })
-        group.add(bg)
-        group.add(columnLabels[idx])
-        g.add(group)
-    })
 
+    }
     for( const cell of cells){
 
         const c = RenderSetAsKonva( primitive, cell.list, 
@@ -2293,16 +3001,19 @@ export function renderMatrix( primitive, list, options ){
                 rIdx: cell.rIdx,
                 id: `${cell.cIdx}-${cell.rIdx}`, 
                 renderConfig:{
+                    ...(options.renderConfig ?? {}),
                     asChecks,
                     showExtra: cell.showExtra,
                     width: columnSize[cell.cIdx], 
                     height: rowSize[cell.rIdx] , 
+                    minWidth: minWidth,
                     minHeight: rowSize[cell.rIdx] - cell.config.padding[0] - cell.config.padding[2],
                     columns: itemColsByColumn[cell.cIdx], 
                     rows: cell.itemRows
                 },
                 data: cell.config.data,
                 globalData,
+                checkMap,
                 cachedNodes: cell.config.cachedNodes
             })
         c.x(columnX[cell.cIdx] )
@@ -2312,34 +3023,6 @@ export function renderMatrix( primitive, list, options ){
     }
 
     
-   /* 
-    for(let rIdx = 0; rIdx < rowExtents.length; rIdx++){
-        const thisRow = cells.filter(d=>d.rIdx === rIdx)
-        if( thisRow && thisRow.length > 0){
-            const maxHeightCell = thisRow.reduce((a,c)=>c.node.attrs.height > a.node.attrs.height ? c : a )
-            const cellConfig = thisRow[0].config ?? {padding:[0,0,0,0]}
-            let headerHeight = showRowheaders ? rowSize[rIdx] - cellConfig.padding[0] - cellConfig.padding[2] : 0
-            console.log(`*** `, cellConfig, rowSize[rIdx], headerHeight)
-            if( maxHeightCell ){
-                const maxHeight = Math.max(headerHeight, maxHeightCell.node.attrs.height)
-                const bg = maxHeightCell.node.find('.background')?.[0]
-                const maxHeightBg = Math.max(headerHeight, bg ? bg.attrs.height : headerHeight)
-                
-                for(const d of thisRow ){
-                    if( d.node.attrs.height < maxHeight){
-                        d.node.attrs.height = maxHeight
-                        if( maxHeightBg ){
-                            const bg = d.node.find('.background')?.[0]
-                            if( bg ){
-                                bg.attrs.height = maxHeightBg
-                            }
-                        }
-                    }
-                }
-                
-            }
-        }
-    }*/
 
     g.width( g.find(()=>true).map(d=>d.x() + d.width()).reduce((a,c)=>c > a ? c : a, 0))
     g.height( g.find(()=>true).map(d=>d.y() + d.height()).reduce((a,c)=>c > a ? c : a, 0))

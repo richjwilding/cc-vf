@@ -13,12 +13,11 @@ import PrimitiveConfig from './PrimitiveConfig'
 
 
 export default function GenericEditor({item, primitive,...props}) {  
-  
   const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [deleteMessage, setDeleteMessage] = useState( `Are you sure you want to delete this ${primitive.displayType}?` )
 
-  useDataEvent("relationship_update set_field", primitive.id, updateRelationships)
+  useDataEvent("relationship_update set_field set_parameter", [primitive.id, primitive.primitives.allUniqueCategory.map(d=>d.id)], updateRelationships)
     const [parameters, setParameters] = useState({})
   
   const [open, setOpen] = useState(true)
@@ -56,6 +55,30 @@ export default function GenericEditor({item, primitive,...props}) {
     }
 
     setConfirmRemove(true)
+  }
+  function copyToClipboard(){
+    const out = primitive.primitives.allUniqueCategory.map(d=>`${d.title}${d.referenceParameters?.description ? `:${d.referenceParameters?.description}` : ""}`).join("|")
+    navigator.clipboard.writeText(out)
+  }
+  async function pasteFromClipboard(){
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(async function(data) {
+        const items = data.split("|")
+        const category = props.options[0]
+        for( const d of items){
+          const [title, description] = d.split(":").map(d=>d.trim())
+          await MainStore().createPrimitive({
+            categoryId: category.id,
+            type: category.primitiveType,
+            title,
+            parent: primitive,
+            referenceParameters:{
+              description
+            }
+          })
+        }
+      })
+    }
   }
 
   const handleRemove = async function(){
@@ -140,13 +163,24 @@ export default function GenericEditor({item, primitive,...props}) {
               <div className='w-full space-x-2 mt-2'>
                 <DropdownButton flat={true} items={items} title='Add item' className='shrink-0 grow-0 h-8' dropdownWidth='w-96' align='left'/>
                 {actions && <DropdownButton flat={true} items={
-                  actions.map((d)=>{
+                  [...actions.map((d)=>{
                     return {
                       key: d.key,
                       title: d.title,
                       action: d.action ?? (async ()=>await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id, source: primitive.id}))
                     }
-                  })
+                  }),
+                  {
+                    key: "copy",
+                    title: "Copy to clipboard",
+                    action: copyToClipboard
+                  },
+                  {
+                    key: "create",
+                    title: "Create from clipboard",
+                    action: pasteFromClipboard
+                  }
+                ]
                   } title='Action' className='shrink-0 grow-0 h-8' dropdownWidth='w-max' align='left'/>}
                   <button
                     type="button"

@@ -203,29 +203,36 @@ class CollectionUtils{
     }
     static axisFromCollection(items, primitive, options = {}){
         const mainstore = MainStore()
-        if( primitive.type === "query"){
-            if( primitive.metadata.type === "aggregator" || primitive.referenceParameters.useAxis){
-                const segments = uniquePrimitives(items.map(d=>d.findParentPrimitives({type: "segment", first:true})).flat())
-                const filterLength = Math.max(0, ...segments.map(d=>d.referenceParameters?.importConfig?.[0].filters?.length))
-                if( !filterLength ){
-                    return [{id: 0, type: "none", title: "None"}]
+        let out = [{type: "none", title: "None", values: [""], order:[""], labels: ["None"]}]
+
+        function findQueryAxis(p){
+            if( p.type === "query"){
+                if( p.metadata.type === "aggregator" || p.referenceParameters.useAxis){
+                    return p
                 }
-
+            }
+            const parent = p.primitives.imports.allItems[0]
+            if( parent && (parent.type === "view" || parent.type === "query")){
+                return findQueryAxis(parent)
+            }
+        }
+        if( findQueryAxis(primitive)){
+            const segments = uniquePrimitives(items.map(d=>d.findParentPrimitives({type: "segment", first:true})).flat())
+            const filterLength = Math.max(0, ...segments.map(d=>d.referenceParameters?.importConfig?.[0].filters?.length))
+            if( filterLength ){
                 let segmentAxis = new Array(filterLength).fill().map((d,i)=>({id: i, passType: "segment_filter", type: "segment_filter", title: `By Segment axis ${i}`}))
-
+                
                 segmentAxis = [
                     ...segmentAxis,
                     {id: filterLength, type: "none", title: "None"},
                 ].slice(0,2)
-                console.log(segmentAxis)
-                return segmentAxis
+                out = out.concat( segmentAxis)
             }
         }
         
         const viewPivot = options.viewPivot
 
 
-        let out = [{type: "none", title: "None", values: [""], order:[""], labels: ["None"]}]
 
         function findCategories( list, access = 0, relationship ){
             const catIds = {}
@@ -295,6 +302,9 @@ class CollectionUtils{
 
             catIds.forEach((id)=>{
                 const category = MainStore().category(id)
+                if( id=== 29){
+                        out.push( {type: 'act_parent', title: `Activity parent`, category, relationship, access: access, passType: "raw"})
+                }
                 if( category.primitiveType === "marketsegment"){
                         out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "indexed"})
                 }else{
@@ -324,7 +334,7 @@ class CollectionUtils{
             if( Object.keys(taskParams).length > 0){
                 p.forEach(d=>process(taskParams[d.referenceId], ""))
             }
-            console.log(out)
+            //console.log(out)
 
             out = out.filter((d,i)=>out.findIndex(d2=>d2.type === d.type && d.title === d2.title && d.access === d2.access && mainstore.equalRelationships(d.relationship, d2.relationship) ) === i)
 
@@ -335,7 +345,7 @@ class CollectionUtils{
                 if( filter.type === "title" ){
                     return  (p.filter((d)=>["number","string"].includes(typeof(d.title))).filter((d)=>d !== undefined).length > 0)
                 }
-                if( filter.type === "icon"  || filter.type === "type" ){
+                if( filter.type === "icon"  || filter.type === "type" || filter.type ==="act_parent"){
                     return true
                 }
                 return false
@@ -346,7 +356,7 @@ class CollectionUtils{
         if( primitive ){
             let baseCategories = uniquePrimitives([
                 ...primitive.primitives.origin.allUniqueCategory, 
-                ...primitive.findParentPrimitives({type:"view"}).map(d=>d.primitives.origin.allUniqueCategory).flat(),
+                ...primitive.findParentPrimitives({type:["view", "query"]}).map(d=>d.primitives.origin.allUniqueCategory).flat(),
                 ...uniquePrimitives(items.map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()).map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()
             ])
 
@@ -459,7 +469,7 @@ class CollectionUtils{
             return true
         })
         const labelled = final.map((d,idx)=>{return {id:idx, ...d}})
-        console.log(labelled)
+        //console.log(labelled)
         return labelled
     }
     static axisExtents(interim, axis, field){
@@ -472,8 +482,19 @@ class CollectionUtils{
             "segment_filter":(field)=>{
                 const segments = uniquePrimitives(interim.map(d=>d.primitive.findParentPrimitives({type: "segment", first:true})).flat())
 
+                const remap = {}
                 const mapped = segments.map(d=>{
-                    const filterConfig = d.referenceParameters?.importConfig?.[0]?.filters?.[axis.id ?? 0]
+                    const m =  axis.title.match(/(.d+)/)
+
+                    let filterConfig = d.referenceParameters?.importConfig?.[0]?.filters
+                    
+                    if( filterConfig.length > 0){
+                        const did = field === "row" ? 0 : 1
+                        filterConfig = filterConfig[did]
+                    }else{
+                        filterConfig = filterConfig[0]
+                    }
+
                     if( filterConfig){
                         if(filterConfig.type ==="parent"){
                             if( filterConfig.value){
@@ -481,16 +502,22 @@ class CollectionUtils{
                                 const segment = MainStore().primitive(filterConfig.value)
                                 let title = segment?.filterDescription ??  segment?.title  ?? "None"
 
+                                remap[d.id] = title
                                 return {idx: d.id, label: title}
                             }else{
+                                remap[d.id] = "None"
                                 return {idx: d.id, label: "None"}
                             }
                         }else{
                             const value = filterConfig.value ?? "None"
+                                remap[d.id] = value
                             return {idx: d.id, label: value}
                         }
                     }
-                }).filter((d,i,a)=>d && a.findIndex(d2=>d2.idx === d.idx)===i).sort((a,b)=>a.label.localeCompare(b.label))
+                }).filter((d,i,a)=>d && a.findIndex(d2=>d2.label === d.label)===i).sort((a,b)=>a.label.localeCompare(b.label))
+                interim.forEach(d=>{
+                    d[field] = mapped.find(d2=>d2.label === remap[d[field]])?.idx
+                })
 
 
                 console.log(mapped)
@@ -651,10 +678,11 @@ class CollectionUtils{
             }
             
         }else{
-            const parser = bucket[axis.passType]
+            let parser = bucket[axis.passType]
             if( !parser ){
                 console.log(axis)
-                throw `Cant pass axis ${axis.passType}`
+                console.warn(`Cant pass axis ${axis.passType}`)
+                parser = bucket["raw"]
             }
             out = parser(field)
         }        
@@ -680,6 +708,8 @@ class CollectionUtils{
                     return (p)=>p.findParentPrimitives({type: "segment", first:true})[0]?.id
                 }else if( option.type === "contact"){
                     return (d)=>d.origin.referenceParameters?.contactId
+                }else if( option.type === "act_parent"){
+                    return (d)=>d.findParentPrimitives({type:"activity"})?.[0]?.title
                 }else if( option.type === "type"){
                     return (p)=>{
                         let item = p

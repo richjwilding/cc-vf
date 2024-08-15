@@ -331,7 +331,7 @@ export default function QueryQueue(){
                             return newPrim
                         }
 
-                        const callopts = {site: config.site ,quoteKeywords: config.phrase, timeFrame: config.timeFrame, count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix, cancelCheck: cancelCheck}
+                        const callopts = {site: config.site ,quoteKeywords: config.phrase, countPerTerm: config.countPerTerm, timeFrame: config.timeFrame, count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix, cancelCheck: cancelCheck}
 
                         if( source.platform === "linkedin" ){
                             if( source.type === "posts" ){

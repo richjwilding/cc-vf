@@ -169,7 +169,7 @@ export async function summarizeMultiple(list, options = {} ){
         return await summarizeMultipleAsList(list, options)
     }    
 
-    let listIntro = `Here are a list of ${options.types || "items"}: `
+    let listIntro = list.length === 1 ? "Here is an overview of a company" : `Here are a list of ${options.types || "items"}: `
     let prompt = options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`    
     let finalPrompt = prompt
     if( options.focus ){
@@ -179,8 +179,8 @@ export async function summarizeMultiple(list, options = {} ){
             finalPrompt =  prompt + `.  Ensure the summary focus mainly on ${options.focus}.`
         }
     }
-    finalPrompt =  finalPrompt + `.  Use only the information i have provided to produce the summary`
-    const format = options.markdown ? "You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\nHeader or section titles: **[text]**\nidented list item:- [text]\ndouble indented list item:-- [text\ntriple indented list item:--- [text]\n Do not use any other markdown. Do not defined the markdown format in your response and only include markdown where needed." : "Format your response as a simple string without any formatting."
+    finalPrompt =  finalPrompt + (options.allow_infer ? "" : `.  Use only the information i have provided to produce the summary - you must not make reference to it (e.g avoid phrases like 'the text suggests', 'the provided text includes' and similar)`)
+    const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **[text]**\n" :""}indented list item:- [text]\ndouble indented list item:-- [text\ntriple indented list item:--- [text]\n Do not use any other markdown. Do not defined the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string without any formatting."
     
     let outputFields
     if( options.outputFields) {
@@ -201,7 +201,7 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "user", "content":  finalPrompt},
                 {"role": "user", "content": outputFields},
             ],
-            {wholeResponse: options.outputFields !== undefined, field: "summary", debug: false, engine: "gpt4p" ?? options.engine, ...options })
+            {wholeResponse: options.outputFields !== undefined, no_num: list.length === 1 , field: "summary", debug: false, engine: "gpt4p" ?? options.engine, ...options })
 
 
     if( Object.hasOwn(interim, "success")){
@@ -209,6 +209,10 @@ export async function summarizeMultiple(list, options = {} ){
         return interim
     }
     let final = []
+    if( options.batch){
+        console.log('need to summarize partials')
+        //return {success: true, summary: interim.join("\n")}
+    }
 
     if( interim.length > 1 ){
         const result = await processInChunk( interim, 
@@ -659,7 +663,7 @@ export async function processPromptOnText( text, options = {}){
 }
 
 function tokensForModel(model){
-    let defaultTokens = 80000
+    let defaultTokens = 90000
     if( model === "gpt4" ){
         defaultTokens = 5000
     }else if( model === "gpt4p" ){
@@ -696,20 +700,23 @@ async function processInChunk( list, pre, post, options = {} ){
 
     if( options.batch && fullContent.length > options.batch){
         const concurrency = 10
-        const bacthData = []
+        const batchData = []
+        const batchStart = []
         for(let idx = 0; idx < maxIdx; idx += options.batch)
         {
-            bacthData.push( fullContent.slice(idx, idx + options.batch))
+            batchData.push( fullContent.slice(idx, idx + options.batch))
+            batchStart.push(idx)
         }
         console.log(`Will split into batches of ${options.batch} - concurrency = ${concurrency}`)
-        const {results, cancelled} = await executeConcurrently( bacthData, 
-                                                                (d)=>processInChunk(d, 
+        const {results, cancelled} = await executeConcurrently( batchData, 
+                                                                (d, idx)=>processInChunk(d, 
                                                                                     pre, 
                                                                                     post, 
                                                                                     {
                                                                                         ...options,
                                                                                         inBatch: true,
-                                                                                        batch: undefined
+                                                                                        batch: undefined,
+                                                                                        batchStartOffset: batchStart[idx]
                                                                                     }),
                                                                                     undefined,
                                                                                     undefined,
@@ -729,6 +736,7 @@ async function processInChunk( list, pre, post, options = {} ){
     let lastTokensCount = maxTokens
     let targetMaxTokens = maxTokens
     let isReducing = false
+    let truncateIdx, truncateCount
     
     do{
         let leave
@@ -753,9 +761,21 @@ async function processInChunk( list, pre, post, options = {} ){
         if(startIdx > endIdx ){
             console.log( encode( fullContent[startIdx] ).length)
             console.log("Cant processes chunk - response too large?")
+            if( truncateIdx !== startIdx ){
+                truncateIdx = startIdx
+                truncateCount = 0 
+            }
+            if( truncateCount < 3){
+                truncateCount ++
+                console.log(`-- Will try truncating by 10% (attempt ${truncateCount})`)
+                fullContent[startIdx]= fullContent[startIdx].slice(0, fullContent[startIdx].length * 0.9)
+                endIdx = startIdx
+                continue
+            }
             startIdx++
             endIdx = startIdx
             maxTokens = targetMaxTokens
+            console.log(`Truncation failed - skipping`)
             continue
         }
 
@@ -811,8 +831,12 @@ async function processInChunk( list, pre, post, options = {} ){
                     if( options.idField){
                         console.log(`Check ID field ${options.idField} bounds`)
                         values.forEach((d,idx)=>{
-                            if( (parseInt(d[options.idField]) < startIdx) || (parseInt(d[options.idField]) > endIdx) ){
-                                console.log(`-- record has out of bounds id field ${d[options.idField]} vs ${startIdx} - >${endIdx}`)
+                            const sIdx = startIdx + (options.batchStartOffset ?? 0)
+                            const eIdx = endIdx + (options.batchStartOffset ?? 0)
+                            if( (parseInt(d[options.idField]) < sIdx) || (parseInt(d[options.idField]) > eIdx )){
+                                console.log(`FOR CONTENT`)
+                                console.log(content)
+                                console.log(`-- record has out of bounds id field ${d[options.idField]} vs ${startIdx} ${sIdx} - >${endIdx} / ${eIdx}`)
                             }
                         })
 
@@ -863,10 +887,14 @@ async function executeAI(messages, options = {}){
     const openai = new OpenAIApi(configuration)
     let response
     let err
-    
-    let model = "gpt-4o"
     let sleepBase = 20000
-    let output = 4096
+    
+    
+    //let model = "gpt-4o"
+    //let output = 4096
+
+    let model = "gpt-4o-2024-08-06"
+    let output = 16384
     let response_format = { type: "json_object" }
 
     if( options.engine === "gpt4o-mini" ){
@@ -971,24 +999,17 @@ async function executeAI(messages, options = {}){
 export  async function categorize(list, categories, options = {} ){
     const targetType = options.types || "item"
 //    const match = options.matchPrompt || `I am categorizing a list of ${options.longType ?? targetType}s.  You must assess how well each of the provided numbered ${targetType}s aligns with each of the candidate numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} based on conceptual similarity, rather than exact text matches`
-    const match = options.matchPrompt ?? `I am categorizing a list of ${options.longType ?? targetType}s. Assess how well each item aligns with the candidate categories based on conceptual similarity.`
-    let tokens = 12000
-    if(options.engine === "gpt4"){
-        tokens = 2000
-    }
-    if(options.engine === "gpt4p"){
-        tokens = 10000
-    }
-
+    const match = options.matchPrompt ?? `I am categorizing a list of ${options.longType ?? targetType}s. Assess how well each item aligns with the candidate categories based on ${options.literal ? "a string similarirty" : "conceptual similarity"}.`
+//options.literal ? ["unclear", "current", "adjacent","middle","far"] : 
     const scoreMap = ["Not", "Hardly", "Somewhat", "Likely", "Clear"]
 
     let instructions = `
     Assessment Scale:\n
-    - 0: No conceptual alignment.
-    - 1: Minimal conceptual similarity.
-    - 2: Some conceptual elements shared.
-    - 3: Significant conceptual alignment.
-    - 4: Perfect conceptual alignment.
+    - 0: No ${options.literal ? "string" : "conceptual"} alignment.
+    - 1: Minimal ${options.literal ? "string" : "conceptual"} similarity.
+    - 2: Some ${options.literal ? "string aignment" : "conceptual elements shared"}.
+    - 3: Significant ${options.literal ? "string" : "conceptual"} alignment.
+    - 4: Perfect ${options.literal ? "string" : "conceptual"} alignment.
     
     Steps:
     1. Compare each item to each category.
@@ -996,7 +1017,7 @@ export  async function categorize(list, categories, options = {} ){
     3. Review and correct mistakes
     4. Do this for every item`
 
-    if( false && options.complex){
+    if( options.complex){
         instructions += `
         
         Return your results in a JSON object called results with the following structure:
@@ -1005,8 +1026,8 @@ export  async function categorize(list, categories, options = {} ){
                 id: <<item id as provided to you>>,
                 a:[ 
                     {
-                        c: <<category 0>>,
-                        s: <<assessment score of item for category 0>>
+                        c: <<category id as provided to you - e.g 0>>,
+                        s: <<assessment score of item for this category>>
                     },
                     ...<<assessments for each and every remaining category - there should be ${categories.length} in total>>
                 ] 
@@ -1022,7 +1043,7 @@ export  async function categorize(list, categories, options = {} ){
                 id: <<item id as provided to you>>,
                 a:[ 
                     {
-                        c: <<id of category with highest score>>,
+                        c: <<id of category, as provided to you, with highest score>>,
                         s: <<assessment score for item associated with the catgeory with the highest score>,
                         r:<<5 word rationale for score for winning category>>
                     }
@@ -1040,9 +1061,9 @@ export  async function categorize(list, categories, options = {} ){
                 {"role": "user", "content": `And here are a list of numbered categories:\n ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
                 {"role": "user", "content": instructions}
             ],
-            {field: "results", maxTokens: tokens, engine:  options.engine, ...options})
+            {field: "results", engine:  options.engine, ...options})
 
-    const remap = interim.map(d=>{
+    const remap = options.numerical ? interim : interim.map(d=>{
         return {id: d.id, a: d.a?.map((d,i)=>({c: d.c, s: scoreMap[d.s]}))}
     })
     console.log(remap)

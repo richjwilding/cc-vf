@@ -645,7 +645,7 @@ export async function replicateFlow(start, target, options = {}){
     if( typeof(target) === "string"){
         target = await fetchPrimitive( target )
     }
-    const steps = await primitiveDescendents(start, ["view", "query"], {through: true, filterAtStep: true})
+    const steps = await primitiveDescendents(start, ["view", "query"], {through: true, fullDocument:true, filterAtStep: true})
     const sourceBoardPrimitive = (await primitiveParentsOfType( start, "board"))?.[0]
     const targetBoardPrimitive = (await primitiveParentsOfType( target, "board"))?.[0]
 

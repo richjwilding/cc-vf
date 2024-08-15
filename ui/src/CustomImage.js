@@ -147,11 +147,38 @@ class CustomImage extends Shape {
   
       img.onerror = (e) => {
         console.log(`Error loadinging image ${this.attrs.url}`)
-        console.log(e)
+        if( this.attrs.alt ){
+          this.maxImage = document.createElement('canvas');
+          this.maxImage.width = 128//this.attrs.width * this.activeScale
+          this.maxImage.height = 128//this.attrs.height * this.activeScale
+          let ctx = this.maxImage.getContext("2d")
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0,0,this.maxImage.width, this.maxImage.height)
+          
+          ctx.fillStyle = 'black';
+          ctx.textBaseline = "middle"
+          ctx.textAlign = "center"
+          ctx.fillText(this.attrs.alt , 64, 64)
+          this.pcache._canvas_context.drawImage(this.maxImage, 0,0);
+          
+          if(this.attrs.refreshCallback ){
+            this.newScale = 1
+            console.log(`calling refresh`)
+            this.attrs.refreshCallback()
+          }
+        }
+        resolve()
       };
   
       img.src = this.attrs.url
     });
+  }
+  toDataURL(){
+    console.log(`CALLED toDataURL`)
+    if( this.maxImage ){
+      return this.maxImage.toDataURL("image/png", 1)
+    }
+    return super.toDataURL()
   }
   _buildPrivateCache(){
 
@@ -170,7 +197,7 @@ class CustomImage extends Shape {
             const h = CustomImage.placeholderImage.height / CustomImage.placeholderImage.width * w
             let x = (this.pcache.width - w)/2
             let y = (this.pcache.height - h)/2
-          this.pcache._canvas_context.drawImage(CustomImage.placeholderImage, x, y, w, h);
+            this.pcache._canvas_context.drawImage(CustomImage.placeholderImage, x, y, w, h);
         }
       });
     }

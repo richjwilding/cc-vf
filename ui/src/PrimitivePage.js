@@ -40,6 +40,7 @@ import MapViewer from './MapViewer';
 import BoardViewer from './BoardViewer';
 import HierarchyNavigator from './HierarchyNavigator';
 import AnalysisPage from './AnalysisPage';
+import ReportViewExporter from './ReportViewExporter';
 
 
 let mainstore = MainStore()
@@ -380,19 +381,22 @@ export function PrimitivePage({primitive, ...props}) {
         style={{minHeight: showWorkingPane ? "100%" : 'calc(100% - 4rem)'}}
         className="overflow-y-scroll overscroll-contain w-full"
         onScroll={()=>{
+          if( header.current && page.current){
+
             let opacity = parseInt(Math.min(page.current.scrollTop, 60) / 6) * 10
             let last = parseInt(header.current.getAttribute('last')) || 0
             header.current.setAttribute('last', opacity)
             if( last !== opacity){
-                header.current.classList.remove(`shadow-gray-300/${last}`)
-                header.current.classList.add(`shadow-gray-300/${opacity}`)
-                if( last === 0){
-                    header.current.classList.add(`shadow-md`)
-                }
-                if( opacity === 0){
-                    header.current.classList.remove(`shadow-md`)
-                }
+              header.current.classList.remove(`shadow-gray-300/${last}`)
+              header.current.classList.add(`shadow-gray-300/${opacity}`)
+              if( last === 0){
+                header.current.classList.add(`shadow-md`)
+              }
+              if( opacity === 0){
+                header.current.classList.remove(`shadow-md`)
+              }
             }
+          }
 
 
         }}
@@ -566,7 +570,7 @@ export function PrimitivePage({primitive, ...props}) {
                     {showWorkingPane === "old_report" &&
                       <ReportView primitive={primitive}/>
                     }
-                    {showWorkingPane === "report" && <PrimtiveReportViewer primitive={primitive} source={MainStore().primitive(251421)}/>}
+                    {showWorkingPane === "report" && <ReportViewExporter primitive={primitive}/>}
                     {showWorkingPane === "assessment_table" &&
                       <VFTable primitive={primitive}/>
                     }

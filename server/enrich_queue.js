@@ -12,6 +12,7 @@ import Parser from "@postlight/parser";
 import { extractURLsFromPage, extractURLsFromPageAlternative, fetchURLPlainText } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
 import QueueManager from "./base_queue";
+import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
 
 
 let instance
@@ -150,7 +151,7 @@ export default function EnrichPrimitive(){
 
     async function fetchDetails(primitive, options){
         const sourceCategory = await Category.findOne({id: options.referenceId})
-        const fullList = await primitiveDescendents( primitive, "detail", {referenceId: options.referenceId})
+        const fullList = await primitiveDescendents( primitive, "detail", {referenceId: options.referenceId, fullDocument: true})
         const childList = []
         const processList = []
         for( const d of fullList ){
@@ -208,8 +209,8 @@ export default function EnrichPrimitive(){
                     const plural = sourceCategory.plural ?? (sourceCategory.title + "s")
                     const singluar = sourceCategory.title
                     const opener = `Here is some information about offerings and capabilities from a company called ${primitive.title ?? "Unknown"}.  Each numbered item includes a title plus zero or more aspects.`
-                    const instructions = `Summarize the ${aspect} asepcts of these items (where present) as a list of up to 10 terms of the most distingushing and differentiated ${aspect}.`
-                    let fields = "Return your results as a JSON object with a 'result' containing an array which each item being a term from the summary"
+                    const instructions = primitiveCategory.ai?.summarize?.[paramKey] ?? `Summarize the ${aspect} asepcts of these items (where present) as a list of up to 10 terms of the most distingushing and differentiated ${aspect}.`
+                    let fields = primitiveCategory.ai?.summarize?.[paramKey] ? "Return your results as a JSON object with a 'result' field containing your answer as a string": "Return your results as a JSON object with a 'result' containing an array which each item being a term from the summary"
                     
                     const results = await processPromptOnText( toProcess,{
                         opener: opener,
@@ -407,7 +408,7 @@ export default function EnrichPrimitive(){
 
                     extracts += " and also the following details where included: \n"
                     extracts += extractor.extracts.map(d=>d.type + ": " + d.description).join("\n")
-                }
+               }
 
 
                 const fieldAsArray = extractor.extracts?.map(d=>d.fields?.join(","))
@@ -542,6 +543,8 @@ export default function EnrichPrimitive(){
                                         console.log( newData )
                                         throw "Couldnt add page reaource"
                                     }
+                                    const embeddedFragments = await buildDocumentTextEmbeddings( pageText )
+                                    await storeDocumentEmbeddings( pagePrimitive, embeddedFragments)
                                 }
 
                                 const newData = {
@@ -609,7 +612,15 @@ export default function EnrichPrimitive(){
                 const results = await processPromptOnText( text,{
                     opener: `here is the text from the webpage of a company called ${company}:`,
                     prompt: `Produce a summary (written in English) of the companies offerings, target customers, markets and capabilities using only information explicity mentioned in the text i have provided.`,
-                    output: `Return the result in a json object called "result" with a field called 'description' containing a summary of the company in no more than 100 words (if present), an 'offerings' field containing an array of offerings with each array entry being no more than 10 words  (if present), a 'customers' field containing an array of target customers with each array entry being no more than 10 words (if present), a 'capabilities' field containing an array of capabilities with each array entry being no more than 10 words (if present), a 'location' field containing the country where the headquaters is based (if specified) `,
+                    output: `Return the result in a json object called "result" with the following structure: {
+                        description: <containing a summary of the company in no more than 100 words>,
+                        offering_keywords: <field containing an array of core offerings, each as a string, with each array entry being no more than 10 words  (if present)>,
+                        capability_keywords: <field containing an array of capabilities with each array entry being no more than 10 words (if present)>,
+                        capabilities: <a summary of the capabilities underpinning the offerings and operations of the organization in 100-150 words starting with 'Leveraging capabilities...'. Ensure you focus only on the capabilities that are core to the business rather than ancillary aspects (such as shipping, customer service etc). Do not mention the company name.>,
+                        offerings: <a summary of the offerings this organization provides in 100-150 words starting with 'Offering....'. Ensure you focus only on the core offerings made to cstomers rather than ancillary aspects (such as shipping, customer service etc). Do not mention the company name.>,
+                        customers: <field containing an array of target customers, each as a string, with each array entry being no more than 10 words  (if present)>,
+                        location: <field containing the country where the headquaters is based (if specified) >
+                    }`,
                     //output: `Return the result in a json object called "result" with a field called 'description' containing a summary of the company in no more than 100 words (if present), an 'offerings' field containing an array of offerings with each array entry being no more than 10 words  (if present), a 'markets' field containing an array of geographical markets the company operates in with each array entry being no more than 10 words (if present), an 'customers' field containing an array of target customers with each array entry being no more than 10 words (if present), a 'capabilities' field containing an array of capabilities with each array entry being no more than 10 words (if present),`,
                     engine: "gpt4o-mini",
                     field: "result"
@@ -617,7 +628,7 @@ export default function EnrichPrimitive(){
                 console.log(results)
                 if( results.success ){
                     console.log("here")
-                    for(const field of ["description","offerings", "customers", "capabilities","location"]){
+                    for(const field of ["description","offerings", "customers", "capabilities","offering_keywords","capability_keywords","location"]){
                         const v = results.output?.[0]?.[field]
                         if(v){
                             console.log(`update ${field}`, v)
@@ -696,21 +707,29 @@ export default function EnrichPrimitive(){
                                     longType: "items containing two fieds - a url of a weblink and the descriptive text for the link",
                                     matchPrompt: `For each item you must assess the best match with a category from the supplied list using information from the weblink and/or descriptive text, or determine if there is a not a strong match. Ignore any links that are most likely about shopping, purchasing, delivery, ecommerce listing or other ecommerce activities`,
                                     engine: "gpt4o-mini",
+                                    numerical: true,
                                    // maxTokens: 80000,
                                     debug_content: true,
                                     debug: true
                                 })
                                 if( result ){
                                     for(const d of result){
-                                        console.log( urlMap[d.id] + " - " + d.category)
-                                        if( d.category > -1){
-                                            const category = catList[d.category]?.id
-                                            if( category ){
-                                                if( urlsToParse.find(d2=>d2.url === urlList[d.id].url && d2.categoryId !== category) === undefined ){
-                                                    urlsToParse.push( {url:urlList[d.id].url, categoryId: category })
+                                        if( d.a ){
+                                            const passed = d.a.filter(d=>d.s > 2)
+                                            const winner = passed.sort((a,b)=>b.s - a.s)[0]
+                                            console.log( urlMap[d.id] + " - " + winner?.c)
+                                            if( winner){
+
+                                                if( winner.c > -1){
+                                                    const category = catList[ winner.c]?.id
+                                                    if( category ){
+                                                        if( urlsToParse.find(d2=>d2.url === urlList[d.id].url && d2.categoryId !== category) === undefined ){
+                                                            urlsToParse.push( {url:urlList[d.id].url, categoryId: category })
+                                                        }
+                                                    }else{
+                                                        console.log(`Couldnt find matching category ${winner.c}`)
+                                                    }
                                                 }
-                                            }else{
-                                                console.log(`Couldnt find matching category ${d.category}`)
                                             }
                                         }
                                     }

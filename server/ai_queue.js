@@ -1357,15 +1357,14 @@ export default function QueueAI(){
                                         await executeConcurrently( mutableList, process)
                                     }
                                     return
-                                }else if( pCategory?.mapMode === "evaluate" ){
+                                }else if( pCategory?.mapMode === "extract_score"){
+                                    let extractField = primitive.referenceParameters.extract
+                                    let conditions = "high, medium, low, unclear"//primitive.referenceParameters.conditions
                                     let opener = "Here is a list of items"
-                                    if( ! primitive.referenceParameters.evaluation){
-                                        throw "Nothing to evaluate"
-                                    }
                                     if( primitive.referenceParameters.conditions){
-                                        opener = `Here is some context about a task you will perform: ${primitive.referenceParameters.conditions}.\n\nAnd here is a list of items `
+                                        opener = `And here is a list of items `
                                     }
-                                    const categoryLabels = ["not at all", "possibly", "likely", "clearly"]
+                                    const categoryLabels = ["unclear", "low", "medium", "high"]
                                     const missing = categoryLabels.filter(d=>!catOptions.map(d=>d.title).includes(d))
 
                                     console.log(`Need to create ${missing.join(",")}`)
@@ -1383,7 +1382,65 @@ export default function QueueAI(){
                                         }
                                     }
 
-                                    let prompt = `For each item in the list provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
+                                    let prompt = `Examine each entry and extract the value ${extractField}${conditions ? ` - limit the extraction to one of ${conditions}` : ""}`
+                                    const result = await processPromptOnText( data, {
+                                        opener,
+                                        prompt,
+                                        output: "Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed, a field called 'value' set to the etxracted field for that item, and a quote field conatining upto 12 words verbatim from where you extracted the text.  Do not include anything other than the json object in the response.",
+                                        engine: "gpt4p",
+                                        debug: true,
+                                        no_num: false,
+                                        debug_content: true,
+                                        batch: 50
+                                    })
+                                    console.log(result)
+                                    
+                                    const resultCache = catOptions.reduce((a,c)=>{a[c.title] = {ids: [], categoryId: c.id}; return a}, {} )
+                                    if( result.success ){
+                                        for(const d of result.output){
+                                            const item = list[d.id]
+                                            let category = d.value?.toLowerCase ? resultCache[d.value.toLowerCase()] : undefined
+                                            if( !category ){
+                                                console.log(`WARN: couldnt align`, d)
+                                            }
+                                            if( item && category){
+                                                category.ids.push(item.id)
+                                            }
+                                        }
+                                    }
+                                    for( const d of Object.keys(resultCache)){
+                                        console.log(`Setting ${d} -> ${resultCache[d].ids.length} items`)
+                                        await addRelationshipToMultiple(resultCache[d].categoryId, resultCache[d].ids, 'ref', primitive.workspaceId)
+                                    }
+                                    throw "done"
+                                }else if( pCategory?.mapMode === "evaluate" || pCategory?.mapMode === "distance"){
+                                    let opener = "Here is a list of items"
+                                    if( ! primitive.referenceParameters.evaluation){
+                                        throw "Nothing to evaluate"
+                                    }
+                                    if( primitive.referenceParameters.conditions){
+                                        opener = `Here is some context about a task you will perform: ${primitive.referenceParameters.conditions}.\n\nAnd here is a list of items `
+                                    }
+                                    const categoryLabels = pCategory?.mapMode === "distance" ? ["unclear", "current", "adjacent","middle","far"] : ["not at all", "possibly", "likely", "clearly"]
+                                    const missing = categoryLabels.filter(d=>!catOptions.map(d=>d.title).includes(d))
+
+                                    console.log(`Need to create ${missing.join(",")}`)
+                                    for(const d of missing){
+                                        const newCat = await createPrimitive({
+                                            workspaceId: primitive.workspaceId,
+                                            parent: primitive.id,
+                                            data:{
+                                                type: "category",
+                                                title: d
+                                            }
+                                        })
+                                        if( newCat ){
+                                            catOptions.push(newCat)
+                                        }
+                                    }
+
+                                    let prompt = pCategory?.mapMode === "distance" ? `For each item in the list provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
+                                                                                    : `For each item in the list provided, evaluate how close it is to the baseline described on a scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
                                     const result = await processPromptOnText( data, {
                                         opener,
                                         prompt,
@@ -1440,6 +1497,7 @@ export default function QueueAI(){
                                 }else{
                                     let types = targetConfig?.mark?.type
                                     let focus = primitive.referenceParameters?.focus ?? targetConfig?.mark?.theme ??primitive.referenceParameters?.cat_theme
+                                    let literal = primitive.referenceParameters?.literal
                                     let batchCount = categoryList.length > 15 ? 10 : 50
                                     const complex = primitive.referenceParameters?.complex ?? action.complex ?? false
                                     console.log(`Compexity = ${complex} (${primitive.referenceParameters?.complex} / ${action.complex})`)
@@ -1449,6 +1507,7 @@ export default function QueueAI(){
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
                                         engine:  primitive.referenceParameters?.engine || action.engine,
                                         complex: complex,
+                                        literal,
                                         rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
                                         batch: primitive.referenceParameters?.batch ?? action.batch ?? batchCount,
                                         types: types,
@@ -1464,10 +1523,13 @@ export default function QueueAI(){
                                     const categoryAllocations = {}
 
                                     const thresholdName = primitive.referenceParameters?.thresholds ?? action.thresholds ?? "standard"
-                                    const thresholds ={
+                                    let thresholds ={
                                         "standard": ["likely", "clear" ,"somewhat"],
                                         "high": ["likely", "clear"],
                                     }[thresholdName]
+                                    if( literal ){
+                                        thresholds = ["clear"]
+                                    }
                                     
                                     
                                     console.log(`Thresholds to keep = ${thresholds.join(", ")}`)

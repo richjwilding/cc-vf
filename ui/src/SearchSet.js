@@ -3,9 +3,11 @@ import MainStore from "./MainStore"
 import UIHelper from "./UIHelper"
 import { PrimitiveCard } from "./PrimitiveCard"
 import Panel from "./Panel"
+import useDataEvent from "./CustomHook"
 
 export default function SearchSet({primitive, resultSet, filters, toggleFilter, searchCategoryIds, props}){
     const mainstore = MainStore()
+    useDataEvent("update_field update_parameter", primitive.id)
 
         const searches = primitive.primitives.search?.[resultSet] 
         const hasSearches = (searches && searches.length > 0)

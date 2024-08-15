@@ -303,6 +303,39 @@ export default function PrimitiveParser(obj){
                 if( prop === "underlying"){
                     return target
                 }
+                if (prop === "__fromPath") {
+                    return function(path, create = false) {
+                        let node = receiver;
+                
+                        if (typeof path === "string") {
+                            path = path.split('.').filter(p => p !== "primitives");
+                        }
+                
+                        for (let i = 0; i < path.length; i++) {
+                            let step = path[i];
+                            let nextNode = Array.isArray(node.underlying)
+                                ? node.underlying.find(item => item.hasOwnProperty(step))?.[step]
+                                : node[step];
+                
+                            if (nextNode === undefined) {
+                                if (create) {
+                                    nextNode = Array.isArray(node.underlying) ? {} : (i === path.length - 1 ? [] : {});
+                                    if (Array.isArray(node.underlying)) {
+                                        node.underlying.push({ [step]: nextNode });
+                                    } else {
+                                        node[step] = nextNode;
+                                    }
+                                } else {
+                                    return undefined;
+                                }
+                            }
+                
+                            node = nextNode;
+                        }
+                
+                        return node;
+                    };
+                }
                 if( prop === "fromPath"){
                     return function(path, create = false){
                         let node = receiver                        
@@ -446,7 +479,7 @@ export default function PrimitiveParser(obj){
                                 }
                                 childrenIds = childrenIds.flat(Infinity)
                             }else if(direct_only){
-                                const keys = Object.keys(target).filter(d=>d !== "imports")
+                                const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "ref")
                                 childrenIds = keys.map(d=>receiver[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
                             }else{
                                 childrenIds = receiver.uniqueAllIds

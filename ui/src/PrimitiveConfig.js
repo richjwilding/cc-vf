@@ -45,7 +45,9 @@ const PrimitiveConfig = {
         LIVE_FILTER: 103,
         CONCEPT: 92,
         QUERY_RESULT: 82,
-        GENERIC_SUMMARY: 109
+        GENERIC_SUMMARY: 109,
+        EVALUATOR: 90,
+        SCORE: 120
 
     },
     "metadata":{
@@ -207,6 +209,20 @@ const PrimitiveConfig = {
     heatMapPalette:heatMapPalette,
     renderConfigs:{
             default: {title:"Show items",parameters: {showAsCounts:false}},
+            checktable: {id: 2,title:"Truth table", renderType: "checktable",parameters: {}},
+            score_dial: {id: 3,title:"Score dial", renderType: "dials",parameters: {},
+                config:{
+                    "colors":{
+                        type: "option_list",
+                        title: "Colors",
+                        default: "green",
+                        options: [
+                            {id:"green", title: "Green"},
+                            {id:"blue", title: "Blue"}
+                        ]
+                    }
+                }
+            },
             counts: {id:1, title:"Show counts",
                 config:{
                     "colors":{
@@ -480,7 +496,8 @@ const PrimitiveConfig = {
                     data = lookups[idx].map(d=>d.title)
                 }
                 else if( resolvedFilterType === "parameter"){
-                    data = lookups[idx].map(d=>d.referenceParameters?.[filter.param]).flat()//.filter(d=>d)
+                    data = lookups[idx].map(d=>d.referenceParameters?.[filter.param])//.flat()//.filter(d=>d)
+                    data = data.map(d=>Array.isArray(d) && d.length === 0 ? undefined : d).flat()
                 }else if( resolvedFilterType === "type"){
                     data = lookups[idx].map(d=>d.referenceId)
                 }else if( resolvedFilterType === "not_category_level1"){

@@ -12,151 +12,9 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import FilterPane from "./FilterPane";
 import CollectionInfoPane from "./CollectionInfoPane";
 import useDataEvent from "./CustomHook";
-import { exportKonvaToPptx } from "./PptHelper";
+import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 
-export default function BoardViewer({primitive,...props}){
-    const mainstore = MainStore()
-    const [manualInputPrompt, setManualInputPrompt] = useState(false)
-    const [collectionPaneInfo, setCollectionPaneInfo] = useState(false)
-    const canvas = useRef({})
-    const myState = useRef({})
-    const menu = useRef({})
-    const colButton = useRef({})
-    const rowButton = useRef({})
-    const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
-    const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
-
-    useDataEvent("relationship_update set_parameter set_field delete_primitive", undefined, (ids, event, info)=>{
-        if( myState.current.watchList  ){
-            myState.current.framesToUpdate = myState.current.framesToUpdate || []
-            let needRefresh = true
-            Object.keys(myState.current.watchList).forEach(frameId=>{
-                let checkIds = ids
-                if( myState.current.watchList[frameId].filter(d=>checkIds.includes(d)).length > 0 ){
-
-                    if( event === "set_field"){
-                        if( info.match(/processing.ai/)){
-                            const board = myState[frameId]
-                            canvas.current.refreshFrame( board.id, renderView(board.primitive))
-                        }else if(info.startsWith('procesing.') || info.startsWith('embed_')){
-                            needRefresh = false
-                        }
-                    }
-                    if( event === "relationship_update"){
-                        needRefresh = prepareBoard( myState[frameId].primitive )
-                        if( !needRefresh){
-                            console.log(`Cancelled refresh - no changes on ${myState[frameId]?.primitive.plainId}`)
-                        }
-                    }
-
-                    if( needRefresh ){
-                        console.log("Need to update ", frameId, event, info)
-                        
-                        if( !myState.current.framesToUpdate.includes(frameId)){
-                            myState.current.framesToUpdate.push(frameId)
-                        }
-                        
-                        if( !myState.current.frameUpdateTimer ){
-                            myState.current.frameUpdateTimer = setTimeout(()=>{
-                                myState.current.frameUpdateTimer = undefined
-                                for( const frameId of  myState.current.framesToUpdate){
-                                    console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}`)
-                                    canvas.current.refreshFrame( frameId )
-                                }
-                                myState.current.framesToUpdate = []
-                            }, 220)
-                        }
-                    }
-                }
-            })
-        }
-        return false
-    })
-
-    const list = primitive.primitives.allUniqueView
-
-    const createView = async( action = {} )=>{
-        if(!action?.key){
-            console.error("NOT IMPLEMENETED")
-            return
-        }
-        setManualInputPrompt({
-            primitive: primitive,
-            fields: action.actionFields,
-            confirm: async (inputs)=>{
-            const actionOptions = {
-                ...inputs
-            }
-            console.log(action.key , actionOptions)
-            await MainStore().doPrimitiveAction(primitive, action.key , actionOptions)
-            },
-        })
-    }
-
-    function updateWatchList(frameId, ids){
-        myState.current.watchList = myState.current.watchList || {}
-        myState.current.watchList[frameId] = [frameId, ...(myState[frameId].internalWatchIds ?? [] ),...ids]
-    }
-
-    useEffect(() => {
-        const overlay = menu.current;
-    
-        const preventDefault = (e) => {
-            if (e.ctrlKey) {
-                e.preventDefault();
-            }
-        };
-    
-        overlay.addEventListener('wheel', preventDefault, { passive: false });
-        //overlay.addEventListener('touchstart', preventDefault, { passive: false });
-        //overlay.addEventListener('touchmove', preventDefault, { passive: false });
-    
-        return () => {
-          overlay.removeEventListener('wheel', preventDefault);
-          //overlay.removeEventListener('touchstart', preventDefault);
-          //overlay.removeEventListener('touchmove', preventDefault);
-        };
-      }, [menu.current]);
-    
-
-    const action = primitive.metadata?.actions?.find(d=>d.key === "build_generic_view")
-
-
-    async function cloneBoard(){
-        if(myState.activeBoard){
-            const p = myState.activeBoard.primitive
-            if( p.type === "view" || p.type === "query"){
-                console.log("adding")
-                const newPrimitive = await mainstore.createPrimitive({
-                    parent: primitive, 
-                    title: `Copy of ${p.title}`,
-                    type: p.type,
-                    workspaceId: p.workspaceId, 
-                    categoryId: p.referenceId, 
-                    referenceParameters: p.referenceParameters
-                })
-                
-                if(newPrimitive ){
-                    for(const imp of p.primitives.imports.allItems){
-                        await newPrimitive.addRelationshipAndWait(imp, "imports")
-                    }
-                    for(const imp of p.primitives.axis.row.allItems){
-                        await newPrimitive.addRelationshipAndWait(imp, "axis.row")
-                    }
-                    for(const imp of p.primitives.axis.column.allItems){
-                        await newPrimitive.addRelationshipAndWait(imp, "axis.column")
-                    }
-                }        
-
-                let position = canvas.current.framePosition(p.id)?.scene
-                console.log("now to canvas")
-                addBoardToCanvas( newPrimitive, {x:position.l, y: position.b + 30, s: position.s})
-                console.log("done")
-            }
-        }
-    }
-
-    function prepareBoard(d){
+    function SharedPrepareBoard(d, myState){
         let didChange = false
         if( d.type === "view" || d.type === "query"){
             const items = d.itemsForProcessing
@@ -167,7 +25,7 @@ export default function BoardViewer({primitive,...props}){
             const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
             const viewConfig = viewConfigs?.[activeView] 
 
-            let viewFilters = d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
+            let viewFilters = []//d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
             let filterApplyColumns = d.referenceParameters?.explore?.axis?.column?.filter ?? []
             let filterApplyRows = d.referenceParameters?.explore?.axis?.row?.filter ?? []
             let hideNull = d.referenceParameters?.explore?.hideNull
@@ -241,6 +99,154 @@ export default function BoardViewer({primitive,...props}){
         return didChange
     }
 
+export default function BoardViewer({primitive,...props}){
+    const mainstore = MainStore()
+    const [manualInputPrompt, setManualInputPrompt] = useState(false)
+    const [collectionPaneInfo, setCollectionPaneInfo] = useState(false)
+    const canvas = useRef({})
+    const myState = useRef({})
+    const menu = useRef({})
+    const colButton = useRef({})
+    const rowButton = useRef({})
+    const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
+    const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
+
+    window.exportFrames = exportMultiple
+
+    useDataEvent("relationship_update set_parameter set_field delete_primitive", undefined, (ids, event, info)=>{
+        if( myState.current.watchList  ){
+            myState.current.framesToUpdate = myState.current.framesToUpdate || []
+            Object.keys(myState.current.watchList).forEach(frameId=>{
+                let checkIds = ids
+                if( myState.current.watchList[frameId].filter(d=>checkIds.includes(d)).length > 0 ){
+                    const existing = myState.current.framesToUpdate.find(d=>d.frameId === frameId && d.event === event) 
+                    if( !existing){
+                        myState.current.framesToUpdate.push({frameId, event})
+                    }else{
+                        console.log(`already queued`)
+                    }
+                    
+                    if( !myState.current.frameUpdateTimer ){
+                        myState.current.frameUpdateTimer = setTimeout(()=>{
+                            myState.current.frameUpdateTimer = undefined
+                            for( const {frameId, event} of  myState.current.framesToUpdate){
+                                let needRefresh = true
+
+                                if( event === "set_field" && info && typeof(info)==="strng"){
+                                    if( info.match(/processing.ai/)){
+                                        const board = myState[frameId]
+                                        canvas.current.refreshFrame( board.id, renderView(board.primitive))
+                                    }else if(info.startsWith('procesing.') || info.startsWith('embed_')){
+                                        needRefresh = false
+                                    }
+                                }
+                                if( event === "relationship_update"){
+                                    needRefresh = prepareBoard( myState[frameId].primitive )
+                                    if( !needRefresh){
+                                        console.log(`Cancelled refresh - no changes on ${myState[frameId]?.primitive.plainId}`)
+                                    }
+                                }
+
+                                if( needRefresh){
+                                    console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}`)
+                                    canvas.current.refreshFrame( frameId )
+                                }
+                            }
+                            myState.current.framesToUpdate = []
+                        }, 320)
+                    }
+                }
+            })
+        }
+        return false
+    })
+
+    const list = primitive.primitives.allUniqueView
+
+    const createView = async( action = {} )=>{
+        if(!action?.key){
+            console.error("NOT IMPLEMENETED")
+            return
+        }
+        setManualInputPrompt({
+            primitive: primitive,
+            fields: action.actionFields,
+            confirm: async (inputs)=>{
+            const actionOptions = {
+                ...inputs
+            }
+            console.log(action.key , actionOptions)
+            await MainStore().doPrimitiveAction(primitive, action.key , actionOptions)
+            },
+        })
+    }
+
+    function updateWatchList(frameId, ids){
+        myState.current.watchList = myState.current.watchList || {}
+        myState.current.watchList[frameId] = [frameId, ...(myState[frameId].internalWatchIds ?? [] ),...ids]
+    }
+
+    const prepareBoard = (d)=>SharedPrepareBoard(d, myState)
+
+    useEffect(() => {
+        const overlay = menu.current;
+    
+        const preventDefault = (e) => {
+            if (e.ctrlKey) {
+                e.preventDefault();
+            }
+        };
+    
+        overlay.addEventListener('wheel', preventDefault, { passive: false });
+        //overlay.addEventListener('touchstart', preventDefault, { passive: false });
+        //overlay.addEventListener('touchmove', preventDefault, { passive: false });
+    
+        return () => {
+          overlay.removeEventListener('wheel', preventDefault);
+          //overlay.removeEventListener('touchstart', preventDefault);
+          //overlay.removeEventListener('touchmove', preventDefault);
+        };
+      }, [menu.current]);
+    
+
+    const action = primitive.metadata?.actions?.find(d=>d.key === "build_generic_view")
+
+
+    async function cloneBoard(){
+        if(myState.activeBoard){
+            const p = myState.activeBoard.primitive
+            if( p.type === "view" || p.type === "query"){
+                console.log("adding")
+                const newPrimitive = await mainstore.createPrimitive({
+                    parent: primitive, 
+                    title: `Copy of ${p.title}`,
+                    type: p.type,
+                    workspaceId: p.workspaceId, 
+                    categoryId: p.referenceId, 
+                    referenceParameters: p.referenceParameters
+                })
+                
+                if(newPrimitive ){
+                    for(const imp of p.primitives.imports.allItems){
+                        await newPrimitive.addRelationshipAndWait(imp, "imports")
+                    }
+                    for(const imp of p.primitives.axis.row.allItems){
+                        await newPrimitive.addRelationshipAndWait(imp, "axis.row")
+                    }
+                    for(const imp of p.primitives.axis.column.allItems){
+                        await newPrimitive.addRelationshipAndWait(imp, "axis.column")
+                    }
+                }        
+
+                let position = canvas.current.framePosition(p.id)?.scene
+                console.log("now to canvas")
+                addBoardToCanvas( newPrimitive, {x:position.l, y: position.b + 30, s: position.s})
+                console.log("done")
+            }
+        }
+    }
+
+
 
     const [boards,  renderedSet] = useMemo(()=>{
         const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery]
@@ -274,7 +280,7 @@ export default function BoardViewer({primitive,...props}){
                         }else{
                             if( right.type === "query" || right.type === "summary"){
                                 const segmentSummaries = left.primitives.origin.allUniqueSegment.map(d=>[...d.primitives.origin.allUniqueSummary, ...d.primitives.origin.allUniqueQuery] ).flat()
-                                console.log(left.plainId, segmentSummaries.map(d=>d.plainId))
+                                //console.log(left.plainId, segmentSummaries.map(d=>d.plainId))
                                 if(segmentSummaries.map(d=>d.id).includes( right.id)){
                                     const out = []
                                     let added = false
@@ -580,26 +586,57 @@ export default function BoardViewer({primitive,...props}){
 
     }
 
-    async function addBlankView(cat_or_id = 38, importId, filter, options = {}){
+    async function addBlankView(cat_or_id = 38, importId, filter, full_options = {}){
         const category = typeof(cat_or_id) === "number" ? mainstore.category(cat_or_id) : cat_or_id
+        const {pivot, ...options} = full_options 
+        let importPrimitive = importId ? mainstore.primitive(importId) : undefined
+        let position = (importPrimitive ? canvas.current.framePosition(importPrimitive.id)?.scene : undefined) ?? {r:0, t: 0, s: 1}
+        
+        if(pivot){
+            console.log("has pivot", pivot)
+            const existingSegments = importPrimitive.primitives.allUniqueSegment
+            console.log(`Got ${existingSegments.length} segments to check`)
+            let targetTargetSegment = existingSegments.find(d=>d.doesImport(importId, filter) && mainstore.equalRelationships(pivot, d.referenceParameters?.pivot))
+            console.log(targetTargetSegment)
+            if(!targetTargetSegment){
+                const newPrim = await mainstore.createPrimitive({type: 'segment', 
+                    parent: importPrimitive, 
+                    referenceParameters:{
+                        target:"items",
+                        pivot,
+                        importConfig: [{id: importPrimitive.id, filters: filter}]
+                    }})
+                if( newPrim ){
+                    await mainstore.waitForPrimitive( newPrim.id )
+                    await newPrim.addRelationshipAndWait( importPrimitive, "imports")
+                    console.log(`create new segment ${newPrim.id}`)
+                    targetTargetSegment = newPrim
+                }
+            }
+            if( !targetTargetSegment ){
+                console.warn(`Cannot create interim segment for pivot view`)
+                return
+            }
+            importPrimitive = targetTargetSegment
+            filter = undefined
+        }
         const newPrimitive = await mainstore.createPrimitive({
             title: `New ${category.primitiveType}`,
             categoryId: category.id,
             type: category.primitiveType,
             referenceParameters: {
-                ...(importId ? {target: "items", importConfig: [{id: importId, filters: filter}]} : {}),
+                ...(importPrimitive ? {target: "items", importConfig: [{id: importPrimitive.id, filters: filter}]} : {}),
                 target: "items",
                 ...options,
             },
             parent: primitive,
         })
         if( newPrimitive ){
-            if(importId){
-                await newPrimitive.addRelationshipAndWait( mainstore.primitive(importId), "imports")
+            if(importPrimitive){
+                await newPrimitive.addRelationshipAndWait( importPrimitive, "imports")
             }
             primitive.addRelationship(newPrimitive, "ref")
 
-            let position = (importId ? canvas.current.framePosition(importId)?.scene : undefined) ?? {r:0, t: 0, s: 1}
             addBoardToCanvas( newPrimitive, {x:position.r + 50, y: position.t, s: position.s})
         }
     }
@@ -691,12 +728,56 @@ export default function BoardViewer({primitive,...props}){
             }
         })
     }
+    async function exportMultiple(ids, byCell){
+        const prims = ids.map(d=>mainstore.primitive(d)).filter(d=>d)
+        const pptx = createPptx()
+        for( const d of prims ){
+            const root = canvas.current.frameNode( d.id )
+            if( root ){
+                let list = root 
+                if( byCell ){
+                    list = root.find('.cell')
+                    const len = Math.max(...list.map(d=>d.children?.length ?? 0))
+                    if( len === 1){
+                        list = root.find('.primitive')
+                    }
+                }
+                for(const d of list){
+                    await exportKonvaToPptx( d, pptx )
+                }
+            }
+        }
+        writePptx( pptx)
+    }
     async function exportFrame(){
         if(myState.activeBoard){
-            const root = canvas.current.frameNode( myState.activeBoardId )
-            await exportKonvaToPptx( root )
+            const root = canvas.current.frameData( myState.activeBoardId )
+            const temp = root.node.children
+            root.node.children = root.allNodes
+            await exportKonvaToPptx( root.node, undefined, {removeNodes: ["frame_outline", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
+            //await exportKonvaToPptx( root.node, undefined, {removeNodes: ["frame_outline", "frame_label", "background", "view"], fit:"width", padding: [3, 1, 0.25, 1]} )
+            root.node.children = temp
         }else{
             await exportKonvaToPptx( canvas.current.stageNode() )
+        }
+
+    }
+    async function copyToClipboard(){
+        if(myState.activeBoard){
+            const view = myState[myState.activeBoard.id]
+            const out = view.rows.map(row=>{
+                return view.columns.map(column=>{
+
+                    const subList = view.list.filter(d=>[d.column].flat().includes( column.idx) && [d.row].flat().includes( row.idx))
+                    let text = "-"
+                    if( subList.length > 0){
+                         text = subList.map(d=>d.primitive.referenceParameters?.summary ?? d.primitive.referenceParameters?.description).join("-ENT-")
+                    }
+                    const partial = `"${text}"`
+                    return partial
+                }).join("~")
+            }).join("\n")
+            navigator.clipboard.writeText( out )
         }
 
     }
@@ -730,6 +811,7 @@ export default function BoardViewer({primitive,...props}){
                     <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
                     {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
                     {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={exportFrame} flat placement='left-start' />}
+                    {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
             </div>
             {collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
                 <CollectionInfoPane {...collectionPaneInfo} newPrimitiveCallback={createNewQuery} createNewView={addBlankView} updateFrameExtents={updateExtents}/>
@@ -866,3 +948,4 @@ export default function BoardViewer({primitive,...props}){
     </div>
     </>
 }
+BoardViewer.prepareBoard = SharedPrepareBoard

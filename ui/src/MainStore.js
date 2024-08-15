@@ -1589,7 +1589,7 @@ function MainStore (prims){
                                 let scope
                                 if( filter.type === "parent"){
                                     if( filter.sourcePrimId ){
-                                        scope = obj.primitive(filter.sourcePrimId).primitives.allIds
+                                        scope = obj.primitive(filter.sourcePrimId)?.primitives.allIds ?? []
                                     }
                                 }else if( filter.subtype === "question"){
                                     const prompts = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "prompt"})).flat()),
@@ -1683,11 +1683,13 @@ function MainStore (prims){
                     }
                     if( prop === "filterDescription"){
                         if( receiver.referenceParameters?.importConfig ){
-                            const idsToLookup = []
+                            const idsToLookup = [], frags = []
                             receiver.referenceParameters.importConfig.forEach(d=>{
                                 return d.filters.forEach( d=>{
                                     if( d.type === "parent"){
                                         idsToLookup.push(d.value)
+                                    }else if(d.type === "title"){
+                                        frags.push(d.value)
                                     }
                                 })
                             })
@@ -1695,6 +1697,7 @@ function MainStore (prims){
                                 const segmentName = idsToLookup.map(d=>obj.primitive(d)?.title).filter(d=>d).join(", ")
                                 return segmentName
                             }
+                            return frags.join(", ")
                         }
                     }
                     if( prop === "itemsForProcessingFromImport"){
@@ -1706,7 +1709,7 @@ function MainStore (prims){
                                 options.cache = {}
                             }
 
-                            if( Object.keys(receiver.primitives).includes("imports") && receiver.type !== "query"){
+                            if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "summary"))){
                                 let fullList = []
                                 for( const source of receiver.primitives.imports.allItems){
                                     if( id && source.id !== id){
@@ -1735,13 +1738,6 @@ function MainStore (prims){
                                     let params = options.params ?? receiver.getConfig
                                     if( params.descend ){
                                         list = list.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
-                                    }
-                                    if( receiver.referenceParameters?.pivot){
-                                        if( typeof(receiver.referenceParameters?.pivot) === "number"){
-                                            list = list.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot)).flat()
-                                        }else{
-                                            list = uniquePrimitives(list.map(d=>d.relationshipAtLevel(receiver.referenceParameters.pivot, receiver.referenceParameters.pivot.length)).flat())
-                                        }
                                     }
                                     if( params.referenceId ){
                                         const match = params.referenceId
@@ -1776,6 +1772,13 @@ function MainStore (prims){
                                             }
                                         }
                                     }
+                                    if( receiver.referenceParameters?.pivot){
+                                        if( typeof(receiver.referenceParameters?.pivot) === "number"){
+                                            list = list.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot)).flat()
+                                        }else{
+                                            list = uniquePrimitives(list.map(d=>d.relationshipAtLevel(receiver.referenceParameters.pivot, receiver.referenceParameters.pivot.length)).flat())
+                                        }
+                                    }
                                     fullList = fullList.concat(list) 
                                 }
                                 if(receiver.type === "view"  && !options.ignoreFinalViewFilter){
@@ -1795,7 +1798,19 @@ function MainStore (prims){
                                 */
                                 return uniquePrimitives(fullList)
                             }else{
-                                let list = uniquePrimitives(Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>receiver.primitives[d].uniqueAllItems).flat())
+                                //let list = uniquePrimitives(Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>receiver.primitives[d].uniqueAllItems).flat())
+                                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>receiver.primitives[d].allIds).flat()
+                                let list = []
+                                const check = new Set()
+                                for( const d of ids ){
+                                    if( !check.has(d)){
+                                        check.add(d)
+                                        const p = obj.primitive(d)
+                                        if( p ){
+                                            list.push(p)
+                                        }
+                                    }
+                                }
                                 if( receiver.type === "query" || receiver.type  === "segment"){
                                     if( receiver.type === "query" && !options.ignoreFinalViewFilter){
                                         const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
@@ -1926,7 +1941,9 @@ function MainStore (prims){
                                             return ( parts[parts.length - 1] === "origin" || parts[parts.length - 1] === "link" || parts[parts.length - 2]=== "results" )
                                         }).length > 0
                                     }
-                                    return d.parentPrimitives[k].filter(d=>d.split(".").slice(-1)?.[0] === rel).length > 0
+                                    const check = `.${rel}`
+                                    return d.parentPrimitives[k].some(d => d.endsWith(check))
+                                    //return d.parentPrimitives[k].filter(d=>d.split(".").slice(-1)?.[0] === rel).length > 0
                                 }).map(id=>obj.primitive(id)).filter(d=>d && (rId === undefined || rId === d.referenceId))
                                 
                                 if( out.length === 0){
@@ -2035,25 +2052,41 @@ function MainStore (prims){
                         const source = category.ai?.process?.context.fields[d]
                         if( source instanceof Object){
                             let header = source.title
+                            let showCount = false
                             const children = receiver.primitives.uniqueAllItems.filter(d=>d.referenceId === source.referenceId)
                             if( children && children.length > 0){
                                 if( out.length > 0){
                                     out += ".\n"
                                 }
-                                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>`${(source.prefix + " ") ?? ""}${i} - ${d.title}`).join("\n")
+                                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>{
+                                    let interim = `${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
+                                    for(const p of Object.keys(d.referenceParameters ?? {})){
+                                        const val = [d.referenceParameters[p]].flat().filter(d=>d)
+                                        if( val.length > 0){
+                                            interim += `\n${p}: ${val.join(", ")}`
+                                        }
+                                    }
+                                    return interim
+                                }).join("\n") + "\n"
                             }else{
                                 if( source.fallback){
                                     const param = source.fallback.slice(7)
                                     if( receiver.referenceParameters?.[param] ){
-                                        out += (header?.length > 0 ? `${header}: ` : "") + receiver.referenceParameters[param]
+                                        out += (header?.length > 0 ? `${header}: ` : "") + receiver.referenceParameters[param] + "\n"
                                     }
                                 }
                             }
 
                         }else{
-                            if( receiver.referenceParameters?.[d] ){
+                            let field
+                            if( d === "title"){
+                                field = receiver.title
+                            }else{
+                                field = receiver.referenceParameters?.[d]
+                            }
+                            if( field ){
                                 let header = source
-                                out += header?.length > 0 ? `${header}: ${receiver.referenceParameters[d]}\n` : `${receiver.referenceParameters[d]}\n`
+                                out += header?.length > 0 ? `${header}: ${field}\n` : `${field}\n`
                             }
                         }
                     }
@@ -2167,8 +2200,6 @@ function MainStore (prims){
                             ...out,
                             ...(configParent.getConfig ?? {})
                         }
-                        console.log(`Config import from parent`)
-                        console.log(out)
                     }
 
                     return {

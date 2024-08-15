@@ -936,7 +936,7 @@ export async function enrichCompanyFunding( primitive, options = {}){
     let funding = data?.raised_investments
     let overview
     
-    if( funding === undefined || options.force){
+    if( true ||funding === undefined || options.force){
         [funding, overview] = await fetchCompanyFundingFromCrunchbase(primitive, data.id)
         
     }else{
@@ -981,6 +981,7 @@ export async function enrichCompanyFunding( primitive, options = {}){
         dispatchControlUpdate( primitive.id, "referenceParameters.valuation", overview?.valuation?.value)
         dispatchControlUpdate( primitive.id, "referenceParameters.valuation_date", overview?.valuation?.date)
         dispatchControlUpdate( primitive.id, "referenceParameters.funding", totalRaised)
+        dispatchControlUpdate( primitive.id, "referenceParameters.founded", funding.founded?.value)
         dispatchControlUpdate( primitive.id, "referenceParameters.investors", investors)
         dispatchControlUpdate( primitive.id, "referenceParameters.fundingRounds", rounds.map((d)=>d.title))
         dispatchControlUpdate( primitive.id, "referenceParameters.allFundingRoundInfo", rounds)
@@ -1618,7 +1619,7 @@ export async function fetchCompanyFundingFromCrunchbase( primitive, cbId ){
         }
         const data = await doRequest()
         if( data?.error){
-            return data
+            return [data, undefined]
         }
         if( data ){
             if( attempts !== 3){
@@ -1648,6 +1649,7 @@ export async function fetchCompanyFundingFromCrunchbase( primitive, cbId ){
 
 
                 primitive.set("crunchbaseData.raised_investments", store)
+                primitive.set("crunchbaseData.founded", store.founded)
                 primitive.set("crunchbaseData.investment_overview", roundData[0])
                 primitive.markModified("crunchbaseData.raised_investments")
                 primitive.markModified("crunchbaseData.investment_overview")
@@ -1655,9 +1657,9 @@ export async function fetchCompanyFundingFromCrunchbase( primitive, cbId ){
                 return [store, roundData[0]]
             }
         }
-        return {error: "no data"}
+        return [{error: "no data"}]
     }catch(error){
-        return {error: error}
+        return [{error: error}]
     }
 
     

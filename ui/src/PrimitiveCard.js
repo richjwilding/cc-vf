@@ -705,9 +705,12 @@ let mainstore = MainStore()
         border
         fieldClassName={`${item.type === "long_string" ? "min-h-24" : ""} ${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
         clamp={clamp}
-        callback={props.callback ? props.callback : (value)=>{
+        callback={(value)=>{
             if( item.type === "integer" || item.type === "number"){
               value = parseInt( value )
+            }
+            if(props.callback){
+              return props.callback(value)
             }
             return props.primitive.setParameter(item.key, value)
         }}
@@ -1225,7 +1228,7 @@ const ImportList = function({primitive, ...props}){
         return <></>
       }
       const filterExplanation = (filterForImport ?? []).map(d=>{
-        return d.filters.map(d=>{
+        return d.filters === undefined ? "" : d.filters.map(d=>{
           let source, value
           if( d.type === "parent"){
             source = "Assigned to "
@@ -1251,13 +1254,14 @@ const ImportList = function({primitive, ...props}){
                 onClick={()=>mainstore.promptDelete({
                   prompt: `Remove segment from view?`,
                   handleDelete: ()=>{
-                    mainstore.removePrimitive( d )
+                    //mainstore.removePrimitive( d )
+                    primitive.removeRelationship(d, "imports")
                     return true
                   }
                 })}
                 className="shink-0 grow-0 flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-ccgreen-500 invisible group-hover:visible"
             >
-                <TrashIcon className="h-4 w-4" aria-hidden="true" />
+                <LinkIcon className="h-4 w-4" aria-hidden="true" />
             </button>
         </div>
         {filterExplanation}

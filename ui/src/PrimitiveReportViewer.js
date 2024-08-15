@@ -34,6 +34,9 @@ export default function PrimtiveReportViewer({primitive, ...props}){
     if( primitive.workspaceId === '667c15e0493c88237a047167'){
         //list = primitive.task?.primitives.descendants.filter(d=>d.parentPrimitives[0]?.title === "New clustering")
         list = mainstore.primitive(334061).primitives.descendants.filter(d=>d.parentPrimitives[0]?.title === "New clustering")
+    }else if( primitive.workspaceId === '666be280493c88237a047157'){
+        list = [335770].map(d=>mainstore.primitive(d))
+
     }else if( primitive.plainId === 273341){
         list = mainstore.primitive("65cc980a98d8dcc176818703").primitives.allCategory
     }else {

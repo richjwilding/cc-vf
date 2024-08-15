@@ -3,7 +3,7 @@ import { useMemo, useReducer, useState } from "react";
 import { PrimitiveCard, Prompt } from "./PrimitiveCard";
 import { PencilIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
 import Panel from "./Panel";
-import GenericEditor from './GenericEditor';
+import GenericEditor from './CategoryEditor';
 import MainStore from "./MainStore";
 import useDataEvent from "./CustomHook";
 import AIProcessButton from "./AIProcessButton";

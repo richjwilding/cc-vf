@@ -19,7 +19,7 @@ import CollectionUtils from './CollectionHelper';
 import test from './tests/filter.js';
 import NewPrimitive from './NewPrimitive.js';
 import Popup from './Popup.js';
-import GenericEditor from './GenericEditor.js';
+import GenericEditor from './CategoryEditor.js';
 import PrimitiveConfig from './PrimitiveConfig.js';
 
 library.add(fas, faLinkedin)

@@ -183,9 +183,14 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
     if( frame ){
 
 
+        console.time(`D0`)
         const list = filters ? frame.itemsForProcessingWithFilter(filters) : frame.itemsForProcessing
+        console.timeEnd(`D0`)
+        console.time(`D0B`)
         const viewConfigs = CollectionUtils.viewConfigs(list?.[0]?.metadata)
         const viewConfig = viewConfigs?.[activeView] 
+        console.timeEnd(`D0B`)
+
 
 
         let itemCategoryId = list.map(d=>d.referenceId).filter((d,i,a)=>d && a.indexOf(d)===i)
@@ -213,13 +218,23 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
             }
         }
 
+        console.time(`D1`)
         let descendants = mainstore.uniquePrimitives(list.map(d=>d.primitives.directDescendants).flat())
+        console.timeEnd(`D1`)
+        console.time(`D2`)
         let descendantCategories = descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d)).filter(d=>d && ["activity","evidence","entity","result"].includes(d.primitiveType))
+        console.timeEnd(`D2`)
 
         function getAncestors(){
-            const axisOptions = CollectionUtils.axisFromCollection( list, frame )
+            let sourceList = list
+            /*const origins = list.map(d=>d.origin)
+            const originType = origins.map(d=>d.type).filter((d,i,a)=>a.indexOf(d)===i)
+            if( originType.length === 1 && originType[0] === "segment"){
+                sourceList = origins.flat()
+            }*/
+            const axisOptions = CollectionUtils.axisFromCollection( sourceList, frame )
             const axisForPivot = axisOptions.filter(d=>["result","entity"].includes(d.category?.primitiveType) ).filter((d,i,a)=>a.findIndex(d2=>d2.category.id === d.category.id)===i).map(d=>({category: d.category, relationship: d.relationship}))
-            let parents = mainstore.uniquePrimitives(list.map(d=>d.findParentPrimitives({type: ["entity", "result"]})).flat(Infinity))
+            let parents = mainstore.uniquePrimitives(sourceList.map(d=>d.findParentPrimitives({type: ["entity", "result"]})).flat(Infinity))
             return [axisForPivot, parents]
         }
 
@@ -271,7 +286,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
             }
         }
         const addCategory = (target)=>{
-            const baseCategories = [54, 53,55,33, 90]
+            const baseCategories = [54, 53,55,33, 90, 120]
             MainStore().globalCategoryPicker({
                     categoryIds: baseCategories,
                     callback:async (d)=>{

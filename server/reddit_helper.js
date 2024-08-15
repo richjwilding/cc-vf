@@ -87,25 +87,75 @@ const scrollAndExpand = async (page, target, attempts = 3) => {
 const expandAllMessages = async (page) => {
     await clickAllButtons(page)
 }
+
+const fetchPostAndComments = async (page)=>{
+    console.log("doing fetch")
+    const data = await page.evaluate(`(async () => {
+
+        const upvotes = document.querySelector('shreddit-post')?.shadowRoot?.querySelector('faceplate-number')?.textContent
+        const post = {
+            community: document.querySelector('[noun="community"]')?.innerText?.trim(),
+            subreddit: document.querySelector('.subreddit-name')?.innerText?.trim(),
+            when: document.querySelector('faceplate-timeago')?.textContent.trim(),
+            user: document.querySelector('[noun="user_profile"]')?.textContent.trim(),
+            title: document.querySelector('[slot="title"]')?.textContent.trim(),
+            upvotes: isNaN(upvotes) ? undefined : parseInt(upvotes)
+
+        }
+
+        const list = [...document.querySelectorAll('shreddit-comment')]
+        let depthTrack = []
+
+        const out = []
+        let lastDepth
+        list.forEach(d=>{
+            const header = d.querySelector('[slot="commentMeta"]')?.innerText.replaceAll("\\n","").split("•")
+            const depth = parseInt(d.getAttribute("depth") ?? 0)
+            const content = d.querySelector('[slot="comment"]')?.innerText.trim()
+            const upvotes = d.querySelector('shreddit-comment-action-row')?.shadowRoot?.querySelector('faceplate-number')?.textContent
+
+            const data = {
+                user: header[0],
+                when: header[1],
+                edited: header[2],
+                upvotes: isNaN(upvotes) ? undefined : parseInt(upvotes),
+                depth: depth,
+                content
+            }
+            if( depth === 0){
+                out.push(data)
+                depthTrack = [data]
+            }else{
+                depthTrack[depth] = data
+                const parent = depthTrack[depth - 1]
+                if( parent ){
+                    parent.children = parent.children ?? []
+                    parent.children.push( data )
+                }
+            }
+            lastDepth = depth
+        })
+        post.comments = out
+        return post
+    })()`);
+    return data
+
+}
 const clickAllButtons = async (page, message) => {
     let buttonsClicked, maxLoops = 10;
-    console.log(message)
 
     do {
-        buttonsClicked = await page.evaluate((message) => {
+        buttonsClicked = await page.evaluate(`(async () => {
+            const message = ${message ? `"${message}"` : undefined}
             const buttons = [...document.querySelectorAll('button')];
             const moreRepliesButtons = buttons.filter(button =>message 
                 ? message === button.textContent.trim()
                 : /\d+ more repl(?:y|ies)/.test(button.textContent.trim())
             )
 
-            console.log(message)
-                console.log(buttons)
-
-            console.log(moreRepliesButtons)
             moreRepliesButtons.forEach(button => button.click());
             return moreRepliesButtons.length;
-        }, message);
+        })()`);
 
         // Give some time for the new replies to load
         await page.waitForTimeout(2000); 
@@ -113,7 +163,69 @@ const clickAllButtons = async (page, message) => {
     } while (buttonsClicked > 0 && maxLoops--);
 };
 
+export async function fetchRedditThreadAsText(url, options= {}){
+    const data = await fetchRedditThread( url, options)
+
+    function unpackComment(d){
+        let prefix = `${"-".repeat(d.depth + 1)} `
+        let content = d.content ?? ""
+        
+        out += `${prefix}[user ${d.user} replied ${d.when}${d.upvotes ? `- ${d.upvotes} upvotes` : ""}]: `
+        out += `${content.replaceAll("\n"," ").replaceAll(/\s+/g," ")}\n`
+        if( d.children ){
+            for(const d2 of d.children){
+                unpackComment(d2)
+            }
+        }
+    }
+
+    if( !data ){
+        return undefined
+    }
+    let out = `User:${data.user ?? "Unknown"} posted ${data.when} ${data.community ? `in '${data.community}'` : ""}\n${data.upvotes ? `Upvotes:${data.upvotes}\n` : ""}${data.title}\n`
+    if( data.comments && data.comments.length >1 ){
+        for(const d of data.comments){
+            unpackComment(d)
+        }
+    }
+    console.log(out)
+    return out
+}
 export async function fetchRedditThread(url, options= {}){
+    const token = process.env.BROWSERLESS_KEY
+    const timeout = 30 * 60 * 1000;
+    const proxy = 'residential';
+    const proxyCountry = 'gb';
+    const proxySticky = true;
+
+    
+    const queryParams = new URLSearchParams({
+      timeout,
+      proxy,
+      proxyCountry,
+      proxySticky,
+        blockAds: false,
+      token,
+    }).toString();
+
+    
+    const unblockURL =
+      `https://production-lon.browserless.io/chrome/unblock?${queryParams}`;
+    
+    const boptions = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        url: url,
+        browserWSEndpoint: true,
+        cookies: false,
+        content: false,
+        screenshot: false,
+        ttl: timeout,
+      }),
+    };
 
     let page, browser
     try{
@@ -124,11 +236,23 @@ export async function fetchRedditThread(url, options= {}){
             await browser.close()
         }
 
-        browser = await puppeteer.launch({
+        /*browser = await puppeteer.launch({
             executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
  //           args: [`--proxy-server=pr.oxylabs.io:7777`],
             headless: false
-        })
+        })*/
+        console.log(`Unblocking ${url}`);
+        const response = await fetch(unblockURL, boptions);
+        if (!response.ok) {
+            throw new Error(`Got non-ok response:\n` + (await response.text()));
+        }
+        const { browserWSEndpoint } = await response.json();
+
+        console.log(`Awaiting  page`)
+        console.log(`Got OK response! Connecting puppeteer to "${browserWSEndpoint}"...`);
+        browser = await puppeteer.connect({
+            browserWSEndpoint: `${browserWSEndpoint}?${queryParams}`
+        });
 
         page = await browser.newPage()
         
@@ -151,7 +275,9 @@ export async function fetchRedditThread(url, options= {}){
 
         await expandAllMessages(page)
 
-        await sleep(100000)
+        const thread = await fetchPostAndComments(page)
+
+        return thread
 
     }catch(error){
         console.log(`Error in fetchRedditThread ${url}`)
@@ -165,5 +291,3 @@ export async function fetchRedditThread(url, options= {}){
         }
     }
 }
-
-await fetchRedditThread("https://www.reddit.com/r/philadelphia/comments/okjb68/who_is_your_favorite_dj_in_philly_and_why/")

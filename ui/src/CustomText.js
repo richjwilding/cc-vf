@@ -172,7 +172,8 @@ _setTextData() {
       var startIndent = 0
       const isIndented = line.match(/^(\s*)(-+)\s(.*)/)
       if( isIndented ){
-        const count = isIndented[1] ? 2 : (isIndented[2].length)
+        //const count = isIndented[1] ? 2 : (isIndented[2].length)
+        const count =  (isIndented[2].length)
         startIndent = indentWidth * count
         line = isIndented[3]
         if( wasIndented < startIndent){
@@ -190,7 +191,7 @@ _setTextData() {
       let advanced = false
       let large = fragments.length === 3 && fragments[0].length === 0 && fragments[2].length === 0
       
-      let lineHeightPx = large ? baseLineHeightPx * 1.5 : baseLineHeightPx
+      let lineHeightPx = large ? baseLineHeightPx * 1.2 : baseLineHeightPx
       if( !large && wasHeader){
         padding = -0.25
       }

@@ -79,12 +79,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const chunkWidth = 800
     const chunkHeight = 800
 
-    const frameNode = (id)=>{
+    const frameData = (id)=>{
         if(!myState.current?.frames){
             return undefined
         }
         const frame = myState.current.frames.find(d=>d.id === id)
-        return frame?.node
+        return frame
     }
     const framePosition = (id)=>{
         if(!myState.current?.frames){
@@ -160,7 +160,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             addFrame,
             removeFrame,
             framePosition,
-            frameNode,
+            frameData,
             stageNode: ()=>stageRef.current,
             size: ()=>[myState.current.width,myState.current.height],
             refreshFrame
@@ -192,6 +192,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             setTimeout(() => {
                 refreshImages()
             }, delay)
+            return
+        }
+        if(myState.current.timeoutPending){
+            console.log("cancel - already scheduled")
+            return
+        }
+        if(myState.current.animFramePending){
+            console.log("cancel - already scheduled (RAF)")
             return
         }
         
@@ -319,6 +327,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             fill:"white",
             strokeScaleEnabled: false,
             visible: props.board,
+            name:"frame_outline",
             id: `frame`,
         }) 
         frame.add(frameBorder)
@@ -567,6 +576,30 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             myState.current.linkUpdatePending = undefined            
         })
     }
+    function computeDistance(frameId, current, param, distance){
+        return myState.current.frames.reduce((a,d)=>{
+            if( d.id === frameId){
+                return a
+            }
+            let di = (d[param]) ? Math.abs(current - d[param]) : undefined
+            let v = d[param]
+            if( di){
+                let v2 = v + (param === "x" ? d.node.width() * d.node.scaleX( ): d.node.height() * d.node.scaleY( ))
+                const di2 = Math.abs(current - v2)
+                if( di2 < di ){
+                    di = di2
+                    v = v2
+                }
+
+                if( di < distance){
+                    if( di < a.d){
+                        return {v, d: di}
+                    }
+                }
+            }
+            return a
+        }, {v: undefined, d: Infinity})
+    }
 
     async function refreshLinks( override ){
         
@@ -601,6 +634,24 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 ));
 
         
+                const topPin = new Avoid.ShapeConnectionPin(
+                    shapeRef,
+                    1,
+                    0.5,
+                    0,
+                    true,
+                    0,
+                    Avoid.ConnDirTop // All directions
+                );
+                const bottomPin = new Avoid.ShapeConnectionPin(
+                    shapeRef,
+                    1, // one central pin for each shape
+                    0.5,
+                    1,
+                    true,
+                    0,
+                    Avoid.ConnDirBottom // All directions
+                );
                 const inputPin = new Avoid.ShapeConnectionPin(
                     shapeRef,
                     1,
@@ -610,12 +661,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     0,
                     Avoid.ConnDirLeft // All directions
                 );
-
-
-
                 const outputPin = new Avoid.ShapeConnectionPin(
                     shapeRef,
-                    2, // one central pin for each shape
+                    1, // one central pin for each shape
                     1,
                     0.5,
                     true,
@@ -624,6 +672,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 );
                 inputPin.setExclusive(false);
                 outputPin.setExclusive(false);
+                topPin.setExclusive(false);
+                bottomPin.setExclusive(false);
                 
                 nodes[id] = {id: id, shape: shapeRef}
                 return shapeRef
@@ -645,10 +695,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     if( position ){
                         addShapeToRouter( fId, position.l, position.t, position.r, position.b)
 
-                        for(const cell of frame.cells){
+                        /*for(const cell of frame.cells){
                             const id = `${fId}:${cell.id}`
                             addShapeToRouter( id, (cell.l * position.s) + position.l , (cell.t  * position.s) + position.t, (cell.r  * position.s) + position.l , (cell.b * position.s) + position.t)
-                        }
+                        }*/
                     }
                 }
             }
@@ -663,7 +713,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 
                 if( left && right){
                     const id = `${leftName}-${target.right}` 
-                    const leftConnEnd = new Avoid.ConnEnd(left.shape,2)
+                    const leftConnEnd = new Avoid.ConnEnd(left.shape,1)
                     const rightConnEnd = new Avoid.ConnEnd(right.shape,1)
                     const connRef = new Avoid.ConnRef(router);
                     connRef.setSourceEndpoint(leftConnEnd);
@@ -1348,9 +1398,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                     const dx = x - (item.parent?.attrs.x ?? 0) - (item.attrs.x * (isFrame ? 1 : frameScale))
                     const dy = y - (item.parent?.attrs.y ?? 0) - (item.attrs.y * (isFrame ? 1 : frameScale))
-                    console.log(dx,dy)
-                    
-
 
                     clone.scale({x: cloneScale, y:cloneScale})
                     clone.setAttrs({
@@ -1386,8 +1433,21 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 let [px,py] = state.xy
                 px -= memo.x
                 py -= memo.y
-                    myState.current.dragging.spx = px
-                    myState.current.dragging.spy = py
+                if( props.snapDistance ){
+                    const [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
+                    const snapX = computeDistance( myState.current.dragging.clone.attrs.id, fx, "x", props.snapDistance)
+                    const snapY = computeDistance( myState.current.dragging.clone.attrs.id, fy, "y", props.snapDistance)
+                    if( snapX.v ){
+                        const [cx,cy] = convertSceneCoordToScreen(snapX.v)
+                        px = cx + myState.current.dragging.ox
+                    }
+                    if( snapY.v ){
+                        const [cx,cy] = convertSceneCoordToScreen(undefined, snapY.v)
+                        py = cy + myState.current.dragging.oy
+                    }
+                }
+                myState.current.dragging.spx = px
+                myState.current.dragging.spy = py
                 myState.current.dragging.stage.container().style.transform = `translate(${px - myState.current.dragging.ox}px, ${py - myState.current.dragging.oy}px)`;
                 [x, y] = convertStageCoordToScene(px, py )
 
@@ -1435,9 +1495,20 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         px -= memo.x
                         py -= memo.y
                         
-                        const [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
+                        let [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
                         const frame = myState.current.frames.find(d=>d.id === frameId)
 
+                            if( props.snapDistance ){
+                                const snapX = computeDistance( myState.current.dragging.clone.attrs.id, fx, "x", props.snapDistance)
+                                const snapY = computeDistance( myState.current.dragging.clone.attrs.id, fy, "y", props.snapDistance)
+                                console.log(`Snap ${snapX.v}, ${snapY.v}`)
+                                if( snapX.v ){
+                                    fx = snapX.v
+                                }
+                                if( snapY.v ){
+                                    fy = snapY.v
+                                }
+                            }
                         if( frame ){
                             frame.x = fx
                             frame.y = fy

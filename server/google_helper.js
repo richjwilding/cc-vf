@@ -22,6 +22,7 @@ import { fetchLinksFromWebDDGQuery } from "./ddg_helper";
 import ContentEmbedding from "./model/ContentEmbedding";
 import Category from "./model/Category";
 import { HttpsProxyAgent } from "https-proxy-agent";
+import { fetchRedditThreadAsText } from "./reddit_helper.js";
 
 let adconfig = {}
 
@@ -1626,9 +1627,6 @@ export async function queryGoogleSERP(keywords, options = {}){
     const doLookup = async (term, lookupOptionFull )=>{
         try{
             const {site, ...lookupOptions} = lookupOptionFull
-            if( lookupOptions === undefined){
-                count = 0
-            }
             const searchOptions = {timeFrame: timeFrame, ...options, ...(lookupOptions ?? {})}
             let hasResults = false
             let nTerm = (options.titleOnly? "intitle:" : "") + term
@@ -1677,7 +1675,7 @@ export async function queryGoogleSERP(keywords, options = {}){
                             snippet: item.snippet,
                             url: item.url,
                             posted: pageContent.posted_on,
-                            source: `Google ${searchOptions.search_type} ${site ? `site:${site}` :""} ${term}`,
+                            source: [`Google`, searchOptions.search_type ?? "", site ? `site:${site}` :"", term ?? ""].join(" "),
                             imageUrl: pageContent.image,
                             hasImg: (item.image || pageContent.image) ? true : false,
                             description: pageContent.description
@@ -1720,6 +1718,9 @@ export async function queryGoogleSERP(keywords, options = {}){
                 if( lookup.links.length > 1){
                     let exec = await executeConcurrently( lookup.links, processItem, options.cancelCheck, ()=> count >= target)
                     cancelled = exec?.cancelled
+                    if( exec.stopped ){
+                        console.log(`Stopped for term maximum cancel = ${cancelled}`)
+                    }
                 }
             }
             console.log(hasResults, count, target)
@@ -1739,7 +1740,7 @@ export async function queryGoogleSERP(keywords, options = {}){
         return cancelled
     }
 
-    if( !keywords && options.prefix ){
+    if( !keywords && (options.prefix || options.site)){
         keywords = " "
     }
     const sites = options.site ? options.site.split(",").filter(d=>d).map(d=>d?.trim()) : [undefined]
@@ -1748,6 +1749,10 @@ export async function queryGoogleSERP(keywords, options = {}){
         let cancelled = false
         for( const site of sites){
             for( const d of keywords.split(",")){
+                if(options.countPerTerm){
+                    console.log(`Reset count to 0 for next term`)
+                    count = 0
+                }
                 const thisSearch = options.quoteKeywords ? '"' + d.trim() + '"' : d.trim()
                 cancelled = await doLookup( thisSearch, {site: site} )
                 if( cancelled ){
@@ -2216,7 +2221,16 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
     try{
 
         console.log(url)
-        if( url && url.match(/^(https?:\/\/)?(www\.)?(facebook|fb)\.com\//)){
+        if( url && url.match(/^(https?:\/\/)?(www\.)?(reddit)\.com\//)){
+            const text = await fetchRedditThreadAsText( url )
+            if( text){
+                const item = {}
+                item.fullText = text
+                item.description = item.fullText.split(" ").slice(0,400).join(" ")
+                return item
+            }
+            return undefined
+        }else if( url && url.match(/^(https?:\/\/)?(www\.)?(facebook|fb)\.com\//)){
             console.log(`Processes facebook url`)
             
             const text = await extractTextFromFacebookPost( url )

@@ -71,9 +71,9 @@ export async function buildDocumentTextEmbeddings( text, limit ){
         final = final.slice(0, limit)
         truncating = true
     }
-    if( final.length > 1500){
+    if( final.length > 900){
         console.log(`WARNING: limit embeddings to first 1500 sections of document`)
-        final = final.slice(0, 1500)
+        final = final.slice(0, 900)
     }
     
 
@@ -148,7 +148,7 @@ function __extractSentencesAndKeywords(text) {
 
 function extractSentencesAndKeywords(text) {
     const processChunk = (chunk) => {
-        console.log(`doing chunk ${chunk.length} / ${chunk.slice(0,50)}..`)
+        //console.log(`doing chunk ${chunk.length} / ${chunk.slice(0,50)}..`)
         let doc = nlp(chunk);
         let sentences = doc.sentences().out('array');
         let keywords = sentences.map(sentence => {
@@ -242,6 +242,7 @@ export async function storeDocumentEmbeddings( primitive, embedded ){
 }
 export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, searchTerms = 1000, scanRatio = 0.15, threshold_seek = 0.005, threshold_min = 0.85}){
     prompts = [prompts].flat()
+    const fragCheck = new Set()
 
     async function process(prompt){
         let fragments = []
@@ -283,7 +284,11 @@ export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, s
                 matches = matches.filter(d=>d.score > threshold).sort((a,b)=>b.score - a.score)
                 console.log(`-- got ${matches.length} matches`)
                 for( const d of matches){
-                    fragments.push( {id: d.foreignId, part: d.part, text: d.text, score: d.score} )
+                    const h = `${d.foreignId}-${d.part}`
+                    if( !fragCheck.has(h)){
+                        fragments.push( {id: d.foreignId, part: d.part, text: d.text, score: d.score} )
+                        fragCheck.add(h)
+                    }
                 }
             }
         }

@@ -536,9 +536,10 @@ export async function primitiveDescendents(primitive, types, options={}){
         paths = undefined
     }
     const unique = options.unique === undefined ? true : options.unique
-    let fields = DONT_LOAD
-    if(!options.fullDocument || options.fields){
-        fields = `_id primitives type ${options.fields ?? ""}`.trim()
+    let fields = `_id primitives type referenceId ${options.fields ?? ""}`.trim()
+
+    if(options.fullDocument ){
+        fields = DONT_LOAD
     }
     console.log(fields)
 
@@ -707,7 +708,7 @@ export function primitiveParentPath(primitive, relationship, parentId, getId ){
 }
 export async function nestedItems(primitive){
     if( primitive.type === "view"){
-        const list = await primitiveDescendents(primitive, "segment", {allPaths: true, first: true} )
+        const list = await primitiveDescendents(primitive, "segment", {allPaths: true, first: true, fullDocument:true} )
         console.log(`view has ${list.length} segments`)
         let out = []
         for( const segment of list){
@@ -717,7 +718,7 @@ export async function nestedItems(primitive){
     }
     if( primitive.type === "segment"){
         const segmentItems = async (node)=>{
-            const list = await primitiveDescendents(node, undefined, {allPaths: true, first: true} )
+            const list = await primitiveDescendents(node, undefined, {allPaths: true, first: true, fullDocument:true} )
             let out = []
             for( const item of list){
                 if( item.type === "segment" ){
@@ -1122,10 +1123,10 @@ async function __OLD__filterItems(list, filters){
     return thisSet || list
 }
 
-export async function getDataForImport( source, cache = {} ){
+export async function getDataForImport( source, cache = {}, forceImportForQuery = false ){
     let fullList = []
 
-    if(source.type === "query"){
+    if(source.type === "query" && !forceImportForQuery){
         let node = new Proxy(source.primitives, parser)
 
         const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
@@ -1186,15 +1187,7 @@ export async function getDataForImport( source, cache = {} ){
         }
         const params = await getConfig( source) 
         if( params.descend ){
-            list = uniquePrimitives([list, await primitiveDescendents( list )].flat())
-        }
-        console.log(`Import pivot = ` + source.referenceParameters?.pivot )
-        if( source.referenceParameters?.pivot){
-            if(typeof(source.referenceParameters.pivot ) === "number"){
-                list = await primitiveListOrigin( list, source.referenceParameters.pivot, ["result", "entity"])
-            }else{
-                list = uniquePrimitives((await multiPrimitiveAtOrginLevel( list, source.referenceParameters.pivot.length, source.referenceParameters.pivot)).flat())
-            }
+            list = uniquePrimitives([list, await primitiveDescendents( list, undefined, {fullDocument:true} )].flat())
         }
         if( params.referenceId ){
             list = list.filter(d=>d.referenceId === params.referenceId) 
@@ -1216,8 +1209,16 @@ export async function getDataForImport( source, cache = {} ){
             for(const set of config ){
                 if( set.referenceId ){
                     const prev = list.length
-                    list = (await Promise.all(list.map(async (d)=>await primitiveDescendents(d, undefined, {allPaths: true, first: true, referenceId: set.referenceId} ) ))).flat()
+                    list = (await Promise.all(list.map(async (d)=>await primitiveDescendents(d, undefined, {allPaths: true, first: true, referenceId: set.referenceId, fullDocument:true} ) ))).flat()
                 }
+            }
+        }
+        console.log(`Import pivot = ` + source.referenceParameters?.pivot )
+        if( source.referenceParameters?.pivot){
+            if(typeof(source.referenceParameters.pivot ) === "number"){
+                list = await primitiveListOrigin( list, source.referenceParameters.pivot, ["result", "entity"])
+            }else{
+                list = uniquePrimitives((await multiPrimitiveAtOrginLevel( list, source.referenceParameters.pivot.length, source.referenceParameters.pivot)).flat())
             }
         }
         fullList = fullList.concat(list)
@@ -1478,20 +1479,26 @@ export async function getDataForProcessing(primitive, action, source, options = 
         }
         if( field === "full_content" ){
             const out = [], listOut = []
+            let c = 0
             for(const d of list){
                 let fragmentList = await ContentEmbedding.find({foreignId: d.id},{foreignId:1, part:1, text: 1})
                 let content
                 if( fragmentList && fragmentList.length > 0){
                     content = fragmentList.map(d=>d.text).join(". ")
-                    console.log(`Fetched content from embbeding store`)
+                    console.log(`Fetched content from embbeding store ${c}`)
                 }else{
                     content = (await getDocumentAsPlainText( d.id ))?.plain
-                    console.log(`Fetched content from bucket`)
+                    console.log(`Fetched content from bucket ${c}`)
                 }
                 if( content ){
                     listOut.push(d)
                     out.push( content )
                 }
+                c++
+                /*if( c > 100){
+                    console.log(`STOP FOR DEBUG`)
+                    break
+                }*/
             }
             console.log(`+++++ For content HAD ${list.length} now ${listOut.length} +++++`)
             return [listOut, out]
@@ -1977,7 +1984,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     summary = await summarizeMultiple( toProcess, {
                                                             ...config, 
                                                             focus: options.focus, 
+                                                            batch: toProcess.length > 1000 ? 100 : undefined,
+                                                            temperature: options.temperature ?? primitive.referenceParameters?.temperature,
+                                                            allow_infer: true,
                                                             markdown: options.markdown, 
+                                                            heading: options.heading,
                                                             outputFields: options.summary_type === "custom" ? undefined : [
                                                                 {field:"headline", prompt:"a short overview", header: true},
                                                                 {field:"main", prompt: "the main summary", formatted: true},
@@ -1988,6 +1999,8 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                                         })
                     if( summary && summary.summary ){
                         result = summary.summary
+
+                        await addRelationshipToMultiple(primitive.id, items.map(d=>d.id), "ref", primitive.workspaceId)
 
                         if( !options.markdown){
                             result = result.replace(/\\n/g, '\n');
@@ -2908,26 +2921,20 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             if( command === "custom_query"){
                 const thisCategory = await Category.findOne({id: primitive.referenceId})
                 const parentForScope = (await primitiveParentsOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
+
                 if( thisCategory.type === "aggregator"){
                     await aggregateItems( parentForScope, primitive )
-                    return
-                }
-                if( thisCategory.type === "comparator"){
+                }else if( thisCategory.type === "comparator"){
                     await compareItems( parentForScope, primitive )
-                    return
-                }
-                if( thisCategory.type === "iterator"){
+                }else if( thisCategory.type === "iterator"){
                     await iterateItems( parentForScope, primitive )
-                    return
-                }
-                if( thisCategory.type === "lookup"){
+                }else  if( thisCategory.type === "lookup"){
                     await resourceLookupQuery( parentForScope, primitive )
-                    return
-                }
-                if( primitive.referenceParameters.useAxis && !options?.scope){
+                }else if( primitive.referenceParameters.useAxis && !options?.scope){
                     await queryByAxis( parentForScope, primitive )                
+                }else{
+                    await QueueDocument().doDataQuery( primitive, {...action, ...options, primitive})
                 }
-                await QueueDocument().doDataQuery( primitive, {...action, ...options, primitive})
             }
             if( command === "evidence_from_query"){
                 //await QueueDocument().extractEvidenceFromFragmentSearch( primitive, {...action, ...options})
@@ -4068,8 +4075,30 @@ export async function buildContext(primitive, category){
             const children = batches[key].children
             const content = batches[key].content
             //const [children, content] = await getDataForProcessing( primitive, {referenceId: source.referenceId, target: source.target ?? "children", field: source.field ?? "title"})
-            const showCount = children.length > 1
-            if( children && children.length > 0){
+            const showCount = false//children.length > 1
+                            if( children && children.length > 0){
+                                if( out.length > 0){
+                                    out += ".\n"
+                                }
+                                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>{
+                                    let interim = `${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
+                                    for(const p of Object.keys(d.referenceParameters ?? {})){
+                                        const val = [d.referenceParameters[p]].flat().filter(d=>d)
+                                        if( val.length > 0){
+                                            interim += `\n${p}: ${val.join(", ")}`
+                                        }
+                                    }
+                                    return interim
+                                }).join("\n") + "\n"
+                            }else{
+                                if( source.fallback){
+                                    const param = source.fallback.slice(7)
+                                    if( primitive.referenceParameters?.[param] ){
+                                        out += (header?.length > 0 ? `${header}: ` : "") + primitive.referenceParameters[param] + "\n"
+                                    }
+                                }
+                            }
+          /*  if( false &&  children && children.length > 0){
                 if( out.length > 0){
                     out += ". "
                 }
@@ -4081,7 +4110,7 @@ export async function buildContext(primitive, category){
                         out += (header?.length > 0 ? `**${header}**: ` : "") + primitive.referenceParameters[param] + "\n"
                     }
                 }
-            }
+            }*/
             
         }else{
             if( d === "title"){
@@ -4101,6 +4130,7 @@ export async function executeConcurrently(list, process, cancelCheck, stopCheck,
     let currentIndex = 0;
     let activePromises = []
     let cancelled = false
+    let stopped = false
     let results = [] 
     if( !list || list.length === 0){
         return {results: undefined, cancelled}
@@ -4109,13 +4139,13 @@ export async function executeConcurrently(list, process, cancelCheck, stopCheck,
         if (currentIndex < list.length) {
             if(stopCheck && (await stopCheck())){
                 console.log("Stopped")
-                cancelled = true
-                return {results, cancelled}
+                stopped = true
+                return {results, cancelled, stopped}
             }
             if(cancelCheck && (await cancelCheck())){
                 console.log("Cancelled")
                 cancelled = true
-                return {results: undefined, cancelled}
+                return {results: undefined, cancelled, stopped}
             }
             const thisIndex = currentIndex++
             const item = list[thisIndex];
@@ -4137,7 +4167,7 @@ export async function executeConcurrently(list, process, cancelCheck, stopCheck,
     }
     await Promise.all(activePromises);
 
-    return {results, cancelled}
+    return {results, cancelled, stopped}
 }
 
 export function decodePath(node, path){
