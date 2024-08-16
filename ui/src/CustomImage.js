@@ -146,7 +146,6 @@ class CustomImage extends Shape {
       };
   
       img.onerror = (e) => {
-        console.log(`Error loadinging image ${this.attrs.url}`)
         if( this.attrs.alt ){
           this.maxImage = document.createElement('canvas');
           this.maxImage.width = 128//this.attrs.width * this.activeScale
@@ -158,12 +157,12 @@ class CustomImage extends Shape {
           ctx.fillStyle = 'black';
           ctx.textBaseline = "middle"
           ctx.textAlign = "center"
+          ctx.font = "14px Arial"
           ctx.fillText(this.attrs.alt , 64, 64)
           this.pcache._canvas_context.drawImage(this.maxImage, 0,0);
           
           if(this.attrs.refreshCallback ){
             this.newScale = 1
-            console.log(`calling refresh`)
             this.attrs.refreshCallback()
           }
         }
@@ -174,7 +173,6 @@ class CustomImage extends Shape {
     });
   }
   toDataURL(){
-    console.log(`CALLED toDataURL`)
     if( this.maxImage ){
       return this.maxImage.toDataURL("image/png", 1)
     }
@@ -300,7 +298,11 @@ class CustomImage extends Shape {
     
     if( this.maxImage !== undefined){
         const ratio = (scale / (this.lastScale ?? 1)) 
-        if( ratio < this.rescaleMin || ratio > this.rescaleMax){
+        if( ratio < this.rescaleMin || ratio > this.rescaleMax || this.refreshForCycle){
+          this.refreshForCycle = false
+          if( this.refreshForCycle ){
+            console.log(`REFRESH FOR RECYCLE`)
+          }
           this.newScale = scale
         if(this.attrs.refreshCallback && !this.placeholder){
           this.attrs.refreshCallback()

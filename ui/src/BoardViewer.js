@@ -754,8 +754,8 @@ export default function BoardViewer({primitive,...props}){
             const root = canvas.current.frameData( myState.activeBoardId )
             const temp = root.node.children
             root.node.children = root.allNodes
-            await exportKonvaToPptx( root.node, undefined, {removeNodes: ["frame_outline", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
-            //await exportKonvaToPptx( root.node, undefined, {removeNodes: ["frame_outline", "frame_label", "background", "view"], fit:"width", padding: [3, 1, 0.25, 1]} )
+            //await exportKonvaToPptx( root.node, undefined, {removeNodes: ["frame_outline", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
+            await exportKonvaToPptx( root.node, undefined, {removeNodes: ["frame_outline", "frame_label", "background", "view"],  padding: [3, 1, 0.25, 1]} )
             root.node.children = temp
         }else{
             await exportKonvaToPptx( canvas.current.stageNode() )

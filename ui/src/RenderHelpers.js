@@ -583,6 +583,14 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
         name: "background"
     })
     g.add(r)
+    const r2 = new Konva.Rect({
+        x: config.padding[3],
+        y: config.padding[0],
+        width: config.width - config.padding[3] - config.padding[1],
+        height: config.height - config.padding[0] - config.padding[2],
+        fill: items.length === 0 ? "white" : colors[idx]
+    })
+    g.add(r2)
 
 
     if( options.getConfig){
@@ -2488,7 +2496,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
         name:"inf_track primitive inf_keep"
     })
     if( g ){
-        let showName = false
+        let showName = true
 
         const logo = imageHelper( `/api/image/${primitive.id}`, {
             x: 0,

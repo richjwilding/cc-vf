@@ -191,7 +191,7 @@ let mainstore = MainStore()
               return d
             })).flat()
             const itp = items.map(d=>d.itemsForProcessing).flat()
-            let lookups = mainstore.uniquePrimitives([itp, itp.map(d=>d.primitives.descendants)].flat(Infinity))
+            let lookups = mainstore.uniquePrimitives([itp, itp.map(d=>d.primitives.directDescendants)].flat(Infinity))
             lookups = [...items, ...lookups]
             itemCountByType = {}
             for(const d of lookups){

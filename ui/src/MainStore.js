@@ -1708,6 +1708,7 @@ function MainStore (prims){
                             if( !options.cache ){
                                 options.cache = {}
                             }
+                            const excludedTypes = new Set(["segment", "category", "query"]);
 
                             if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "summary"))){
                                 let fullList = []
@@ -1799,7 +1800,7 @@ function MainStore (prims){
                                 return uniquePrimitives(fullList)
                             }else{
                                 //let list = uniquePrimitives(Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>receiver.primitives[d].uniqueAllItems).flat())
-                                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>receiver.primitives[d].allIds).flat()
+                                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" ).map(d=>receiver.primitives[d].allIds).flat()
                                 let list = []
                                 const check = new Set()
                                 for( const d of ids ){
@@ -1821,7 +1822,8 @@ function MainStore (prims){
                                         const check = [params.extract].flat()
                                         list = list.filter(d=>check.includes(d.referenceId))
                                     }
-                                    list = list.filter(d=>!["segment","category","query"].includes(d.type))
+                                    //list = list.filter(d=>!["segment","category","query"].includes(d.type))
+                                    list = list.filter(d => !excludedTypes.has(d.type));
                                 }
                                 return list
                             }                        

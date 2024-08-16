@@ -169,7 +169,7 @@ export async function summarizeMultiple(list, options = {} ){
         return await summarizeMultipleAsList(list, options)
     }    
 
-    let listIntro = list.length === 1 ? "Here is an overview of a company" : `Here are a list of ${options.types || "items"}: `
+    let listIntro = list.length === 1 ? "Here is some data to process" : `Here are a list of ${options.types || "items"}: `
     let prompt = options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`    
     let finalPrompt = prompt
     if( options.focus ){

@@ -183,6 +183,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( !stageRef.current){
             return
         }
+        if(myState.current.timeoutPending){
+            //console.log("cancel - already scheduled")
+            return
+        }
+        if(myState.current.animFramePending){
+           // console.log("cancel - already scheduled (RAF)")
+            return
+        }
         if( !myState.current.rescaleList  ){
             return
         }
@@ -194,17 +202,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }, delay)
             return
         }
-        if(myState.current.timeoutPending){
-            console.log("cancel - already scheduled")
-            return
-        }
-        if(myState.current.animFramePending){
-            console.log("cancel - already scheduled (RAF)")
-            return
-        }
         
         myState.current.timeoutPending = setTimeout(() => {
             myState.current.timeoutPending = undefined
+                if(myState.current.animFramePending){
+                    console.log(`No RAF after 5s - clearing`)
+                    myState.current.animFramePending = undefined
+                }
             myState.current.animFramePending = requestAnimationFrame(()=>{
                 myState.current.animFramePending = undefined
                 let steps = 200
@@ -226,6 +230,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             d.refreshCache()
                             d.draw()
                         }else{
+                            d.queuedForRefresh = false
                             console.log(`Has been removed`)
                         }
                     }
@@ -243,13 +248,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             myState.current.rescaleList = []
         }
         if( !image.queuedForRefresh ){
-            const doRefresh = myState.current.rescaleList.length === 0
+            //const doRefresh = myState.current.rescaleList.length === 0
             image.queuedForRefresh = true
             myState.current.rescaleList.push( image )
             
-            if( doRefresh){
+            //if( doRefresh){
                 refreshImages()
-            }
+            //}
         }
     }
     function buildPositionCache(frame){
@@ -542,7 +547,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     function resizeFrame(w, h){
         if( frameRef.current && stageRef.current){
             if( myState.current.resizeTimer ){
-                console.log('resize clear')
                 clearTimeout( myState.current.resizeTimer )
             }
             myState.current.resizeTimer = setTimeout(() => {
@@ -562,7 +566,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 if( myState.current.needExtentZoom ){
                     zoomToExtents()
                 }
-            }, 50);
+            }, 150);
             
         }
     }
@@ -848,7 +852,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
         for( const frame of myState.current.frames ?? []){
-            console.log(`Building for ${frame.id}`)
             buildPositionCache(frame)
         }
         //resizeFrame()
@@ -1653,7 +1656,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     //scaleBounds: { min: 0.03, max: 8 },
                     scaleBounds: ()=>{
                         const max = props.board ? 5 / Math.min(1, ...Object.values(props.primitive.frames ?? {}).map(d=>d.s ?? 1)) : 8
-                        console.log(max)
                         return { min: 0.03, max: max }
                     }
                 },
