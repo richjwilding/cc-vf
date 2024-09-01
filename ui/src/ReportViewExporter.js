@@ -44,13 +44,14 @@ export default function ReportViewExporter({primitive, ...props}){
                         "668944ae14799b7511126443", "668944aa14799b751112642b", "6689449f14799b75111263f3", "6689449914799b75111263d6", "6689448c14799b751112638a", "6689448a14799b7511126374", "6689448614799b751112635c", "6689447814799b7511126310", "6689447014799b75111262f3", "6689446d14799b75111262de", "6689445514799b7511126214", "6689445014799b75111261e7", "666be82b05ff1c2b42bbf724", "666be81f05ff1c2b42bbf403", 
                         "666be80f05ff1c2b42bbef32", "66881fd9069e82d65fb9b787", "66881fb3069e82d65fb9b72b", "66881f6a069e82d65fb9b694", "66881e10069e82d65fb9b547", "668819eb069e82d65fb9b32b", "66880c1b069e82d65fb9b268", "66880a8a069e82d65fb9b24e", "66880792069e82d65fb9b206", "66880773069e82d65fb9b1af", "66880736069e82d65fb9b134", "6687ffab069e82d65fb9ae0c", "6687ff85069e82d65fb9ada1", "6687ff62069e82d65fb9ad64", 
                         "6687ff5f069e82d65fb9ad4e", "6687ff52069e82d65fb9ad16", "6687ff4c069e82d65fb9acfc", "6687ff46069e82d65fb9ace2", "6687ff3e069e82d65fb9acab", "6687ff3b069e82d65fb9ac92", "6687ff28069e82d65fb9ac46", "6687ff23069e82d65fb9ac2c", "6687ff1b069e82d65fb9abfc", "6687ff14069e82d65fb9abdf", "6687ff0c069e82d65fb9abbe", "6687ff03069e82d65fb9aba2", "6687fef9069e82d65fb9ab84", "6687dd2155abc3b1bd0fcbbb", 
-                        "6687d751661c0068cb77f9cf", "6687dd1f55abc3b1bd0fcba6"].map(d=>mainstore.primitive(d)).sort((a,b)=>a.title.localeCompare(b.title))
+                        "6687d751661c0068cb77f9cf", "6687dd1f55abc3b1bd0fcba6"].map(d=>mainstore.primitive(d)).filter(d=>d).sort((a,b)=>a.title.localeCompare(b.title))
 
     const myState = useRef({})
     const canvas = useRef({})
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [activeTarget, setActiveTarget] = useState(targetList?.[0])
     const [autoExport, setAutoExport] = useState(undefined)
+    const [slideMap, setSlideMap] = useState({})
 
     const setViewerPick = (d)=>{
         setActiveTarget(d)
@@ -152,10 +153,12 @@ export default function ReportViewExporter({primitive, ...props}){
     }
     function exportAll(){
             let pptx = new pptxgen();
+            mainstore.keepPPTX = pptx
             
             let widthInInches = 10 * 4
             let heightInInches = 5.625 * 4
             
+            setSlideMap({})
             pptx.defineLayout({ name:'VF_CUSTOM', width: widthInInches, height: heightInInches });
             pptx.layout = 'VF_CUSTOM'
             
@@ -171,19 +174,23 @@ export default function ReportViewExporter({primitive, ...props}){
 
     useLayoutEffect(()=>{
         async function doExport(){
-            if( autoExport.idx < targetList.length){
+            const count = targetList.length
+            if( autoExport.idx < count){
                 await new Promise(r => setTimeout(r, 2000));                    
                 console.log(`EXPORT ${autoExport.idx}`)
-                await exportKonvaToPptx( canvas.current.stageNode(), autoExport.pptx, pptConfig )
+                let slide = await exportKonvaToPptx( canvas.current.stageNode(), mainstore.keepPPTX, pptConfig )
+                setSlideMap( {...slideMap, [activeTarget.id]: autoExport.idx + 1})
                 
                 let idx= autoExport.idx + 1
-                if( idx < targetList.length){
+                if( idx < count){
                     setViewerPick( targetList[idx])
                     setAutoExport( {idx: idx, pptx: autoExport.pptx} )
                 }else{
+                    window.pptlinks = slideMap
+
                     console.log(`SAVING`)
-                    autoExport.pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
-                    setAutoExport( undefined )
+                    //autoExport.pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
+                //    setAutoExport( undefined )
                 }
             }
         }
@@ -204,7 +211,8 @@ export default function ReportViewExporter({primitive, ...props}){
     }
     const [renderedSet] = useMemo(()=>{
         const fields = ["location", "title", "url"]
-        const boards = [411261, 411138, 435057, 434996, 435508 , 435515, 435526, 435532, 435533, 435544, 435545, 468603, 469150].map(d=>mainstore.primitive(d))
+        //const boards = [411261, 411138, 435057, 434996, 435508 , 435515, 435526, 435532, 435533, 435544, 435545, 468603, 469150].map(d=>mainstore.primitive(d))
+        const boards = [411261, 411138, 435057, 434996, 435515, 435526, 435532, 435533, 435544, 435545, 468603, 469150, 436467].map(d=>mainstore.primitive(d))
         
         const set = []
         for(const d of boards){
@@ -235,7 +243,7 @@ export default function ReportViewExporter({primitive, ...props}){
                     "border-r shrink-0 max-h-[inherit] flex flex-col place-content-between"
                 ].join(" ")}>
                 <div className="overflow-y-scroll space-y-2 p-1">
-                    {targetList.map((d)=><PrimitiveCard variant={false} primitive={d} compact onClick={()=>setViewerPick(d)} showExpand onEnter={()=>mainstore.sidebarSelect(d)} className={d.id === targetList.id ? "!bg-ccgreen-100 !border-ccgreen-200 !border" : "!border !border-gray-50"}/>)}
+                    {targetList.map((d)=><PrimitiveCard variant={false} primitive={d} compact onClick={()=>setViewerPick(d)} showExpand onEnter={()=>mainstore.sidebarSelect(d)} className={d.id === targetList?.id ? "!bg-ccgreen-100 !border-ccgreen-200 !border" : "!border !border-gray-50"}/>)}
                 </div>
                 <div className='shrink-0 grow-0'>
                     <Panel.MenuButton title="Export" className='w-full' action={exportAll}/>

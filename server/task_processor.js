@@ -1,11 +1,12 @@
 import { fetchFragmentsForTerm } from "./DocumentSearch";
 import PrimitiveConfig from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
-import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
+import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { lookupCompanyByName } from "./crunchbase_helper";
-import { extractURLsFromPage, fetchLinksFromWebQuery, googleKnowledgeForQuery, queryGoogleSERP } from "./google_helper";
+import { extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, queryGoogleSERP } from "./google_helper";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
+import { analyzeListAgainstTopics } from "./openai_helper";
 
 const parser = PrimitiveParser()
 
@@ -103,10 +104,11 @@ export async function getSegemntDefinitions( primitive, customAxis ){
             }else if( resolvedFilterType === "type"){
                 data = item.map(d=>d.referenceId)
             }else if( resolvedFilterType === "parent"){
-                if( thisAxis.subtype === "question" || mappedFilter.subtype === "search"){
+                if( thisAxis.subtype === "question"){
+                    data = item.filter(d=>d.type === "prompt").map(d=>primitiveOrigin(d))
+                }else if( mappedFilter.subtype === "search"){
                     throw "Should filter by type"
-                }
-                if( thisAxis.type === "category" ){
+                }else if( thisAxis.type === "category" ){
                     data = item.map(d=>d.id).map(d=>childCategories.includes(d) ? d : undefined).filter((d,i,a)=>d && a.indexOf(d)===i)
                 }else{
                     data = item.map(d=>d.id)
@@ -464,33 +466,39 @@ export async function loopkupOrganization( value, referenceCategory, workspaceId
     }
 }
 export async function findCompanyURLByName( name, context ){
-    /*
-    let link = await findCompanyURLByNameByApollo(name, context)
-    if( !link){
-        link = await findCompanyURLByNameByZoominfo(name, context)
-    }
-    if( !link){
-        link = await findCompanyURLByKnowledgeGraph(name, context)
-    }
-    if( !link){
-        link = await findCompanyURLByNameByAboutUs(name, context)
-    }
-    return link*/
-
-    const results = await Promise.all([
+    let results = await Promise.all([
         findCompanyURLByNameByApollo(name, context),
         findCompanyURLByNameByZoominfo(name, context),
         findCompanyURLByKnowledgeGraph(name, context),
         findCompanyURLByNameByAboutUs(name, context)
     ]);
-    console.log(results)
+    results = results.flat().filter((d,i,a)=>d && a.indexOf(d)===i).map(d=>({hostname: d}))
 
-    // Process results
-    for (let link of results) {
-        if (link) {
-            return link; // Return the first truthy link found
+    console.log(results)
+    if( context.topics ){
+        await executeConcurrently(results, async (d, i)=>{
+            results[i].meta = await getMetaDescriptionFromURL(d.hostname)
+        })
+        const toProcess = Object.values(results).filter(d=>d.meta)
+        const pass = []
+        
+        if( toProcess.length > 0){
+            const result = await analyzeListAgainstTopics(toProcess, context.topics, {asScore: true,prefix: "Organization", type: "organization"})
+            if( result?.success && result.output){
+                for(const d of result.output){
+                    console.log(d)
+                    if( d.s >= 2){
+                        pass.push({...toProcess[d.i], s:d.s})
+                    }
+                }
+            }
+            console.log(`Passed `)
+            console.log(pass)
+            return pass.sort((a,b)=>b.s - a.s)[0]?.hostname
         }
     }
+    return results[0]?.hostname
+
     return undefined
 }
 export async function findCompanyURLByNameByApollo( name, context ){
@@ -531,12 +539,26 @@ export async function findCompanyURLByNameByZoominfo( name, context ){
         return matched
     }
 }
-export async function findCompanyURLByNameByAboutUs( name, context ){
+export async function findCompanyURLByNameByAboutUs( name, context = {}){
     const result = await fetchLinksFromWebQuery(`\"${name}\" "about"`, {timeFrame: ""})
     if( result.links ){
         const regex = new RegExp(name,'i')
         
         const domains = {}
+
+        const ignoreDomains = [
+            'www.globaldata.com',
+            'www.bloomberg.com',
+            'www.statista.com',
+            'linkedin.com',
+            'finance.yahoo.com',
+            'uk.marketscreener.com',
+            'www.dnb.com',
+            '.indeed.com',
+            'www.zoominfo.com',
+            'www.apollo.io',
+            'rocketreach.co'
+        ]
         
         for(const d of result.links){
             if( d.snippet?.match(regex) || d.title?.match(regex) ){
@@ -549,15 +571,17 @@ export async function findCompanyURLByNameByAboutUs( name, context ){
                 }else if( hostname === "en.wikipedia.org"){
                     console.log(`Got wiki -examining`)
                     return await extractMainURLFromWikipedia( d.url )
-                }else if(hostname.match(/linkedin.com/i)){
+                }else if(ignoreDomains.filter(d=>hostname.toLowerCase().indexOf(d) > -1).length > 0){
                     continue
                 }
-                domains[hostname] = (domains[hostname] || 0) + 1
+                domains[hostname] = domains[hostname] ?? {snippet: d.snippet, url: url.origin, hostname: hostname}
+                domains[hostname].count = (domains[hostname].count || 0) + 1
             }
         }
         console.log(domains)
-        let candidates = Object.keys(domains).filter(d=>domains[d] > 1).sort((a,b)=>domains[b]-domains[a])
-        return candidates[0]
+        let candidates = Object.keys(domains).filter(d=>domains[d].count > 1).sort((a,b)=>domains[b].count - domains[a].count)
+        return candidates
+
     }
 }
 async function extractMainURLFromWikipedia( url ){

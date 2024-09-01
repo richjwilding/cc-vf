@@ -894,7 +894,7 @@ export async function enrichFromCrunchbase( primitive, options = {}){
         
         if(true || !data ){
             data = await fetchCompanyDataFromCrunchbase(primitive)
-            if( data.error ){
+            if( data?.error ){
                 return {error: data.error}
             }
         }
@@ -916,6 +916,7 @@ export async function enrichFromCrunchbase( primitive, options = {}){
             }
             dispatchControlUpdate( primitive.id, `title`, properties.name)
             dispatchControlUpdate( primitive.id, `referenceParameters`, newParams)
+            return true
         }
     }catch(error){
         console.log(`Error in enrichFromCrunchbase`)

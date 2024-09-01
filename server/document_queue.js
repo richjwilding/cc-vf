@@ -587,7 +587,7 @@ async function processQuestions( data ){
         }
         
         if( !extract ){
-            extract = await getDocumentAsPlainText( primitive.id, data.req )
+            extract = await getDocumentAsPlainText( primitive.id, data.req, null, true )
         }
 
         const text = extract.plain

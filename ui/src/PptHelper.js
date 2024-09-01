@@ -42,6 +42,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
 
 
     let slide = pptx.addSlide();
+    let startSlide = slide
 
     let minX = Infinity, minY = Infinity
     let maxX = -Infinity, maxY = -Infinity
@@ -261,6 +262,13 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     })
                 }
                 console.log(stack)
+                if( konvaNode.parent?.attrs?.name.includes("primitive")){
+                    if( window.pptlinks){
+                        if( window.pptlinks[konvaNode.parent?.attrs.id]){
+                            stack[0].options.hyperlink = {slide: window.pptlinks[konvaNode.parent?.attrs.id]}
+                        }
+                    }
+                }
                 slide.addText(stack, {
                     x: rx,
                     y: ry,
@@ -454,6 +462,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
     if( savePptx ){
         writePptx(pptx)
     }
+    return startSlide
 }
 export function writePptx(pptx){
     pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });

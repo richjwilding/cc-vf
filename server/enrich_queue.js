@@ -2,17 +2,18 @@ import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import Primitive from "./model/Primitive";
-import { addRelationship, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
 import { enrichCompanyFromLinkedIn } from "./linkedin_helper";
 import { enrichFromCrunchbase, fetchCompanyDataFromCrunchbase, findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
 import Category from "./model/Category";
 //import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import Parser from "@postlight/parser";
-import { extractURLsFromPage, extractURLsFromPageAlternative, fetchURLPlainText } from "./google_helper";
+import { extractURLsFromPage, extractURLsFromPageAlternative, fetchURLPlainText, getMetaDescriptionFromURL } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
 import QueueManager from "./base_queue";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
+import { findCompanyURLByName } from "./task_processor";
 
 
 let instance
@@ -813,6 +814,39 @@ export default function EnrichPrimitive(){
                         if( job.data.options.source === "crunchbase" ){
                             const result = await enrichFromCrunchbase( primitive, true)
                             SIO.notifyPrimitiveEvent( primitive, result)
+                        }
+                        if( job.data.options.source === "url" ){
+                            const result = await enrichFromCrunchbase( primitive, true)
+                            if( !result ){
+                                console.log(`URL not found on crunchbase - reverting to website`)       
+                                await doPrimitiveAction( primitive, "update_icon_url")
+                                const meta = await getMetaDescriptionFromURL(primitive.referenceParameters?.url)
+                                if( meta ){
+                                    await dispatchControlUpdate( primitive.id, "referenceParameters.description", meta )
+                                    const response = await processPromptOnText(meta,
+                                        {
+                                            prompt: "Here is the meta description from a company website. What is the name of the company?",
+                                            output: "Provide the result as a JSON object with a field called 'name'",
+                                            field: "name"
+                                        }
+                                    )
+                                    if( response ){
+                                        console.log(response)
+                                        await dispatchControlUpdate( primitive.id, "title", response.output?.[0] )
+                                    }
+                                } 
+
+                            }
+                            SIO.notifyPrimitiveEvent( primitive, result)
+                        }
+                        if( job.data.options.source === "name" ){
+                            const task = await primitiveTask( primitive )
+                            const url = await findCompanyURLByName( primitive.referenceParameters.search_name, {topics: task?.referenceParameters?.topics} )
+                            console.log(url)
+                            if( url ){
+                                updateFieldWithCallbacks( primitive.id, "referenceParameters.url", url )
+                            }
+                            //dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
                         }
                     }
                 }else if( job.data.mode === "pivot" ){

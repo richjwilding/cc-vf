@@ -15,7 +15,7 @@ import { encode } from "gpt-3-encoder";
 import { buildEmbeddings } from "./openai_helper";
 import Parser from '@postlight/parser';
 import csv from 'csv-parser';
-import { dispatchControlUpdate, executeConcurrently } from "./SharedFunctions";
+import { dispatchControlUpdate, executeConcurrently, fetchPrimitive } from "./SharedFunctions";
 import { retrieveDocumentFromSearchCache, storeDocumentEmbeddings } from "./DocumentSearch";
 import * as cheerio from 'cheerio';
 import { fetchLinksFromWebDDGQuery } from "./ddg_helper";
@@ -23,6 +23,7 @@ import ContentEmbedding from "./model/ContentEmbedding";
 import Category from "./model/Category";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { fetchRedditThreadAsText } from "./reddit_helper.js";
+import { compareTwoStrings } from "./document_queue.js";
 
 let adconfig = {}
 
@@ -887,6 +888,10 @@ export async function replicateURLtoStorage(url, id, bucketName){
             await file.delete()
         }
         const stream = file.createWriteStream()
+
+        const primitive = await fetchPrimitive(id)
+        const imageCount = (primitive.imageCount ?? 0) + 1
+        await dispatchControlUpdate(primitive.id, "imageCount", imageCount)
         
         
         const response = await fetch(url)
@@ -1488,6 +1493,7 @@ export function locateQuote(oQuote, document){
     }
     // first pass
     while( subset(true).indexOf(quote) === -1 && !terminate){
+    //while( compareTwoStrings( subset(true), quote) > 0.1 && !terminate){
         endIdx++
     }
 
@@ -1497,6 +1503,7 @@ export function locateQuote(oQuote, document){
         terminate = false
     
         while( subset(false).indexOf(quote) !== -1 && !terminate){
+        //while( compareTwoStrings( subset(false), quote) <= 0.1 && !terminate){
             startIdx++
         }
         if(!terminate){
@@ -1923,6 +1930,72 @@ export async function fetchURLAsArticle( url, threshold = 50){
     }
 
 }
+export async function getMetaImageFromURL(url) {
+    try {
+        const finalUrl = url.match(/:\/\//) ? url : "https://" + url
+      const response = await fetch(finalUrl);
+      const html = await response.text();
+      const $ = cheerio.load(html);
+  
+      // Try to find the favicon link
+      let imageURL = $('meta[property="og:image:secure_url"]').attr('content');
+  
+      // Handle relative URLs
+      if (imageURL && !imageURL.startsWith('http')) {
+        const baseUrl = new URL(finalUrl);
+        imageURL = `${baseUrl.origin}${imageURL}`;
+      }
+  
+      console.log(`image URL: ${imageURL}`);
+      return imageURL;
+    } catch (error) {
+      console.error(`Error fetching favicon: ${error}`);
+    }
+  }
+export async function getFaviconFromURL(url) {
+    try {
+        const finalUrl = url.match(/:\/\//) ? url : "https://" + url
+      const response = await fetch(finalUrl);
+      const html = await response.text();
+      const $ = cheerio.load(html);
+  
+      // Try to find the favicon link
+      let faviconUrl = $('link[rel="icon"]').attr('href') || $('link[rel="shortcut icon"]').attr('href') || $('link[rel="apple-touch-icon"]').attr('href');
+  
+      // Handle relative URLs
+      if (faviconUrl && !faviconUrl.startsWith('http')) {
+        const baseUrl = new URL(finalUrl);
+        faviconUrl = `${baseUrl.origin}${faviconUrl}`;
+      }
+  
+      console.log(`Favicon URL: ${faviconUrl}`);
+      return faviconUrl;
+    } catch (error) {
+      console.error(`Error fetching favicon: ${error}`);
+    }
+  }
+export async function getMetaDescriptionFromURL(url) {
+    try {
+        const finalUrl = url.match(/:\/\//) ? url : "https://" + url
+        const response = await fetch(finalUrl);
+        const html = await response.text();
+        const $ = cheerio.load(html);
+
+        const metaDescriptions = [];
+        $('meta[name="description"]').each((i, elem) => {
+        const content = $(elem).attr('content');
+        if (content) {
+            metaDescriptions.push(content.trim());
+        }
+        });
+
+        return metaDescriptions.length > 0 ? metaDescriptions.join(". ") : null;
+  
+    } catch (error) {
+      console.error(`Error fetching meta: ${error}`);
+    }
+  }
+
 export async function extractURLsFromPageAlternative( baseUrl, options = {}, fetch_options = {},  ){
 
         const params = 

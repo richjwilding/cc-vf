@@ -382,7 +382,7 @@ export function Sidebar({primitive, ...props}) {
             {!infoPane && isMulti && !commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">Cant inspect selection</div> }            
             {!infoPane && isMulti && commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">{primitive.length} items selected</div> }
             {!infoPane && !isMulti && (primitive.referenceParameters?.hasImg || primitive.metadata?.actions) && <div className='w-full flex'>
-                {primitive.referenceParameters?.hasImg  &&  <VFImage className="w-8 h-8 mx-2 object-contain my-auto" src={`/api/image/${primitive.id}`} />}
+                {primitive.referenceParameters?.hasImg  &&  <VFImage className="w-8 h-8 mx-2 object-contain my-auto" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} />}
                 {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} className='ml-auto m-2'/> }            
             </div>}
             {!infoPane && !isMulti && primitive.type === "query" && <div className="pb-2 pl-4 pr-4 pt-4">

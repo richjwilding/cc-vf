@@ -220,10 +220,10 @@ const PrimitiveConfig = {
                             {id:"green", title: "Green"},
                             {id:"blue", title: "Blue"}
                         ]
-                    }
+                    },
                 }
             },
-            counts: {id:1, title:"Show counts",
+            counts: {id:1, title:"Heatmap",
                 config:{
                     "colors":{
                         type: "option_list",
@@ -245,6 +245,15 @@ const PrimitiveConfig = {
                             id: "col",
                             title: "Columns"
                         }]
+                    },
+                    "counts":{
+                        type: "option_list",
+                        title: "Show count",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
                     }
                 },
                 showAsCounts:true

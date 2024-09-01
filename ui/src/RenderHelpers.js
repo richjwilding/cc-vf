@@ -591,6 +591,22 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
         fill: items.length === 0 ? "white" : colors[idx]
     })
     g.add(r2)
+    if( primitive.renderConfig?.counts){
+        const t = new Konva.CustomText({
+            x: config.padding[3],
+            y: (config.height - 20) / 2,
+            text: items.length,
+            fontSize: 16,
+            width: config.width - config.padding[3] - config.padding[1],
+            align:'center',
+            height:20,
+            bgFill: 'transparent',
+            refreshCallback: options.imageCallback
+        })
+        g.add(t)
+        t.y((config.height - t.height() ) /2)
+
+    }
 
 
     if( options.getConfig){
@@ -607,6 +623,9 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
 })
 registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = {})=>{
     const config = {itemSize: 256, columns: 5, spacing: [8,12], itemPadding: [10,12,10,8], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    if( config.minWidth ){
+        config.itemSize = config.minWidth
+    }
     if( !options.list ){
         return undefined
     }
@@ -1821,12 +1840,18 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
             name:"background"
         })
         g.add(r)
+
+        let text = primitive.referenceParameters[config.field]
+        if( primitive.origin.plainId === 435057){
+            text = text.replace(/^.+MVTR.+\n/,"")
+        }
+
         const t = new CustomText({
             x: config.padding[3],
             y: config.padding[0],
             fontSize: config.fontSize,
             lineHeight: 1.5,
-            text: primitive.referenceParameters[config.field],
+            text: text,
             withMarkdown: true,
             fill: '#334155',
             wrap: true,
@@ -2498,7 +2523,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
     if( g ){
         let showName = true
 
-        const logo = imageHelper( `/api/image/${primitive.id}`, {
+        const logo = imageHelper( `/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`, {
             x: 0,
             y: 0,
             padding: config.padding,

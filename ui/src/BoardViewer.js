@@ -538,7 +538,7 @@ export default function BoardViewer({primitive,...props}){
                 ...stageOptions,
                 ...renderOptions,
                 toggles: view.toggles,
-                expand: Object.keys(primitive.frames[ d.id ]?.expand ?? {})
+                expand: Object.keys(primitive.frames?.[ d.id ]?.expand ?? {})
             })
 
         if( primitive.frames?.[d.id]){
@@ -749,13 +749,19 @@ export default function BoardViewer({primitive,...props}){
         }
         writePptx( pptx)
     }
-    async function exportFrame(){
+    async function exportFrame(asTable = false){
         if(myState.activeBoard){
             const root = canvas.current.frameData( myState.activeBoardId )
             const temp = root.node.children
             root.node.children = root.allNodes
-            //await exportKonvaToPptx( root.node, undefined, {removeNodes: ["frame_outline", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
-            await exportKonvaToPptx( root.node, undefined, {removeNodes: ["frame_outline", "frame_label", "background", "view"],  padding: [3, 1, 0.25, 1]} )
+            if( asTable ){
+                await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: ["frame_outline", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
+            }else{
+                await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: ["frame_outline", "frame_label", "background", "view"],  padding: [3, 1, 0.25, 1]} )
+            }
+            if( !mainstore.disablePPTXSave ){
+                mainstore.keepPPTX.writeFile({ fileName: "Konva_Stage_Export.pptx" });
+            }
             root.node.children = temp
         }else{
             await exportKonvaToPptx( canvas.current.stageNode() )
@@ -765,9 +771,14 @@ export default function BoardViewer({primitive,...props}){
     async function copyToClipboard(){
         if(myState.activeBoard){
             const view = myState[myState.activeBoard.id]
+            if( view.referenceId === 118){
+                const root = mainstore.primitive(view.order?.[0])
+                const rootList = root.itemsForProcessing
+
+
+            }
             const out = view.rows.map(row=>{
                 return view.columns.map(column=>{
-
                     const subList = view.list.filter(d=>[d.column].flat().includes( column.idx) && [d.row].flat().includes( row.idx))
                     let text = "-"
                     if( subList.length > 0){
@@ -810,7 +821,8 @@ export default function BoardViewer({primitive,...props}){
                     <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={pickNewItem} flat placement='left-start' />
                     <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
                     {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
-                    {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={exportFrame} flat placement='left-start' />}
+                    {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(true)} flat placement='left-start' />}
+                    {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false)} flat placement='left-start' />}
                     {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
             </div>
             {collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>

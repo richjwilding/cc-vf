@@ -1191,14 +1191,14 @@ export async function analyzeText2(text, options = {}){
             fieldList = `, a 'answer' field set to the answer`
         }
 
-        if( singlePrompt ){
-            responseInstructions = `Return your results in a json object with a `
+        if( singlePrompt ){            responseInstructions = `Return your results in a json object with a `
         }else{
             responseInstructions = `Return your results in a json object with a field for each task which contains a `
         }
         
         //responseInstructions += `field called 'answered' set to the number of ${responseQualifier}, and an 'answers' field which is an array of problems for that task (if any), with each entry being an object with the following fields: a 'quote' field containing no more than the first 30 words of the exact text from the article used to produce the answer without correcting bad spelling or grammar or altering the text in anyway,  and a '${field}' field containing the problems you identify in the form 'It sucks that...'.Do not put anything other than the raw JSON in the response `
-        responseInstructions += `field called 'answered' set to the number of ${responseQualifier}, and an 'answers' field which is an array of ${field}s for that task (if any), with each entry being an object with the following fields: a 'quote' field containing no more than the first 30 words of the exact text from the article used to produce the answer without correcting bad spelling or grammar or altering the text in anyway${fieldList}.Do not put anything other than the raw JSON in the response `
+        //responseInstructions += `field called 'answered' set to the number of ${responseQualifier}, and an 'answers' field which is an array of ${field}s for that task (if any), with each entry being an object with the following fields: a 'quote' field containing no more than the first 30 words of the exact text from the article used to produce the answer without correcting bad spelling or grammar or altering the text in anyway${fieldList}.Do not put anything other than the raw JSON in the response `
+        responseInstructions += `field called 'answered' set to the number of ${responseQualifier}, and an 'answers' field which is an array of ${field}s for that task (if any), with each entry being an object with the following fields:  a 'quote' field citing the full portion of the text used to produce this specific answer without correcting bad spelling or grammar or altering the text in anyway other than limiting it to the first 100 words of the used text${fieldList}.Do not put anything other than the raw JSON in the response `
 
     }
 
@@ -1327,7 +1327,8 @@ export async function analyzeText(text, options = {}){
             responseInstructions = `Return your results in a json object with a field called "results" which in an object with a field for each ${promptType} containing an array for responses to that ${promptType}.  Each entry in the array should be an object with the following fields: `
         }
         
-        responseInstructions += `an 'answered' field set to true if you found an answer to the specific ${promptType} - otherwise set to false${skipQuote ? "" : `, a 'quote' field containing no more than the first 30 words of the exact text${options.sourceType ? ` from the ${options.sourceType}` : ""} used to produce the answer without correcting bad spelling or grammar or altering the text in anyway`}${fieldList}.Do not put anything other than the raw JSON in the response .`        
+        //responseInstructions += `an 'answered' field set to true if you found an answer to the specific ${promptType} - otherwise set to false${skipQuote ? "" : `, a 'quote' field containing no more than the first 30 words of the exact text${options.sourceType ? ` from the ${options.sourceType}` : ""} used to produce the answer without correcting bad spelling or grammar or altering the text in anyway`}${fieldList}.Do not put anything other than the raw JSON in the response .`        
+        responseInstructions += `an 'answered' field set to true if you found an answer to the specific ${promptType} - otherwise set to false${skipQuote ? "" : `, a 'quote' field citing the entirety of the text used to produce this specific answer without correcting bad spelling or grammar or altering the text in anyway other than limiting it to the first 100 words of the text${options.sourceType ? ` from the ${options.sourceType}` : ""} used to produce the answer without correcting bad spelling or grammar or altering the text in anyway`}${fieldList}.Do not put anything other than the raw JSON in the response .`        
     }
 
     let interim = await processInChunk( list, 

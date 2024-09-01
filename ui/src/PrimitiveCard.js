@@ -1658,7 +1658,7 @@ const Entity=({primitive, ...props})=>{
           }>
 
           { logoImg && (logoImg !== null) &&
-            <VFImage className="w-8 h-8 mr-2 object-contain my-auto" src={`/api/image/${primitive.id}`} />
+            <VFImage className="w-8 h-8 mr-2 object-contain my-auto" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} />
             }
             <p className='text-sm'>{primitive.title}</p>
 
@@ -1671,7 +1671,7 @@ const Entity=({primitive, ...props})=>{
 
   if( props.imageOnly || (props.fixedSize && props.scale < 0.4) ){
     
-      content = logoImg ? <VFImage className={`${props.compact ? "p-0.5" : "p-4"} min-w-[2rem] min-h-[2rem] w-full h-full object-contain m-auto`} src={`/api/image/${primitive.id}`} /> : <BuildingOffice2Icon className='text-gray-500 p-4'/>
+      content = logoImg ? <VFImage className={`${props.compact ? "p-0.5" : "p-4"} min-w-[2rem] min-h-[2rem] w-full h-full object-contain m-auto`} src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} /> : <BuildingOffice2Icon className='text-gray-500 p-4'/>
        
       buttonSize = props.compact ? 5 : 16
   }else if(props.fullCard){
@@ -1702,7 +1702,7 @@ const Entity=({primitive, ...props})=>{
       content = <>
         <div className='w-full px-4 pt-2 flex place-items-center'>
           { logoImg && (logoImg !== null) &&
-            <VFImage className="w-8 h-8 object-contain my-auto" src={`/api/image/${primitive.id}`} />
+            <VFImage className="w-8 h-8 object-contain my-auto" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} />
             }
             <p className={`${props.fixedSize ? "line-clamp-2" : "py-2"} px-2 text-lg text-gray-700 font-semibold`}>{primitive.title}</p>
           </div>
@@ -1739,7 +1739,7 @@ const Entity=({primitive, ...props})=>{
       content = <>
         <div className='w-full px-4 pt-2 flex place-items-center'>
           { logoImg && (logoImg !== null) &&
-            <VFImage className="w-8 h-8 object-contain my-auto" src={`/api/image/${primitive.id}`} />
+            <VFImage className="w-8 h-8 object-contain my-auto" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} />
             }
             <p className={`${props.fixedSize ? "line-clamp-2" : "py-2"} px-2 text-lg text-gray-700 font-semibold`}>{primitive.title}</p>
           </div>
@@ -2174,13 +2174,13 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
             (primitive.type === "result" && primitive.referenceParameters?.hasImg)   && 
               <>
                 <div className="bg-gray-200 h-[8.25rem] mb-2 w-full rounded-t-lg"/>
-                <VFImage className="absolute top-0 left-0 object-cover h-36 w-full rounded-t-lg" src={`/api/image/${primitive.id}`}/>
+                <VFImage className="absolute top-0 left-0 object-cover h-36 w-full rounded-t-lg" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`}/>
               </>
           }
           {props.showImg 
             ?  
               <div className='w-full flex mb-2 text-lg'>
-                <VFImage rounded shadow className="object-cover h-12 w-12 mr-2" src={`/api/image/${primitive.id}`}/>
+                <VFImage rounded shadow className="object-cover h-12 w-12 mr-2" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`}/>
                 {header}
               </div>
             : header

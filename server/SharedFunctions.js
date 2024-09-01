@@ -7,7 +7,7 @@ import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn
 import { enrichCompanyFunding, extractAcquisitionsFromCrunchbase, extractArticlesFromCrunchbase, lookupCompanyByName, pivotFromCrunchbase, resolveAndCreateCompaniesByName, resolveCompaniesByName, resolveCompanyByNames } from './crunchbase_helper';
 import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList, processAsSingleChunk, generateImage} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
-import { buildEmbeddingsForPrimitives, decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLAsTextAlternative, fetchURLPlainText, fetchURLScreenshot, getDocumentAsPlainText, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, removeDocument, replicateURLtoStorage, uploadDataToBucket, writeTextToFile } from './google_helper';
+import { buildEmbeddingsForPrimitives, decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLAsTextAlternative, fetchURLPlainText, fetchURLScreenshot, getDocumentAsPlainText, getFaviconFromURL, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, getMetaImageFromURL, removeDocument, replicateURLtoStorage, uploadDataToBucket, writeTextToFile } from './google_helper';
 import { SIO } from './socket';
 import EnrichPrimitive from './enrich_queue';
 import QueueAI from './ai_queue';
@@ -3641,8 +3641,28 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
 
             }
             if( primitive.type === "entity" ){
+                if( command === "update_icon_url"){
+                    let url = await getMetaImageFromURL( primitive.referenceParameters?.url )
+                    if( !url ){
+                        url = await getFaviconFromURL( primitive.referenceParameters?.url )
+                    }
+                    if( url ){
+                        await replicateURLtoStorage(url, primitive._id.toString(), "cc_vf_images")
+                        await dispatchControlUpdate(primitive.id, "referenceParameters.hasImg" , url)
+                    }
+                    console.log(url)
+                    done = true
+                }
                 if( command === "enrich"){
                     result = EnrichPrimitive().enrichCompany( primitive, "linkedin", true )
+                    done = true
+                }
+                if( command === "enrich_name"){
+                    result = EnrichPrimitive().enrichCompany( primitive, "name", true )
+                    done = true
+                }
+                if( command === "enrich_url"){
+                    result = EnrichPrimitive().enrichCompany( primitive, "url", true )
                     done = true
                 }
                 if( command === "enrich_cb"){

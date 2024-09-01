@@ -749,9 +749,8 @@ class CollectionUtils{
                         let item = d
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
                         if( !item ){return undefined}
-                        //const hits = option.values.filter(d2=>d.parentPrimitiveIds.includes(d2[0]))
-                        //return hits.map(d=>d[1]).filter((d,i,a)=>a.indexOf(d)===i)[0]
-                        let out = option.values.filter(d2=>d.parentPrimitiveIds.filter(d3=>d2.map.includes(d3)).length > 0).map(d2=>d2.idx)?.[0]
+                        //let out = option.values?.filter(d2=>d.parentPrimitiveIds.filter(d3=>d2.map.includes(d3)).length > 0).map(d2=>d2.idx)?.[0]
+                        let out = d.parentPrimitives.filter(d=>d.type === "prompt" && d.origin.type === "question").map(d=>d.origin.title)
                         return out ?? "_N_"
                     }
                 }else if( option.type === "parameter"){
