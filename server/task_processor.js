@@ -174,29 +174,83 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
     if( primitive.referenceParameters?.axis ){
         customAxis = Object.values(primitive.referenceParameters.axis  ?? {}).filter(d=>d)
     }
+    if( primitive.referenceParameters?.segments ){
+        const targetSegments = primitive.referenceParameters?.segments
+        if( targetSegments && Array.isArray(targetSegments)){
+            console.log(`Checking segments at ${parent.id} / ${parent.plainId}`)
+            console.log( `Got ${targetSegments.length} segments to create / check - currently have ${currentSegments.length}`)
 
-    const targetSegmentConfig = await getSegemntDefinitions(parent, customAxis)
-    
-    console.log(`Checking segments at ${parent.id} / ${parent.plainId}`)
-    console.log( `Got ${targetSegmentConfig.length} segments to create / check - currently have ${currentSegments.length}`)
-    
-    for(const importConfig of targetSegmentConfig){
-        let existing = currentSegments.filter(d=>PrimitiveConfig.checkImports( d, importConfig.id, importConfig.filters))
-        if(existing.length > 1 ){
-            console.warn(`Got multiple segments for ${JSON.stringify(importConfig)} = ${existing.map(d=>d.plainId).join(", ")}`)
-            existing = existing[0]
-            checked[ existing.id ] = true
-        }else if( existing.length === 1){
-            existing = existing[0]
-            checked[ existing.id ] = true
+            for(const d of targetSegments){
+                let existing = currentSegments.filter(d2=>d2.title === d)
+                if(existing.length > 1 ){
+                    console.warn(`Got multiple segments for ${d} = ${existing.map(d=>d.plainId).join(", ")}`)
+                    existing = existing[0]
+                    checked[ existing.id ] = true
+                }else if( existing.length === 1){
+                    existing = existing[0]
+                    checked[ existing.id ] = true
+                }else{
+                    existing = undefined
+                }
+                if( existing ){
+                    console.warn(`++ Got segments for ${d} = ${existing.plainId}`)
+                }else{
+                    existing = await createPrimitive({
+                        workspaceId: primitive.workspaceId,
+                        parent: parent.id,
+                        data:{
+                            type: "segment",
+                            title: d
+                        }
+                    })
+                    if( !existing ){
+                        throw "Couldnt create segment"
+                    }
+                    await addRelationship(existing.id, parent.id, "imports")
+                    console.log(`Created new segment ${existing.id} ${existing.plainId} for ${d}`)
+                }
+                out.push(existing)
+
+            }
+
+
         }else{
-            existing = undefined
+            return
         }
-        if( existing ){
-            console.warn(`++ Got segments for ${JSON.stringify(importConfig)} = ${existing.plainId}`)
+
+    }else{
+        let targetSegmentConfig 
+        
+        if( primitive.referenceParameters?.by_axis === false){
+            targetSegmentConfig = [
+                {
+                    id: parent.id
+                }
+            ]
+        }else{
+            targetSegmentConfig = await getSegemntDefinitions(parent, customAxis)
         }
-        if( !existing ){
-            existing = await createPrimitive({
+        
+        console.log(`Checking segments at ${parent.id} / ${parent.plainId}`)
+        console.log( `Got ${targetSegmentConfig.length} segments to create / check - currently have ${currentSegments.length}`)
+        
+        for(const importConfig of targetSegmentConfig){
+            let existing = currentSegments.filter(d=>PrimitiveConfig.checkImports( d, importConfig.id, importConfig.filters))
+            if(existing.length > 1 ){
+                console.warn(`Got multiple segments for ${JSON.stringify(importConfig)} = ${existing.map(d=>d.plainId).join(", ")}`)
+                existing = existing[0]
+                checked[ existing.id ] = true
+            }else if( existing.length === 1){
+                existing = existing[0]
+                checked[ existing.id ] = true
+            }else{
+                existing = undefined
+            }
+            if( existing ){
+                console.warn(`++ Got segments for ${JSON.stringify(importConfig)} = ${existing.plainId}`)
+            }
+            if( !existing ){
+                existing = await createPrimitive({
                     workspaceId: primitive.workspaceId,
                     parent: parent.id,
                     data:{
@@ -213,10 +267,11 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                 }
                 await addRelationship(existing.id, parent.id, "imports")
                 console.log(`Created new segment ${existing.id} ${existing.plainId} for ${JSON.stringify(importConfig)}`)
+            }
+            out.push(existing)
         }
-        out.push(existing)
     }
-    if( options.clear ){
+    if( options.clear || primitive.referenceParameters?.segments ){
         const toClear = Object.keys(checked).filter(d=>!checked[d])
         if( toClear.length > 0){
             console.log(`${toClear.length} of ${currentSegments.length} to be cleared`)
@@ -243,7 +298,14 @@ export async function aggregateItems( parent, primitive, options = {}){
     for( const segment of segments){
         let existing = currentAggregators.find(d=>Object.keys(d.parentPrimitives).includes(segment.id))
         
-        if( !existing ){
+        if( existing ){
+            if( !options.force ){
+                if( existing.referenceParameters?.summary){
+                    console.log(`Skipping existing item`)
+                }
+                continue
+            }
+        }else{
             existing = await createPrimitive({
                 workspaceId: primitive.workspaceId,
                 paths: ["origin", "config"],
@@ -264,6 +326,7 @@ export async function aggregateItems( parent, primitive, options = {}){
             existing = await fetchPrimitive(existing.id)
             await addRelationship(segment.id, existing.id, "auto")
             console.log(`Created new aggregate ${existing.id} ${existing.plainId} for ${primitive.id} / ${primitive.plainId}`)
+            
         }
         if( existing ){
             console.log(`Aggregation ${existing.plainId}`)

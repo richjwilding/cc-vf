@@ -212,7 +212,7 @@ export default function ReportViewExporter({primitive, ...props}){
     const [renderedSet] = useMemo(()=>{
         const fields = ["location", "title", "url"]
         //const boards = [411261, 411138, 435057, 434996, 435508 , 435515, 435526, 435532, 435533, 435544, 435545, 468603, 469150].map(d=>mainstore.primitive(d))
-        const boards = [411261, 411138, 435057, 434996, 435515, 435526, 435532, 435533, 435544, 435545, 468603, 469150, 436467].map(d=>mainstore.primitive(d))
+        const boards = [411261, 411138, 435057, 434996, 435515, 435526, 435532, 435533, 435544, 436467].map(d=>mainstore.primitive(d)).filter(d=>d)
         
         const set = []
         for(const d of boards){

@@ -3,7 +3,7 @@ import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import { getDocumentAsPlainText, importDocument, locateQuote, removeDocument } from "./google_helper";
 import Primitive from "./model/Primitive";
-import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getDataForImport, getDataForProcessing, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
+import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getDataForImport, getDataForProcessing, getFilterName, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
 import Category from "./model/Category";
 import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
 import Contact from "./model/Contact";
@@ -202,7 +202,7 @@ async function doDataQuery( options ) {
                     if( scopeNode?.type === "segment"){
                         console.log(`WILL GET FROM SEGMENT ${scopeNode.plainId}`)
                         if( query.includes("{segment}")){
-                            if( scopeNode?.referenceParameters?.importConfig ){
+                            /*if( scopeNode?.referenceParameters?.importConfig ){
                                 const idsToLookup = []
                                 scopeNode.referenceParameters.importConfig.forEach(d=>{
                                     return d.filters.forEach( d=>{
@@ -217,7 +217,12 @@ async function doDataQuery( options ) {
                                     console.log(segmentName)
                                     query = query.replaceAll("{segment}", segmentName)
                                 }
-                            }
+                            }*/
+                           const segmentName = await getFilterName( scopeNode) ?? scopeNode.title
+                           console.log(`-- Segment = ${segmentName}`)
+                           if( segmentName ){
+                                query = query.replaceAll("{segment}", segmentName)
+                           }
                         }
                     }
                 }
@@ -432,8 +437,7 @@ async function doDataQuery( options ) {
                                 const results = await processPromptOnText(partials ,{
                                     opener: `Here is a JOSN structure holding partial responses to a question - each partial includes a 'partal' string and a list of ids in 'ids'`,
                                     prompt: `Consolidate the partial responses based on the questions or topics they are answering to produce an answer to following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer but be concise in your phrasing and the level of detail.`,
-                                    output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was present in the partials, an 'answer' field containing a consolidated and comprehensive answer from those partials in the format specified above, and an 'ids' field containing a consolidated list of ids from the partials used to form the consolidated answer`,
-                                    //output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was present in the partials, an 'answer' field containing a consolidated and comprehensive answer from those partials focussed on the same topic in ${targetWords}, an 'overview' field providing a 30-40 word summary of your consolidated answer, and an 'ids' field containing a consolidated list of ids from the partials used to form the consolidated answer`,
+                                    output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  If the task stupulates a single summary, paragraph (or equivalent) then there shoud be only one part. Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was present in the partials, an 'answer' field containing a consolidated and comprehensive answer from those partials in the format specified above, and an 'ids' field containing a consolidated list of ids from the partials used to form the consolidated answer`,
                                     engine: "gpt4p",
                                     no_num: false,
                                     maxTokens: 60000,
@@ -545,7 +549,8 @@ async function processQuestions( data ){
 
                 const category = await Category.findOne({id: prompt.referenceId})
                 if( category ){
-                    groups[prompt.referenceId] = groups[prompt.referenceId] || {
+                    const targetId = question.id // prompt.referenceId
+                    groups[targetId] = groups[targetId] || {
                         category: category,
                         id: prompt.referenceId,
                         prompts: [],
@@ -569,7 +574,7 @@ async function processQuestions( data ){
                     }
                     if( out ){
                         out = out.replace("${n}", prompt.referenceParameters?.count || category.parameters?.count?.default) 
-                        groups[prompt.referenceId].prompts.push( {
+                        groups[targetId].prompts.push( {
                             id: prompt.id,
                             text: out
                         } )
@@ -728,7 +733,7 @@ export default function QueueDocument(){
     instance.doDataQuery = async ( primitive, options )=>{
         const field = `processing.ai.data_query`
         if(primitive.processing?.ai?.data_query && (new Date() - new Date(primitive.processing.ai.data_query.started)) < (5 * 60 *1000) ){
-            console.log(`Already active - exiting`)
+            console.log(`Already active on ${primitive.id} / ${primitive.plainId} - exiting`)
             return false
         }
         dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date()}, {track: primitive.id, text:"Parsing document"})

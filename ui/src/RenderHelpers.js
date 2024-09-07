@@ -899,8 +899,8 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
         
         const row = mainPartial.rowExtents?.find(d=>(d.label ?? "") === rowLabels[0])
         let subList = row ? mainPartial.list.filter((item)=>(Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive) : []
-        const category = subList[0].metadata
         if( subList[0]){
+            const category = subList[0].metadata
 
             primColumns = fieldList.map(src=>{
                 let [d,w] = src.split("|")
@@ -1011,7 +1011,7 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
             rIdx = 0
             for(const thisLabel of rowLabels){
                 const cell = cells.find(d=>d.cIdx === cIdx && d.rIdx === rIdx)
-                const score = cell.list.map(d=>d.parentPrimitiveIds.map(d=>partialConfig[cIdx - pcLength].checkMap[d] ?? 0)).flat().reduce((a,c)=>a > c ? a : c, 0)
+                let score = cell.list.map(d=>d.parentPrimitiveIds.map(d=>partialConfig[cIdx - pcLength].checkMap[d] ?? 0)).flat().reduce((a,c)=>a > c ? a : c, 0)
                 pScores[rIdx] = (pScores[rIdx] ?? 0) + (score * score)
                 rIdx++
             }
@@ -1036,6 +1036,43 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
             rIdx = 0
         }
         cIdx++
+    }
+
+    if( primitive.plainId === 411195){
+        const order = [
+            "3-3-1",
+            "3-2-1",
+            "2-3-1",
+            "2-2-1",
+            "3-3-2",
+            "3-2-2",
+            "2-3-2",
+            "2-2-2",
+            "3-1-1",
+            "3-1-2",
+            "2-1-2",
+            "1-3-1",
+            "1-2-1",
+            "2-1-1",
+            "1-3-2",
+            "1-3-3",
+            "1-1-1",
+            "1-1-1"
+        ].reverse()
+        for(const thisLabel of rowLabels){
+            let scores = []
+            for(let idx = 1; idx <  4; idx++){
+                const cell = cells.find(d=>d.cIdx === pcLength + idx && d.rIdx === rIdx)
+                let ts = cell.list.map(d=>d.parentPrimitiveIds.map(d=>partialConfig[idx ]?.checkMap[d] ?? 0)).flat().reduce((a,c)=>a > c ? a : c, 0)
+                scores[idx - 1] = ts
+            }
+            let ov_score = order.indexOf(scores.join("-")) 
+            console.log(`Remap score for ${thisLabel} = ${pScores[rIdx]} / ${ov_score}`)
+            pScores[rIdx] = ov_score
+            rIdx++
+        }
+
+
     }
     
     if( pScores.length > 0){
@@ -1842,9 +1879,9 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
         g.add(r)
 
         let text = primitive.referenceParameters[config.field]
-        if( primitive.origin.plainId === 435057){
+        /*if( primitive.origin.plainId === 435057){
             text = text.replace(/^.+MVTR.+\n/,"")
-        }
+        }*/
 
         const t = new CustomText({
             x: config.padding[3],

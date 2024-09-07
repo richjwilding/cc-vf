@@ -171,12 +171,15 @@ function MainStore (prims){
                                 if( root === 'referenceParameters'){
                                     console.log(`setting reference ${frag.join(".")}`)
                                     if(frag.length === 0){
-                                        console.log(`SET FULL`)
                                         for( const f in val){
                                             target.setParameter(f, val[f], true, true)
                                         }
                                     }else{
-                                        target.setParameter(frag.join("."), val, true, true)
+                                        if( val?.decode && val.modify !== undefined){
+                                            target.modifyParameter(frag.join("."), val, val.modify, true)
+                                        }else{
+                                            target.setParameter(frag.join("."), val, true, true)
+                                        }
                                     }
                                     obj.triggerCallback("set_parameter", [target], field )
                                 }else{
@@ -402,15 +405,19 @@ function MainStore (prims){
                return newItem
             },
             updateTitle:function( receiver, title){
-                this.updateField(receiver, "title", title, "set_title")
+                this.updateField(receiver, "title", title, "set_title", undefined)
             },
             updateParameter:function( receiver, parameterName, value ){
-                this.updateField(receiver, `referenceParameters.${parameterName}`, value, "set_parameter")
+                this.updateField(receiver, `referenceParameters.${parameterName}`, value, "set_parameter", undefined)
             },
-            updateField( receiver, field, value, callback_name){
+            modifyParameter:function( receiver, parameterName, value, add ){
+                this.updateField(receiver, `referenceParameters.${parameterName}`, value, "set_parameter", add)
+            },
+            updateField( receiver, field, value, callback_name, modify){
                 const data = {
                     receiver: receiver.id,
                     value: value,
+                    modify: modify, 
                     field: field
                 }
                 fetch("/api/set_field",{
@@ -434,29 +441,6 @@ function MainStore (prims){
                 )
 
             },
-            /*addImport( primitive, target, filters ){
-                const data = {
-                    target: target.id,
-                    filters: filters
-                }
-                let url = `/api/primitive/${primitive.id}/addImport`
-                fetch(url,{
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(data)
-                })
-                .then(res => res.json())
-                    .then(
-                    (result) => {
-                        obj.ajaxResponseHandler( result )
-                    },
-                    (error) => {
-                        console.warn(error)
-                    }
-                    )
-            },*/
             moveRelationship( receiver, target, from, to ){
                 const data = {
                     receiver: receiver.id,
@@ -1346,6 +1330,40 @@ function MainStore (prims){
                         return true
                     }
                 }
+                if( prop === "addToParameter"){
+                    return function( parameterName, value, skip = false){
+                        return receiver.modifyParameter(parameterName, value, true, skip)
+                    }
+                }
+                if( prop === "removeFromParameter"){
+                    return function( parameterName, value, skip = false){
+                        return receiver.modifyParameter(parameterName, value, false, skip)
+                    }
+                }
+                if( prop === "modifyParameter"){
+                    return function( parameterName, value, add, skip = false ){
+                        let target = receiver.referenceParameters 
+                        let set = parameterName.split(".")
+                        let last = set.pop()
+                        set.forEach((n)=>{
+                            const last = target
+                            target = target[n]
+                            if( !target ){
+                                last[n] = {}
+                                target = last[n]
+                            }
+
+                        })
+                        target[last] = target[last].filter(d=>d !== value)
+                        if( add ){
+                            target[last].push( value )
+                        }
+                        if(!skip){
+                            obj.controller.modifyParameter( receiver, parameterName, value, add  )
+                        }
+                        return true
+                    }
+                }
                 if( prop === "setParameter"){
                     return function( parameterName, value, skip = false, force = false ){
                         if( force || receiver.validateParameter(parameterName, value)){
@@ -1688,7 +1706,7 @@ function MainStore (prims){
                                 return d.filters.forEach( d=>{
                                     if( d.type === "parent"){
                                         idsToLookup.push(d.value)
-                                    }else if(d.type === "title"){
+                                    }else if(d.type === "title" || d.type === "parameter"){
                                         frags.push(d.value)
                                     }
                                 })

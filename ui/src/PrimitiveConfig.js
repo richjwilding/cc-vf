@@ -338,7 +338,7 @@ const PrimitiveConfig = {
         if( isRange ){
 //            console.warn("RANGE NOT IMPLEMENTED")
         }
-        let pivot = isAxis ? (filter.access ?? filter.pivot) : filter.pivot 
+        let pivot = isAxis ? (filter.access ?? filter.pivot ?? filter.relationship?.length) : filter.pivot ?? filter.relationship?.length
         let relationship = filter.relationship
         let resolvedFilterType = filter.type
         
@@ -442,6 +442,9 @@ const PrimitiveConfig = {
         if( (!receiver?.referenceParameters?.target || receiver?.referenceParameters?.target === "items") && receiver.referenceParameters?.importConfig){
             const candidates = receiver.referenceParameters.importConfig.filter(d=>d.id === id)
             const match = candidates.filter(d=> {
+                if( !d.fitlers){
+                    return false
+                }
                 const thisMatch = d.filters.filter(d2 => {
                     //console.log(`Checking`)
                     const thisSet = filters.find(ip=>{

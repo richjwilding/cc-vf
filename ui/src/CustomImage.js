@@ -35,9 +35,7 @@ class CustomImage extends Shape {
 
         if( this.attrs.url ){
           this.fetchAndCreateImageBitmap( ).then(()=>{
-            if(this.attrs.refreshCallback ){
-              this.attrs.refreshCallback()
-            }
+          this.requestRefresh()
           })
         }
       }
@@ -56,9 +54,7 @@ class CustomImage extends Shape {
     this._buildPrivateCache()
     this.attrs.placeholder = false
     this.attrs.name = undefined
-        if(this.attrs.refreshCallback ){
-          this.attrs.refreshCallback()
-        }
+    this.requestRefresh()
 
   }
 
@@ -67,6 +63,21 @@ class CustomImage extends Shape {
     this.isClone = true
     //this.pcache._canvas_context.drawImage(this.maxImage, 0, 0, this.pcache.width, this.pcache.height);
   }
+checkCanvasCleared() {
+  if( this.pcache){
+    let canvas = this.pcache._canvas_context
+    const ctx = this.pcache._canvas_context
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    
+    for (let i = 3; i < imageData.data.length; i += 4) {
+      if (imageData.data[i] !== 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false
+}
 
   fetchAndCreateImageBitmap() {
     return new Promise((resolve, reject) => {
@@ -137,9 +148,7 @@ class CustomImage extends Shape {
           //}
 
           ctx.drawImage(img, sx,sy, sWidth,sHeight, xOffset + (this.activeScale * padding[3]), yOffset + (this.activeScale * padding[0]), newWidth, newHeight);
-          if(this.attrs.refreshCallback ){
-            this.attrs.refreshCallback()
-          }
+          this.requestRefresh()
         
         resolve(); // Indicate that the image has been successfully loaded and drawn
 
@@ -160,11 +169,7 @@ class CustomImage extends Shape {
           ctx.font = "14px Arial"
           ctx.fillText(this.attrs.alt , 64, 64)
           this.pcache._canvas_context.drawImage(this.maxImage, 0,0);
-          
-          if(this.attrs.refreshCallback ){
-            this.newScale = 1
-            this.attrs.refreshCallback()
-          }
+          this.requestRefresh()
         }
         resolve()
       };
@@ -234,8 +239,10 @@ class CustomImage extends Shape {
   }
 
   refreshCache(){
+    this.queuedForRefresh = false
     if( this.maxImage ){
       if( this.newScale ){
+        this.lastRefreshed = performance.now()
         const width = this.getWidth();
         const height = this.getHeight();
 
@@ -263,6 +270,15 @@ class CustomImage extends Shape {
       }
       this.pcache._canvas_context.drawImage(this.maxImage, 0, 0, this.pcache.width, this.pcache.height);
     }
+  }
+  requestRefresh(){
+        if(this.attrs.refreshCallback && !this.placeholder){
+          if( ! this.queuedForRefresh){
+            this.queuedForRefresh = true
+            this.attrs.refreshCallback()
+          }
+        }
+    
   }
 
   destroy(){
@@ -304,9 +320,7 @@ class CustomImage extends Shape {
             console.log(`REFRESH FOR RECYCLE`)
           }
           this.newScale = scale
-        if(this.attrs.refreshCallback && !this.placeholder){
-          this.attrs.refreshCallback()
-        }
+          this.requestRefresh()
       }
     }
     if( this.pcache._canvas.width > 0 && this.pcache._canvas.height > 0){

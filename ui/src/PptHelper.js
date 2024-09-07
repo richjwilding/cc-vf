@@ -179,6 +179,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 let spacingAfter = 0, spacingBefore = 0
                 let lastBold, lastIndent, lastLarge, lastBullet, lastWasLastInPara, lastEndList 
                 console.log(konvaNode.textArr)
+                let tIdx = 0
                 for( const d of konvaNode.textArr){
                     let flush = false
                     if( d.bullet ){
@@ -206,6 +207,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             indentLevel = 0
                             flush = true
                         }
+                            flush = true
                     }
                     if( lastBold !== undefined && d.bold != lastBold){
                         flush = true
@@ -249,6 +251,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     lastBullet = d.bullet
                     lastWasLastInPara = d.lastInParagraph
                     lastEndList = markEndList
+                    tIdx++
                 }
                 if( agg.length > 0){
                     stack.push({

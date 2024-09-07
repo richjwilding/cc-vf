@@ -373,13 +373,24 @@ export async function queryCrunchbaseOrganizations(terms, options = {}){
                 return
             }
             if( k === "keyword"){
-                return {
-                    "type": "predicate",
-                    "field_id": "description",
-                    "operator_id": "contains",
-                    "values": [
-                        allTerms[k]
-                    ]
+                let keywords = allTerms[k]
+                if(allTerms.phrase){
+                    return {
+                        "type": "predicate",
+                        "field_id": "description",
+                        "operator_id": "contains",
+                        "values": [keywords]
+                    }
+                }else{
+                    return keywords.split(" ").map(d=>{
+                        return {
+                            "type": "predicate",
+                            "field_id": "description",
+                            "operator_id": "contains",
+                            "values": [d]
+                        }
+                    })
+
                 }
             }else if( k === "ipo"){
                 if( k !== undefined){
@@ -410,7 +421,7 @@ export async function queryCrunchbaseOrganizations(terms, options = {}){
             }else{
                 console.log(`Cant map ${k} for CB lookup`)
             }
-        }).filter(d=>d)
+        }).filter(d=>d).flat()
         if( query.length === 0){
             return false
         }
@@ -571,7 +582,8 @@ export async function queryCrunchbaseOrganizations(terms, options = {}){
         }
     }
 
-    const searchItems = (terms.keyword?.split(",") ?? []).map(d=>({keyword: d ? '"' + d.trim() + '"' : undefined, ...(terms.searchTerms ?? {})}))
+    //const searchItems = (terms.keyword?.split(",") ?? []).map(d=>({keyword: d ? '"' + d.trim() + '"' : undefined, ...(terms.searchTerms ?? {})}))
+    const searchItems = (terms.keyword?.split(",") ?? []).map(d=>({keyword: d ? d.trim() : undefined, ...(terms.searchTerms ?? {})}))
 
     for( const d of searchItems){
         let cancelled = await doLookup( d )

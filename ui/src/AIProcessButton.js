@@ -35,7 +35,18 @@ export default function AIProcessButton({primitive, ...props}){
           const action = primitive.metadata.actions.find(d=>d.key === (props.actionKey ?? props.active))
           console.log(action)
           if( action ){
-            MainStore().doPrimitiveAction(primitive, action.key)
+            if( action.actionFields ){
+              MainStore().globalInputPopup({
+                  primitive: primitive,
+                  fields: action.actionFields,
+                  confirm: async (inputs)=>{
+                    //await MainStore().doPrimitiveAction(primitive, d.key, inputs, props.callbackProcessor)
+                    await MainStore().doPrimitiveAction(primitive, action.key, inputs)
+                  }
+                })
+            }else{
+              MainStore().doPrimitiveAction(primitive, action.key)
+            }
           }
         }
     }

@@ -1529,26 +1529,44 @@ export async function updateFieldWithCallbacks(id, field, value, req = {}){
     let result
 
     try {
-
-        const prim = await Primitive.findOneAndUpdate(
-            {
+        let prim
+        let doModify = false
+        if( value?.decode ){
+            if( value.modify !== undefined){
+                doModify = true
+            }else{
+                value = value.value
+            }
+        }
+        if(doModify){
+            prim = await Primitive.findOneAndUpdate(
+                {
                     "_id": new ObjectId(id),
-            }, 
-            {
-                $set: { [field]: value },
-            },
-            {new: true})
-        
-            if( field === 'referenceParameters.notes'){                
-                console.log(`Queue purging of old document for ${id}`)
-                QueueDocument().add(`doc_refresh_${id}`, 
+                }, 
+                value.modify ? {$addToSet: { [field]: value.value }}
+                             : {$pull: { [field]: value.value }},
+                {new: true})
+        }else{
+            prim = await Primitive.findOneAndUpdate(
+                {
+                    "_id": new ObjectId(id),
+                }, 
+                {
+                    $set: { [field]: value },
+                },
+                {new: true})
+            }
+                
+                if( field === 'referenceParameters.notes'){                
+                    console.log(`Queue purging of old document for ${id}`)
+                    QueueDocument().add(`doc_refresh_${id}`, 
                     {
                         command: "refresh", 
                         id: id, 
                         value: value, 
                         req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}
                     })
-            }
+                }
 
         if( prim){
             const lastField = field.split('.').slice(-1)?.[0]
@@ -1627,13 +1645,17 @@ export async function dispatchControlUpdate(id, controlField, status, flags = {}
 }
 export async function getFilterName( scopeNode ){
     if( scopeNode?.referenceParameters?.importConfig ){
-        const idsToLookup = []
+        const idsToLookup = [], frags = []
         scopeNode.referenceParameters.importConfig.forEach(d=>{
-            return d.filters.forEach( d=>{
-                if( d.type === "parent"){
-                    idsToLookup.push(d.value)
-                }
-            })
+            if( d.filters ){
+                return d.filters.forEach( d=>{
+                    if( d.type === "parent"){
+                        idsToLookup.push(d.value)
+                    }else{
+                        frags.push( d.value)
+                    }
+                })
+            }
         })
         if( idsToLookup.length > 0){
             const parents = await fetchPrimitives(idsToLookup)
@@ -1651,6 +1673,7 @@ export async function getFilterName( scopeNode ){
             const segmentName = fargments.join(", ")
             return segmentName
         }
+        return frags.join(", ")
     }
 }
 
@@ -1989,6 +2012,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                                             allow_infer: true,
                                                             markdown: options.markdown, 
                                                             heading: options.heading,
+                                                            scored: options.scored ?? primitive.referenceParameters.scored,
                                                             outputFields: options.summary_type === "custom" ? undefined : [
                                                                 {field:"headline", prompt:"a short overview", header: true},
                                                                 {field:"main", prompt: "the main summary", formatted: true},
@@ -2923,15 +2947,15 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 const parentForScope = (await primitiveParentsOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
 
                 if( thisCategory.type === "aggregator"){
-                    await aggregateItems( parentForScope, primitive )
+                    await aggregateItems( parentForScope, primitive, options )
                 }else if( thisCategory.type === "comparator"){
-                    await compareItems( parentForScope, primitive )
+                    await compareItems( parentForScope, primitive, options )
                 }else if( thisCategory.type === "iterator"){
-                    await iterateItems( parentForScope, primitive )
+                    await iterateItems( parentForScope, primitive, options )
                 }else  if( thisCategory.type === "lookup"){
-                    await resourceLookupQuery( parentForScope, primitive )
+                    await resourceLookupQuery( parentForScope, primitive, options )
                 }else if( primitive.referenceParameters.useAxis && !options?.scope){
-                    await queryByAxis( parentForScope, primitive )                
+                    await queryByAxis( parentForScope, primitive, options )                
                 }else{
                     await QueueDocument().doDataQuery( primitive, {...action, ...options, primitive})
                 }

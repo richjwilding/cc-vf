@@ -534,7 +534,7 @@ router.post('/set_field', async function(req, res, next) {
 
 
     try {
-        await updateFieldWithCallbacks( data.receiver, data.field, data.value, req )
+        await updateFieldWithCallbacks( data.receiver, data.field, {decode: true, value: data.value, modify: data.modify}, req )
 
         res.json({success: true, result: result})
       } catch (err) {

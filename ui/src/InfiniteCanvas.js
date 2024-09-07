@@ -180,15 +180,21 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }, [])
 
     function refreshImages(){
+        if(!myState.current.healthTracker){
+            myState.current.healthTracker = setInterval(() => {
+                console.log(`${myState.current.rescaleList?.length ?? 0}, ${myState.current.timeoutPending}, ${myState.current.animFramePending}`)
+            }, 500);
+
+        }
         if( !stageRef.current){
             return
         }
         if(myState.current.timeoutPending){
-            //console.log("cancel - already scheduled")
+            //console.log(`TO  cancel - already scheduled ${myState.current.timeoutPending} ${myState.current.rescaleList?.length ?? 0}`)
             return
         }
         if(myState.current.animFramePending){
-           // console.log("cancel - already scheduled (RAF)")
+            //console.log(`RAF cancel - already scheduled ${myState.current.timeoutPending} ${myState.current.rescaleList?.length ?? 0}`)
             return
         }
         if( !myState.current.rescaleList  ){
@@ -205,13 +211,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         
         myState.current.timeoutPending = setTimeout(() => {
             myState.current.timeoutPending = undefined
-                if(myState.current.animFramePending){
+                /*if(myState.current.animFramePending){
                     console.log(`No RAF after 5s - clearing`)
                     myState.current.animFramePending = undefined
-                }
+                }*/
             myState.current.animFramePending = requestAnimationFrame(()=>{
                 myState.current.animFramePending = undefined
                 let steps = 200
+                console.log(`RENDERING ${myState.current.rescaleList?.length ?? 0}`)
                 let toProcess = myState.current.rescaleList.splice(0,steps)
                 for(let idx = 0; idx < steps; idx++){
                     const d = toProcess[idx]
@@ -226,7 +233,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         }*/
                         //if( !d.parent?.attrs.removing ){
                         if( !d.parent?.attrs.removing && d.getLayer()){
-                            d.queuedForRefresh = false
+                            //d.queuedForRefresh = false
                             d.refreshCache()
                             d.draw()
                         }else{
@@ -247,6 +254,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( !myState.current.rescaleList ){
             myState.current.rescaleList = []
         }
+        myState.current.rescaleList.push( image )
+        refreshImages()
+        return
         if( !image.queuedForRefresh ){
             //const doRefresh = myState.current.rescaleList.length === 0
             image.queuedForRefresh = true
@@ -445,7 +455,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( existingNode ){
             if( frame ){
                 const newItems = frame.node.find('.inf_keep')
-                let existingItems = options.forceRender ?[] : existingNode.find('.inf_keep')
+                let existingItems = []//options.forceRender ?[] : existingNode.find('.inf_keep')
                 for(const d of newItems){
                     if( !d.attrs.id ){continue}
                     const match = existingItems.filter(d2=>d.attrs.id === d2.attrs.id )
@@ -1240,6 +1250,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         myState.current.frames.forEach((f)=>{
                             if( f.thisRender){
                                 for(const d of f.thisRender){
+                                    d.lastActualRenderFor = d.attrs._vis
                                     d.draw()
                                 }
                             }

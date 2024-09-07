@@ -320,6 +320,23 @@ _setTextData() {
 }
 
 
+checkCanvasCleared() {
+  if( this.pcache){
+    let canvas = this.pcache
+    const ctx = this.pcache._canvas_context
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    
+    for (let i = 3; i < imageData.data.length; i += 4) {
+      if (imageData.data[i] !== 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false
+}
+
+
   renderText(){
     var textArr = this.textArr,
     textArrLen = textArr.length;
@@ -327,6 +344,10 @@ _setTextData() {
     if (!this.text()) {
       return;
     }
+    this.textWasRendered = true
+    this.pcache._canvas_context.fillStyle = this.attrs.bgFill 
+    this.pcache._canvas_context.fillRect(0,0,  this.uWidth, this.uHeight)
+
     var padding = this.padding(),
       fontSize = this.fontSize(),
       lineHeightPx = this.lineHeight() * fontSize,
@@ -385,6 +406,7 @@ _setTextData() {
 
   
   refreshCache(){
+    this.queuedForRefresh = false
     const isFirst = !this.pcache
     if( isFirst ){
         this._buildPrivateCache()
@@ -456,9 +478,12 @@ _setTextData() {
 
   requestRefresh(){
     if(this.attrs.refreshCallback && !this.placeholder){
-        if( !this.refreshRequested || (performance.now() - this.refreshRequested > 100)){
+        if(!this.queuedForRefresh ){
+          this.queuedForRefresh = true
+          if( !this.refreshRequested || (performance.now() - this.refreshRequested > 100)){
             this.attrs.refreshCallback(this)
             this.refreshRequested = performance.now()
+          }
         }
     }
     
@@ -487,6 +512,11 @@ _setTextData() {
     if( ph && !tooSmall){
         this.requestRefresh()
     }
+    /*if( this.checkCanvasCleared()){
+      console.log(`CANVAS HAS BEEN CLEARED`)
+      console.log(this)
+      this.requestRefresh()
+    }*/
     if( ph || tooSmall){
 
         let showLines = fh * scale > 2.5

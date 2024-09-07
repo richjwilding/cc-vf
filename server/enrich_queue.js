@@ -35,6 +35,7 @@ export default function EnrichPrimitive(){
         },
     });
     instance.myInit = async ()=>{
+        throw "done"
         console.log("Enrich Queue")
         const jobCount = await instance.count();
         console.log( jobCount + " jobs in queue (enrich)")
@@ -380,7 +381,7 @@ export default function EnrichPrimitive(){
         }
     }
 
-    async function processURLAsDetail(primitive, url, thisCategory, {resultCategoryId, detailPrimitive, resultSet, detailResultSet}, pageCache = {}){
+    async function processURLAsDetail(primitive, url, thisCategory, categories, {resultCategoryId, detailPrimitive, resultSet, detailResultSet}, pageCache = {}){
         console.log(`Processing page as ${thisCategory.id} - ${thisCategory.title} : ${url}`)
         if( thisCategory?.ai === undefined ){
             console.log(`Cant process category `, thisCategory)
@@ -752,7 +753,9 @@ export default function EnrichPrimitive(){
                         
                         for( const item of urlsToParse){
                             try{                                
-                                await processURLAsDetail( primitive, item.url, categories[item.categoryId], {resultCategoryId: options.resultCategoryId, resultSet: resultSet, detailResultSet: detailResultSet}, pageCache )
+                                if( item.categoryId ){
+                                    await processURLAsDetail( primitive, item.url, categories[item.categoryId], categories, {resultCategoryId: options.resultCategoryId, resultSet: resultSet, detailResultSet: detailResultSet}, pageCache )
+                                }
                             }catch( error ){
                                 console.log(`Error processing for site_discovery ${url}`)
                                 console.log(error)
@@ -787,7 +790,7 @@ export default function EnrichPrimitive(){
                     const detailResultSet = pageCategory?.resultCategories?.find(d=>d.type === "detail")
                     
                     if( parent && category && url){
-                        await processURLAsDetail( parent, url, category, {detailPrimitive: primitive, detailResultSet: detailResultSet} )
+                        await processURLAsDetail( parent, url, category, undefined, {detailPrimitive: primitive, detailResultSet: detailResultSet} )
                     }
                 }else if( job.data.mode === "site_summarize" ){
                         const primitiveCategory = await Category.findOne({id: primitive.referenceId}) 

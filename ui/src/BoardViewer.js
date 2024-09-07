@@ -778,11 +778,11 @@ export default function BoardViewer({primitive,...props}){
 
             }
             const out = view.rows.map(row=>{
-                return view.columns.map(column=>{
+                return row.label +"~" + view.columns.map(column=>{
                     const subList = view.list.filter(d=>[d.column].flat().includes( column.idx) && [d.row].flat().includes( row.idx))
                     let text = "-"
                     if( subList.length > 0){
-                         text = subList.map(d=>d.primitive.referenceParameters?.summary ?? d.primitive.referenceParameters?.description).join("-ENT-")
+                         text = subList.map(d=>(d.primitive.referenceParameters?.summary ?? d.primitive.referenceParameters?.description ?? "").replaceAll(/\n/g, "-ENT-")).join("-ENT-")
                     }
                     const partial = `"${text}"`
                     return partial

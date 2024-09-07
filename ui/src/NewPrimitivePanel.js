@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, Fragment} from 'react';
 import MainStore from './MainStore';
 import { PrimitiveCard } from './PrimitiveCard';
+import { MarkdownEditor } from './MarkdownEditor';
 
 
 export default function NewPrimitivePanel({selectedCategory,...props}) {
@@ -24,7 +25,7 @@ export default function NewPrimitivePanel({selectedCategory,...props}) {
         const baseParams = selectedCategory.parameters
 
         const defaults = Object.keys(baseParams ?? {}).reduce((a,c)=>{
-            if( baseParams[c].default ){
+            if( baseParams[c].hasOwnProperty("default") ){
                 a[c] = baseParams[c].default
             }else if(baseParams[c].type === "categoryId" && baseParams[c].activeOnly){
                 a[c] = props.primitiveList[0]?.referenceId
@@ -89,7 +90,11 @@ export default function NewPrimitivePanel({selectedCategory,...props}) {
 
     return (<>
         <div className='px-2'>
-            <textarea
+            {mainItem.type === "prompt" && <MarkdownEditor 
+                placeholder={props.prompt || `${mainItem?.title}...`}
+                onChange={(e)=>validateAndSetParameter(asMain, mainItem, e)}
+            />}
+            {mainItem.type !== "prompt" && <textarea
                 rows={mainItem?.type === "long_string" ? 5 : 1}
                 tabIndex={1}
                 onKeyDown={(e)=>{
@@ -104,7 +109,7 @@ export default function NewPrimitivePanel({selectedCategory,...props}) {
                 className={`block w-full rounded-md border-0 py-1.5 px-2 text-gray-900 ring-1 ring-inset ring-gray-200 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 ${mainItem?.type === "long_string" ? "" : "resize-none"}`}
                 placeholder={props.prompt || `${mainItem?.title}...`}
                 defaultValue={''}
-                />
+                />}
             </div>
             {selectedCategory &&  
                 <div style={{gridTemplateColumns:'max-content auto'}} className='w-full px-2 py-0.5 grid grid-cols-2 mt-2'>

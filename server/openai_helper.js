@@ -190,7 +190,11 @@ export async function summarizeMultiple(list, options = {} ){
         })
         outputFields += `. ${format} Do not put anything other than the raw json object in the response. Do not explicity reference the data, items or text i have (ie avoid 'the data showcases' and similar) and avoid phrases like "a variety of", "a wide range" and similar`
     }else{
-        outputFields = `Provide the result as a json object with an single field called 'summary' which conatins a string with your summary. ${format}. Do not put anything other than the raw json object in the response .`
+        if( options.scored){
+            outputFields = `Return your answer in a json field called "scores" - each assessment should have a 'score' field, 'assessment' field and 'relevance' field`
+        }else{
+            outputFields = `Provide the result as a json object with an single field called 'summary' which conatins a string with your summary. ${format}. Do not put anything other than the raw json object in the response .`
+        }
     }
     
     let interim = await processInChunk( list, 
@@ -201,12 +205,31 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "user", "content":  finalPrompt},
                 {"role": "user", "content": outputFields},
             ],
-            {wholeResponse: options.outputFields !== undefined, no_num: list.length === 1 , field: "summary", debug: false, engine: "gpt4p" ?? options.engine, ...options })
+            {
+                wholeResponse: options.outputFields !== undefined || options.scored, 
+                no_num: list.length === 1 , 
+                field: "summary", 
+                debug: false, 
+                ...options })
 
 
     if( Object.hasOwn(interim, "success")){
         console.log(interim)
         return interim
+    }
+    if( options.scored ){
+        console.log(`Got scores`)
+        console.log(interim?.[0])
+        if( interim[0] ){
+            const scores = interim[0].scores
+            let out = []
+            for(const d of Object.keys(scores)){
+                console.log(d)
+                out.push(`- ${d}: ${scores[d].score} - ${scores[d].assessment}`)
+            }
+            return {success: true, summary: out.join("\n")}
+        }
+        return {success: false}
     }
     let final = []
     if( options.batch){

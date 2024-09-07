@@ -43,6 +43,7 @@ import SummaryCard from './SummaryCard';
 import UIHelper from './UIHelper';
 import CollectionUtils from './CollectionHelper';
 import { roundCurrency } from './RenderHelpers';
+import { MarkdownEditor } from './MarkdownEditor';
 
 export const ExpandArrow = function(props) {
   return (
@@ -112,15 +113,20 @@ let mainstore = MainStore()
       }else if( item.type === "options"){
           return <div className='flex flex-wrap space-x-2'>{item.options.map(d=><CheckPill title={d.title} enabled={item.value ? item.value.includes(d.id) : item.default?.includes(d.id)} setEnabled={(v)=>{
             let newValue = item.value ?? item.default ?? []
-            if( newValue.includes(d.id)){
-              newValue = newValue.filter(d2=>d2 !== d.id)
-            }else{
-              newValue.push(d.id)
-            }
+
             if(props.callback){
+              if( newValue.includes(d.id)){
+                newValue = newValue.filter(d2=>d2 !== d.id)
+              }else{
+                newValue.push(d.id)
+              }
               props.callback(newValue)
             }else{
-              props.primitive.setParameter(item.key, newValue )
+              if( newValue.includes(d.id)){
+                props.primitive.removeFromParameter(item.key, d.id )
+              }else{
+                props.primitive.addToParameter(item.key, d.id)
+              }
             }
           }}/>)}</div>
       }else if( item.type === "primitive"){
@@ -642,6 +648,13 @@ let mainstore = MainStore()
               {item.key === "valuation" && <HeroIcon icon="ArrowTrendingUpIcon" className='w-4 h-4 mr-1'/>}
                 <p>${(val || 0).toFixed(2)}{unit}</p>
               </div>
+      }else if( item.type === "prompt"){
+        return <MarkdownEditor 
+                  initialMarkdown={item.value} 
+                  onChange={props.callback ? props.callback : (value)=>{
+                      return props.primitive.setParameter(item.key, value)
+                  }}
+          />
       }else if( item.type === "url"){
         return (
           <div className='ml-auto flex place-items-start space-x-2'>

@@ -388,7 +388,7 @@ export default function QueryQueue(){
                                     searchTerms:{
                                         ...config,
                                         count: undefined,
-                                        phrase: undefined,
+                                        phrase: callopts.quoteKeywords,
                                         exact : undefined                                   
                                     }
                                 }

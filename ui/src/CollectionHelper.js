@@ -207,7 +207,7 @@ class CollectionUtils{
 
         function findQueryAxis(p){
             if( p.type === "query"){
-                if( p.metadata.type === "aggregator" || p.referenceParameters.useAxis){
+                if( p.metadata.type === "aggregator" || p.referenceParameters.useAxis || p.referenceParameters.segments){
                     return p
                 }
             }
@@ -227,6 +227,10 @@ class CollectionUtils{
                     {id: filterLength, type: "none", title: "None"},
                 ].slice(0,2)
                 out = out.concat( segmentAxis)
+            }else{
+                out.push(
+                    {id: 1, passType: "segment_filter", type: "segment_filter", title: `By Segment axis`}
+                )
             }
         }
         
@@ -483,44 +487,48 @@ class CollectionUtils{
                 const segments = uniquePrimitives(interim.map(d=>d.primitive.findParentPrimitives({type: "segment", first:true})).flat())
 
                 const remap = {}
+                let doRemap = true
                 const mapped = segments.map(d=>{
                     const m =  axis.title.match(/(.d+)/)
 
                     let filterConfig = d.referenceParameters?.importConfig?.[0]?.filters
-                    
-                    if( filterConfig.length > 0){
-                        const did = field === "row" ? 0 : 1
-                        filterConfig = filterConfig[did]
-                    }else{
-                        filterConfig = filterConfig[0]
-                    }
-
-                    if( filterConfig){
-                        if(filterConfig.type ==="parent"){
-                            if( filterConfig.value){
-                                //return {idx: filterConfig.value, label: MainStore().primitive(filterConfig.value)?.title ?? "None"}
-                                const segment = MainStore().primitive(filterConfig.value)
-                                let title = segment?.filterDescription ??  segment?.title  ?? "None"
-
-                                remap[d.id] = title
-                                return {idx: d.id, label: title}
-                            }else{
-                                remap[d.id] = "None"
-                                return {idx: d.id, label: "None"}
-                            }
+                    if( filterConfig ){
+                        if( filterConfig.length > 0){
+                            const did = field === "row" ? 0 : 1
+                            filterConfig = filterConfig[did]
                         }else{
-                            const value = filterConfig.value ?? "None"
-                                remap[d.id] = value
-                            return {idx: d.id, label: value}
+                            filterConfig = filterConfig[0]
                         }
+                        
+                        if( filterConfig){
+                            if(filterConfig.type ==="parent"){
+                                if( filterConfig.value){
+                                    //return {idx: filterConfig.value, label: MainStore().primitive(filterConfig.value)?.title ?? "None"}
+                                    const segment = MainStore().primitive(filterConfig.value)
+                                    let title = segment?.filterDescription ??  segment?.title  ?? "None"
+                                    
+                                    remap[d.id] = title
+                                    return {idx: d.id, label: title}
+                                }else{
+                                    remap[d.id] = "None"
+                                    return {idx: d.id, label: "None"}
+                                }
+                            }else{
+                                const value = filterConfig.value ?? "None"
+                                remap[d.id] = value
+                                return {idx: d.id, label: value}
+                            }
+                        }
+                    }else{
+                        doRemap = false
+                        return {idx: d.id, label: d.title}
                     }
-                }).filter((d,i,a)=>d && a.findIndex(d2=>d2.label === d.label)===i).sort((a,b)=>a.label.localeCompare(b.label))
-                interim.forEach(d=>{
-                    d[field] = mapped.find(d2=>d2.label === remap[d[field]])?.idx
-                })
-
-
-                console.log(mapped)
+                }).filter((d,i,a)=>d && a.findIndex(d2=>d2?.label === d?.label)===i).sort((a,b)=>(a?.label ?? "").localeCompare(b?.label ?? ""))
+                if( doRemap ){
+                    interim.forEach(d=>{
+                        d[field] = mapped.find(d2=>d2.label === remap[d[field]])?.idx
+                    })
+                }
                 return {values: mapped}
 
                // return {values: mapped.map((d,i)=>({idx: d, label: d}))}
@@ -704,8 +712,10 @@ class CollectionUtils{
                         return "_N_"
                     }
                 }else if( option.type === "segment_filter"){
-                    //return (p)=>p.findParentPrimitives({type: "segment", first:true})[0]?.referenceParameters?.importConfig?.[0]?.filters?.[option.id ?? 0]?.value ?? null
-                    return (p)=>p.findParentPrimitives({type: "segment", first:true})[0]?.id
+                    return (p)=>{
+                        const segments = p.findParentPrimitives({type: "segment", first:true})
+                        return segments[0]?.id
+                    }
                 }else if( option.type === "contact"){
                     return (d)=>d.origin.referenceParameters?.contactId
                 }else if( option.type === "act_parent"){

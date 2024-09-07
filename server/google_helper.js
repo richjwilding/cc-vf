@@ -2031,6 +2031,11 @@ export async function extractURLsFromPageAlternative( baseUrl, options = {}, fet
             let domain
             try{
                 domain = new URL(baseUrl).host
+                let parts = domain.split('.');
+                if (parts.length > 2) {
+                    parts.shift();  // Remove the first part (like 'www' or other subdomains)
+                }
+                domain = parts.join('.');
             }catch(error)
             {
                 domain = baseUrl
@@ -2338,11 +2343,11 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
             {title: "zenRows 1", exec: async ()=>await fetchURLAsTextAlternative( url,{
                 preferEmbeddedPdf
             } )},
-            {title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
             {title: "zenRows 2", exec: async ()=>await fetchURLAsTextAlternative( url,{
                         'js_render': 'true',
                         preferEmbeddedPdf
                     } )},
+            {title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
             {title: "zenRows 3", exec: async ()=>await fetchURLAsTextAlternative( url,{
                         'js_render': 'true',
                         'premium_proxy': 'true',
