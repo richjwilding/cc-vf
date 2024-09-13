@@ -194,6 +194,7 @@ const PrimitiveConfig = {
         "type": "origin_type",
         "options": "raw",
         "title": "raw",
+        "revenue": "currency",
         "currency": "currency",
         "marketCap": "currency",
         "previousClose": "currency",

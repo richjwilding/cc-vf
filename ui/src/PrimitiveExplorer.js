@@ -1370,7 +1370,8 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                             ignoreAfterDrag
                             highlights={{
                                 "primitive":"border",
-                                "cell":"background"
+                                "cell":"background",
+                                "widget":"background"
                             }}
                             selectable={{
                                 "primitive":{
@@ -1442,6 +1443,26 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                                 infoPane: infoPane
                                             })
                                         }
+                                    },
+                                    widget:{
+                                        show_extra:(d,frameId)=>{
+                                            const cellId = d.attrs.id
+                                            const [cIdx,rIdx] = cellId.split("-")
+                                            console.log(`Toggle extra of ${frameId} / ${cellId}`)
+                                            const mappedColumn = columnExtents[cIdx] 
+                                            const mappedRow = rowExtents[rIdx] 
+                                            const current = myState.current.expand ?? {}
+                                            const key = [mappedColumn?.idx, mappedRow?.idx].filter(d=>d).join("-")
+
+                                            if( current[key] ){
+                                                delete current[key]
+                                            }else{
+                                                current[key] = true
+                                            }
+                                            console.log(key, current)
+                                            myState.current.expand =  current
+                                            canvas.current.refreshFrame( frameId)
+                                        }
                                     }
                                 }
                             }}
@@ -1456,6 +1477,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                                                     viewConfig: viewConfig,
                                                                     rowExtents: rowExtents, 
                                                                     ...stageOptions,
+                                                                    expand: Object.keys(myState.current.expand ?? {}),
                                                                     toggles: Object.keys(extentMap).reduce((a,c)=>{
                                                                         if(c.match(/liveFilter/)){
                                                                             a[c] = extentMap[c]

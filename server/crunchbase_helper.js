@@ -921,6 +921,7 @@ export async function enrichFromCrunchbase( primitive, options = {}){
                 location: properties.location_identifiers?.find(d=>d.location_type === "country")?.value || properties.location_identifiers?.[0]?.value,
                 stock_symbol: properties.stock_symbol,
                 ipo: properties.ipo,
+                status: properties.status,
                 exited_at: properties.exited_at,
             }
             if( properties.image_url ){
@@ -1373,6 +1374,7 @@ export async function fetchCompanyDataFromCrunchbase( primitive ){
                     "short_description",
                     "image_url",
                     "website_url",
+                    "status",
                     "stock_symbol",
                     "ipo_status",
                     "exited_on"
@@ -1418,6 +1420,7 @@ export async function fetchCompanyDataFromCrunchbase( primitive ){
                     image_url:rawData.properties.image_url,
                     stock_symbol: rawData.properties.stock_symbol?.value,
                     ipo: rawData.properties.ipo_status,
+                    status: rawData.properties.status,
                     exited_at: rawData.properties.exited_on?.value,
                     categories: rawData.properties.categories?.map((d)=>{return {uuid: d.uuid, value: d.value}})
 

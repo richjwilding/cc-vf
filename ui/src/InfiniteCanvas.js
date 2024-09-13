@@ -237,7 +237,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             d.refreshCache()
                             d.draw()
                         }else{
-                            d.queuedForRefresh = false
+                            d.resetOwner()
                             console.log(`Has been removed`)
                         }
                     }
@@ -455,7 +455,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( existingNode ){
             if( frame ){
                 const newItems = frame.node.find('.inf_keep')
-                let existingItems = []//options.forceRender ?[] : existingNode.find('.inf_keep')
+                let existingItems = options.forceRender ?[] : existingNode.find('.inf_keep')
                 for(const d of newItems){
                     if( !d.attrs.id ){continue}
                     const match = existingItems.filter(d2=>d.attrs.id === d2.attrs.id )

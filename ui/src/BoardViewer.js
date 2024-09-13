@@ -869,8 +869,6 @@ export default function BoardViewer({primitive,...props}){
                                 onClick:{
                                     frame: (id)=>setActiveBoard(id),
                                     primitive:(id)=>mainstore.sidebarSelect(id),
-                                    //primitive:(id)=>setCollectionPaneInfo({primitive: mainstore.primitive(id)}),
-                                    //canvas:(id)=>mainstore.sidebarSelect(),
                                     canvas:(id)=>setCollectionPaneInfo(),
                                     cell:(id, frameId)=>{
                                         const cell = id?.[0]

@@ -1354,7 +1354,11 @@ function MainStore (prims){
                             }
 
                         })
-                        target[last] = target[last].filter(d=>d !== value)
+                        if(target[last] && Array.isArray(target[last])){
+                            target[last] = target[last].filter(d=>d !== value)
+                        }else{
+                            target[last] = []
+                        }
                         if( add ){
                             target[last].push( value )
                         }

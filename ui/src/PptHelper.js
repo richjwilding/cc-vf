@@ -32,6 +32,10 @@ export function createPptx(  options ){
     pptx.layout = 'VF_CUSTOM'
     return pptx
 }
+window.setupPPTX = ()=>{
+    return createPptx()
+}
+
 export async function exportKonvaToPptx( stage, pptx, options = {} ){
     let savePptx = false
     
@@ -180,9 +184,17 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 let lastBold, lastIndent, lastLarge, lastBullet, lastWasLastInPara, lastEndList 
                 console.log(konvaNode.textArr)
                 let tIdx = 0
+                let bulletNeedsFlushing = false
                 for( const d of konvaNode.textArr){
                     let flush = false
+                    let markEndList = false
                     if( d.bullet ){
+                        if( bulletNeedsFlushing ){
+                            flush = true
+                            lastBullet = true
+                            markEndList = true
+                        }
+                        bulletNeedsFlushing = true
                         hasIndents = true
                         if( indentTracker ){
                             if( d.indent > indentTracker ){
@@ -207,14 +219,12 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             indentLevel = 0
                             flush = true
                         }
-                            flush = true
                     }
                     if( lastBold !== undefined && d.bold != lastBold){
                         flush = true
                     }
                     spacingBefore = 0
                     spacingAfter = 0
-                    let markEndList = false
                     if( lastEndList) {
                         spacingBefore = largeFontSize * 0.5
                     }
@@ -224,6 +234,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             //spacingAfter = 0
                         }
                         if( agg.length ){
+                            bulletNeedsFlushing = d.bullet
                             if( lastIndent ){
                                 spacingBefore = fontSize * 0.2
                                 if( indentLevel === 0){
@@ -259,7 +270,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         options:{
                             bold: lastBold,
                             paraSpaceBefore: spacingBefore,
-                            bullet: lastBullet && lastIndent ? {indentLevel: indentLevel, indent: ( fontScale * 10).toFixed(3)} : false,
+                            bullet: (lastBullet ?? bulletNeedsFlushing) && lastIndent ? {indentLevel: indentLevel, indent: ( fontScale * 10).toFixed(3)} : false,
                             fontSize: (lastLarge ?  largeFontSize : fontSize).toFixed(3),
                         }
                     })

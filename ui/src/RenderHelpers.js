@@ -817,6 +817,16 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
             }
         }else if( options.type === "date_string"){
             text = value?.match(/(\d+)-/)?.[1] ?? "-"
+        }else if(options.part){
+            let r1 = new RegExp(`\\*\\*(${options.part}).+\\*\\*(.*?)(?=\\n| \\-)`, 'i');
+            let r2 = new RegExp(`.+(${options.part}):(.*?)(?=\\n| \\-)`, 'i');
+            let m = r1.exec( value ) ?? r2.exec( value )
+            if( m ){
+                text = (m[2] ?? "").trim()
+                
+            }else{
+                text = undefined
+            }
         }
         
         if( text ){
@@ -833,6 +843,7 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
                 wrap: true,
                 bgFill: 'transparent',
                 width: fullWidth,
+                withMarkdown: true,
                 ellipsis: true,
                 refreshCallback: options.imageCallback
             })
@@ -1615,7 +1626,7 @@ registerRenderer( {type: "default",  configs: "overview"}, (primitive, options =
 
 })
 registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive, options = {})=>{
-    const config = {width: 300, height: 100, itemSize: 60, padding: [10,10,10,10], fontSize: 10, leftSize: 150, maxScale: 100, parameter: "funding", ...options}
+    const config = {width: 300, itemSize: 60, padding: [10,10,10,10], fontSize: 10, leftSize: 150, maxScale: 100, parameter: "funding", ...options}
     if( options.getConfig){
         return config
     }
@@ -1674,13 +1685,24 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
             refreshCallback: options.imageCallback
         })
         g.add(title);
+
+        let overview = primitive.referenceParameters?.description ?? ""
+
+        if(overview.length > 200){
+            let lines = overview.split(/(?<!\d)\.(?!\d)|\n/).map(d=>d.trim())
+            overview = ""
+            do{
+                overview += lines.shift() + " "
+
+            }while(lines[0] && ((overview.length + lines[0].length) < 200))
+        }
         
         const t = new CustomText({
             x: tx,
             y: config.padding[0] + oy + 16,
             fontSize: config.fontSize,
             lineHeight: 1.5,
-            text: primitive.referenceParameters?.description?.slice(0,150) ?? "",
+            text: overview.trim(),
             fill: '#334155',
             wrap: true,
             refreshCallback: options.imageCallback,

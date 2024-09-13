@@ -220,12 +220,7 @@ class CollectionUtils{
             const segments = uniquePrimitives(items.map(d=>d.findParentPrimitives({type: "segment", first:true})).flat())
             const filterLength = Math.max(0, ...segments.map(d=>d.referenceParameters?.importConfig?.[0].filters?.length))
             if( filterLength ){
-                let segmentAxis = new Array(filterLength).fill().map((d,i)=>({id: i, passType: "segment_filter", type: "segment_filter", title: `By Segment axis ${i}`}))
-                
-                segmentAxis = [
-                    ...segmentAxis,
-                    {id: filterLength, type: "none", title: "None"},
-                ].slice(0,2)
+                let segmentAxis = new Array(filterLength).fill().map((d,i)=>({id: i + 1, passType: "segment_filter", axis: i, type: "segment_filter", title: `By Segment axis ${i}`}))
                 out = out.concat( segmentAxis)
             }else{
                 out.push(
@@ -493,12 +488,13 @@ class CollectionUtils{
 
                     let filterConfig = d.referenceParameters?.importConfig?.[0]?.filters
                     if( filterConfig ){
-                        if( filterConfig.length > 0){
+                        /*if( filterConfig.length > 0){
                             const did = field === "row" ? 0 : 1
                             filterConfig = filterConfig[did]
                         }else{
                             filterConfig = filterConfig[0]
-                        }
+                        }*/
+                       filterConfig = filterConfig[axis.axis]
                         
                         if( filterConfig){
                             if(filterConfig.type ==="parent"){
@@ -991,7 +987,6 @@ class CollectionUtils{
             type: item.type,
             title: item.title,
             access: item.access,
-            //relationship: item.relationship?.map(d=>d?.split(":")[0])
             relationship: item.relationship//?.map(d=>d?.split(":")[0])
         }
         if( item.type === "none"){
@@ -1017,6 +1012,8 @@ class CollectionUtils{
             fullState.subtype = item.subtype
         }else if( item.type === "parameter"){
             fullState.parameter = item.parameter
+        }else if( item.type === "segment_filter"){
+            fullState.axis = item.axis
         }
         primitive.setField(target, fullState)
     
@@ -1064,6 +1061,8 @@ class CollectionUtils{
                 return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
             }else if(struct.type === "title"  || struct.type === "type" || struct.type === "icon" ){
                 return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
+            }else if(struct.type === "segment_filter" ){            
+                return axisOptions.find(d=>d.type === struct.type &&  ((struct.axis ?? 0) === (d.axis ?? 0)))?.id ?? 0
             }
             return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
         }

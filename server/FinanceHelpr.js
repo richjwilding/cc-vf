@@ -146,12 +146,13 @@ export async function computeFinanceSignals( primitive ){
         currency,
         fiftyDayAverage: fiftyDayAverage ? fiftyDayAverage / usedFx : undefined,
         previousClose: previousClose ? previousClose / usedFx : undefined,
+        revenue: revenue ? revenue / usedFx : undefined,
        /* below_1: previousClose < 1,
         below_5: previousClose < 5,
-        below_400_100: marketCap < 400000000 && cash >= 100000000,*/
+        below_400_100: marketCap < 400000000 && cash >= 100000000,
         below_cash: marketCap < cash,
         revenue_qoq_decline: quaterlyIncome?.map(d=>d.totalRevenue).map((d,i,a)=>a[i+1] ? d - a[i+1] :0).reduce((a,c)=>a+c,0) < 0,
-        preincome_qoq_decline: quaterlyIncome?.map(d=>d.netIncome).map((d,i,a)=>a[i+1] ? d - a[i+1] :0).reduce((a,c)=>a+c,0) < 0
+        preincome_qoq_decline: quaterlyIncome?.map(d=>d.netIncome).map((d,i,a)=>a[i+1] ? d - a[i+1] :0).reduce((a,c)=>a+c,0) < 0*/
     }
 
     console.log(financialData)

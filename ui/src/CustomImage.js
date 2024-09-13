@@ -242,7 +242,6 @@ checkCanvasCleared() {
     this.queuedForRefresh = false
     if( this.maxImage ){
       if( this.newScale ){
-        this.lastRefreshed = performance.now()
         const width = this.getWidth();
         const height = this.getHeight();
 
@@ -270,6 +269,9 @@ checkCanvasCleared() {
       }
       this.pcache._canvas_context.drawImage(this.maxImage, 0, 0, this.pcache.width, this.pcache.height);
     }
+  }
+  resetOwner(){
+    this.queuedForRefresh = false
   }
   requestRefresh(){
         if(this.attrs.refreshCallback && !this.placeholder){

@@ -151,10 +151,21 @@ const removeParentReference = async (target, parentId)=>{
     }
 
 }
-export async function getConfig(primitive, category){
+export async function getConfig(primitive, category, cache){
     let out = {}
     if( !category ){
-        category = await Category.findOne({id: primitive.referenceId})
+        if( cache ){
+            if( cache.categories[primitive.referenceId]){
+                console.log(`--- reusing CATEGORY cache for config `)
+                category = cache.categories[primitive.referenceId]
+            }
+        }
+        if( !category ){
+            category = await Category.findOne({id: primitive.referenceId})
+            if( cache ){
+                 cache.categories[primitive.referenceId] = category
+            }
+        }
     }
     if( category ){
         for(const p of Object.keys(category.parameters)){
@@ -163,9 +174,22 @@ export async function getConfig(primitive, category){
             }
         }
     }
-    const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))
+    const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
     if( configParentId ){
-        const configParent = await fetchPrimitive( configParentId )
+        let configParent
+        if( cache ){
+            if( cache.primitives[configParentId] ){
+                console.log(`--- reusing PRIMITIVE cache for config `)
+                configParent = cache.primitives[configParentId]
+            }
+        }
+        if( !configParent ){
+            configParent = await fetchPrimitive( configParentId )
+            if( cache ){
+                console.log(`--- CACHE MISS PRIMITIVE cache for ${configParentId}`)
+                cache.primitives[configParentId] = configParent
+            }
+        }
         if( configParent ){
             out = {
                 ...out,
@@ -493,7 +517,7 @@ export async function fetchPrimitive(id){
     return (await fetchPrimitives(id))?.[0]
 }
 
-export async function primitivePrimitives(primitive, path, types, deleted = false){
+export async function primitivePrimitives(primitive, path, types, deleted = false, fields){
     if( path.slice(0, 11 ) != "primitives."){
         path = "primitives." + path
     }
@@ -514,7 +538,7 @@ export async function primitivePrimitives(primitive, path, types, deleted = fals
         $and:[
             {_id: {$in: node}},
             { deleted: {$exists: deleted}}
-        ]}, DONT_LOAD) ?? []
+        ]}, fields ?? DONT_LOAD) ?? []
 
     if( types ){
         const a = [types].flat()
@@ -538,10 +562,10 @@ export async function primitiveDescendents(primitive, types, options={}){
     const unique = options.unique === undefined ? true : options.unique
     let fields = `_id primitives type referenceId ${options.fields ?? ""}`.trim()
 
-    if(options.fullDocument ){
+    if(options.fullDocument && !options.deferFullDocument){
         fields = DONT_LOAD
     }
-    console.log(fields)
+    console.log("primitiveDescendents", fields)
 
     const a = Array.isArray(types) ? types : [types]
 
@@ -609,22 +633,21 @@ export async function primitiveDescendents(primitive, types, options={}){
     if( options?.referenceId ){
         out = out.filter((d)=>d.referenceId === options.referenceId)
     }
-    console.log(`RUN UNIQUE`)
-
+    
     if( unique){
-        return uniquePrimitives(out)
-        /*
-        const fc = {}
-        return  out.filter((d)=>{
-            const id = d._id.toString()
-            if( fc[id]){
-                return false
-            }
-            fc[id] = true
-            return true
-        })*/
+        console.log(`RUN UNIQUE`)
+        out = uniquePrimitives(out)
     }
-
+    if(options.fullDocument && options.deferFullDocument){
+        console.log(`*** LOADING FULL DOCUMENT FOR DEFRRED SET`)
+        
+        out = await Primitive.find({
+            $and:[
+                {_id: {$in: out.map(d=>d.id)}},
+                { deleted: {$exists: false}}
+            ]
+        }, DONT_LOAD)
+    }
     return out
 }
 export async function primitiveMetadata(primitive ){
@@ -1123,13 +1146,14 @@ async function __OLD__filterItems(list, filters){
     return thisSet || list
 }
 
-export async function getDataForImport( source, cache = {}, forceImportForQuery = false ){
+export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}}, forceImportForQuery = false, first = true ){
+    console.time("GET_IMPORT_" + source.id)
     let fullList = []
 
     if(source.type === "query" && !forceImportForQuery){
         let node = new Proxy(source.primitives, parser)
 
-        const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
+        const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" ).map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
         let list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
 
         const viewFilters = getBaseFilterForView( source ).map(d=>{
@@ -1157,17 +1181,33 @@ export async function getDataForImport( source, cache = {}, forceImportForQuery 
     }
 
     console.log(`Importing from other sources of ${source.plainId} / ${source.id}`)
-    const sources = await primitivePrimitives(source, 'primitives.imports')
+    const sources = await primitivePrimitives(source, 'primitives.imports', undefined, undefined)
 
-    for( const imp of sources){
-        console.log(`Doing source ${imp.id}`)
+    let hasFullDocument = false
+    /*for( const imp of sources){
+        fullList = fullList.concat(list)
+    }*/
+    async function doImport(imp){
+        let requiresFullDocument = false
+        const filterConfig = source.referenceParameters?.importConfig?.filter(d=>d.id === imp.id)
+        if( filterConfig && filterConfig.length > 0){
+            for(const set of filterConfig ){
+                if( set.filters ){
+                    if( set.filters.filter(d=>d.type !== "parent" && d.type !=="category" ).length > 0 ){
+                        requiresFullDocument = true
+                    }
+                }
+            }
+        }
+
+        console.log(`Doing source ${imp.id} - ${requiresFullDocument ? "Full content required" : "Metadata only"}`)
         let list = []
         if( Object.keys(imp.primitives).includes("imports")   ){
-            if( cache[imp.id]){
-                list = cache[imp.id]
+            if( cache.imports[imp.id]){
+                list = cache.imports[imp.id]
             }else{
-                list = list.concat( await getDataForImport( imp, cache ))
-                cache[imp.id] = list
+                list = list.concat( await getDataForImport( imp, cache, undefined, false ))
+                cache.imports[imp.id] = list
             }
         }else{
             let node = new Proxy(imp.primitives, parser)
@@ -1185,9 +1225,9 @@ export async function getDataForImport( source, cache = {}, forceImportForQuery 
                 console.log(`loaded leaves`)
             }
         }
-        const params = await getConfig( source) 
+        const params = await getConfig( source, undefined, cache) 
         if( params.descend ){
-            list = uniquePrimitives([list, await primitiveDescendents( list, undefined, {fullDocument:true} )].flat())
+            list = uniquePrimitives([list, await primitiveDescendents( list, undefined, {fullDocument:requiresFullDocument, deferFullDocument: true, fields: "parentPrimitives"} )].flat())
         }
         if( params.referenceId ){
             list = list.filter(d=>d.referenceId === params.referenceId) 
@@ -1195,21 +1235,20 @@ export async function getDataForImport( source, cache = {}, forceImportForQuery 
         if( params.type ){
             list = list.filter(d=>d.referenceId === params.type) 
         }
-        const config = source.referenceParameters?.importConfig?.filter(d=>d.id === imp.id)
-        if( config && config.length > 0){
+        if( filterConfig && filterConfig.length > 0){
             let filterOut
-            console.log(`GOT ${config.length} configs to scan`)
-            for(const set of config ){
+            console.log(`GOT ${filterConfig.length} configs to scan`)
+            for(const set of filterConfig ){
                 if( set.filters ){
                     let thisSet = await filterItems( list, set.filters)
                     filterOut = (filterOut ?? []).concat( thisSet ?? list)
                 }
             }
             list = filterOut ?? list
-            for(const set of config ){
+            for(const set of filterConfig ){
                 if( set.referenceId ){
                     const prev = list.length
-                    list = (await Promise.all(list.map(async (d)=>await primitiveDescendents(d, undefined, {allPaths: true, first: true, referenceId: set.referenceId, fullDocument:true} ) ))).flat()
+                    list = (await Promise.all(list.map(async (d)=>await primitiveDescendents(d, undefined, {allPaths: true, first: true, referenceId: set.referenceId, fullDocument:requiresFullDocument, deferFullDocument: true} ) ))).flat()
                 }
             }
         }
@@ -1221,8 +1260,15 @@ export async function getDataForImport( source, cache = {}, forceImportForQuery 
                 list = uniquePrimitives((await multiPrimitiveAtOrginLevel( list, source.referenceParameters.pivot.length, source.referenceParameters.pivot)).flat())
             }
         }
-        fullList = fullList.concat(list)
+        return list
     }
+    const process = await executeConcurrently( sources, doImport)
+    if( process.results ){
+        fullList = process.results.flat()
+    }else{
+        throw "Exec of imports failed"
+    }
+    
 
     if(source.type === "view" ){
         const viewFilters = getBaseFilterForView( source ).map(d=>{
@@ -1239,6 +1285,18 @@ export async function getDataForImport( source, cache = {}, forceImportForQuery 
     
     let out = uniquePrimitives(fullList)
     console.log(`IMPORT FROM ${source.plainId} = ${out.length}`)
+    if( first && !hasFullDocument){
+        console.log(`Need to get full documents`)
+
+        out = await Primitive.find({
+            $and:[
+                {_id: {$in: out.map(d=>d.id)}},
+                { deleted: {$exists: false}}
+            ]
+        }, DONT_LOAD)
+
+    }
+    console.timeEnd("GET_IMPORT_" + source.id)
     return out
 }
 export function getBaseFilterForView( primitive){
@@ -3687,6 +3745,10 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
                 if( command === "enrich_url"){
                     result = EnrichPrimitive().enrichCompany( primitive, "url", true )
+                    done = true
+                }
+                if( command === "enrich_owler"){
+                    result = EnrichPrimitive().enrichCompany( primitive, "owler", true )
                     done = true
                 }
                 if( command === "enrich_cb"){

@@ -5,6 +5,7 @@ import { Util } from "konva/lib/Util";
 import { getBooleanValidator, getNumberOrAutoValidator, getNumberValidator, getStringValidator } from "konva/lib/Validators";
 import { Text } from "konva/lib/shapes/Text";
 
+var DISABLE_CANVAS = true
 var AUTO = 'auto',
   //CANVAS = 'canvas',
   CENTER = 'center',
@@ -337,27 +338,31 @@ checkCanvasCleared() {
 }
 
 
-  renderText(){
+  renderText(sceneContext){
     var textArr = this.textArr,
     textArrLen = textArr.length;
 
+    let context
     if (!this.text()) {
       return;
     }
     this.textWasRendered = true
-    this.pcache._canvas_context.fillStyle = this.attrs.bgFill 
-    this.pcache._canvas_context.fillRect(0,0,  this.uWidth, this.uHeight)
 
     var padding = this.padding(),
-      fontSize = this.fontSize(),
-      lineHeightPx = this.lineHeight() * fontSize,
-      n,
-      translateY = lineHeightPx / 2 ;
+    fontSize = this.fontSize(),
+    lineHeightPx = this.lineHeight() * fontSize,
+    n,
+    translateY = lineHeightPx / 2 ;
 
-    const context = this.pcache._canvas_context
-    this.pcache._canvas_context.textBaseline = MIDDLE
-    
-    this.pcache._canvas_context.fillStyle = this.attrs.fill
+    if( DISABLE_CANVAS ){
+      context = sceneContext
+    }else{
+      this.pcache._canvas_context.fillStyle = this.attrs.bgFill 
+      this.pcache._canvas_context.fillRect(0,0,  this.uWidth, this.uHeight)
+      context = this.pcache._canvas_context
+    }
+    context.textBaseline = MIDDLE
+    context.fillStyle = this.attrs.fill
 
     let alignCenter = this.attrs.align === "center"
     let py = []
@@ -404,6 +409,9 @@ checkCanvasCleared() {
     }
   }
 
+  resetOwner(){
+    this.queuedForRefresh = false
+  }
   
   refreshCache(){
     this.queuedForRefresh = false
@@ -480,10 +488,12 @@ checkCanvasCleared() {
     if(this.attrs.refreshCallback && !this.placeholder){
         if(!this.queuedForRefresh ){
           this.queuedForRefresh = true
+          this.attrs.refreshCallback(this)
+          /*
           if( !this.refreshRequested || (performance.now() - this.refreshRequested > 100)){
             this.attrs.refreshCallback(this)
             this.refreshRequested = performance.now()
-          }
+          }*/
         }
     }
     
@@ -499,6 +509,7 @@ checkCanvasCleared() {
 
   }
 
+
   _sceneFunc(context) {
     let scale = this.getScale()
 
@@ -506,17 +517,17 @@ checkCanvasCleared() {
     let h = this._cachedHeight
     let fh = this.attrs.fontSize
 
-    let ph = !this.pcache
+    let ph = !DISABLE_CANVAS && !this.pcache
     const tooSmall = fh * scale < 6
 
     if( ph && !tooSmall){
         this.requestRefresh()
     }
-    /*if( this.checkCanvasCleared()){
-      console.log(`CANVAS HAS BEEN CLEARED`)
+    if( this.checkCanvasCleared()){
+      console.warn(`CANVAS HAS BEEN CLEARED`)
       console.log(this)
       this.requestRefresh()
-    }*/
+    }
     if( ph || tooSmall){
 
         let showLines = fh * scale > 2.5
@@ -541,17 +552,22 @@ checkCanvasCleared() {
           ctx.fillRect(0,0,  w - 1, h - 1)
         }
     }else{
+      if( DISABLE_CANVAS ){
+          this.renderText( context )
+      }else{
+
         if( this.pcache.width > 0 && this.pcache.height > 0){
-            const ratio = (scale / (this.lastScale )) 
-            if( ratio < this.rescaleMin || ratio > this.rescaleMax){
-                this.newScale = scale
-                this.requestRefresh()
-            }
-            
-            if( this.pcache ){
-                context.drawImage(this.pcache, 0, 0, this.uWidth, this.uHeight, 0, 0, w, h)
-            }
+          const ratio = (scale / (this.lastScale )) 
+          if( ratio < this.rescaleMin || ratio > this.rescaleMax){
+            this.newScale = scale
+            this.requestRefresh()
+          }
+          
+          if( this.pcache ){
+            context.drawImage(this.pcache, 0, 0, this.uWidth, this.uHeight, 0, 0, w, h)
+          }
         }
+      }
     }
   }
 }

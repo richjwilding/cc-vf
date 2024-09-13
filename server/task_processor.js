@@ -271,7 +271,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
             out.push(existing)
         }
     }
-    if( options.clear || primitive.referenceParameters?.segments ){
+    if( options.clear){//} || primitive.referenceParameters?.segments ){
         const toClear = Object.keys(checked).filter(d=>!checked[d])
         if( toClear.length > 0){
             console.log(`${toClear.length} of ${currentSegments.length} to be cleared`)

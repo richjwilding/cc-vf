@@ -2049,6 +2049,10 @@ export async function extractURLsFromPageAlternative( baseUrl, options = {}, fet
                 if( url.length === 0){
                     return undefined 
                 }
+                if( url.startsWith("javascript")){
+                    return undefined 
+
+                }
                 if( isRelativeUrl(url)){
                     if( (options.markers === false)){
                         url = url.replace(/#.*$/, "")

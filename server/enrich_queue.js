@@ -14,6 +14,7 @@ import { categorize, processPromptOnText } from "./openai_helper";
 import QueueManager from "./base_queue";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
 import { findCompanyURLByName } from "./task_processor";
+import { enrichEntityFromOwler } from "./owler_helper";
 
 
 let instance
@@ -49,7 +50,6 @@ export default function EnrichPrimitive(){
         const workspaceId = primitive.workspaceId
         const field = `processing.${name}`
         dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text: description})
-        //instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: name, options: options, field: field})
         _queue.addJob( workspaceId,  {id: primitive.id, mode: name, options: options, field: field})
     }
     instance.fromURL = (primitive, options )=>{
@@ -58,67 +58,41 @@ export default function EnrichPrimitive(){
 
     instance.findArticles = (primitive, options )=>{
         if( primitive.type === "activity"){
-            //const field = `processing.articles`
-            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Finding articles"})
-            //instance.add(`search_articles_${primitive.id}` , {id: primitive.id, mode: "find_articles", options: options, field: field})
-
             instance.addToQueue( primitive, "find_articles", "Finding articles", options )
         }
     }
     instance.siteDiscovery = (primitive, options )=>{
         if( primitive.type === "entity"){
-            //const field = `processing.site`
-            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining url"})
-            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_discovery", options: options, field: field})
-
             instance.addToQueue( primitive, "site_discovery", "Site discovery (short)", options )
         }
     }
     instance.generateJTBD = (primitive, options )=>{
         if( primitive.type === "entity"){
-            //const field = `processing.site`
-            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining website"})
-            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "generate_jtbd", options: options, field: field})
-
             instance.addToQueue( primitive, "generate_jtbd", "JTBD generation", options )
         }
     }
     instance.siteDiscoveryShort = (primitive, options )=>{
         if( primitive.type === "entity"){
-            //const field = `processing.site`
-            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining website"})
-            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_discovery_short", options: options, field: field})
             instance.addToQueue( primitive, "site_discovery_short", "Site discovery", options )
         }
     }
     instance.siteSummarize = (primitive, options )=>{
         if( primitive.type === "entity"){
-            //const field = `processing.site`
-            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Examining url"})
-            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "site_summarize", options: options, field: field})
             instance.addToQueue( primitive, "site_summarize", "Site discovery", options )
         }
     }
     instance.findPosts = (primitive, options )=>{
         if( primitive.type === "activity"){
-            //const field = `processing.posts`
-            //dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text:"Finding posts"})
-            //instance.add(`search_posts_${primitive.id}` , {id: primitive.id, mode: "find_posts", options: options, field: field})
             instance.addToQueue( primitive, "find_posts", "Find posts", options )
         }
     }
     instance.searchCompanies = (primitive, options )=>{
         if( primitive.type === "activity"){
-            //const field = `processing.expanding.0`
-            //dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date()})
-            //instance.add(`search_topcics_${primitive.id}` , {id: primitive.id, target: "entity", mode: "search_company", options: options})
             instance.addToQueue( primitive, "search_company", "Search companies", options )
         }
     }
     instance.enrichCompany = (primitive, source, force)=>{
         if( primitive.type === "entity"){
-            //dispatchControlUpdate(primitive.id, "processing.enrich", {state: "active", started: new Date(), targetFields: ['title', 'referenceParameters.url', 'referenceParameters.description', 'referenceParameters.industry']})
-            //instance.add(`enrich_${primitive.id}_from_${source}` , {id: primitive.id, source: source, target: "entity", mode: "enrich", force: force, field: "processing.enrich"})
             instance.addToQueue( primitive, "enrich", "Enriching company", {source, force, target: "entity"} )
         }
     }
@@ -813,6 +787,10 @@ export default function EnrichPrimitive(){
                         if( job.data.options.source === "linkedin" ){
                             const result = await enrichCompanyFromLinkedIn( primitive, true)
                             SIO.notifyPrimitiveEvent( primitive, result)
+                        }
+                        if( job.data.options.source === "owler" ){
+                            const result = await enrichEntityFromOwler( primitive)
+                            //SIO.notifyPrimitiveEvent( primitive, result)
                         }
                         if( job.data.options.source === "crunchbase" ){
                             const result = await enrichFromCrunchbase( primitive, true)
