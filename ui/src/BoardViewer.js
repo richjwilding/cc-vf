@@ -360,7 +360,7 @@ export default function BoardViewer({primitive,...props}){
         myState.activeBoardId = id
         if( id ){
             myState.activeBoard = myState[id]
-            if( !myState[id].axisOptions ){
+            if(true || !myState[id].axisOptions ){
                 const source = myState[id].primitive
                 myState[id].axisOptions = CollectionUtils.axisFromCollection( source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
             }
@@ -732,18 +732,25 @@ export default function BoardViewer({primitive,...props}){
         const prims = ids.map(d=>mainstore.primitive(d)).filter(d=>d)
         const pptx = createPptx()
         for( const d of prims ){
-            const root = canvas.current.frameNode( d.id )
+            const root = canvas.current.frameData( d.id )?.node
             if( root ){
-                let list = root 
+                let list 
+                let labels = []
                 if( byCell ){
                     list = root.find('.cell')
                     const len = Math.max(...list.map(d=>d.children?.length ?? 0))
                     if( len === 1){
+                        labels = list.map(d=>{
+                            const [col, row] = d.attrs.id.split("-")
+                            return root.find('.row_header').find(d=>d.attrs.id===row)?.find('CustomText')[0]?.attrs?.text
+                        })
                         list = root.find('.primitive')
                     }
                 }
+                let idx = 0
                 for(const d of list){
-                    await exportKonvaToPptx( d, pptx )
+                    await exportKonvaToPptx( d, pptx, {title: labels ? labels[idx]  : undefined} )
+                    idx ++
                 }
             }
         }

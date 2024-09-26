@@ -7,12 +7,164 @@ import { GetSet, IRect } from 'konva/lib/types'
 import { Util } from 'konva/lib/Util'
 import { getNumberValidator, getBooleanValidator, getStringValidator, getNumberOrArrayOfNumbersValidator } from 'konva/lib/Validators'
 
+var WGL_QUEUE_LENGTH = 512
+var WGL_QUEUE_TIMEOUT = 50
+
+function setupShadersAndBuffers(gl) {
+  // Vertex shader source code
+  const vertexShaderSrc = `
+    attribute vec2 a_position;
+    attribute vec2 a_texCoord;
+    varying vec2 v_texCoord;
+    void main() {
+      gl_Position = vec4(a_position, 0.0, 1.0);
+      v_texCoord = a_texCoord;
+    }
+  `;
+
+  // Fragment shader source code
+  const fragmentShaderSrc = `
+    precision mediump float;
+    varying vec2 v_texCoord;
+    uniform sampler2D u_image;
+    void main() {
+      gl_FragColor = texture2D(u_image, v_texCoord);
+    }
+  `;
+
+  // Compile the shaders
+  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSrc);
+  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSrc);
+
+  // Link the shaders into a program
+  const program = createProgram(gl, vertexShader, fragmentShader);
+  gl.useProgram(program);
+
+  // Set up the vertex buffer (quad coordinates)
+  const positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  const positions = [
+    -1, -1,
+     1, -1,
+    -1,  1,
+     1,  1,
+  ];
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+  // Bind position buffer to the attribute in the vertex shader
+  const positionLocation = gl.getAttribLocation(program, 'a_position');
+  gl.enableVertexAttribArray(positionLocation);
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+  // Set up the texture coordinate buffer (maps texture to quad)
+  const texCoordBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+  const texCoords = [
+    0.0, 0.0,
+    1.0, 0.0,
+    0.0, 1.0,
+    1.0, 1.0,
+  ];
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
+
+  // Bind texture coordinate buffer to the attribute in the vertex shader
+  const texCoordLocation = gl.getAttribLocation(program, 'a_texCoord');
+  gl.enableVertexAttribArray(texCoordLocation);
+  gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+  gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+  // Return the compiled program so we can use it in rendering
+  return program;
+}
+
+// Utility function to compile a shader
+function createShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error('Shader compilation failed:', gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+}
+
+// Utility function to link shaders into a WebGL program
+function createProgram(gl, vertexShader, fragmentShader) {
+  const program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error('Program link failed:', gl.getProgramInfoLog(program));
+    gl.deleteProgram(program);
+    return null;
+  }
+  return program;
+}
+function setupFramebuffer(gl) {
+  // Create a framebuffer
+  const framebuffer = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+  // Create a texture to hold the framebuffer's color output
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WGL_QUEUE_LENGTH, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+  // Attach the texture as the color buffer for the framebuffer
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+
+  // Check if framebuffer is set up correctly
+  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  if (status !== gl.FRAMEBUFFER_COMPLETE) {
+    console.error('Framebuffer is not complete:', status);
+  }
+
+  // Return the framebuffer so it can be reused for every image
+  return framebuffer;
+}
+
 
 class CustomImage extends Shape {
 
   static phUrl = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iNjAiIGZpbGw9IiNhYWEiIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBhcmlhLWhpZGRlbj0idHJ1ZSI+CiAgPHBhdGggY2xpcC1ydWxlPSJldmVub2RkIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0xLjUgNmEyLjI1IDIuMjUgMCAwIDEgMi4yNS0yLjI1aDE2LjVBMi4yNSAyLjI1IDAgMCAxIDIyLjUgNnYxMmEyLjI1IDIuMjUgMCAwIDEtMi4yNSAyLjI1SDMuNzVBMi4yNSAyLjI1IDAgMCAxIDEuNSAxOFY2Wk0zIDE2LjA2VjE4YzAgLjQxNC4zMzYuNzUuNzUuNzVoMTYuNUEuNzUuNzUgMCAwIDAgMjEgMTh2LTEuOTRsLTIuNjktMi42ODlhMS41IDEuNSAwIDAgMC0yLjEyIDBsLS44OC44NzkuOTcuOTdhLjc1Ljc1IDAgMSAxLTEuMDYgMS4wNmwtNS4xNi01LjE1OWExLjUgMS41IDAgMCAwLTIuMTIgMEwzIDE2LjA2MVptMTAuMTI1LTcuODFhMS4xMjUgMS4xMjUgMCAxIDEgMi4yNSAwIDEuMTI1IDEuMTI1IDAgMCAxLTIuMjUgMFoiPjwvcGF0aD4KPC9zdmc+";
   static placeholderImage = null
   static placeholderImagePromise = null; // Store the promise here
+  static wgl = null
+  static wtexture = null
+  static wframebuffer = null
+
+  static setupWGL(){
+    if( this.wUnsupported){return}
+    console.log(`Setting up wgl`)
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const gl = canvas.getContext('webgl');
+    if (!gl) {
+      this.wUnsupported = true
+      return
+    }
+
+    // Setup shaders, buffers, and framebuffer (same as before)
+    // Do this only once for all images
+    const program = setupShadersAndBuffers(gl);
+    const framebuffer = setupFramebuffer(gl);
+
+    // Reuse the same texture object for all images
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    this.wgl = gl
+    this.wtexture = texture
+    this.wframebuffer = framebuffer
+  }
 
   constructor(attrs) {
     const defaults = {
@@ -26,6 +178,7 @@ class CustomImage extends Shape {
       this[k] = attrs[k] ?? defaults[k]
     }
 
+    this.avgColor = '#e2e2e2'
 
     if( !this.attrs.placeholder ){
       if( this.attrs.cloneFrom){
@@ -77,6 +230,82 @@ checkCanvasCleared() {
     return true;
   }
   return false
+}
+
+  static syncAverageQueue(){
+    let gl = this.wgl
+    const list = this.wList.splice(0, WGL_QUEUE_LENGTH)
+
+    let numImages = list.length
+    const pixelData = new Uint8Array(numImages * 4);  // 4 bytes per image (RGBA)
+    gl.readPixels(0, 0, numImages, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixelData);
+    let o = 0
+    for(const d of list){
+      d.avgColor = `rgb(${pixelData[ o + 0]}, ${pixelData[o + 1]}, ${pixelData[o + 2]})`
+      o += 4
+    }
+    if( this.wList.length > 0){
+      CustomImage.scheduleQueueSync()
+    }
+  }
+  static scheduleQueueSync(){
+    if( this.wTimeout ){
+      return
+    }
+    this.wTimeout = setTimeout(()=>{
+      this.wTimeout = undefined
+      CustomImage.syncAverageQueue()
+    }, WGL_QUEUE_TIMEOUT)
+  }
+
+  static requestAverageColorFromWGL(image) {
+    if( !this.wgl ){
+      CustomImage.setupWGL()
+      this.wList = []
+    }
+    if( this.wUnsupported ){
+      return
+    }
+    let gl = this.wgl
+    
+    let x = this.wList.length
+    gl.viewport(x, 0, 1, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image.pcache._canvas);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    this.wList.push(image)
+
+    if( x === WGL_QUEUE_LENGTH - 1){
+      clearTimeout( this.wTimeout )
+      this.wTimeout = undefined
+      CustomImage.syncAverageQueue()
+    }else{
+      CustomImage.scheduleQueueSync()
+    }
+}
+
+getAverageColor(ctx, width, height) {
+  // Get the image data (all the pixels)
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  let r = 0, g = 0, b = 0;
+  const factor = 1
+  const inc = 4 * factor
+
+  for (let i = 0; i < data.length; i += inc) {
+    r += data[i];     // Red
+    g += data[i + 1]; // Green
+    b += data[i + 2]; // Blue
+  }
+
+  // Calculate the average color
+  const pixelCount = data.length / inc;
+  r = Math.round(r / pixelCount);
+  g = Math.round(g / pixelCount);
+  b = Math.round(b / pixelCount);
+
+  // Return the result as an RGB string
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
   fetchAndCreateImageBitmap() {
@@ -148,6 +377,9 @@ checkCanvasCleared() {
           //}
 
           ctx.drawImage(img, sx,sy, sWidth,sHeight, xOffset + (this.activeScale * padding[3]), yOffset + (this.activeScale * padding[0]), newWidth, newHeight);
+          
+          
+          this._clearSelfAndDescendantCache('absoluteTransform')
           this.requestRefresh()
         
         resolve(); // Indicate that the image has been successfully loaded and drawn
@@ -268,6 +500,10 @@ checkCanvasCleared() {
         }
       }
       this.pcache._canvas_context.drawImage(this.maxImage, 0, 0, this.pcache.width, this.pcache.height);
+      if(!this.avgColorComputed){
+        this.avgColorComputed = true
+        CustomImage.requestAverageColorFromWGL( this )
+      }
     }
   }
   resetOwner(){
@@ -306,6 +542,10 @@ checkCanvasCleared() {
     }
     const width = this.getWidth();
     const height = this.getHeight();
+    
+    if( !((width > 0) && (height > 0))){
+      return
+    }
 
     let scale = this.scale()?.x ?? 1
     let parent = this.parent
@@ -325,8 +565,13 @@ checkCanvasCleared() {
           this.requestRefresh()
       }
     }
-    if( this.pcache._canvas.width > 0 && this.pcache._canvas.height > 0){
-      context.drawImage(this.pcache._canvas, 0, 0 , width, height)
+    if(  ((width * scale) < 6 || (height * scale )< 6)){      
+      context.fillStyle = this.avgColor ?? '#e2e2e2'
+      context.fillRect(0, 0,  width, height)
+    }else{
+      if( this.pcache._canvas.width > 0 && this.pcache._canvas.height > 0){
+        context.drawImage(this.pcache._canvas, 0, 0 , width, height)
+      }
     }
   }
 

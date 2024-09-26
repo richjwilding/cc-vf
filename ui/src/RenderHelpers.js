@@ -15,6 +15,9 @@ export function roundCurrency(number){
     if(number === 0){
         return "$0"
     }
+    if( isNaN(number)){
+        return "-"
+    }
     const suffixes = ["", "K", "M","B","T"];
     const suffixIndex = Math.floor(Math.log10(Math.abs(number)) / 3);
 
@@ -572,7 +575,6 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
     const items = options.list
 
     const idx = Math.floor((items.length - range[0]) / spread * colors.length) 
-    console.log(idx, items.length, range[0], range[1])
 
     const r = new Konva.Rect({
         x: config.padding[3],
@@ -784,6 +786,7 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
             const logo = imageHelper( `/api/image/${primitive.id}`, {
                 size: config.width,
                 y: options.getConfig ? undefined : (h - config.padding[0] - config.padding[2]- config.width)/2,
+                linkUrl: primitive.referenceParameters.url,
                 padding: config.padding,
                 center: true,
                 imageCallback: options.imageCallback,
@@ -818,14 +821,28 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
         }else if( options.type === "date_string"){
             text = value?.match(/(\d+)-/)?.[1] ?? "-"
         }else if(options.part){
-            let r1 = new RegExp(`\\*\\*(${options.part}).+\\*\\*(.*?)(?=\\n| \\-)`, 'i');
-            let r2 = new RegExp(`.+(${options.part}):(.*?)(?=\\n| \\-)`, 'i');
-            let m = r1.exec( value ) ?? r2.exec( value )
-            if( m ){
-                text = (m[2] ?? "").trim()
-                
-            }else{
-                text = undefined
+            if( text ){
+                let r1 = new RegExp(`(?:\\*\\*)?(${options.part}):?\\s*(?:\\*\\*)?:?([\\s\\S]*)`, 'i');
+                let m = r1.exec(text)
+                if( m ){
+                    text = m[2]
+                    //let r2 = new RegExp(`(?:-\\s+|\\n)?(?:\\*\\*)?(.+):\\s*(?:\\*\\*)?`, 'i');
+                    let r2 = new RegExp(`(?:-\\s+|\\n)(?:\\*\\*)?([^-]+):\\s*(?:\\*\\*)?`, 'i');
+                    m = r2.exec(text) 
+                    if( m ){
+                        text = text.slice(0, m.index).replaceAll(/\s*-\s*$/g,"").trim()
+                    }
+                    text = (text ?? "").trim()
+                    if( options.format === "bold"){
+                        text = `**${text}**`
+                    }
+                }else{
+                    text = undefined
+                }
+            }
+        }else{
+            if( options.format === "bold"){
+                text = `**${text}**`
             }
         }
         
@@ -836,7 +853,7 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
                 x: config.padding[3],
                 y: config.padding[0],
                 fontSize: config.fontSize,
-                lineHeight: 1.1,
+                lineHeight: 1.25,
                 text: text,
                 fill: '#334155',
                 showPlaceHolder: false,
@@ -908,7 +925,7 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
             partials = partials.slice(1)
         }
         
-        const row = mainPartial.rowExtents?.find(d=>(d.label ?? "") === rowLabels[0])
+        const row = mainPartial ? mainPartial.rowExtents?.find(d=>(d.label ?? "") === rowLabels[0]) : undefined
         let subList = row ? mainPartial.list.filter((item)=>(Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive) : []
         if( subList[0]){
             const category = subList[0].metadata
@@ -1084,6 +1101,14 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
         }
 
 
+    }
+    if( primitive.plainId === 533912){
+        const countries = cells.filter(d=>d.cIdx === 2).map(d=>d.primitive?.referenceParameters.location).filter((d,i,a)=>d && a.indexOf(d)===i).sort()
+        for(const thisLabel of rowLabels){
+            const country = cells.find(d=>d.rIdx === rIdx && d.cIdx === 2)?.primitive?.referenceParameters?.location
+            pScores[rIdx] = countries.indexOf(country)
+            rIdx++
+        }
     }
     
     if( pScores.length > 0){
@@ -1864,7 +1889,7 @@ registerRenderer( {type: "categoryId", id: 82, configs: "default"}, function ren
 })
 registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function renderFunc(primitive, options = {}){
 
-    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 800, maxHeight: 3000, padding: [10,10,10,10], ...options}
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, maxHeight: 3000, padding: [10,10,10,10], ...options}
     let toggleWidth = 0
     if( options.toggles){
         toggleWidth = 26
@@ -1904,6 +1929,10 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
         /*if( primitive.origin.plainId === 435057){
             text = text.replace(/^.+MVTR.+\n/,"")
         }*/
+       if( typeof(text) === "object"){
+        text = Object.keys(text).map(d=>`${d}: ${text[d]}`).join("\n")
+       }
+       text = text?.replaceAll('\\n','\n')
 
         const t = new CustomText({
             x: config.padding[3],
@@ -2577,6 +2606,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
         width: config.width,
         height: config.height,
         onClick: options.onClick,
+        minRenderSize : 0,
         name:"inf_track primitive inf_keep"
     })
     if( g ){
@@ -2696,7 +2726,7 @@ export function renderMatrix( primitive, list, options ){
         cellContentLimit = {
             "result": 50,
             "evidence": 150
-        }[list[0]?.primitive?.type] ?? false
+        }[list[0]?.primitive?.type] ?? 150
         
         cellContentLimit = {
             29: 63
@@ -2902,6 +2932,7 @@ export function renderMatrix( primitive, list, options ){
                 const logo = imageHelper( `/api/image/${d.idx}`, {
                     x: cellConfig.padding[3] + textPadding[3],
                     y: cellConfig.padding[0] + textPadding[0],
+                    linkUrl: d.referenceParameters.url,
                     size: iconSize,
                     center: true,
                     imageCallback: options.imageCallback,
@@ -2981,6 +3012,7 @@ export function renderMatrix( primitive, list, options ){
                     y: cellConfig.padding[0] + textPadding[0],
                     size: iconSize,
                     center: true,
+                    linkUrl: d.referenceParameters.url,
                     imageCallback: options.imageCallback,
                     placeholder: options.placeholder !== false
                 })
@@ -3039,6 +3071,7 @@ export function renderMatrix( primitive, list, options ){
             const cellConfig = cells.find(d=>d.rIdx === idx)?.config ?? {padding:[0,0,0,0]}
             const group = new Konva.Group({
                 name: "inf_track row_header",
+                id: `${idx}`,
                 x: 0,
                 y: columnY[idx],
                 width: headerWidth,

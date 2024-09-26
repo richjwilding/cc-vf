@@ -224,7 +224,7 @@ class CollectionUtils{
                 out = out.concat( segmentAxis)
             }else{
                 out.push(
-                    {id: 1, passType: "segment_filter", type: "segment_filter", title: `By Segment axis`}
+                    {id: 1, axis:0, passType: "segment_filter", type: "segment_filter", title: `By Segment axis`}
                 )
             }
         }
@@ -360,28 +360,6 @@ class CollectionUtils{
             ])
 
             out = out.concat( findCategories( baseCategories ) )
-
-            /*const baseCategories = primitive.primitives.allUniqueCategory
-            out = out.concat( findCategories( baseCategories ) )
-            if( primitive.referenceParameters?.explore?.importCategories !== false){
-                let nodes = [primitive]
-                let updated = false
-                let added = 0
-                do{
-                    updated = false
-                    for(const node of nodes ){
-                        let thisSet = []
-                        const thisCat = findCategories( node.primitives.allUniqueCategory  ).filter(d=>d)
-                        added += thisCat.length
-                        out = out.concat( thisCat )
-                        if(Object.keys(node.primitives).includes("imports")){
-                            thisSet.push( node.primitives.imports.allItems )
-                            updated = true
-                        }
-                        nodes = thisSet.flat()
-                    }
-                }while(updated)
-            }*/
         } 
 
         if( items ){
@@ -519,10 +497,20 @@ class CollectionUtils{
                         doRemap = false
                         return {idx: d.id, label: d.title}
                     }
-                }).filter((d,i,a)=>d && a.findIndex(d2=>d2?.label === d?.label)===i).sort((a,b)=>(a?.label ?? "").localeCompare(b?.label ?? ""))
+                }).filter((d,i,a)=>d && a.findIndex(d2=>d2?.label === d?.label)===i).sort((a,b)=>{
+                    const v1 =  (a?.label ?? "")
+                    if( v1.localeCompare){
+                        return v1?.localeCompare(b?.label ?? "")
+                    }
+                    return v1 - b?.label
+                })
                 if( doRemap ){
                     interim.forEach(d=>{
-                        d[field] = mapped.find(d2=>d2.label === remap[d[field]])?.idx
+                        if( Array.isArray(d[field])){
+                            d[field] = d[field].map(df=>mapped.find(d2=>d2.label === remap[df])?.idx)
+                        }else{
+                            d[field] = mapped.find(d2=>d2.label === remap[d[field]])?.idx
+                        }
                     })
                 }
                 return {values: mapped}
@@ -710,7 +698,7 @@ class CollectionUtils{
                 }else if( option.type === "segment_filter"){
                     return (p)=>{
                         const segments = p.findParentPrimitives({type: "segment", first:true})
-                        return segments[0]?.id
+                        return segments.map(d=>d.id)
                     }
                 }else if( option.type === "contact"){
                     return (d)=>d.origin.referenceParameters?.contactId

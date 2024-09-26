@@ -836,7 +836,21 @@ function MainStore (prims){
                     store.callbacks[e] = []
                 }
                 store.callbacks[e] = store.callbacks[e].filter((d)=>d.id !== id)
-                store.callbacks[e].push({callback: cb, filterIds: idList ? [idList].flat(): undefined, id: id})
+                let flatIds, descendIds 
+                if( idList ){
+                    for(const id of [idList].flat(Infinity)){
+                        if( id ){
+                            if( id.endsWith("+")){
+                                descendIds ||= []
+                                descendIds.push( id.slide(0, id.length - 1))
+                            }else{
+                                flatIds ||= []
+                                flatIds.push(id)
+                            }
+                        }
+                    }
+                }
+                store.callbacks[e].push({callback: cb, filterIds: flatIds, descendIds, id: id})
                 //console.log(`registered ${e} for ${id} (${store.callbacks[e].length}) / ${[idList].flat().join(", ")}`)
             })
             return id
@@ -853,12 +867,23 @@ function MainStore (prims){
             let name = e
 
             this.callbacks[e].forEach((e)=>{
-                if( e.filterIds && e.filterIds.length > 0 ){
-                    if( items.filter((item)=>e.filterIds.includes(item)).length === 0){
-                        return
+                const doCall = true
+                if( e.filterIds ){
+                    if( !items.some((item)=>e.filterIds.includes(item)).length === 0){
+                        doCall = false
                     }
                 }
-                e.callback(items, name, data)
+                if( e.descendIds ){
+                    if( items.filter((item)=>{
+                            const allIds = obj.primitive(item).primitives.uniqueAllIds
+                            return allIds.some(item=>e.filterIds.includes(item)).length > 0
+                        }).length === 0){
+                            doCall = false
+                    }
+                }
+                if( doCall){
+                    e.callback(items, name, data)
+                }
             })
 
         },
@@ -994,7 +1019,7 @@ function MainStore (prims){
         createPrimitive:async function( options ){
             let category = options.categoryId ? this.category( options.categoryId ) : undefined
             let {
-                title = category?.blankTitle ? undefined : "New item", 
+                title = undefined,//category?.blankTitle ? undefined : "New item", 
                 type = "result", 
                 state = undefined, 
                 extraFields = {}, 
@@ -1357,7 +1382,7 @@ function MainStore (prims){
                         if(target[last] && Array.isArray(target[last])){
                             target[last] = target[last].filter(d=>d !== value)
                         }else{
-                            target[last] = []
+                            target[last] = receiver.metadata?.parameters?.[last]?.default ?? []
                         }
                         if( add ){
                             target[last].push( value )

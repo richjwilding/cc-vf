@@ -350,13 +350,13 @@ export function Sidebar({primitive, ...props}) {
             enter="transition-[min-width,width] ease-in-out duration-[200ms]"
             leave="transition-[min-width,width] ease-in-out duration-[200ms] "
             enterFrom="min-w-0 w-0"
-            enterTo="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 5xl:min-w-[36rem] 5xl:w-[36rem]"
-            leaveFrom="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 5xl:min-w-[36rem] 5xl:w-[36rem]"
+            enterTo="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 5xl:min-w-[48rem] 5xl:w-[48rem]"
+            leaveFrom="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 5xl:min-w-[48rem] 5xl:w-[48rem]"
             leaveTo="min-w-0 w-0"
 //            className={`${props.overlay ? "absolute right-0 z-50 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl`}>
             className={`absolute right-0 z-50 h-screen overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl 4xl:relative 4xl:shadow-none `}>
         <div className='min-w-max'>
-        <div className='max-w-[24rem] sm:max-w-[28rem] 5xl:min-w-[36rem]'>
+        <div className='max-w-[24rem] sm:max-w-[28rem] 5xl:min-w-[48rem]'>
             <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky z-50 top-0 bg-white">
                 <div className="flex items-start justify-between space-x-3">
                     {metadata && <div className='flex place-items-center'>

@@ -191,8 +191,15 @@ export async function fetchRedditThreadAsText(url, options= {}){
     console.log(out)
     return out
 }
+const LOCATIONS = Object.freeze({
+    amsterdam: { lat: 52.377956, lon: 4.897070 },
+    london: { lat: 51.509865, lon: -0.118092 },
+    new_york: { lat: 40.730610, lon: -73.935242 },
+    paris: { lat: 48.864716, lon: 2.349014 },
+});
+
 export async function fetchRedditThread(url, options= {}){
-    const token = process.env.BROWSERLESS_KEY
+    /*const token = process.env.BROWSERLESS_KEY
     const timeout = 30 * 60 * 1000;
     const proxy = 'residential';
     const proxyCountry = 'gb';
@@ -206,9 +213,16 @@ export async function fetchRedditThread(url, options= {}){
       proxySticky,
         blockAds: false,
       token,
-    }).toString();
+    }).toString();*/
+
+
+    const AUTH = 'brd-customer-hl_2e56962b-zone-sense_browser-country-us:ux5aevhcir8a';  
+    const SBR_WS_ENDPOINT = `wss://${AUTH}@brd.superproxy.io:9222`;  
+
+    const { lat, lon } = LOCATIONS["amsterdam"];
 
     
+    /*
     const unblockURL =
       `https://production-lon.browserless.io/chrome/unblock?${queryParams}`;
     
@@ -225,7 +239,7 @@ export async function fetchRedditThread(url, options= {}){
         screenshot: false,
         ttl: timeout,
       }),
-    };
+    };*/
 
     let page, browser
     try{
@@ -236,11 +250,8 @@ export async function fetchRedditThread(url, options= {}){
             await browser.close()
         }
 
-        /*browser = await puppeteer.launch({
-            executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
- //           args: [`--proxy-server=pr.oxylabs.io:7777`],
-            headless: false
-        })*/
+        /*
+
         console.log(`Unblocking ${url}`);
         const response = await fetch(unblockURL, boptions);
         if (!response.ok) {
@@ -250,11 +261,57 @@ export async function fetchRedditThread(url, options= {}){
 
         console.log(`Awaiting  page`)
         console.log(`Got OK response! Connecting puppeteer to "${browserWSEndpoint}"...`);
+
+        
+
         browser = await puppeteer.connect({
             browserWSEndpoint: `${browserWSEndpoint}?${queryParams}`
-        });
+        });*/
+        console.log(`Doing Reddit via bright data`)
+        browser = await puppeteer.connect({  
+            browserWSEndpoint: SBR_WS_ENDPOINT,  
+        });  
 
         page = await browser.newPage()
+        await page.setRequestInterception(true);
+
+        page.on('console', msg => {
+            for (let i = 0; i < msg.args().length; ++i){
+                const d = msg.args()[i].toString().replace("JSHandle:", "")
+                console.log(`REM ${i}: ${msg.args()[i]}`);
+            }
+        });
+
+        page.on('request', (request) => {
+            const url = new URL(request.url());
+            if (request.resourceType() === 'image' || url.pathname.endsWith('png') || url.pathname.endsWith('jpg') || url.pathname.endsWith('jpeg')
+                || url.pathname.includes('png?') || url.pathname.includes('jpg?') || url.pathname.includes('jpeg?')
+            
+            ) {
+                request.abort();  // Block image requests
+              } else {
+                request.continue();  // Allow other requests
+              }
+        });
+
+        let totalDataTransferred = 0;
+
+        // Listen for 'response' events to capture network traffic
+        page.on('response', async (response) => {
+            try {
+            const headers = response.headers();
+            // 'content-length' header gives the size of the body in bytes
+            let len = "-"
+            if (headers['content-length']) {
+                totalDataTransferred += parseInt(headers['content-length'], 10);
+             //   len = parseInt(headers['content-length'], 10)
+            }
+            //const url = new URL(response.url());
+            //console.log(url?.href, len)
+            } catch (err) {
+            console.error(`Error capturing response size: ${err}`);
+            }
+        });
         
         await page.setViewport({
             width: 1920, 
@@ -263,11 +320,12 @@ export async function fetchRedditThread(url, options= {}){
         
         await page.goto(url, {waitUntil: "networkidle2"});
         
+        /*
         page.on('console', msg => {
             for (let i = 0; i < msg.args().length; ++i){
                 console.log(`REM ${i}: ${msg.args()[i]}`);
             }
-        });
+        });*/
 
         await findShadowButtonByTextAndClick(page, "Reject non-essential")
 
@@ -276,6 +334,8 @@ export async function fetchRedditThread(url, options= {}){
         await expandAllMessages(page)
 
         const thread = await fetchPostAndComments(page)
+
+        console.log(`Total Data Transferred: ${totalDataTransferred} bytes`);
 
         return thread
 
@@ -291,3 +351,8 @@ export async function fetchRedditThread(url, options= {}){
         }
     }
 }
+
+
+//await fetchRedditThreadAsText("https://www.reddit.com/r/UKFrugal/comments/1cemqf/how_do_i_get_just_the_internet_for_cheap_it_seems/")
+//await fetchRedditThreadAsText("https://www.reddit.com/r/UKFrugal/comments/1dxglv4/whos_your_tv_and_broadband_provider_how_much_do/")
+//await fetchRedditThreadAsText("https://www.reddit.com/r/nyc/comments/1awbm1v/1_in_4_new_york_city_children_now_lives_in/")

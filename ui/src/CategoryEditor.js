@@ -17,7 +17,7 @@ export default function GenericEditor({item, primitive,...props}) {
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [deleteMessage, setDeleteMessage] = useState( `Are you sure you want to delete this ${primitive.displayType}?` )
 
-  useDataEvent("relationship_update set_field set_parameter", [primitive.id, primitive.primitives.allUniqueCategory.map(d=>d.id)], updateRelationships)
+  useDataEvent("relationship_update set_field set_parameter set_title", [primitive.id, primitive.primitives.allUniqueCategory.map(d=>d.id)], updateRelationships)
     const [parameters, setParameters] = useState({})
   
   const [open, setOpen] = useState(true)

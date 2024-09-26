@@ -394,7 +394,10 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 y: ry,
                 w: rw,
                 h: rh,
+                ...(konvaNode.attrs.linkUrl ? {hyperlink: {url: konvaNode.attrs.linkUrl}} : {})
             });
+
+            
             console.log(`img ${konvaNode.width() * scale * thisScale} ${konvaNode.height() * scale * thisScale}`)
         } else if (konvaNode instanceof Konva.Line) {
 
@@ -471,6 +474,15 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
         }
     }else{
         processNode(stage, 0, 0, rootScale, true)
+    }
+    if( options.title ){
+        slide.addText(options.title, {
+            x: widthInInches * 0.75,
+            y: 0.1,
+            w: widthInInches * 0.25,
+            align: "right",
+            fontSize: 40,
+        });
     }
 
     if( savePptx ){

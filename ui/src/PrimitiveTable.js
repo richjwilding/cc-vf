@@ -15,6 +15,7 @@ import { min } from "date-fns";
 import { VFImage } from "./VFImage";
 import PrimitivePicker from "./PrimitivePicker";
 import NewPrimitive from "./NewPrimitive";
+import { roundCurrency } from "./RenderHelpers";
   
 
 const ExpandArrow = function(props) {
@@ -35,7 +36,7 @@ function copyToClipboard( table ){
             return `<th style='font-weight:900;background:#eee'>${val}</th>`
         }).join("")
     }).join("") + '</tr></thead>'
-    const rows = table.getRowModel().rows.map((row,idx) => {
+    const rows = table.getCoreRowModel().rows.map((row,idx) => {
         const primitive = row.original.primitive
         const primId = primitive.id
         return '<tr>' + row.getVisibleCells().map(cell => {
@@ -134,6 +135,41 @@ export function PrimitiveTable(props) {
                             minSize: width
                         })
                         
+                }
+                if( d.magic === "row" || d.magic === "column"){
+                    if( props.primitive?.referenceParameters?.explore?.axis?.[d.magic]?.type === "category" ){
+                        const rowPrim = props.primitive?.primitives.axis[d.magic].allItems[0]
+                        const categories = rowPrim.primitives.allCategory
+                        if( rowPrim){
+                            return columnHelper.accessor(d.field,
+                                {
+                                    export: info => {
+                                        const primitive = info.row.original.primitive
+                                        const aligned = primitive.parentPrimitiveIds
+                                        const matched = categories.filter(d=>aligned.includes(d.id))
+                                        console.log(`Access for categor export ${categories.length}`)
+                                        return matched.map(d=>d.title).join(", ")
+                                    },
+                                    cell: info => {
+                                        const primitive = info.row.original.primitive
+                                        const aligned = primitive.parentPrimitiveIds
+                                        const matched = categories.filter(d=>aligned.includes(d.id))
+                                        return <p className={d.wrap ? "" :"truncate"}>{matched.map(d=>d.title).join(", ")}</p>
+                                    },
+                                    header: () => d.name || d.title,
+                                    sortingFn: "basic"
+                                })
+                            }
+                        }
+                        return columnHelper.accessor(d.field,
+                            {
+                                cell: info => <p className={d.wrap ? "" :"truncate"}>{info.getValue()}</p>,
+                                header: () => d.name || d.title,
+                                sortingFn: "alphanumeric",
+                                startSize: d.width ?? (d.field === "id" ? 100 : undefined),
+                                startSize: width,
+                                minSize: width
+                            })
                     }
                 if( d.magic === "relationship"){
                     return columnHelper.accessor(d.magic + d.resultId,
@@ -200,6 +236,11 @@ export function PrimitiveTable(props) {
                     }
             }else{
                 
+                if( !d.type){
+                    if( d.field === "revenue"){
+                        d.type = "currency"
+                    }
+                }
 
                 if( d.field === "contact"){
                     return columnHelper.accessor(d.field,
@@ -238,6 +279,16 @@ export function PrimitiveTable(props) {
                             sortingFn: (a,b)=>{
                                 console.log(a.getValue(d.field));
                                 return (a.getValue(d.field) ? 1 : 0) - (b.getValue(d.field) ? 1 : 0) },
+                            startSize: d.width ?? (d.field === "id" ? 100 : undefined),
+                            startSize: width,
+                            minSize: width
+                        })
+                }else if(d.type === 'currency'){
+                    return columnHelper.accessor(d.field,
+                        {
+                            cell: info => <p className={d.wrap ? "" :"truncate"}>{roundCurrency(info.getValue())}</p>,
+                            header: () => d.name || d.title,
+                            sortingFn: "basic",
                             startSize: d.width ?? (d.field === "id" ? 100 : undefined),
                             startSize: width,
                             minSize: width

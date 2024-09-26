@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, Fragment} from 'react';
 import MainStore from './MainStore';
 import { PrimitiveCard } from './PrimitiveCard';
-import { MarkdownEditor } from './MarkdownEditor';
+import MarkdownEditor from './MarkdownEditor';
 
 
 export default function NewPrimitivePanel({selectedCategory,...props}) {

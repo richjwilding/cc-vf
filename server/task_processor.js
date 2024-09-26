@@ -6,7 +6,7 @@ import { lookupCompanyByName } from "./crunchbase_helper";
 import { extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, queryGoogleSERP } from "./google_helper";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
-import { analyzeListAgainstTopics } from "./openai_helper";
+import { analyzeListAgainstTopics, processPromptOnText } from "./openai_helper";
 
 const parser = PrimitiveParser()
 
@@ -219,13 +219,13 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
         }
 
     }else{
-        let targetSegmentConfig 
-        
+        let targetSegmentConfig
         if( primitive.referenceParameters?.by_axis === false){
             targetSegmentConfig = [
                 {
                     id: parent.id
                 }
+                
             ]
         }else{
             targetSegmentConfig = await getSegemntDefinitions(parent, customAxis)
@@ -395,14 +395,23 @@ export async function iterateItems( parent, primitive, options = {}){
 }
 export async function runProcess( primitive, options = {}){
     const source = options.source ? await fetchPrimitive( options.source ) : undefined
-    const [items, toProcess] = await getDataForProcessing(primitive, {}, source, {instance: options?.instance} )
+    const [items, toProcess] = await getDataForProcessing(primitive, {field: "param.summary"}, source, {instance: options?.instance} )
 
     console.log(`${items.length} items`)
+
+    const config = await getConfig( primitive )
+    console.log(config)
+    config.resultCategoryId = config.extract
+    config.extractor ={
+        method: "query",
+        field:"summary"
+    }
+    await extractor( primitive, config, {items: items, toProcess: toProcess} )
 }
 
 export async function extractor( source, config, options = {} ){
     const addTarget = await fetchPrimitive(primitiveOrigin( source ))
-    const extractConfig = config.extractor
+    const extractConfig = config.extractor ?? {method: "lookup", direction: "child"}
     const extractTargetCategory = await Category.findOne({id: config.resultCategoryId})
     
     if( !addTarget || !extractTargetCategory){
@@ -423,7 +432,8 @@ export async function extractor( source, config, options = {} ){
         const field = extractConfig.field ?? "title"
         const value = field === "title" ? source.title : source.referenceParameters?.[field]
         console.log(value)
-        let lookup = await lookupEntity( value, extractTargetCategory, source.workspaceId, {parent: addTarget.id})
+
+        let lookup = await lookupEntity( value, extractTargetCategory, source.workspaceId, {parent: addTarget})
         if( lookup ){
             if(extractConfig.direction === "parent"){
                 await addRelationship( lookup.id, source.id, "link")
@@ -432,13 +442,58 @@ export async function extractor( source, config, options = {} ){
         }
 
     }else{
-        console.log(`Will extract ${extractTargetCategory.id} / ${extractTargetCategory.title}`)
-        const metadata = {}
-        for(const k of Object.keys(extractTargetCategory.ai.extract.responseFields) ){
-            const field = extractTargetCategory.ai.extract.responseFields[k].target ?? k
-            metadata[field] = `a ${field} field containing ${extractTargetCategory.ai.extract.responseFields[k].prompt}`
+        if( extractTargetCategory.ai?.extract ){
+            console.log(`Will extract ${extractTargetCategory.id} / ${extractTargetCategory.title}`)
+            const metadata = {}
+            for(const k of Object.keys(extractTargetCategory.ai.extract.responseFields) ){
+                const field = extractTargetCategory.ai.extract.responseFields[k].target ?? k
+                metadata[field] = `a ${field} field containing ${extractTargetCategory.ai.extract.responseFields[k].prompt}`
+            }
+            console.log(metadata)
+            const query = extractTargetCategory.ai.extract.prompt
+            const outPrompt = [
+                `Return the result in a json object called "answer" which is an array containing every part of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found`,
+                `, a 'quote' field containing up to 50 words of the exact text used from the fragments`,
+                `, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.`,
+                `For each part of your answer also include ${JSON.stringify(metadata)}`
+            ].filter(d=>d).join("") + "."
+            
+            console.log(`----> DO QUERY`)
+
+            const results = await processPromptOnText( options.toProcess,{
+                opener:  "Here is a list of numbered items to process",
+                prompt: `Using only the information explcitly provided in the text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer.`,
+                //output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words, a 'quote' field containing up to 50 words of the exact text used from the fragments, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.${(extraFields ?? "").length > 0 ? extraFields + ", " : ""}`,
+                output: outPrompt,
+                no_num: false,
+                temperature: 1,
+                markPass: true,
+                batch:  20, 
+                idField: "ids",
+                debug: true,
+                debug_content: true,
+                field: "answer"
+            })
+            const task = await Primitive.findOne({_id: await primitiveTask( source ) })
+            for(const candidate of results.output){
+                if( !candidate.answered){
+                    continue
+                }
+                let lookup = await lookupEntity( candidate.title, extractTargetCategory, source.workspaceId, {parent: addTarget, context: {topics: task?.referenceParameters?.topics}})
+
+                if( lookup ){
+                    console.log(`Got lookup result`)
+                    if(extractConfig.direction === "parent"){
+                        await addRelationship( lookup.id, source.id, "link")
+                        console.log(`Linked to ${lookup.id} / ${lookup.plainId}`)
+                    }else{
+                        await addRelationship( source.id, lookup.id, "link")
+                        console.log(`Linked to ${lookup.id} / ${lookup.plainId}`)
+                    }
+                }
+
+            }
         }
-        console.log(metadata)
     }
 }
 
@@ -488,7 +543,7 @@ export async function loopkupOrganization( value, referenceCategory, workspaceId
     }
     if( !item ){
         console.log(`--- Looking to resolve ${value} via websearch`)
-        const url = await findCompanyURLByName( value )
+        const url = await findCompanyURLByName( value, options.context  )
         
         if( url ){
             const candidates = await Primitive.findOne({
@@ -528,7 +583,7 @@ export async function loopkupOrganization( value, referenceCategory, workspaceId
         return newPrim
     }
 }
-export async function findCompanyURLByName( name, context ){
+export async function findCompanyURLByName( name, context = {}){
     let results = await Promise.all([
         findCompanyURLByNameByApollo(name, context),
         findCompanyURLByNameByZoominfo(name, context),
@@ -683,7 +738,7 @@ export async function queryByAxis( parent, primitive, options = {}){
     
     
     console.log(config)
-    console.log(`Got ${segments.length} target segments and ${currentAggregators.length} aggregators`)
+    console.log(`Got ${segments?.length} target segments and ${currentAggregators?.length} aggregators`)
     
     
     for( const segment of segments){

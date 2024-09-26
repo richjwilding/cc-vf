@@ -96,6 +96,7 @@ const PrimitiveConfig = {
             allowedParents:["question"],
             needParent:true,
             needCategory:true,
+            defaultTitle:false
         },
         "evidence":{
             embed: ["title", "quote"]
@@ -112,7 +113,8 @@ const PrimitiveConfig = {
         },
         "category": {
             needCategory:false,
-            defaultReferenceId: 54
+            defaultReferenceId: 54,
+            defaultTitle:false
         },
         "hypothesis": {
             needCategory:false,
@@ -131,6 +133,7 @@ const PrimitiveConfig = {
         "search": {
             needParent:true,
             needCategory:true,
+            defaultTitle:false
         },
         "element": {
             needCategory:true,
@@ -421,29 +424,31 @@ const PrimitiveConfig = {
     checkImports: (receiver, id, filters)=>{
         if( !filters || filters.length === 0){
             const imp = receiver.primitives.imports
-            const ids = imp.allIds ?? imp
-            if( ids.includes(id) ){
-                if( !receiver?.referenceParameters?.target || receiver?.referenceParameters?.target === "items"){
-                    if( !receiver.referenceParameters?.importConfig ){
-                        return true
-                    }
-                    if( receiver.referenceParameters.importConfig.length === 1 ){
-                        if(receiver.referenceParameters.importConfig[0].id === id){
-                            if( !receiver.referenceParameters.importConfig[0].filters || receiver.referenceParameters.importConfig[0].filters.length === 0 ){
-                                return true
+            if( imp ){
+
+                const ids = imp.allIds ?? imp
+                if( ids.includes(id) ){
+                    if( !receiver?.referenceParameters?.target || receiver?.referenceParameters?.target === "items"){
+                        if( !receiver.referenceParameters?.importConfig ){
+                            return true
+                        }
+                        if( receiver.referenceParameters.importConfig.length === 1 ){
+                            if(receiver.referenceParameters.importConfig[0].id === id){
+                                if( !receiver.referenceParameters.importConfig[0].filters || receiver.referenceParameters.importConfig[0].filters.length === 0 ){
+                                    return true
+                                }
                             }
                         }
+                        return false
                     }
-                    return false
                 }
-            }else{
-                return false
             }
+            return false
         }
         if( (!receiver?.referenceParameters?.target || receiver?.referenceParameters?.target === "items") && receiver.referenceParameters?.importConfig){
             const candidates = receiver.referenceParameters.importConfig.filter(d=>d.id === id)
             const match = candidates.filter(d=> {
-                if( !d.fitlers){
+                if( !d.filters){
                     return false
                 }
                 const thisMatch = d.filters.filter(d2 => {

@@ -1522,13 +1522,19 @@ export async function getDataForProcessing(primitive, action, source, options = 
         if( field === "context" ){
             const hasContext = list.filter(d=>d.referenceParameters?.context).length > 0
             if( !hasContext ){
-                const out = [], listOut = []
+                const out = [], listOut = [], refCache = {}
+                let idx = 0
+                const refIds = list.map(d=>d.referenceId)
+                const refCats = await Category.find({id: {$in: refIds}})
+
                 for(const d of list){
-                    const context = await buildContext(d)
+                    console.log(`Context ${idx} / ${list.length}`)
+                    const context = await buildContext(d, refCats.find(d2=>d2.id === d.referenceId))
                     if( context ){
                         listOut.push(d)
                         out.push( context )
                     }
+                    idx++
                 }
                 console.log(`+++++ For context HAD ${list.length} now ${listOut.length} +++++`)
                 return [listOut, out]
@@ -2012,8 +2018,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         list = list.map(d=>{
                             return [d,d.replace(/\binc\b/i,"").trim()]
                         }).flat().filter((d,i,a)=>a.indexOf(d)===i)
-                        console.log(list)
-                      //  list = list.filter(d=>!["HSBC", "Wells Fargo", "Goldman Sachs","Citi", "JP Morgan", "JPMorgan Chase", "Bank of America", "BNP Paribas"].includes(d))
                         list = (await resolveAndCreateCompaniesByName(list, task, 29, undefined, false, true )).map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i)
                         console.log(` - Resolved to ${list.length}`)
 
@@ -3946,7 +3950,9 @@ export async function createPrimitive( data, skipActions, req, options={} ){
         const category = options.category ?? (await Category.findOne({id: data.data.referenceId}))
 
         data.data.plainId = await getNextSequenceValue("base")
-        data.data.title =  data.data.title ?? `New ${category?.title ?? data.data.type}`
+        if( !config || config.defaultTitle !== false){
+            data.data.title =  data.data.title ?? `New ${category?.title ?? data.data.type}`
+        }
         
         let newPrimitive = await Primitive.create(data.data)
         
@@ -3987,13 +3993,20 @@ export async function createPrimitive( data, skipActions, req, options={} ){
                 buildEmbeddingsForPrimitives([newPrimitive], field, true, true)
             }
         }
-        if( newPrimitive.referenceParameters?.notes ){
+        let driveURL = newPrimitive.referenceParameters?.notes
+        if( !driveURL && newPrimitive.referenceParameters?.url ){
+            if( newPrimitive.referenceParameters.url.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/) ){
+                driveURL = newPrimitive.referenceParameters.url
+            }
+        }
+        if( driveURL ){
                 QueueDocument().add(`doc_refresh_${newPrimitive.id}`, 
                     {
                         command: "refresh", 
                         id: newPrimitive.id, 
-                        value: newPrimitive.referenceParameters.notes, 
-                        req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}
+                        value: driveURL, 
+                        //req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}
+                        req: {user: {...req.user}}
                     })
             }
         

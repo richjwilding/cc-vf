@@ -189,6 +189,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
     }
 
     if( forcePDF || fecthFromPdf || !((await file.exists())[0]) ){
+        let text, matches
         if( notes || fecthFromPdf || forcePDF){
             console.log(`----- EXTRACT FROM PDF`)
             const result = await extractPlainTextFromPdf( id, req )
@@ -202,27 +203,18 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
                 console.log(`Fetch pdf of facebok post`)
                 await grabUrlAsPdf( url, id )
                 console.log(`--- now text`)
-                const text = (await extractPlainTextFromPdf( id, req ))?.plain
-                await writeTextToFile(id, text, req)
-                return {plain: text}
-            }            
-            if( url.match(/^https?:\/\/(www\.)?linkedin\.com\/posts\//)){
+                text = (await extractPlainTextFromPdf( id, req ))?.plain
+            }else if( url.match(/^https?:\/\/(www\.)?linkedin\.com\/posts\//)){
                 console.log(`Fetch LinkedIn post`)
                 const result = await Parser.parse(url, {
                     contentType: 'text',
                 })
                 if( result && result.content ){
-                    const text = result.content
-                    await writeTextToFile(id, text, req)
-                    return {plain: text}
+                    text = result.content
 
                 }
-            }
-
-            let text = (await fetchURLPlainText(url, false, category.preferPDF))?.fullText
-            if( !text ){
-                return undefined
-
+            }else if( url && (matches = url.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/))){
+                text = (await extractPlainTextFromPdf( id, req ))?.plain
             }
             await writeTextToFile(id, text, req)
             return {plain: text}
@@ -421,21 +413,53 @@ export async function readCSVFromGoogleDrive(fileId, req) {
     }
     return data
   }
+
+
+  export async function getGoogleDriveFileMetadata(id, req){
+    try {
+        const auth = new google.auth.OAuth2();
+        auth.setCredentials({ access_token: req.user.accessToken });
+        
+        const drive = google.drive({ version: 'v3', auth });
+        const response = await drive.files.get({
+            fileId: id,
+            fields: 'id, name, mimeType',
+            supportsAllDrives: true
+        });
+
+        const fileMetadata = response.data;
+        console.log(`File ID: ${fileMetadata.id}`);
+        console.log(`File Name: ${fileMetadata.name}`);
+        console.log(`MIME Type: ${fileMetadata.mimeType}`);
+        return fileMetadata
+    } catch (error) {
+        console.error('Error fetching file metadata:', error.message);
+        console.log(error)
+    }
+  }
+
 export async function importDocument(id, req){
     const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
     let notes = primitive.referenceParameters?.notes
     let url = primitive.referenceParameters?.url
+    if( !notes && url.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/)){
+        notes = url
+    }
     try{
         if( notes ){
             if( typeof(notes) === "string"){
-                const regex = /(?:d|document|spreadsheets|presentation)\/(?:u\/\d\/)?(?:[^/]+\/)?(?<id>[a-zA-Z0-9-_]+)/;
+                const regex = /(?:file|document|spreadsheets|presentation)\/(?:u\/\d\/)?(?:[^/]+\/)?(?<id>[a-zA-Z0-9-_]+)(?:\/view|\/edit|\/preview)?/
                 const match = notes.match(regex);
                 if (match) {
                     console.log(`converting url to google drive id`)
                     const documentId = match.groups.id;
+
+                    const metadata = (await getGoogleDriveFileMetadata( documentId, req)) ?? {}
+                    console.log(metadata)
+
                     notes = {
                         type: "google_drive",
-                        id: documentId
+                        ...metadata
                     }
                 } 
             }
@@ -453,7 +477,7 @@ export async function importDocument(id, req){
                     console.log("will attempt export to pdf and plaintext")
                     result = await importGoogleDoc(id, notes.id, req)
                 }
-                if( result ){
+                if( result && primitive.referenceParameters.notes){
                     const updateDate = new Date()
                     primitive.referenceParameters.notes.lastFetched = updateDate
                     primitive.markModified('referenceParameters.notes.lastFetched')
@@ -2299,9 +2323,14 @@ export async function fetchURLScreenshot( url ){
         console.log(error)
     }    
 }
+export async function extractTextFromGoogleDriveFile( driveId ){
+
+
+}
 export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedPdf = false ){
     try{
 
+        let matches
         console.log(url)
         if( url && url.match(/^(https?:\/\/)?(www\.)?(reddit)\.com\//)){
             const text = await fetchRedditThreadAsText( url )

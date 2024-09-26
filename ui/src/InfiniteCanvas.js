@@ -6,10 +6,14 @@ import { RenderPrimitiveAsKonva, finalizeImages, renderToggle } from './RenderHe
 import { exportKonvaToPptx } from './PptHelper';
 import MainStore from './MainStore';
 import { AvoidLib } from 'libavoid-js';
+import CustomImage from './CustomImage';
 
 Konva.autoDrawEnabled = false
 
 const updateLinksDuringMove = true
+const linkArrowSize = 8
+
+
 
 //export default function InfiniteCanvas(props){
 const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
@@ -218,27 +222,17 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             myState.current.animFramePending = requestAnimationFrame(()=>{
                 myState.current.animFramePending = undefined
                 let steps = 200
-                console.log(`RENDERING ${myState.current.rescaleList?.length ?? 0}`)
+                //console.log(`RENDERING ${myState.current.rescaleList?.length ?? 0}`)
                 let toProcess = myState.current.rescaleList.splice(0,steps)
                 for(let idx = 0; idx < steps; idx++){
                     const d = toProcess[idx]
                     if( d ){
-                        /*
-                        if(idx === 0){
-                            if(!d.getLayer()){
-                                console.log(`CANVAS DESTROYED - BAIING`)
-                                myState.current.rescaleList = []
-                                break
-                            }
-                        }*/
-                        //if( !d.parent?.attrs.removing ){
                         if( !d.parent?.attrs.removing && d.getLayer()){
-                            //d.queuedForRefresh = false
                             d.refreshCache()
                             d.draw()
                         }else{
-                            d.resetOwner()
                             console.log(`Has been removed`)
+                            d.resetOwner()
                         }
                     }
                 }
@@ -336,10 +330,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             y:0,
             width: 1000,
             height: 10,
-            fill: undefined,
-            stroke:"#eee",
-            strokeWidth: 0.5,
-            fill:"white",
+            strokeWidth: 1,
+            fill:"#fcfcfc",
+            cornerRadius: 10,
             strokeScaleEnabled: false,
             visible: props.board,
             name:"frame_outline",
@@ -422,13 +415,16 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     fontSize:12,
                     lineHeight: 1.5,
                     color: '#444',
-                    name:"frame_label"
+                    name:"frame_label",
+                    ellipsis: true
                 })
                 titleText.attrs.offsetY = -titleText.attrs.y
                 titleText.attrs.height = 1
                 titleText.attrs.scaleFont = 12
+                titleText.attrs.originWidth = titleText.width()
 
                 
+                frame.label = titleText
                 frame.node.add(titleText)
             }
 
@@ -464,6 +460,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const parent = d.parent
                             match[0].remove()
                             match[0].setAttrs(d.attrs)
+                            match[0].attrs["_txc"] = undefined
+                            match[0].attrs._vis = undefined
+                            if( match[0].resetOwner ){
+                                match[0].resetOwner()
+                            }
+
                             parent.add(match[0])
                             d.destroy()
 
@@ -615,6 +617,16 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }, {v: undefined, d: Infinity})
     }
 
+    function rescaleLinks(){
+        let scale = myState.current.viewport?.scale ?? 1
+        let pw = linkArrowSize / scale
+        
+        for(const d of myState.current.frameLinks){
+            d.pointerLength( pw )
+            d.pointerWidth( pw )
+        }
+
+    }
     async function refreshLinks( override ){
         
         if( props.frameLinks){
@@ -770,18 +782,22 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                 let allPoints = points
 
+                let scale = myState.current.viewport?.scale ?? 1
+                let pw = linkArrowSize / scale
                 let link = myState.current.frameLinks.find(d=>d.attrs.id === edge.id)
                 if( link ){
                     link.points(allPoints)
+                    link.pointerLength( pw )
+                    link.pointerWidth( pw )
                 }else{
                     link = new Konva.Arrow({
                         id: edge.id,
                         points: allPoints,
-                        stroke: '#444',
-                        strokeWidth: 0.5,
-                        pointerLength: 20,
-                        pointerWidth: 20,
-                        fill: '444',
+                        stroke: '#b6b6b6',
+                        strokeWidth: 0.75,
+                        pointerLength: pw,
+                        pointerWidth: pw,
+                        fill: '#b6b6b6',
                         strokeScaleEnabled: false
                     })
                     myState.current.frameLinks.push(link)
@@ -1030,7 +1046,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const uniqueKey = item._id; // Assuming 'item' has a unique 'id'
                             if (!seen.has(uniqueKey)) {
                                 seen.add(uniqueKey);
-                                if( item.attrs.scaleFont || ((item.attrs.width * scale * frame.scale) > 10)){
+                                if( item.attrs.scaleFont || ((item.attrs.width * scale * frame.scale) > (item.attrs.minRenderSize ?? 8))){
                                     nodes.push(item);
                                 }else{
                                     hidden++
@@ -1074,6 +1090,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         if( d.attrs.scaleFont ){
                             const iScale = Math.min(25, Math.max(1 / scale / frame.scale , 2))
                             d.fontSize( iScale * d.attrs.scaleFont )
+                            d.width( Math.min( d.attrs.originWidth * iScale, frame.node.attrs.width * 1.25) )
                         }
                         vis++
                         if( enableNodePruning ){
@@ -1104,7 +1121,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                 let showFrame = hidden > 0
                 if( props.board){
-                    frame.border.stroke(showFrame ? "#444" : "#eee")
+                    frame.border.stroke(showFrame ? "#b8b8b8" : "#b8b8b8")
+                    //frame.border.fill(showFrame ? "#f2f2f2" : "#efefef")
                 }else{
                     frame.border.visible(showFrame)
                 }
@@ -1189,6 +1207,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     doUpdate = true
                     updateStagePosition = true
                     doImageRescale = forceRescale
+
+                    rescaleLinks()
 
                    /* if( myState.current.hover ){
                         for( const d of Object.keys(myState.current.hover)){
@@ -1344,11 +1364,43 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
     }
+    function panHandler(state){
+        if( state.first || state.memo === undefined) {
+            clearHightlights()
+            if( props.callbacks?.viewportWillMove){
+                props.callbacks?.viewportWillMove(myState.current.viewport)
+            }
+        }
+        const multiple = myState.current.panForDrag ? -1 : 3
+        
+        const x = (myState.current.viewport?.x ?? 0) - ((state.delta[0] ) * multiple)
+        const y = (myState.current.viewport?.y ?? 0) - ((state.delta[1] )  * multiple)
+        
+        alignViewport(x,y, myState.current.viewport?.scale ?? 1)
+
+        if( state.last ){
+            let [px, py] = convertStageCoordToScene(state.event.layerX, state.event.layerY)
+            processHighlights(px,py)
+            myState.current.wasPanning = false
+            myState.current.panForDrag = false
+            if( state.last ){
+                if( props.callbacks?.viewportCallback){
+                    props.callbacks?.viewportCallback(myState.current.viewport)
+                }
+            }
+        }
+        
+    }
+
+    
 
     useGesture({
         onDrag:(state)=>{
             if( myState.current.frameSelect?.transforming){
                 return
+            }
+            if( myState.current.panForDrag ){
+                return panHandler(state)
             }
             let memo = state.memo || {}
             let x, y
@@ -1363,9 +1415,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
                 [x, y] = convertStageCoordToScene(px, py )
-                let found = findTrackedNodesAtPosition( x, y, ["primitive", "frame"])
+                let found = findTrackedNodesAtPosition( x, y, ["primitive", "frame"], true)
                 console.log(`started drag`, found?.[0], state)
                 const item = found[0]
+                if( !item ){
+                    myState.current.panForDrag = true
+                    return panHandler(state)
+                }
                 if( item && !myState.current.dragging ){
 
                     clearHightlights()
@@ -1619,28 +1675,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     if( !state.ctrlKey ){
                         myState.current.wasPanning = true
                       //  state.event.preventDefault()
-                        if( state.first || state.memo === undefined) {
-                            clearHightlights()
-                            if( props.callbacks?.viewportWillMove){
-                                props.callbacks?.viewportWillMove(myState.current.viewport)
-                            }
-                        }
-                        
-                        const x = (myState.current.viewport?.x ?? 0) - ((state.delta[0] ) * 3)
-                        const y = (myState.current.viewport?.y ?? 0) - ((state.delta[1] )  * 3)
-                        
-                        alignViewport(x,y, myState.current.viewport?.scale ?? 1)
-
-                        if( state.last ){
-                            let [px, py] = convertStageCoordToScene(state.event.layerX, state.event.layerY)
-                            processHighlights(px,py)
-                            myState.current.wasPanning = false
-                            if( state.last ){
-                                if( props.callbacks?.viewportCallback){
-                                    props.callbacks?.viewportCallback(myState.current.viewport)
-                                }
-                            }
-                        }
+                      panHandler(state)
 
                     }
                 }
@@ -1714,8 +1749,18 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             }
                         }
                     }
-                    if( !hasFound && props.board && (includeFrame || classes.includes("frame"))){
+                    if( !hasFound && props.board && (classes.includes("frame"))){
                         found.push(frame.node)
+                    }
+                }else{
+                    if( forClick || includeFrame){
+                        
+                        const lx = frame.label.attrs.x + frame.node.attrs.x
+                        const ly= frame.label.attrs.y + frame.node.attrs.y - (frame.label.textHeight * frame.scale * 1.2)
+                        const inFrameLabel = lx <= px && ly <= py &&  (lx + (frame.label.width() * frame.scale)) >= px && (ly + (frame.label.textHeight * frame.scale * 1.2)) >= py
+                        if( inFrameLabel){
+                            found.push(frame.node)
+                        }
                     }
                 }
             }
@@ -1782,8 +1827,18 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
 
         function processMouseMove(e){
+            let cursor = ""            
             let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
-            processHighlights(x,y)
+            if( processHighlights(x,y) ){
+                cursor = "pointer"
+            }else{
+                cursor = "default"
+            }
+
+            if( cursor !== myState.current.cursor){
+                frameRef.current.style.cursor = cursor
+                myState.current.cursor = cursor
+            }
         }
         function clearSelection(){
             myState.current.hover ||= {}
@@ -1895,11 +1950,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
 
             myState.current.hover ||= {}
+            let anythingFound = false
             for(const type of Object.keys(props.highlights ?? {})){
                 let found = findTrackedNodesAtPosition( x, y, type)?.[0]
+                anythingFound ||= found
                 doHighlight( found, type)
 
             }
+            return anythingFound
         }
         async function processClick(e){
             if( myState.current.ignoreClick ){
@@ -1907,7 +1965,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 return
             }
             let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
-            const clickable_names = ["widget", ...Object.keys(props.selectable), Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
+            const clickable_names = ["widget", "frame_label",...Object.keys(props.selectable), Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
             if( clickable_names.length === 0 ){
                 return
             }

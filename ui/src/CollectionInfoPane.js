@@ -62,7 +62,7 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
 
     const nestedActions = (itemCategory.actions?.filter(d=>d.collectionAction || d.showInCollection)) ?? []
     const searchCategoryList = itemCategory.resultCategories?.map(d=> d.searchCategoryIds ? d.searchCategoryIds.map(d2=>({id: d.id, title: d.title, searchCategoryIds: [d2]})) : undefined).flat().filter(d=>d)
-    const pageCount = Math.ceil(items.length / pageItems)
+    const pageCount = Math.ceil(items.length / pageItems) - 1
 
     return  <>
                 {itemCategory && <h3 onClick={()=>setShowItems(!showItems)} className="flex w-full text-gray-500 font-medium">
@@ -99,8 +99,8 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
                 {activeTab?.list && <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2">
                         <div className="flex p-2 space-x-1 text-gray-600">
                             {pageCount > 1 && <>
-                                <UIHelper.Button outline icon={<ChevronLeftIcon className="w-5 h-5"/>}/>
-                                <UIHelper.Button outline icon={<ChevronRightIcon className="w-5 h-5"/>}/>
+                                <UIHelper.Button outline icon={<ChevronLeftIcon className="w-5 h-5" onClick={()=>page > 0 ? setPage(page - 1) : undefined}/>}/>
+                                <UIHelper.Button outline icon={<ChevronRightIcon className="w-5 h-5" onClick={()=>page < pageCount ? setPage(page + 1) : undefined}/>}/>
                             </>}
                             <UIHelper.Button 
                                 tooltip="Add items to board"
@@ -111,10 +111,11 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
                         </div>
                         <div className="relative">
                         <PrimitiveTable 
+                            primitive={actionAnchor}
                             page={page}
                             pageItems={pageItems}
                             onEnter={(d)=>mainstore.sidebarSelect(d)}
-                            config={cardConfig} 
+                            config={props.panelConfig?.columns ?? cardConfig} 
                             primitives={items} 
                             className='w-full min-h-[24em] max-h-[60vh] !text-xs'/> 
                         </div>
@@ -183,13 +184,9 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
     if( frame ){
 
 
-        console.time(`D0`)
         const list = filters ? frame.itemsForProcessingWithFilter(filters) : frame.itemsForProcessing
-        console.timeEnd(`D0`)
-        console.time(`D0B`)
         const viewConfigs = CollectionUtils.viewConfigs(list?.[0]?.metadata)
         const viewConfig = viewConfigs?.[activeView] 
-        console.timeEnd(`D0B`)
 
 
 
@@ -218,12 +215,8 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
             }
         }
 
-        console.time(`D1`)
         let descendants = mainstore.uniquePrimitives(list.map(d=>d.primitives.directDescendants).flat())
-        console.timeEnd(`D1`)
-        console.time(`D2`)
-        let descendantCategories = descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d)).filter(d=>d && ["activity","evidence","entity","result"].includes(d.primitiveType))
-        console.timeEnd(`D2`)
+        let descendantCategories = descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d)).filter(d=>d && ["activity","evidence","entity","result","detail"].includes(d.primitiveType))
 
         function getAncestors(){
             let sourceList = list
@@ -516,14 +509,14 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                 </div>
             }
             {itemCategory && <div className="px-3 py-2 bg-gray-50 border rounded-md">
-                <CategoryHeader newPrimitiveCallback={newPrimitiveCallback} itemCategory={itemCategory} items={list}  newItemParent={newItemParent} createNewView={props.createNewView} actionAnchor={frame} filters={filters}/>
+                <CategoryHeader newPrimitiveCallback={newPrimitiveCallback} itemCategory={itemCategory} items={list}  newItemParent={newItemParent} createNewView={props.createNewView} panelConfig={frame?.referenceParameters?.table} actionAnchor={frame} filters={filters}/>
             </div>}
             {descendantCategories.length > 0 && <div className="space-y-2">
                 <p className="text-sm font-medium text-gray-500">Descendants of items</p>
                 <div className="border rounded-md p-2 space-y-2">
                     {descendantCategories.map((d,i)=>(
                         <div key={d.id} className="p-2 bg-gray-50 text-sm border rounded-md ">
-                            <CategoryHeader itemCategory={d} newPrimitiveCallback={newPrimitiveCallback} newItemParent={newItemParent} createNewView={props.createNewView} actionAnchor={frame} items={descendants.filter(d2=>d2.referenceId === d.id)} filters={filters}/>
+                            <CategoryHeader itemCategory={d} newPrimitiveCallback={newPrimitiveCallback} newItemParent={newItemParent} createNewView={props.createNewView} panelConfig={frame?.referenceParameters?.table} actionAnchor={frame} items={descendants.filter(d2=>d2.referenceId === d.id)} filters={filters}/>
                     </div>))}
                 </div>
             </div>}
@@ -536,7 +529,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                             <div className="border rounded-md p-2 space-y-2">
                                 {axisForPivot.map((d,i)=>(
                                     <div key={d.category.id} className="p-2 bg-gray-50 text-sm border rounded-md ">
-                                        <CategoryHeader itemCategory={d.category} newPrimitiveCallback={newPrimitiveCallback} newItemParent={newItemParent} pivotRelationship={d.relationship} createNewView={props.createNewView} actionAnchor={frame} items={parents.filter(d2=>d2.referenceId === d.category.id)} filters={filters}/>
+                                        <CategoryHeader itemCategory={d.category} newPrimitiveCallback={newPrimitiveCallback} newItemParent={newItemParent} pivotRelationship={d.relationship} createNewView={props.createNewView} panelConfig={frame?.referenceParameters?.table} actionAnchor={frame} items={parents.filter(d2=>d2.referenceId === d.category.id)} filters={filters}/>
                                 </div>))}
                             </div>
                         </div>

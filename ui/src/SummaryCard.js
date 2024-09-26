@@ -6,44 +6,9 @@ import AIProcessButton from "./AIProcessButton";
 import MainStore from "./MainStore";
 import useDataEvent from "./CustomHook";
 import SmallButton from "./SmallButton";
+import MarkdownEditor from "./MarkdownEditor";
 
 
-const processTextOLD = (text) => {
-    const lines = text.split("\n").filter(d=>d && d.length > 0);
-    const elements = [];
-    let currentList = [];
-    let lineCount = 0
-
-    const ulClass = "ml-6 list-disc space-y-1"
-  
-    lines.forEach((line, index) => {
-
-        const boldWholeLineMatch = /^\*\*(.+?)\*\*$/.exec(line);
-        if (boldWholeLineMatch) {
-            line = `<strong style='font-size:20px' class="font-bold">${boldWholeLineMatch[1]}</strong>`;
-        } else {
-            line = line.replaceAll(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-        }
-  
-        if (line.startsWith("- ")) {
-            currentList.push(<li key={index} dangerouslySetInnerHTML={{ __html: line.substring(2) }} />);
-            lineCount++
-        } else {
-            if (currentList.length > 0) {
-                elements.push(<ul class={ulClass} key={`list-${index}`}>{currentList}</ul>);
-                currentList = [];
-            }
-                elements.push(<p key={index} dangerouslySetInnerHTML={{ __html: line }} />);
-                lineCount++
-            }
-    });
-  
-    if (currentList.length > 0) {
-        elements.push(<ul class={ulClass} key={`list-${lines.length}`}>{currentList}</ul>);
-    }
-  
-    return [elements, lineCount > 2];
-  };
 
   const processText = (text) => {
     const lines = text.split("\n").filter(d => d && d.length > 0);
@@ -111,7 +76,126 @@ const processTextOLD = (text) => {
 
     return [elements, lineCount > 2];
 };
-  const copyToClipboard = async (divRef) => {
+
+const copyToClipboard = async (divRef) => {
+    if (divRef.current) {
+      try {
+        // Clone the div to avoid modifying the original content
+        const clone = divRef.current.cloneNode(true);
+  
+        // Function to recursively apply computed styles as inline styles
+        const applyInlineStyles = (origElement, cloneElement) => {
+          if (origElement.nodeType !== Node.ELEMENT_NODE) return;
+  
+          let style = {};
+  
+          // If the element is a TD, copy styles from parent TR
+          if (origElement.tagName === 'TD' || origElement.tagName === 'TH') {
+            const parent = origElement.parentElement;
+            if (parent && parent.tagName === 'TR') {
+              const parentComputedStyle = window.getComputedStyle(parent);
+  
+              // Copy parent TR styles to style object
+              for (const key of parentComputedStyle) {
+                if( key === "width"){
+                    continue
+                }
+                let value = parentComputedStyle.getPropertyValue(key);
+  
+                // Convert rgba to rgb for background-color
+                if (key === 'background-color' && value.startsWith('rgba')) {
+                  value = rgbaToRgb(value);
+                }else if (key === 'background-color' && value.startsWith('rgb(')) {
+                  value = rgbaToRgb(value);
+                }
+  
+                if( value ){
+                    style[key] = value;
+                }
+              }
+            }
+          }
+          // Get computed styles from the original element
+          const computedStyle = window.getComputedStyle(origElement);
+  
+          // Copy original element's styles, overwriting parent styles if necessary
+          for (const key of computedStyle) {
+            let value = computedStyle.getPropertyValue(key);
+  
+            // Convert rgba to rgb for background-color
+            if (key === 'background-color'){
+                if (origElement.tagName === 'TR') {
+                    value = undefined
+                }else{
+                    if( value.startsWith('rgba')) {
+                        value = rgbaToRgb(value);
+                    }
+                }
+            } 
+  
+            if( value ){
+                style[key] = value;
+            }
+          }
+  
+          // Build style string
+          const styleString = Object.entries(style)
+            .map(([key, value]) => value ? `${key}: ${value};` : undefined).filter(d=>d)
+            .join(' ');
+  
+        if( origElement.tagName !== "TR"){
+            cloneElement.setAttribute('style', styleString);
+        }
+  
+          // Recursively apply styles to child elements
+          const origChildren = origElement.children;
+          const cloneChildren = cloneElement.children;
+  
+          for (let i = 0; i < origChildren.length; i++) {
+            applyInlineStyles(origChildren[i], cloneChildren[i]);
+          }
+        };
+  
+        // Function to convert rgba to rgb by removing alpha channel
+        const rgbaToRgb = (rgba) => {
+          const parts = rgba.match(/rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/);
+          if (parts) {
+            const r = parts[1];
+            const g = parts[2];
+            const b = parts[3];
+            if( r === "0" && g === "0" && b === "0"){
+                return undefined
+            }
+            return `rgb(${r}, ${g}, ${b})`;
+          } else {
+            // If it's already rgb, return as is
+            return rgba;
+          }
+        };
+  
+        // Start the recursive style application
+        applyInlineStyles(divRef.current, clone);
+  
+        const htmlContent = clone.innerHTML;
+        const plainTextContent = clone.innerText;
+  
+        const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+        const textBlob = new Blob([plainTextContent], { type: 'text/plain' });
+        const data = [
+          new ClipboardItem({
+            'text/html': htmlBlob,
+            'text/plain': textBlob,
+          }),
+        ];
+  
+        await navigator.clipboard.write(data);
+        console.log('Content copied to clipboard.');
+      } catch (err) {
+        console.error('Failed to copy: ', err);
+      }
+    }
+  };
+  const copyToClipboardOLD = async (divRef) => {
     console.log(divRef)
     if (divRef.current) {
       try {
@@ -142,7 +226,7 @@ export default function SummaryCard({primitive, ...props}){
     let summary = <></>
 
     if(primitive.referenceParameters?.summary){
-        let [list, isLong] = processText( primitive.referenceParameters?.summary )
+      /*  let [list, isLong] = processText( primitive.referenceParameters?.summary )
         if( isLong != longSummary){
             setLongSummary( isLong)
         }
@@ -151,7 +235,9 @@ export default function SummaryCard({primitive, ...props}){
             ref={summaryRef} 
             className={`mx-1 my-3 py-2 px-4 rounded-lg bg-gray-50 text-gray-600 text-sm space-y-2 ${longSummary && preview ? "max-h-32 overflow-hidden" : ""}`}>
                 {list}
-            </div>
+            </div>*/
+
+        summary = <MarkdownEditor ref={summaryRef} initialMarkdown={primitive.referenceParameters?.summary }/>
     }
 
     return  <div className="w-full bg-white rounded-md shadow flex flex-col p-2">

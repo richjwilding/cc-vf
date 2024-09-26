@@ -4,6 +4,7 @@ import { replicateURLtoStorage, writeTextToFile } from "./google_helper";
 import { analyzeListAgainstTopics, analyzeText, analyzeTextAgainstTopics, buildKeywordsFromList } from "./openai_helper";
 import Category from "./model/Category";
 import Parser from '@postlight/parser';
+import { findCompanyURLByName } from "./task_processor";
 var ObjectId = require('mongoose').Types.ObjectId;
 
 const rejectWords = ["somewhat","hardly", "not at all"]
@@ -1276,7 +1277,17 @@ export async function resolveCompaniesByName( list, existingOrgs ){
         let candidates = existingOrgs.filter(d=>(d.title)?.trim()?.toLowerCase() === nName)
         console.log(name, candidates.length, "existing candidates")
         if( candidates.length === 0){
-            let result = await lookupCompanyByName( name )
+            //let result = await lookupCompanyByName( name )
+
+            let result
+            let findUrl = await findCompanyURLByName(name)
+            if( findUrl ){
+                result = [{
+                    name: name,
+                    website_url: findUrl
+                }]
+            }
+
             if( result ){
                 console.log(`Got ${result.length} companies from lookup ${result.map(d=>d.name).join(", ")}`)
                 const candidateURLs = result.map(d=>d.website_url)

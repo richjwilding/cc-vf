@@ -116,6 +116,7 @@ async function doDataQuery( options ) {
 
                 let items, scopeNode
                 if( scope  ){
+                    let validTypes = ["result", "summary"]
                     const node = await fetchPrimitive( scope )
                     scopeNode = node
                     if( node.type === "view" || node.type === "working" || node.type === "query" || node.type === "segment" ){
@@ -148,10 +149,10 @@ async function doDataQuery( options ) {
 
                         console.log(`Got ${interim.length} for view `)
                         //items = await primitiveDescendents( interim, "result")
-                        items = [interim.filter(d=>d.type==="result"), await primitiveDescendents( interim, "result", {fields: "referenceId"})].flat()
+                        items = [interim.filter(d=>validTypes.includes(d.type)), await primitiveDescendents( interim, validTypes, {fields: "referenceId"})].flat()
                         console.log(`BACK FROM DESCEND`)
                     }else{
-                        items = [node, ...(await primitiveDescendents( node, "result"))]
+                        items = [node, ...(await primitiveDescendents( node, validTypes))]
                     }
                     
                 }
@@ -285,7 +286,7 @@ async function doDataQuery( options ) {
                     })
                 }else{
                     if( doingExtracts ){
-                        query = `Analyze each numbered item i have provided to generate an assessment of the messaging content, structure and style.  You must produce an assessment for each and every item and return each as a seperate part of your answer.`
+                        query = extractTargetCategory.ai?.extract?.prompt ?? `Analyze each numbered item i have provided to generate an assessment of the messaging content, structure and style.  You must produce an assessment for each and every item and return each as a seperate part of your answer.`
                         results = {success: true, allItems: true }
                     }
                 }

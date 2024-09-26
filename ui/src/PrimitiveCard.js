@@ -43,7 +43,7 @@ import SummaryCard from './SummaryCard';
 import UIHelper from './UIHelper';
 import CollectionUtils from './CollectionHelper';
 import { roundCurrency } from './RenderHelpers';
-import { MarkdownEditor } from './MarkdownEditor';
+import MarkdownEditor from './MarkdownEditor';
 
 export const ExpandArrow = function(props) {
   return (
@@ -104,7 +104,8 @@ let mainstore = MainStore()
           default={item.default} 
           placeholder={item.placeholder} 
           icon={icon} 
-          fieldClassName={`${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
+          //fieldClassName={`${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
+          fieldClassName={`${props.compact ? "" :`${align} grow`}`}
           callback={props.callback ? props.callback : (value)=>{
             const asList = value.split(",").map(d=>d.trim())
             return props.primitive.setParameter(item.key, asList)
@@ -716,7 +717,8 @@ let mainstore = MainStore()
         placeholder={item.placeholder} 
         icon={icon} 
         border
-        fieldClassName={`${item.type === "long_string" ? "min-h-24" : ""} ${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
+        //fieldClassName={`${item.type === "long_string" ? "min-h-24" : ""} ${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
+        fieldClassName={`${item.type === "long_string" ? "min-h-24" : ""} ${props.compact ? "" :`${align} grow`}`}
         clamp={clamp}
         callback={(value)=>{
             if( item.type === "integer" || item.type === "number"){

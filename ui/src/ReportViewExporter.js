@@ -63,7 +63,7 @@ export default function ReportViewExporter({primitive, ...props}){
         forceUpdate()
     }
 
-    const pptConfig = {removeNodes: ["frame_outline", "plainId", "background"], padding: [2.5, 3, 0.5, 3], scale: 0.025}
+    const pptConfig = {removeNodes: ["frame_outline", "plainId", "background"], padding: [2.5, 3, 0.5, 3], scale: 0.03}
     
     const prepareBoard = (d)=>BoardViewer.prepareBoard(d, myState)
 
@@ -98,13 +98,27 @@ export default function ReportViewExporter({primitive, ...props}){
             }
         }
         if( d.field ){
-            return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(d.primitive, {...stageOptions, ...renderOptions, config: "field", field: d.field, part: d.part})}
+            return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(d.primitive, {...stageOptions, ...renderOptions, config: "field", field: d.field, part: d.part, format: d.format})}
         }
         const view = myState[d.id]
         const viewConfig = view.viewConfig
 
 
-        let targetPrims = view.primitive.itemsForProcessing.filter(d=> d.id === activeTarget.id || d.primitives.ref.allIds.includes(activeTarget.id) || d.primitives.link.allItems.map(d=>d.parentPrimitiveIds).flat().includes(activeTarget.id) || d.findParentPrimitives({type:"segment"})[0]?.primitives.allSummary[1]?.primitives.ref.allItems[0]?.primitives?.ref.allIds.includes(activeTarget.id)).map(d=>d.id)
+        let targetPrims = view.primitive.itemsForProcessing.filter(d=>{
+            if( d.id === activeTarget.id ){
+                return true
+            }else if(d.primitives.ref.allIds.includes(activeTarget.id)){
+                return true
+            }else if(d.primitives.link.allItems.map(d=>d.parentPrimitiveIds).flat().includes(activeTarget.id)){
+                return true
+            } else if(d.findParentPrimitives({type:"segment"})[0]?.primitives.allSummary[1]?.primitives.ref.allItems[0]?.primitives?.ref.allIds.includes(activeTarget.id)){
+                return true
+            }else if (d.findParentPrimitives({type:"segment"}).map(d=>d.itemsForProcessing).flat().map(d=>d.id).includes(activeTarget.id)){
+                renderOptions.renderConfig.minColumns = 5
+                renderOptions.renderConfig.columns = 5
+                return true
+            }
+        }).map(d=>d.id)
         console.log(`renderng ${d.plainId} - ${activeTarget.id}`)
 
         const filteredList = view.list.filter(d=>targetPrims.includes(d.primitive.id) )
@@ -194,7 +208,7 @@ export default function ReportViewExporter({primitive, ...props}){
                     window.pptlinks = slideMap
 
                     console.log(`SAVING`)
-                    //autoExport.pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
+                    autoExport.pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
                 //    setAutoExport( undefined )
                 }
             }
@@ -217,7 +231,8 @@ export default function ReportViewExporter({primitive, ...props}){
     const [renderedSet] = useMemo(()=>{
         let fields = [], boards = []
         if( primitive.workspaceId ===  "66a3cbccb95d676c5b4db74b"){
-            fields = ["summary/application","summary/use case", "summary"]
+            fields = ["summary/application/bold","summary/use case/bold", "summary/industry/bold", "summary/summary", "summary/key factors driving growth", "cagr//bold", "size//bold"]
+            boards = [522857].map(d=>mainstore.primitive(d)).filter(d=>d)
         }else{
             fields = ["location", "title", "url"]
             boards = [411261, 411138, 435057, 434996, 435515, 435526, 435532, 435533, 435544, 436467].map(d=>mainstore.primitive(d)).filter(d=>d)
@@ -232,9 +247,9 @@ export default function ReportViewExporter({primitive, ...props}){
             set.push(d)
         }
         for( const d of fields){
-            const [fieldName, part] = d.split("/")
+            const [fieldName, part, format] = d.split("/")
             const id = `${primitive.id}-${fieldName}${part ? `-${part}` : ""}`
-            set.push({field: fieldName, part: part, id, primitive: activeTarget})
+            set.push({field: fieldName, part: part, format: format, id, primitive: activeTarget})
         }
         const renderedSet = set.map(d=>renderView(d)).filter(d=>d)
         if( canvas.current?.refreshFrame ){

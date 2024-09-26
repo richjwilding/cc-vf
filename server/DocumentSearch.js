@@ -83,8 +83,8 @@ export async function buildDocumentTextEmbeddings( text, limit ){
     async function encode(segment, part){
         segment = segment.trim()
         if( segment.length > 0 ){
-            console.log(`-- part ${part}`)
             const response = await buildEmbeddings( segment)
+            console.log(`-- part ${part} back`)
             if( response.success){
                 return { part: part, segment: segment, embeddings: response.embeddings}
             }  
@@ -93,6 +93,8 @@ export async function buildDocumentTextEmbeddings( text, limit ){
     }
     let {results, _} = await executeConcurrently( final, encode, undefined, undefined, 10)
     results = results.filter(d=>d)
+
+    console.log(`< Embeddings done`)
     if( limit !== undefined ){
         return {truncated: truncating, results: results}        
     }

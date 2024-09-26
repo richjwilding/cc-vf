@@ -641,6 +641,9 @@ export default function EnrichPrimitive(){
                 const resultCategory = await Category.findOne({id: options.resultCategoryId})
 
 
+
+                const currentUrls = (await primitiveChildren(primitive, "result")).filter(d=>d.referenceId === 78).map(d=>d.referenceParameters?.url).filter(d=>d)
+
                 if( resultCategory && primitiveCategory && resultCategory.detailCategoryIds){
                     const resultSet = primitiveCategory.resultCategories?.find(d=>d.resultCategoryId === options.resultCategoryId)
                     const detailResultSet = resultCategory.resultCategories?.find(d=>d.type === "detail")
@@ -663,6 +666,10 @@ export default function EnrichPrimitive(){
                         urlList = urlList ?? (await extractURLsFromPageAlternative( url, {otherDomains: true, markers: false}, {'js_render': 'true','premium_proxy': 'true','proxy_country': 'us'} ))
                         
                         if( categories && urlList && urlList.length > 0){
+                            console.log(`Got url list of ${urlList.length}`)
+                            urlList = urlList.filter(d=>!currentUrls.includes(d.url))
+                            console.log(`Filtered out existing to get ${urlList.length}`)
+
                                 urlList = urlList.filter((d,i,a)=>a.findIndex(d2=>d2.url === d.url && d2.text === d.text) === i)
                                 urlList = urlList.filter(d=>{
                                     const postfix = d.url.match(/\.[^\/\s^\.]+$/)
@@ -797,8 +804,8 @@ export default function EnrichPrimitive(){
                             SIO.notifyPrimitiveEvent( primitive, result)
                         }
                         if( job.data.options.source === "url" ){
-                            const result = await enrichFromCrunchbase( primitive, true)
-                            if( !result ){
+                           // const result = await enrichFromCrunchbase( primitive, true)
+                           // if( !result ){
                                 console.log(`URL not found on crunchbase - reverting to website`)       
                                 await doPrimitiveAction( primitive, "update_icon_url")
                                 const meta = await getMetaDescriptionFromURL(primitive.referenceParameters?.url)
@@ -817,8 +824,8 @@ export default function EnrichPrimitive(){
                                     }
                                 } 
 
-                            }
-                            SIO.notifyPrimitiveEvent( primitive, result)
+                           // }
+                            //SIO.notifyPrimitiveEvent( primitive, result)
                         }
                         if( job.data.options.source === "name" ){
                             const task = await primitiveTask( primitive )

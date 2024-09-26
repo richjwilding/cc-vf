@@ -13,6 +13,8 @@ import useDataEvent from "./CustomHook";
 export function CategoryCardPill({primitive, ...props}){
   const [confirmRemove, setConfirmRemove] = useState(false)
 
+  console.log(`CategoryCardPill ${primitive.plainId}`)
+
   const handleRemove = async ()=>{
     await MainStore().removePrimitive( primitive )
     setConfirmRemove(false)
@@ -59,7 +61,7 @@ export function CategoryCardPill({primitive, ...props}){
 }
 
 export default function CategoryCard({primitive, ...props}){
-    useDataEvent("set_parameter set_field relationship_update", [primitive.id, primitive.primitives.uniqueAllIds].flat())
+    useDataEvent("set_parameter set_field relationship_update set_title", [primitive.id, primitive.primitives.uniqueAllIds].flat())
     const ring = !props.disableHover
     const [editPrompt, setEditPrompt] = useState(null)
     return (

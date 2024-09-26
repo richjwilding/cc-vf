@@ -139,6 +139,32 @@ class CustomText extends Text {
       const metrics = getDummyContext().measureText(text)
       return {width: metrics.width, ascent: metrics.actualBoundingBoxAscent}
   }
+
+    _MDtryToAddEllipsisToLastLine() {
+        var width = this.attrs.width, fixedWidth = width !== AUTO && width !== undefined, padding = this.padding(), maxWidth = width - padding * 2, shouldAddEllipsis = this.ellipsis();
+        var lastLine = this.textArr[this.textArr.length - 1];
+        if (!lastLine || !shouldAddEllipsis) {
+            return;
+        }
+        if (fixedWidth) {
+            var haveSpace = this._getTextWidth(lastLine.text + ELLIPSIS) < maxWidth;
+            if (!haveSpace) {
+                lastLine.text = lastLine.text.slice(0, lastLine.text.length - 3);
+            }
+        }
+        //lastLine.text += ELLIPSIS
+        //lastLine.width = this._getTextWidth(lastLine.text);
+        this.textArr.splice(this.textArr.length - 1, 1);
+        this._addMDTextLine(lastLine.text + ELLIPSIS, 
+                            {width:lastLine.width, ascent: lastLine.ascent},
+                            lastLine.indent, 
+                            lastLine.y, 
+                            lastLine.bold,
+                            lastLine.large,
+                            lastLine.bullet
+        )
+    }
+
 _setTextData() {
     this.fontCache = this._getContextFont()
 
@@ -146,11 +172,13 @@ _setTextData() {
     this.standardFont = "normal" + stem
     this.boldFont = "bold " + stem
     this.headlineFont = "bold " + stem.replace(/(\d+)px/, (d)=>(parseInt(d) * 1.5) + "px")
-  if( !this.attrs.withMarkdown ){
-    super._setTextData()
-    this._cachedHeight = this.height()
-    return
-  }
+
+    if( !this.attrs.withMarkdown ){
+      super._setTextData()
+      this._cachedHeight = this.height()
+      return
+    }
+
   var lines = this.text().split('\n'), fontSize = +this.fontSize(), textWidth = 0, baseLineHeightPx = this.lineHeight() * fontSize, width = this.attrs.width, height = this.attrs.height, fixedWidth = width !== AUTO && width !== undefined, fixedHeight = height !== AUTO && height !== undefined, padding = this.padding(), maxWidth = width - padding * 2, maxHeightPx = height - padding * 2, currentHeightPx = 0, wrap = this.wrap(), shouldWrap = wrap !== NONE, wrapAtWord = wrap !== CHAR && shouldWrap, shouldAddEllipsis = this.ellipsis();
   this.textArr = [];
   
@@ -228,6 +256,7 @@ _setTextData() {
         }
         var lineMetrics = this._getTextStats(line)
         var lineWidth = lineMetrics.width + indent;
+        var leaveForHeight = false
         if (lineWidth > maxWidth) {
           let frag = 0
           while (line.length > 0) {
@@ -270,9 +299,10 @@ _setTextData() {
                   textWidth = Math.max(textWidth, matchWidth);
                   currentHeightPx += lineHeightPx;
                   advanced = true
-                  var shouldHandleEllipsis = this._shouldHandleEllipsis(currentHeightPx);
+                  var shouldHandleEllipsis = this._shouldHandleEllipsis(currentHeightPx + lineHeightPx);
                   if (shouldHandleEllipsis) {
-                      this._tryToAddEllipsisToLastLine();
+                      this._MDtryToAddEllipsisToLastLine();
+                      leaveForHeight = true
                       break;
                   }
                   line = line.slice(low);
@@ -292,12 +322,16 @@ _setTextData() {
                   break;
               }
               frag++
+              if( leaveForHeight ){
+                break
+              }
           }
         }else {
           this._addMDTextLine(line, lineMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet);
           textWidth = Math.max(textWidth, lineWidth);
           if (this._shouldHandleEllipsis(currentHeightPx + lineHeightPx) && i < max - 1) {
-            this._tryToAddEllipsisToLastLine();
+            this._MDtryToAddEllipsisToLastLine();
+            leaveForHeight = true
           }
           indent = startIndent
         }
@@ -309,7 +343,7 @@ _setTextData() {
       if (this.textArr[this.textArr.length - 1]) {
           this.textArr[this.textArr.length - 1].lastInParagraph = true;
       }
-      if (fixedHeight && currentHeightPx + lineHeightPx > maxHeightPx) {
+      if(leaveForHeight || (fixedHeight && (currentHeightPx + (lineHeightPx > maxHeightPx)))) {
           break;
       }
       wasIndented = startIndent
@@ -530,7 +564,7 @@ checkCanvasCleared() {
     }
     if( ph || tooSmall){
 
-        let showLines = fh * scale > 2.5
+        let showLines = fh * scale > 1.5
         let ctx = context
         if( showLines && this.attrs.showPlaceHolder !== false){
             ctx.fillStyle = "#eaeaea"
@@ -548,8 +582,17 @@ checkCanvasCleared() {
               }
             }
         }else{
+          let steps = Math.min(Math.max(Math.ceil(h / 50), 2), 30)
+          let step = Math.max(h / steps, 10)
           ctx.fillStyle = "#eaeaea"
-          ctx.fillRect(0,0,  w - 1, h - 1)
+          let widths = [w - 2, w * 0.8, w * 0.6, w * 0.7, w*0.2]
+          let wi = 0
+          for(let i = (step * 0.3); i < h ; i += step){
+            ctx.fillRect(1, i,  widths[wi], step * 0.45)
+            wi = (wi + 1) % 5
+            
+          }
+          //ctx.fillRect(0,0,  w - 1, h - 1)
         }
     }else{
       if( DISABLE_CANVAS ){
