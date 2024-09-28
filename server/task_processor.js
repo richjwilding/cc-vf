@@ -45,13 +45,16 @@ export async function getSegemntDefinitions( primitive, customAxis ){
         }
     }
     console.log(`Got ${axis.length} axis`)
-
-
+    
+    
     if( axis.length === 0){
         return [{
-                    filters: [],
-                    id: primitive.id
-                }]
+            filters: [],
+            id: primitive.id
+        }]
+    }
+    for(const d of axis){
+        console.log(d)
     }
 
     let items = await getItemsForQuery(primitive)
@@ -89,6 +92,7 @@ export async function getSegemntDefinitions( primitive, customAxis ){
             mappedFilter.relationship = relationship
             mappedFilter.sourcePrimId = undefined
         }
+        delete mappedFilter["filter"]
 
         filterConfig.push(mappedFilter)
         
@@ -145,7 +149,6 @@ export async function getSegemntDefinitions( primitive, customAxis ){
 
     const importConfigList = segmentFilter.map(d=>{
         const values = d.map(d=>d.value === null ? undefined : d.value)
-        //const itemCount = Object.values(itemMap).filter(d=>d.reduce((a,c,i)=>a && c === values[i], true))
         const itemCount = itemPositions.filter(d=>d.reduce((a,c,i)=>a && c === values[i], true))
         if( itemCount.length === 0){
             return undefined
@@ -293,7 +296,6 @@ export async function aggregateItems( parent, primitive, options = {}){
     
     console.log(config)
     console.log(`Got ${segments.length} target segments and ${currentAggregators.length} aggregators`)
-    
     
     for( const segment of segments){
         let existing = currentAggregators.find(d=>Object.keys(d.parentPrimitives).includes(segment.id))

@@ -14,6 +14,8 @@ import CollectionInfoPane from "./CollectionInfoPane";
 import useDataEvent from "./CustomHook";
 import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 
+let mainstore = MainStore()
+
     function SharedPrepareBoard(d, myState){
         let didChange = false
         if( d.type === "view" || d.type === "query"){
@@ -95,6 +97,18 @@ import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
                 row:[{idx: undefined, label: ''}]
             }
             myState[d.id].toggles = {}
+        }else if( d.type === "search" ){
+
+            const resultCategory = mainstore.category( d.metadata.parameters.sources.options[0].resultCategoryId )
+
+            myState[d.id].primitive = d
+            myState[d.id].config = "widget"
+            myState[d.id].renderData = {
+                //icon: HeroIcon({icon: d.metadata.icon, asString: true, stroke: "#ff0000", width: 12, height: 12}),
+                icon: <HeroIcon icon={resultCategory?.icon}/>,
+                items: resultCategory.plural ?? resultCategory.title + "s",
+                count: d.primitives.uniqueAllIds.length
+            }
         }
         return didChange
     }
@@ -112,6 +126,9 @@ export default function BoardViewer({primitive,...props}){
     const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
 
     window.exportFrames = exportMultiple
+
+
+    console.log(`BOARD TOP LEVEL CALLED`)
 
     useDataEvent("relationship_update set_parameter set_field delete_primitive", undefined, (ids, event, info)=>{
         if( myState.current.watchList  ){
@@ -198,13 +215,9 @@ export default function BoardViewer({primitive,...props}){
         };
     
         overlay.addEventListener('wheel', preventDefault, { passive: false });
-        //overlay.addEventListener('touchstart', preventDefault, { passive: false });
-        //overlay.addEventListener('touchmove', preventDefault, { passive: false });
     
         return () => {
           overlay.removeEventListener('wheel', preventDefault);
-          //overlay.removeEventListener('touchstart', preventDefault);
-          //overlay.removeEventListener('touchmove', preventDefault);
         };
       }, [menu.current]);
     
@@ -249,7 +262,8 @@ export default function BoardViewer({primitive,...props}){
 
 
     const [boards,  renderedSet] = useMemo(()=>{
-        const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery]
+        console.log(`--- REDO BOARD RENDER ${primitive?.id}, ${update}`)
+        const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery,...primitive.primitives.allUniqueSearch]
         
         for(const d of boards){
             if(!myState[d.id] ){
@@ -276,11 +290,24 @@ export default function BoardViewer({primitive,...props}){
                     }else{
                         const route = right.findImportRoute(left.id)
                         if( route.length > 0){
+
+                            console.log(`Checking view import ${left.plainId} -> ${right.plainId}`)
+                            for(const axis of ["row","column"]){
+                                if( left.referenceParameters?.explore?.axis?.[axis]?.type === "category" ){
+                                    const axisPrim = left.primitives.axis?.[axis]?.allIds?.[0]
+                                    if(  axisPrim ){
+                                        const values = right.referenceParameters?.importConfig?.find(d=>d.id === left.id ).filters?.map(d=>d.sourcePrimId === axisPrim ? d.value : undefined).flat().filter(d=>d)
+                                        console.log(values)
+                                    }
+                                }
+                            }
+
                             return {left: left.id, right: right.id}
+
+
                         }else{
                             if( right.type === "query" || right.type === "summary"){
                                 const segmentSummaries = left.primitives.origin.allUniqueSegment.map(d=>[...d.primitives.origin.allUniqueSummary, ...d.primitives.origin.allUniqueQuery] ).flat()
-                                //console.log(left.plainId, segmentSummaries.map(d=>d.plainId))
                                 if(segmentSummaries.map(d=>d.id).includes( right.id)){
                                     const out = []
                                     let added = false
@@ -475,6 +502,18 @@ export default function BoardViewer({primitive,...props}){
 
         })
     }
+    async function addWidgetChildView(){
+        if(myState.activeBoard){
+            const bp = myState.activeBoard.primitive
+            if( bp.type === "search"){
+                const resultCategory = mainstore.category( bp.metadata.parameters.sources.options[0]?.resultCategoryId )
+                if( resultCategory ){
+                    await addBlankView( undefined, bp.id, undefined, {referenceId: resultCategory.id})
+                }
+                
+            }
+        }
+    }
     function pickBoardDescendant(){
         if(myState.activeBoard){
             let importedSet = myState.activeBoard.primitive.importedBy.map(d=>[d.primitives.origin.allUniqueQuery, d.primitives.origin.allUniqueView]).flat(Infinity)
@@ -548,7 +587,6 @@ export default function BoardViewer({primitive,...props}){
                 }
             }
         }
-        console.log(renderOptions)
         if( view.config === "full"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})
             if( d.referenceId === 118){
@@ -575,7 +613,11 @@ export default function BoardViewer({primitive,...props}){
                 }
             }
             return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: "width", canvasMargin: [20,20,20,20], items: render}
+        }else if( view.config === "widget"){
+            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, data: view.renderData})
+            return {id: d.id, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
         }
+        
         if( d.type === "query" && d.processing?.ai?.data_query){
             return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions, ...renderOptions})}
         }
@@ -837,9 +879,9 @@ export default function BoardViewer({primitive,...props}){
             </div>}
         </div>
         {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
-            <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
-            <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>
-            <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={pickBoardDescendant} flat placement='left-start' />
+            {myState.activeBoard?.config !== "widget" && <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+            {myState.activeBoard?.config !== "widget" && <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+            {myState.activeBoard?.config === "widget" && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}
             <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />
             {myState.activeBoard && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
         </div>}

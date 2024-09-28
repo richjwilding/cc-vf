@@ -184,12 +184,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }, [])
 
     function refreshImages(){
+        /*
         if(!myState.current.healthTracker){
             myState.current.healthTracker = setInterval(() => {
                 console.log(`${myState.current.rescaleList?.length ?? 0}, ${myState.current.timeoutPending}, ${myState.current.animFramePending}`)
             }, 500);
 
-        }
+        }*/
         if( !stageRef.current){
             return
         }
@@ -325,6 +326,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             id: options.id ??  `f${frameId}`
         }) 
         target.add(frame)
+
         const frameBorder = new Konva.Rect({
             x: 0,
             y:0,
@@ -335,6 +337,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             cornerRadius: 10,
             strokeScaleEnabled: false,
             visible: props.board,
+            stroke: "#b8b8b8",
             name:"frame_outline",
             id: `frame`,
         }) 
@@ -407,25 +410,40 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             
             if( props.board){
                 framePadding = options.canvasMargin ?? [5,5,5,5]
-                const titleText = new Konva.Text({
-                    text: typeof(title) == "function" ? title() : title,
-                    x:0,
-                    y: 0,
-                    verticalAlign:"bottom",
-                    fontSize:12,
-                    lineHeight: 1.5,
-                    color: '#444',
-                    name:"frame_label",
-                    ellipsis: true
-                })
-                titleText.attrs.offsetY = -titleText.attrs.y
-                titleText.attrs.height = 1
-                titleText.attrs.scaleFont = 12
-                titleText.attrs.originWidth = titleText.width()
+                if( title ){
 
-                
-                frame.label = titleText
-                frame.node.add(titleText)
+                    const label = new Konva.Group({
+                        x:0,
+                        y:0,
+                        offsetY:18,
+                        width:100,
+                        height:18,
+                    })
+                    label.add(new Konva.Rect({
+                        x:0,
+                        y:0,
+                        width:18,
+                        height:18,
+                        name:"frame_label",
+                        fill:"#fdfdfd"
+                    }))
+                    const titleText = new Konva.Text({
+                        text: typeof(title) == "function" ? title() : title,
+                        x:0,
+                        y: 0,
+                        verticalAlign:"middle",
+                        fontSize:12,
+                        lineHeight: 1.5,
+                        color: '#444',
+                        ellipsis: true
+                    })
+                    label.attrs.originWidth = titleText.width()
+                    label.attrs.scaleFont = 12
+                    
+                    label.add(titleText)
+                    frame.label = label
+                    frame.node.add(label)
+                }
             }
 
             const rendered = items({imageCallback: processImageCallback, amimCallback: animationCallback, x: framePadding[3], y: framePadding[0]})
@@ -1089,8 +1107,16 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     if(visible){
                         if( d.attrs.scaleFont ){
                             const iScale = Math.min(25, Math.max(1 / scale / frame.scale , 2))
-                            d.fontSize( iScale * d.attrs.scaleFont )
-                            d.width( Math.min( d.attrs.originWidth * iScale, frame.node.attrs.width * 1.25) )
+                            const w = Math.min( d.attrs.originWidth * iScale, frame.node.attrs.width * 1.25)
+                            const h =  (iScale * d.attrs.scaleFont) * 1.2
+                            d.children[1].fontSize( iScale * d.attrs.scaleFont )
+                            d.children[1].width( w )
+                            d.children[0].width( w )
+                            d.children[0].height( h )
+                            d.children[1].height( h )
+                            d.offsetY( h + 2)
+                            d.height( h )
+                            d.width( w )
                         }
                         vis++
                         if( enableNodePruning ){
@@ -1121,7 +1147,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                 let showFrame = hidden > 0
                 if( props.board){
-                    frame.border.stroke(showFrame ? "#b8b8b8" : "#b8b8b8")
+                    //frame.border.stroke(showFrame ? "#b8b8b8" : "#b8b8b8")
                     //frame.border.fill(showFrame ? "#f2f2f2" : "#efefef")
                 }else{
                     frame.border.visible(showFrame)
@@ -1753,11 +1779,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         found.push(frame.node)
                     }
                 }else{
-                    if( forClick || includeFrame){
+                    if( (forClick || includeFrame) && frame.label){
                         
                         const lx = frame.label.attrs.x + frame.node.attrs.x
-                        const ly= frame.label.attrs.y + frame.node.attrs.y - (frame.label.textHeight * frame.scale * 1.2)
-                        const inFrameLabel = lx <= px && ly <= py &&  (lx + (frame.label.width() * frame.scale)) >= px && (ly + (frame.label.textHeight * frame.scale * 1.2)) >= py
+                        const ly= frame.label.attrs.y + frame.node.attrs.y - (frame.label.attrs.height * frame.scale )
+                        const inFrameLabel = lx <= px && ly <= py &&  (lx + (frame.label.width() * frame.scale)) >= px && (ly + (frame.label.attrs.height * frame.scale )) >= py
                         if( inFrameLabel){
                             found.push(frame.node)
                         }
@@ -1769,6 +1795,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
         function addOverlay( node, label, operation, colors){
+            if( node.attrs?.name.includes("widget")){
+                for(const d of node.find('.hover_target')){
+                    if( d.attrs.hoverFill){
+                        d.attrs._originalFill = d.attrs.fill
+                        d.fill( d.attrs.hoverFill)
+                    }
+                }
+                return
+            }
             if( operation === "background"){
                 if( node.getClassName() === "Group"){
                     const bg = node.find('Rect')?.[0]
@@ -1798,6 +1833,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
         }
         function removeOverlay( node, label, operation){
+            if( node.attrs?.name.includes("widget")){
+                for(const d of node.find('.hover_target')){
+                    if( d.attrs._originalFill){
+                        d.fill( d.attrs._originalFill)
+                        d._originalFill = undefined
+                    }
+                }
+                return
+            }
             if( operation === "background"){
                 if( node.getClassName() === "Group"){
                     const bg = node.find('Rect')?.[0]

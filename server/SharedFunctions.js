@@ -1606,11 +1606,29 @@ export async function updateFieldWithCallbacks(id, field, value, req = {}){
             prim = await Primitive.findOneAndUpdate(
                 {
                     "_id": new ObjectId(id),
+                    [field]: {$exists: true}
                 }, 
                 value.modify ? {$addToSet: { [field]: value.value }}
                              : {$pull: { [field]: value.value }},
                 {new: true})
-        }else{
+
+                if( !prim ){
+                    doModify = false
+                    console.log(`No value - loading default first`)
+                    prim = await fetchPrimitive( id )
+                    const category = await Category.findOne({id: prim.referenceId})
+                    const param = field.startsWith( "referenceParameters.") ? field.slice(20) : field
+                    let setValue = category.parameters?.[param]?.default ?? []
+                    console.log(`Got default of `, setValue)
+                    setValue = setValue.filter(d=>d !== value.value )
+                    if( value.modify ){
+                        setValue.push(value.value)
+                    }
+                    value = setValue
+                    console.log(`Set to  `, value)
+                }
+        }
+        if(!doModify){
             prim = await Primitive.findOneAndUpdate(
                 {
                     "_id": new ObjectId(id),
@@ -3900,6 +3918,14 @@ export async function createPrimitive( data, skipActions, req, options={} ){
         const config = PrimitiveConfig.typeConfig[type]
         
         if( config ){
+            if( config.defaults){
+                data.data.referenceParameters ||= {}
+                for(const k of Object.keys(config.defaults)){
+                    if( !data.data.referenceParameters[k] ){
+                        data.data.referenceParameters[k] = config.defaults[k]
+                    }
+                }
+            }
             if( config.needParent ){
                 if(data.parent === undefined){
                     throw new Error(`Cant create '${type}' without a parent`)

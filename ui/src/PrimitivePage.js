@@ -415,7 +415,7 @@ export function PrimitivePage({primitive, ...props}) {
                 'mt-8 grid sm:px-6 ',
                 fullScreenExplore ? "" :"gap-6",
                 showWorkingPane 
-                  ? "grid-cols-1 lg:grid-cols-[1fr_1fr_min-content] 2xl:grid-cols-[repeat(2,min-content)_auto_min-content] 2xl:grid-rows-[min-content_1fr] " 
+                  ? "relative grid-cols-1 lg:grid-cols-[1fr_1fr_min-content] 2xl:grid-cols-[repeat(2,min-content)_auto_min-content] 2xl:grid-rows-[min-content_1fr] " 
                   : "grid-cols-1 lg:grid-flow-col-dense lg:grid-cols-3 max-w-3xl lg:max-w-7xl",
               ].join(" ")
           }>

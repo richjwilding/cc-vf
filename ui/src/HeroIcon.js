@@ -1,5 +1,6 @@
 import * as icons from "@heroicons/react/24/outline";
 import * as solid_icons from "@heroicons/react/24/solid";
+import { renderToString } from "react-dom/server";
 
 
 const manual = {
@@ -128,10 +129,13 @@ const manual = {
 
 }
 
-export function HeroIcon({ icon, ...props }){    
+export function HeroIcon({ icon, asString, ...props }){    
   let Icon = icons[icon];
   if (!Icon){
     Icon = manual[icon];
+  }
+  if(asString ){
+    return renderToString( typeof(Icon) === "function" ?  Icon(props) :  Icon.render(props))
   }
   if (!Icon) return <></>;
   return <Icon aria-hidden="true" {...props} />;
@@ -142,3 +146,4 @@ export function SolidHeroIcon({ icon, ...props }){
   if (!Icon) return <></>;
   return <Icon aria-hidden="true" {...props} />;
 };
+window.heroIcon = HeroIcon

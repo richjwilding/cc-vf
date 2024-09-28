@@ -34,7 +34,8 @@ export default function QueryQueue(){
                         throw `Cant find category ${primitive.referenceId} for ${primitive.id}`
                     }
 
-                    let baseTerms = primitive.title
+                    const asTitle = !primitive.referenceParameters?.useTerms && !primitive?.referenceParameters.hasOwnProperty("terms") && primitive.title
+                    let baseTerms = asTitle ? primitive.title : primitive.referenceParameters?.terms
 
                     let origin
                     //const oId = primitiveOrigin( primitive )

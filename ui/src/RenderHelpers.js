@@ -6,6 +6,8 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import CollectionUtils from "./CollectionHelper";
 import moment from "moment";
 import MainStore from "./MainStore";
+import { renderToString } from "react-dom/server";
+import { MagnifyingGlassIcon } from "@heroicons/react/20/solid";
 const typeMaps = {}
 const categoryMaps = {}
 
@@ -2586,6 +2588,245 @@ registerRenderer( {type: "categoryId", id: 100, configs: "default"}, (primitive,
 
 
 })
+
+registerRenderer( {type: "type", id: "search", configs: "default"}, (primitive, options = {})=>{
+    const config = {width: 500, height: 100, ...options}
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: config.x,
+        y: config.y,
+        width: config.width,
+        height: config.height,
+        onClick: options.onClick,
+        minRenderSize : 0,
+        name:"inf_track action_primitive inf_keep"
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        cornerRadius: 10,
+        width: config.width,
+        height: config.height,
+        fill: PrimitiveConfig.typeConfig[primitive.type]?.render?.background ?? "#fff"
+    })
+
+    let lx = 5, ly = 5
+    function addWidgetText(text, options = {}){
+        if( options.x ){
+            lx = options.x
+        }
+        if( options.y ){
+            ly = options.y
+        }
+        const t = new CustomText({
+            text: text,
+            align:"left",
+            wrap: false,
+            ellipsis: true,
+            fontStyle: options.bold ? "bold" : undefined,
+            fill: options.color,
+            verticalAlign:"middle",
+            x: lx,
+            y: ly,
+            lineFill: options.lineFill,
+            width: config.width - lx,
+            height: 12,
+            fontSize: options.fontSize ?? 14,
+            refreshCallback: options.imageCallback
+        })
+        ly += t.textHeight * 1.15
+        return t
+    }
+
+    g.add(r)
+
+    if( options.data.icon ){
+        renderReactSVGIcon( options.data.icon, 
+            {
+                target: g,
+                x:lx, 
+                y:ly,
+                width: 48,
+                height: 48,
+                imageCallback: options.imageCallback
+            })
+        lx = 56
+        ly = 12
+    }
+
+    g.add(addWidgetText(primitive.title, {fontSize: 18, bold:true, lineFill: '#666'}))
+    
+    const count = addWidgetText(options.data.count + " " + options.data.items, {color: "#eee", fontSize: 11, lineFill: "#3f6212"})
+    const pill = new Konva.Rect({
+        x: lx,
+        y: count.attrs.y,
+        cornerRadius: 10,
+        fill: "#3f6212",
+        width: count.textWidth + 8,
+        height: count.textHeight + 4
+    })
+    count.attrs.x += 4
+    count.attrs.y += 3
+    g.add(pill)
+    g.add(count)
+    
+    if( options.data?.descendants ){
+        let py = 20
+        for(const d of options.data.descendants ){
+            g.add(addWidgetText(d.title + " - " + d.count, {x: 20, y: py + 2}))
+            if( d.icon ){
+                renderReactSVGIcon( d.icon, 
+                        {
+                            target: g,
+                            x:2, 
+                            y:py,
+                            width: 16,
+                            height: 16,
+                            imageCallback: options.imageCallback,
+                            target: g
+                        })
+            }
+            py += 20
+        }
+    }
+    
+    renderReactSVGIcon( MagnifyingGlassIcon, 
+                        {
+                            props: {fill: "#555"},
+                            target: g,
+                            x:5, 
+                            y:config.height - 20,
+                            width: 16,
+                            height: 16,
+                            imageCallback: options.imageCallback
+                        })
+    g.add(addWidgetText(`Search #${primitive.plainId}`, {color:"#555", fontSize: 11, x: 23, y: config.height - 17}))
+
+    const button1 = new Konva.Group({
+        x: config.width - 46,
+        y: config.height - 46,
+        width: 36,
+        height:36,
+        name:"inf_track widget"
+    })
+
+    if( true ){
+        const progress = 0.3
+        button1.add( new Konva.Circle({
+            x: 18,
+            y: 18,
+            radius: 16,
+            stroke: '#3f6212',
+            strokeWidth: 1,
+            name: "hover_target"
+        }))
+        button1.add( new Konva.Arc({
+            x: 18,
+            y: 18,
+            innerRadius: 14,
+            outerRadius: 18,
+            angle: 360 * progress,
+            rotation: 270,
+            stroke: undefined,
+            fill: "#3f6212",
+            name: "hover_target"
+        }))
+        button1.add( new Konva.Rect({
+            x: 13,
+            y: 13,
+            width: 10,
+            height: 10,
+            fill: "#3f6212",
+            hoverFill: r.attrs.fill,
+            name: "hover_target"
+        }))
+    }else{
+        button1.add( new Konva.Circle({
+            x: 18,
+            y: 18,
+            radius: 18,
+            stroke: '#3f6212',
+            strokeWidth: 1,
+            fill: r.attrs.fill,
+            hoverFill: "#3f6212",
+            name: "hover_target"
+        }))
+        button1.add( new Konva.Line({
+            points:[20-8.66,8,20+8.66,18,20-8.66,28],
+            fill: "#3f6212",
+            hoverFill: r.attrs.fill,
+            closed: true,
+            name: "hover_target"
+        }))
+    }
+    g.add(button1)
+
+
+    return g
+})
+function renderReactSVGIcon( icon, options = {} ){
+    const finalProps = {
+        ...options.props,
+    }
+    if( typeof(icon) === "string"){
+    }else if( typeof(icon) === "function"){
+        icon = renderToString( icon(options.props))
+    }else if( icon.render ){
+        icon = renderToString( icon.render(options.props))
+    }else if( icon.$$typeof ){
+        icon = renderToString( icon )
+    }else{
+        return undefined
+    }
+    const dim = options.width && options.height ? undefined : extractSVGDimensions(icon)
+    const o = imageHelper( 'svg:' + icon, {
+        x: options.x ?? 0,
+        y: options.y ?? 0,
+        width: options.width ?? dim.width,
+        height: options.height ?? dim.height,
+        center: true,
+        imageCallback: options.imageCallback,
+        maxScale: 1,
+        scaleRatio: 4
+    })
+    if( options.target){
+        options.target.add(o)
+    }
+    return o
+}
+
+function extractSVGDimensions(svgString) {
+    // Regex patterns for width, height, and viewBox
+    const widthRegex = /\swidth\s*=\s*["']?(\d+\.?\d*%?)["']?/i;
+    const heightRegex = /\sheight\s*=\s*["']?(\d+\.?\d*%?)["']?/i;
+    const viewBoxRegex = /\sviewBox\s*=\s*["']?([\d\s.-]+)["']?/i;
+  
+    // Extract matches for width, height, and viewBox
+    const widthMatch = svgString.match(widthRegex);
+    const heightMatch = svgString.match(heightRegex);
+    const viewBoxMatch = svgString.match(viewBoxRegex);
+  
+    // Extract width and height values from viewBox if present
+    let viewBoxWidth = null, viewBoxHeight = null;
+    if (viewBoxMatch) {
+      const viewBoxValues = viewBoxMatch[1].split(/\s+/);
+      if (viewBoxValues.length === 4) {
+        viewBoxWidth = viewBoxValues[2];  // 3rd value in viewBox is width
+        viewBoxHeight = viewBoxValues[3]; // 4th value in viewBox is height
+      }
+    }
+  
+    // Use width and height if available, otherwise use viewBox dimensions
+    const definitiveWidth = parseInt(widthMatch ? widthMatch[1] : viewBoxWidth)
+    const definitiveHeight = parseInt(heightMatch ? heightMatch[1] : viewBoxHeight);
+  
+    return {
+      width: definitiveWidth ? definitiveWidth : null,
+      height: definitiveHeight ? definitiveHeight : null
+    };
+  }
+  
+
 registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, options = {})=>{
     const config = {width: 80, height: 80, padding: [10,10,10,10], ...options}
     if( options.getConfig){
@@ -2623,8 +2864,14 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
             imageCallback: options.imageCallback,
             placeholder: options.placeholder !== false
         })
-        g.add( logo )
         if( showName ){
+                const r = new Konva.Rect({
+                    x:0,
+                    y: 0,
+                    width: config.width,
+                    height: config.height,
+                    fill: "white"
+                })
                 const text = new CustomText({
                     fontSize: 5,
                     text: primitive.title,
@@ -2639,9 +2886,10 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
                     height: 12,
                     refreshCallback: options.imageCallback
                 })
+                g.add(r)
                 g.add(text)
-
         }
+        g.add( logo )
 
     }
     return g

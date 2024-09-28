@@ -181,7 +181,10 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
         }
     }
     let content
-    if( frame ){
+    if( frame?.type === "search" ){
+        content = <SearchSet searchPrimitive={frame}/>
+
+    }else if( frame ){
 
 
         const list = filters ? frame.itemsForProcessingWithFilter(filters) : frame.itemsForProcessing

@@ -371,10 +371,10 @@ getAverageColor(ctx, width, height) {
           if( xOffset !== 0 || yOffset !== 0 || newWidth !== targetWidth || newHeight !== targetHeight ){
             this.needsFill = true
           }
-          //if( this.needsFill ){
+          if(!this.attrs.url.startsWith("svg:")){
             ctx.fillStyle = 'white';
             ctx.fillRect(0,0,this.maxImage.width, this.maxImage.height)
-          //}
+          }
 
           ctx.drawImage(img, sx,sy, sWidth,sHeight, xOffset + (this.activeScale * padding[3]), yOffset + (this.activeScale * padding[0]), newWidth, newHeight);
           
@@ -405,8 +405,20 @@ getAverageColor(ctx, width, height) {
         }
         resolve()
       };
+
+          
+      let url = this.attrs.url
+      if(this.attrs.url.startsWith("svg:")){
+        img.width = this.attrs.width * this.attrs.scaleRatio
+        img.height = this.attrs.height * this.attrs.scaleRatio 
+        url = url.slice(4)
+        url = url.replace(/\swidth="\d+"/, ` width="${img.width}"`)
+        url = url.replace(/\sheight="\d+"/, ` height="${img.height}"`)
+
+        url = 'data:image/svg+xml;utf8,' + encodeURIComponent( url )
+      }
   
-      img.src = this.attrs.url
+      img.src = url
     });
   }
   toDataURL(){
@@ -428,11 +440,13 @@ getAverageColor(ctx, width, height) {
     if( !this.maxImage && !this.cloneFrom){
       CustomImage.ensurePlaceholderReady().then(() => {
           if( !this.maxImage ){
-            const w = Math.max(Math.min(this.pcache.width, 200),CustomImage.placeholderImage.width)
-            const h = CustomImage.placeholderImage.height / CustomImage.placeholderImage.width * w
-            let x = (this.pcache.width - w)/2
-            let y = (this.pcache.height - h)/2
-            this.pcache._canvas_context.drawImage(CustomImage.placeholderImage, x, y, w, h);
+            if(!this.attrs.url.startsWith("svg:")){
+                const w = Math.max(Math.min(this.pcache.width, 200),CustomImage.placeholderImage.width)
+                const h = CustomImage.placeholderImage.height / CustomImage.placeholderImage.width * w
+                let x = (this.pcache.width - w)/2
+                let y = (this.pcache.height - h)/2
+                this.pcache._canvas_context.drawImage(CustomImage.placeholderImage, x, y, w, h);
+            }
         }
       });
     }

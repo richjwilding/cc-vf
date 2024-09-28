@@ -420,6 +420,7 @@ function MainStore (prims){
                     modify: modify, 
                     field: field
                 }
+                obj.triggerCallback(callback_name, [receiver], field)
                 fetch("/api/set_field",{
                     method: 'POST',
                     headers: {
@@ -431,8 +432,7 @@ function MainStore (prims){
                 .then(
                   (result) => {
                     if( obj.ajaxResponseHandler( result )){
-                        console.log(result)
-                        obj.triggerCallback(callback_name, [receiver], field)
+                        //obj.triggerCallback(callback_name, [receiver], field)
                     }
                   },
                   (error) => {

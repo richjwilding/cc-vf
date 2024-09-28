@@ -567,7 +567,7 @@ checkCanvasCleared() {
         let showLines = fh * scale > 1.5
         let ctx = context
         if( showLines && this.attrs.showPlaceHolder !== false){
-            ctx.fillStyle = "#eaeaea"
+            ctx.fillStyle = this.attrs.lineFill ?? "#eaeaea"
             let y = 0, step = this.lineHeight() * fh 
             let alignCenter = this.attrs.align === "center"
             if( this.attrs.withMarkdown ){
@@ -584,7 +584,7 @@ checkCanvasCleared() {
         }else{
           let steps = Math.min(Math.max(Math.ceil(h / 50), 2), 30)
           let step = Math.max(h / steps, 10)
-          ctx.fillStyle = "#eaeaea"
+          ctx.fillStyle = this.attrs.lineFill ?? "#eaeaea"
           let widths = [w - 2, w * 0.8, w * 0.6, w * 0.7, w*0.2]
           let wi = 0
           for(let i = (step * 0.3); i < h ; i += step){

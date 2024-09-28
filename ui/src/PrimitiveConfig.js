@@ -133,7 +133,13 @@ const PrimitiveConfig = {
         "search": {
             needParent:true,
             needCategory:true,
-            defaultTitle:false
+            defaultTitle:false,
+            defaults:{
+                useTerms: true
+            },
+            render:{
+                background: "#f7fee7"
+            }
         },
         "element": {
             needCategory:true,
