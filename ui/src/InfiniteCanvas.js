@@ -139,6 +139,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
         const existing = myState.current.frames?.find(d=>d.id === frameId) 
         if( existing ){
+            removeRoutingForFrame( existing )
             if( myState.current.frameSelect && myState.current.selected.frame){
                 const ids = myState.current.selected.frame.map(d=>d.attrs.id)
                 if( ids.includes(frameId) ){
@@ -401,6 +402,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if(existing){
             existing.node.children = existing.allNodes
             existingNode = existing.node
+            removeRoutingForFrame( existing )
             myState.current.frames = myState.current.frames.filter(d=>d.id !== id) 
         }
         const frame = createFrame({id: id, x, y, s})
@@ -465,6 +467,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             frame.node.width(maxX)
             frame.node.height(maxY)
+            addRoutingForFrame( frame )
+            refreshLinks()
         }
         if( existingNode ){
             if( frame ){
@@ -645,6 +649,99 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
 
     }
+    function addShapeToRouter(id, l,t,r,b){
+        const Avoid = myState.current.routing.avoid
+        let router = myState.current.routing.router
+        const shapeRef = new Avoid.ShapeRef(router, 
+            new Avoid.Rectangle(
+                new Avoid.Point(l, t),
+                new Avoid.Point(r, b)
+        ));
+
+
+        const topPin = new Avoid.ShapeConnectionPin(
+            shapeRef,
+            1,
+            0.5,
+            0,
+            true,
+            0,
+            Avoid.ConnDirTop // All directions
+        );
+        const bottomPin = new Avoid.ShapeConnectionPin(
+            shapeRef,
+            1, // one central pin for each shape
+            0.5,
+            1,
+            true,
+            0,
+            Avoid.ConnDirBottom // All directions
+        );
+        const inputPin = new Avoid.ShapeConnectionPin(
+            shapeRef,
+            1,
+            0,
+            0.5,
+            true,
+            0,
+            Avoid.ConnDirLeft // All directions
+        );
+        const outputPin = new Avoid.ShapeConnectionPin(
+            shapeRef,
+            1, // one central pin for each shape
+            1,
+            0.5,
+            true,
+            0,
+            Avoid.ConnDirRight // All directions
+        );
+        inputPin.setExclusive(false);
+        outputPin.setExclusive(false);
+        topPin.setExclusive(false);
+        bottomPin.setExclusive(false);
+        
+        return shapeRef
+    }
+    function removeRoutingForFrame( frame ){
+        if( frame.routing){
+            myState.current.routing.router.deleteShape( frame.routing )
+            myState.current.routing.routerLinks = myState.current.routing.routerLinks.filter(d=>{
+                const [left,right] = d.id.split("-")
+                if( left === frame.id || right === frame.id){
+                    myState.current.routing.router.deleteConnector( d.route )     
+                    return false
+                }
+                return true
+            })
+
+        }
+    }
+
+    function addRoutingForFrame( frame ){
+        if( !myState.current.routing ){return}
+        const fId = frame.id
+
+        let position = framePosition(fId)?.scene
+        frame.routing = {
+            [fId]: {
+                shape: addShapeToRouter( fId, position.l, position.t, position.r, position.b)
+            }
+        }
+
+        if( props.frameLinks ){
+            for(const cell of frame.cells){
+                if( props.frameLinks.find(d=>d.left === fId && d.cell === cell.id) ){
+                    console.log(`*** ADDING cell ${cell.id}`)
+                    const id = `${fId}:${cell.id}`
+                    frame.routing[id] = {
+                        shape: addShapeToRouter( id, (cell.l * position.s) + position.l , (cell.t  * position.s) + position.t, (cell.r  * position.s) + position.l , (cell.b * position.s) + position.t),
+                        cell: cell
+                    }
+                }
+            }
+        }
+    }
+
     async function refreshLinks( override ){
         
         if( props.frameLinks){
@@ -652,129 +749,62 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 myState.current.frameLinks = []                
             }
             if( !myState.current.avoid_loaded ){
+                myState.current.avoid_loaded = true
                 AvoidLib.load('/images/libavoid.wasm').then(data=>{
-                    myState.current.avoid_loaded = true
+                    const Avoid = AvoidLib.getInstance();
+                    const router = new Avoid.Router(Avoid.OrthogonalRouting)
+                    router.setRoutingParameter(Avoid.shapeBufferDistance, 40);
+                    myState.current.routing = {
+                        avoid: Avoid,
+                        router: router,
+                        routerLinks: []
+                    }
                     refreshLinks()
                 })
                 return
-
             }
-            const Avoid = AvoidLib.getInstance();
-            const router = new Avoid.Router(Avoid.OrthogonalRouting);
+            if( !myState.current.routing){return}
+            const Avoid = myState.current.routing.avoid
+            const router = myState.current.routing.router
 
             // Define the graph with fixed node positions and edges
             
-            const track = new Set()
-            const edges = []
-            let edge = 0
-
-            const nodes = {}
-
-            function addShapeToRouter(id, l,t,r,b){
-                const shapeRef = new Avoid.ShapeRef(router, 
-                    new Avoid.Rectangle(
-                        new Avoid.Point(l, t),
-                        new Avoid.Point(r, b)
-                ));
-
-        
-                const topPin = new Avoid.ShapeConnectionPin(
-                    shapeRef,
-                    1,
-                    0.5,
-                    0,
-                    true,
-                    0,
-                    Avoid.ConnDirTop // All directions
-                );
-                const bottomPin = new Avoid.ShapeConnectionPin(
-                    shapeRef,
-                    1, // one central pin for each shape
-                    0.5,
-                    1,
-                    true,
-                    0,
-                    Avoid.ConnDirBottom // All directions
-                );
-                const inputPin = new Avoid.ShapeConnectionPin(
-                    shapeRef,
-                    1,
-                    0,
-                    0.5,
-                    true,
-                    0,
-                    Avoid.ConnDirLeft // All directions
-                );
-                const outputPin = new Avoid.ShapeConnectionPin(
-                    shapeRef,
-                    1, // one central pin for each shape
-                    1,
-                    0.5,
-                    true,
-                    0,
-                    Avoid.ConnDirRight // All directions
-                );
-                inputPin.setExclusive(false);
-                outputPin.setExclusive(false);
-                topPin.setExclusive(false);
-                bottomPin.setExclusive(false);
-                
-                nodes[id] = {id: id, shape: shapeRef}
-                return shapeRef
-            }
+            let nodes = {}
 
             for(const frame of myState.current.frames){
-                const fId = frame.id
-
-                if( !track.has(fId)){
-                    track.add(fId)
-                    let position =  framePosition(fId)?.scene
-                    if( override && override.id === fId ){
-                        position.r = position.r - position.l + override.x
-                        position.b = position.b - position.t + override.y
-                        position.l = override.x
-                        position.t = override.y
-                    }
-                    
-                    if( position ){
-                        addShapeToRouter( fId, position.l, position.t, position.r, position.b)
-
-                        /*for(const cell of frame.cells){
-                            const id = `${fId}:${cell.id}`
-                            addShapeToRouter( id, (cell.l * position.s) + position.l , (cell.t  * position.s) + position.t, (cell.r  * position.s) + position.l , (cell.b * position.s) + position.t)
-                        }*/
-                    }
+                if( !frame.routing ){
+                    addRoutingForFrame(frame)
+                }
+                //nodes[frame.id] = frame.routing
+                nodes = {
+                    ...nodes,
+                    ...frame.routing
                 }
             }
 
-            let activeLinks = new Set()
 
+            let activeLinks = new Set()
 
             for(const target of props.frameLinks){
                 const leftName = target.left + (target.cell ? `:${target.cell}` : "")
-                const left = nodes[leftName]
-                const right = nodes[target.right]
+                const left = nodes[leftName].shape
+                const right = nodes[target.right].shape
                 
                 if( left && right){
                     const id = `${leftName}-${target.right}` 
-                    const leftConnEnd = new Avoid.ConnEnd(left.shape,1)
-                    const rightConnEnd = new Avoid.ConnEnd(right.shape,1)
-                    const connRef = new Avoid.ConnRef(router);
-                    connRef.setSourceEndpoint(leftConnEnd);
-                    connRef.setDestEndpoint(rightConnEnd);
+                    if( !myState.current.routing.routerLinks.find(d=>d.id===id)){
+                        const leftConnEnd = new Avoid.ConnEnd(left,1)
+                        const rightConnEnd = new Avoid.ConnEnd(right,1)
+                        const connRef = new Avoid.ConnRef(myState.current.routing.router);
+                        connRef.setSourceEndpoint(leftConnEnd);
+                        connRef.setDestEndpoint(rightConnEnd);
+                        connRef.setCallback( renderLink, connRef)
+                        myState.current.routing.routerLinks.push({
+                            id: id,
+                            route: connRef
+                        })
+                    }
                     activeLinks.add(id)
-                    edges.push({
-                        id: id,
-                        left: {
-                            id: leftName, 
-                            position: left.position
-                        },
-                        right: {
-                            id: target.right, 
-                            position: right.position
-                        },
-                        route: connRef
-                    })
                 }
             }
             myState.current.frameLinks = myState.current.frameLinks.filter(d=>{
@@ -784,47 +814,71 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
                 return true
             })
+            if( override ){
+                let position = framePosition(override.id)?.scene
+                position.r = position.r - position.l + override.x
+                position.b = position.b - position.t + override.y
+                position.l = override.x
+                position.t = override.y
 
-            router.setRoutingParameter(Avoid.shapeBufferDistance, 40);
-    
+                const ovrFrame = myState.current.frames.find(d=>d.id === override.id)
+                
+                for( const ri in ovrFrame.routing){
+                    const r = ovrFrame.routing[ri]
+                    if( r.cell ){
+                        const shapeRect = new Avoid.Rectangle(
+                            new Avoid.Point((r.cell.l * position.s) + position.l, (r.cell.t * position.s) + position.t),
+                            new Avoid.Point((r.cell.r * position.s) + position.l, (r.cell.b * position.s) + position.t)
+                        );
+                        router.moveShape(r.shape, shapeRect);
+                    }else{
+                        const shapeRect = new Avoid.Rectangle(
+                            new Avoid.Point(position.l, position.t),
+                            new Avoid.Point(position.r, position.b)
+                        );
+                        router.moveShape(r.shape, shapeRect);
+                    }
+                }
+            }
+
 
             router.processTransaction()
-            edges.forEach(edge=>{
-                const route = edge.route.displayRoute()
-                const points = []
-                for (let i = 0; i < route.size() ; i++) {
-                    const { x, y } = route.get_ps(i);
-                    points.push(x)
-                    points.push(y)
-                }
-
-                let allPoints = points
-
-                let scale = myState.current.viewport?.scale ?? 1
-                let pw = linkArrowSize / scale
-                let link = myState.current.frameLinks.find(d=>d.attrs.id === edge.id)
-                if( link ){
-                    link.points(allPoints)
-                    link.pointerLength( pw )
-                    link.pointerWidth( pw )
-                }else{
-                    link = new Konva.Arrow({
-                        id: edge.id,
-                        points: allPoints,
-                        stroke: '#b6b6b6',
-                        strokeWidth: 0.75,
-                        pointerLength: pw,
-                        pointerWidth: pw,
-                        fill: '#b6b6b6',
-                        strokeScaleEnabled: false
-                    })
-                    myState.current.frameLinks.push(link)
-                    lineLayerRef.current.add( link )
-                }
-            })
             lineLayerRef.current.batchDraw()
+        }
+    }
+    function renderLink( avRoute ){
+        const edge = myState.current.routing.routerLinks.find(d=>d.route?.g === avRoute)
+        if( !edge){return}
+        const route = edge.route.displayRoute()
+        const points = []
+        for (let i = 0; i < route.size() ; i++) {
+            const { x, y } = route.get_ps(i);
+            points.push(x)
+            points.push(y)
+        }
 
-            Avoid.destroy( router )
+        let allPoints = points
+
+        let scale = myState.current.viewport?.scale ?? 1
+        let pw = linkArrowSize / scale
+        let link = myState.current.frameLinks.find(d=>d.attrs.id === edge.id)
+        if( link ){
+            link.points(allPoints)
+            link.pointerLength( pw )
+            link.pointerWidth( pw )
+        }else{
+            link = new Konva.Arrow({
+                id: edge.id,
+                points: allPoints,
+                stroke: '#b6b6b6',
+                strokeWidth: 0.75,
+                pointerLength: pw,
+                pointerWidth: pw,
+                fill: '#b6b6b6',
+                strokeScaleEnabled: false
+            })
+            myState.current.frameLinks.push(link)
+            lineLayerRef.current.add( link )
         }
     }
 

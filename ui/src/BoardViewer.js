@@ -297,7 +297,25 @@ export default function BoardViewer({primitive,...props}){
                                     const axisPrim = left.primitives.axis?.[axis]?.allIds?.[0]
                                     if(  axisPrim ){
                                         const values = right.referenceParameters?.importConfig?.find(d=>d.id === left.id ).filters?.map(d=>d.sourcePrimId === axisPrim ? d.value : undefined).flat().filter(d=>d)
-                                        console.log(values)
+                                        let row, column
+                                        if( values ){
+                                            column = values.map(d=>myState[left.id].extents.column.findIndex(d2=>d2.idx === d)).filter(d=>d > -1)
+                                            row = values.map(d=>myState[left.id].extents.row.findIndex(d2=>d2.idx === d)).filter(d=>d > -1)
+                                            if( row.length || column.length){
+                                                if( column.length === 0){
+                                                    column = [0]
+                                                }
+                                                if( row.length === 0){
+                                                    row = [0]
+                                                }
+                                                for(const r of row){
+                                                    for( const c of column){
+                                                        return {left: left.id, cell: `${c}-${r}`, right: right.id}
+
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -486,7 +504,7 @@ export default function BoardViewer({primitive,...props}){
     }
 
     function addExistingView(){
-        let items = mainstore.primitives().filter(d=>d.workspaceId === primitive.workspaceId && ["working","view","query"].includes(d.type))
+        let items = mainstore.primitives().filter(d=>d.workspaceId === primitive.workspaceId && ["working","view","query","search"].includes(d.type))
 
         const activeBoardIds = Object.keys(myState)
         items = items.filter(d=>!activeBoardIds.includes(d.id))

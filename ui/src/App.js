@@ -157,7 +157,7 @@ function App() {
             </Routes>
           <Sidebar open={open} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
           {showDeletePrompt && <ConfirmationPopup title={showDeletePrompt.title ?? "Confirm deletion"} message={showDeletePrompt.prompt} confirm={showDeletePrompt.handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
-          {showPicker && <PrimitivePicker list={showPicker.list} root={showPicker.root} callback={showPicker.callback} setOpen={setShowPicker} type={showPicker.type} referenceId={showPicker.referenceId}/>}
+          {showPicker && <PrimitivePicker {...showPicker} setOpen={setShowPicker} />}
           {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
           {showNew && <NewPrimitive {...showNew} done={showNew.callback ? (data)=>showNew.callback(data) : undefined} cancel={()=>setShowNew(false)}/>}
           {showCategoryPicker && <Popup padding='false' setOpen={()=>setShowCategoryPicker(false)}><NewPrimitive.CategorySelection  setOpen={()=>setShowCategoryPicker(false)} categoryId={showCategoryPicker.categoryIds} setSelectedCategory={(d)=>{const r = showCategoryPicker.callback(d); if(r){setShowCategoryPicker()}}}/></Popup>}

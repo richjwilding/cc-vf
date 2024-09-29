@@ -1567,23 +1567,44 @@ export async function getDataForProcessing(primitive, action, source, options = 
             console.log(`+++++ For content HAD ${list.length} now ${listOut.length} +++++`)
             return [listOut, out]
         }
+        const oldSize = list.length
 
         const param = field.slice(0,6) === "param." ? field.slice(6) : undefined
-        
-        const oldSize = list.length
-        list = list.filter((d)=>{
-            return (param ? d.referenceParameters?.[param] : d[field]) 
-        })
-        if( oldSize !== list.length){
-            console.log(`+++++ HAD ${oldSize} now ${list.length} +++++`)
+
+        const outList = [],outFields = []
+
+        if( param ){
+            const parts = param.split(".")
+            list.forEach((d)=>{
+                let out = d.referenceParameters?.[param]
+                for(const d2 of parts){
+                    out = out?.[d2]
+                }
+                if( out ){
+                    outList.push( d )
+                    outFields.push( out )
+                }
+            })
+        }else{
+            list.forEach((d)=>{
+                const out = d[field]
+                if( out ){
+                    outList.push( d )
+                    outFields.push( out )
+                }
+            })
+        }
+        if( list.length !== outList.length){
+            console.log(`+++++ HAD ${list.length} now ${outList.length} +++++`)
         }
         
+        return [outList, outFields]
         
-        return [list, 
+       /* return [list, 
             (param 
                 ? list.map((d) => d.referenceParameters?.[param])
                 : list.map((d) => d[field])
-                )]
+                )]*/
     }
     return [list]
 }
@@ -1787,7 +1808,9 @@ export async function createSegmentQuery(primitive, queryData, importData){
     let interimSegment
     let needsSegment = true
     if( queryData.referenceId === 113 || queryData.referenceId === 112 || queryData.referenceParameters?.useAxis){
-        needsSegment = false
+        if( !importData?.[0]?.filters ){
+            needsSegment = false
+        }
     }
 
     if( needsSegment){
