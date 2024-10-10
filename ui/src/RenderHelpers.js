@@ -13,6 +13,17 @@ const categoryMaps = {}
 
 export const heatMapPalette = PrimitiveConfig.heatMapPalette
 
+export const categoryColors = [ "#4e79a7",
+                                "#f28e2c",
+                                "#e15759",
+                                "#76b7b2",
+                                "#59a14f",
+                                "#edc949",
+                                "#af7aa1",
+                                "#ff9da7",
+                                "#9c755f",
+                                "#bab0ab"]
+
 export function roundCurrency(number){
     if(number === 0){
         return "$0"
@@ -2969,8 +2980,6 @@ export function renderMatrix( primitive, list, options ){
     const mainstore = MainStore()
     let cellContentLimit
     if( configName === "grid" ){//&& !asCounts ){
-
-
         cellContentLimit = {
             "result": 50,
             "evidence": 150
@@ -3049,6 +3058,12 @@ export function renderMatrix( primitive, list, options ){
         let cIdx = 0
         for(const column of columnExtents){
             let subList = list.filter((item)=>(Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx) && (Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive)
+
+            if( asCounts ){
+                console.log(`MAPPING FOR asCounts`)
+                subList = mainstore.uniquePrimitives( subList.map(d=>d.origin) )
+            }
+
             let cellShowExtra
             if( cellContentLimit ){
                 if( subList.length > cellContentLimit){
@@ -3403,3 +3418,206 @@ export function renderMatrix( primitive, list, options ){
     return g
 
 }
+
+function renderPieChart( segments, options = {}){
+    const config = {size: 20, ...options}
+
+    let r = config.size / 2
+    const g = new Konva.Group({
+        x: options.x ?? 0,
+        y: options.y ?? 0,
+        width: config.size,
+        height: config.size
+    })
+
+    const total = segments.map(d=>d?.count ?? 0).reduce((a,c)=>a+c,0)
+    const scale = 360 / total
+
+    const outline = new Konva.Circle({
+        x: r,
+        y: r,
+        radius: r,
+        stroke: "#555"
+    })
+    g.add(outline)
+
+
+    let a = 0
+    let idx = 0
+    let colors = options.colors ?? categoryColors
+    for( const s of  segments){
+        const degs = scale * s.count
+        var wedge = new Konva.Wedge({
+            x: r,
+            y: r,
+            radius: r,
+            angle: degs,
+            fill: colors[idx % colors.length],
+            //stroke: 'black',
+            //strokeWidth: 1,
+            strokeScaleEnabled: false,
+            rotation: a,
+          });
+        g.add(wedge)
+        a += degs
+        idx++
+    }
+
+    return g
+
+}
+
+function renderSubCategoryChart( title, data, options = {}){
+    let config ={
+        fontSize: 12,
+        ...options
+    }
+    let {
+        x = 0,
+        y = 0,
+        innerPadding = [10,10,10,10],
+        itemSize = 200,        
+        colors = categoryColors
+    } = options
+    
+    const sg = new Konva.Group({
+        x,
+        y,
+        width: itemSize,
+        height: itemSize
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: itemSize,
+        height: itemSize,
+        cornerRadius: 10,
+        stroke: '#d9d9d9',
+        name:"background"
+    })
+    sg.add(r)
+   // rowCells.push(r)
+    const t = new CustomText({
+        x: innerPadding[3],
+        y: innerPadding[0],
+        fontSize: config.fontSize,
+        height: config.fontSize * 2.3,
+        lineHeight: 1.1,
+        fontStyle: "bold",
+        text: title,
+        align: 'center',
+        fill: '#334155',
+        wrap: false,
+        ellipsis: true,
+        width: itemSize - innerPadding[3] - innerPadding[1],
+    })
+    sg.add(t)
+    const pieSize = (itemSize - innerPadding[3] - innerPadding[1]) * 0.95
+    const innerSpacing = config.fontSize * 1.2
+    const pieY = (config.fontSize * 2.5) + innerSpacing
+    sg.add( renderPieChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY, colors: colors}))
+
+    const legendFontSize = config.fontSize * 0.8
+    const lx = (legendFontSize * 1.2) + innerPadding[3]
+    let ly = pieY + pieSize + (innerSpacing * 1.5) 
+    let lIdx = 0
+
+    for( const d of (data ?? []) ){
+        const r = new Konva.Rect({
+            x: innerPadding[3] + (legendFontSize * 0.05),
+            y: ly + (legendFontSize * 0.05),
+            width: legendFontSize * 0.9,
+            height: legendFontSize * 0.9,
+            fill: colors[ lIdx % colors.length],
+            strokeScaleEnabled: false,
+            strokeWidth:1,
+            stroke: '#555'
+        })
+        sg.add(r)
+
+
+        const t = new CustomText({
+            x: lx,
+            y: ly,
+            fontSize: legendFontSize,
+            text: d.label,
+            fill: '#334155',
+            ellipsis: true,
+            width: itemSize - lx
+        })
+        ly += legendFontSize * 1.5
+        sg.add(t)
+        lIdx++
+    }            
+    sg.height( ly )
+    return sg
+}
+
+registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, options = {})=>{
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, itemSize: 280, width: 1200, padding: [0,0,0,0], ...options}
+
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        onClick: options.onClick,
+        name:"inf_track"
+    })
+
+    const sets = options.data?.mappedCategories ?? []
+    const usableWidth = config.width - config.padding[1] - config.padding[3]
+    const setCount = sets.length 
+    
+    const itemSize = config.itemSize
+    const columns = Math.floor(usableWidth / (itemSize + 10))
+    const spacing = (usableWidth - (columns * itemSize)) / (columns + 1)
+    const rows = Math.ceil( setCount / columns )
+    let ySpacing = 30
+    
+    let x = config.padding[3] + spacing
+    let y = config.padding[0] + ySpacing
+    let maxY = 0
+    let cIdx = 0
+
+    let rHeight = 0
+    let rowCells = []
+    let innerPadding = [10,10,10,10]
+
+    function updateGraphBackground(){
+        for(const d of rowCells){
+            d.find('.background')[0]?.height(rHeight + innerPadding[2])
+        }
+    }
+
+    for( const item of sets ){
+        const sg = renderSubCategoryChart(item.title, item.details, {x: x, y: y, itemSize, innerPadding})
+        g.add(sg)
+        rowCells.push( sg )
+        
+        console.log(sg.attrs.height)
+        rHeight = sg.attrs.height > rHeight  ? sg.attrs.height : rHeight
+
+        x += itemSize + spacing
+        cIdx ++
+        maxY = y + rHeight
+        if( cIdx === columns ){
+            updateGraphBackground()
+            x = config.padding[3] + spacing
+            y += rHeight + ySpacing
+            rHeight = 0
+            cIdx = 0
+            rowCells = []
+        }
+        
+    }
+    updateGraphBackground()
+    const h = maxY + config.padding[2] + ySpacing
+    //r.height(h)
+    g.height(h)
+    return g
+
+})

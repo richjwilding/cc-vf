@@ -272,29 +272,41 @@ class CollectionUtils{
             }
 
             function process(parameters, category){
+                function processParameter( param, parent, path = "" ){
+                    let  parameter = path.length > 0 ? `${path}.${param}` : param
+
+                    const type = parent[param].type
+                    if( parent[param].asAxis === false){
+                        return
+                    }
+                    else if( parent[param].excludeFromAggregation ){
+                        return
+                    }else if( type === "url" ){
+                        return
+                    }else if( type === "long_string" ){
+                        return
+                    }else if( type === "options" ){
+                        out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parent[param].title}`, relationship, access: access, clamp: true, passType: "raw"})
+                    }else  if( type === "currency" ||  type === "number" ||  type === "funding"){
+                        out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parent[param].title}`, relationship, access: access, passType: type})
+                    }else if(  type === "contact"){
+                        out.push( {type: 'parameter', parameter: "contactId", parameterType: type, category, title: `${parent[param].title}`, relationship, access: access, passType: "contact"})
+                    }else if(  type === "boolean"){
+                        out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parent[param].title}`, relationship, access: access, passType: "boolean"})
+                    }else if(  type === "object"){
+                        for(const d in parent[parameter]){
+                            if( d === "type"){continue}
+                            processParameter(d, parent[parameter], parameter )
+                        }
+                    }else{
+                        out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parent[param].title}`, relationship, access: access, passType: "raw"})
+                    }
+
+                }
+
                 if( parameters ){
                     for(const parameter of Object.keys(parameters)){
-                        const type = parameters[parameter].type
-                        if( parameters[parameter].asAxis === false){
-                            continue
-                        }
-                        else if( parameters[parameter].excludeFromAggregation ){
-                            continue
-                        }else if( type === "url" ){
-                            continue
-                        }else if( type === "long_string" ){
-                            continue
-                        }else if( type === "options" ){
-                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parameters[parameter].title}`, relationship, access: access, clamp: true, passType: "raw"})
-                        }else  if( type === "currency" ||  type === "number" ||  type === "funding"){
-                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parameters[parameter].title}`, relationship, access: access, passType: type})
-                        }else if(  type === "contact"){
-                            out.push( {type: 'parameter', parameter: "contactId", parameterType: type, category, title: `${parameters[parameter].title}`, relationship, access: access, passType: "contact"})
-                        }else if(  type === "boolean"){
-                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parameters[parameter].title}`, relationship, access: access, passType: "boolean"})
-                        }else{
-                            out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parameters[parameter].title}`, relationship, access: access, passType: "raw"})
-                        }
+                        processParameter( parameter, parameters)
                     }
                 }
             }
@@ -339,7 +351,15 @@ class CollectionUtils{
 
             return out.filter((filter)=>{
                 if( filter.type === "parameter" ){
-                    return  (p.filter((d)=>(filter.parameterType === "boolean" && d.referenceParameters[filter.parameter] !== undefined) ||  ["number","string"].includes(typeof(d.referenceParameters[filter.parameter])) || Array.isArray(d.referenceParameters[filter.parameter])).filter((d)=>d !== undefined).length > 0)
+                    //return  (p.filter((d)=>(filter.parameterType === "boolean" && d.referenceParameters[filter.parameter] !== undefined) ||  ["number","string"].includes(typeof(d.referenceParameters[filter.parameter])) || Array.isArray(d.referenceParameters[filter.parameter])).filter((d)=>d !== undefined).length > 0)
+                    return  (p.filter((d)=>{
+                        if( filter.parameterType === "boolean"){
+                            return d.referenceParameters[filter.parameter] !== undefined 
+                        }
+                        //const value = d.referenceParameters[filter.parameter]
+                        const value = PrimitiveConfig.decodeParameter(d.referenceParameters, filter.parameter)
+                        return ["number","string"].includes(typeof(value)) || Array.isArray(d.referenceParameters[filter.parameter])
+                    })).filter((d)=>d !== undefined).length > 0
                 }
                 if( filter.type === "title" ){
                     return  (p.filter((d)=>["number","string"].includes(typeof(d.title))).filter((d)=>d !== undefined).length > 0)
@@ -377,7 +397,6 @@ class CollectionUtils{
                         const rejectList = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel("origin_link_result",1)).flat(Infinity).filter((d)=>d)).map(d=>d.id)
                         const pre = origins.length
                         origins = origins.filter(d=>!rejectList.includes(d.id))
-                        console.log(`Filtered out origin for auto from ${pre} to ${origins.length}`)
 
                     }
                     if( origins.length > 0){
@@ -420,7 +439,6 @@ class CollectionUtils{
                             a[d.metadata.id].items.push( d )
                             return a
                         },{})
-                        console.log(byCat)
                         for(const d of Object.values(byCat)){
                             const values = d.items.map(d=>({idx: d.id, label: `Search #${d.plainId}`, map: [d.id, d.id]}))
                             out.push( {type: 'question', subtype:"search", values, title: `Source search`, access: count + 1, relationship: [...path, `origin_link_result:${d.category.id}`], passType: "question", category: d.category})
@@ -666,7 +684,7 @@ class CollectionUtils{
         }else if( axis.type === "category"){
             const subCats = MainStore().primitive(axis.primitiveId)?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, label:d.title})) ?? []
             out = {
-                values: [{idx: "_N_", label: "None"}, ...subCats].sort((a,b)=>a.label.localeCompare(b.label)),
+                values: [{idx: "_N_", label: "None"}, ...subCats].sort((a,b)=>a.label?.localeCompare(b.label)),
             }
             
         }else{
@@ -755,7 +773,8 @@ class CollectionUtils{
                             if( !item ){return undefined}
                             const orderedOptions = item.metadata?.parameters[option.parameter]?.options
                             if( orderedOptions){
-                            const values =  [item.referenceParameters[option.parameter]].flat()
+                            //const values =  [item.referenceParameters[option.parameter]].flat()
+                            const values =  [PrimitiveConfig.decodeParameter(item.referenceParameters, option.parameter)].flat()
                             if( values && values.length > 0){
                                     const maxIdx = Math.max(...values.map((d2)=>orderedOptions.indexOf(d2)))
                                     return orderedOptions[maxIdx]
@@ -771,7 +790,8 @@ class CollectionUtils{
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access) : [item.originAtLevel( option.access)]
 
                         item = item.map(d=>{
-                            let value = d?.referenceParameters[option.parameter]
+                            //let value = d?.referenceParameters[option.parameter]
+                            let value = PrimitiveConfig.decodeParameter(d?.referenceParameters, option.parameter)
                             if( option.parameterType === "number" && typeof(value) === "string"){
                                 value = parseFloat(value)
                             }

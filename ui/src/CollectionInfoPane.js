@@ -1,4 +1,4 @@
-import { ArrowRightCircleIcon, ChevronLeftIcon, ChevronRightIcon, PlayIcon, PlusIcon } from "@heroicons/react/20/solid"
+import { ArrowPathIcon, ArrowRightCircleIcon, ChevronLeftIcon, ChevronRightIcon, MagnifyingGlassIcon, PlayIcon, PlusIcon } from "@heroicons/react/20/solid"
 import Panel from "./Panel"
 import MainStore from "./MainStore"
 import { useState } from "react"
@@ -15,14 +15,14 @@ import EditableTextField from "./EditableTextField"
 import useDataEvent from "./CustomHook"
 import DropdownButton from "./DropdownButton"
 import UIHelper from "./UIHelper"
-
-import { fal } from '@fortawesome/pro-light-svg-icons';
 import HierarchyNavigator from "./HierarchyNavigator"
 import CollectionUtils from "./CollectionHelper"
 import TooggleButton from "./ToggleButton"
 import PrimitiveConfig from "./PrimitiveConfig"
 import SearchSet from "./SearchSet"
 import { heatMapPalette } from './RenderHelpers';
+import { QueryPane } from "./QueryPane"
+import { Badge, BadgeButton } from "./@components/badge"
 
 // Add the icons to the library
 
@@ -182,7 +182,53 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
     }
     let content
     if( frame?.type === "search" ){
-        content = <SearchSet searchPrimitive={frame}/>
+        const searchResultCategory = mainstore.category( frame.metadata.resultCategoryId ?? frame.metadata.parameters?.sources?.options?.[0]?.resultCategoryId )
+        const searchResults = frame.primitives.uniqueAllItems
+
+        content = <div className="flex flex-col pb-2 px-3">
+                    <span className="text-gray-400 text-xs mt-0.5 mb-2">#{frame.plainId}  {frame.metadata.title ?? "Search"}</span>
+                    <div className="flex w-full space-x-3 place-items-center">
+                        <MagnifyingGlassIcon className="h-6"/>
+                        <EditableTextField 
+                            submitOnEnter={true} 
+                            primitiveId={frame.id}
+                            border='hover'
+                            value={frame.title} 
+                            fieldClassName='w-full'
+                            placeholder='Title of search' 
+                            callback={(value)=>{
+                                frame.title = value
+                                return true
+                            }}
+                        />
+                    </div>
+                    <div className="w-full my-2">
+                        <QueryPane primitive={frame} detail={false}/>
+                    </div>
+                    <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 px-2 py-1.5">
+                        <QueryPane primitive={frame} terms={false}/>
+                    </div>
+                    <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 p-2">
+                        <CategoryHeader itemCategory={searchResultCategory} items={searchResults}/>
+                    </div>
+                    <QueryPane.Info primitive={frame}/>
+                    <div className="flex space-x-3 mt-3">
+                        {(searchResults.length > 0) && <button
+                            type="button"
+                            className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 "
+                            onClick={()=>mainstore.promptDelete({prompt: `Remove search all ${searchResults.length} results?`, handleDelete: ()=>frame.removeChildren()})}
+                            >
+                            Delete {searchResultCategory.plural ?? (searchResultCategory.title + "s")}
+                        </button>}
+                        <button
+                            type="button"
+                            className="flex space-x-2 place-items-center justify-center w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            onClick={()=>mainstore.doPrimitiveAction(frame, "query")}
+                        >
+                            <ArrowPathIcon className="h-4 w-4" aria-hidden="true" /><p>Search</p>
+                    </button>
+                    </div>
+                </div>
 
     }else if( frame ){
 
@@ -280,7 +326,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
             frame.setField(`referenceParameters.explore.view`, value)
             setActiveView( value )
             if( props.updateFrameExtents ){
-                props.updateFrameExtents( frame )
+                //props.updateFrameExtents( frame )
             }
         }
         const addCategory = (target)=>{
@@ -424,7 +470,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
             
                 <div className="space-y-2">
                     <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
-                        <UIHelper.Panel title="View configuration" icon={<FontAwesomeIcon icon={fal.faTags} />}>
+                        <UIHelper.Panel title="View configuration" icon={<FontAwesomeIcon icon={["fal","tags"]} />}>
                             <div className="p-2 text-sm space-y-2">
                                 <UIHelper.OptionList title="View Mode" options={viewConfigs} onChange={(id)=>updateViewMode(viewConfigs.findIndex(d=>d.id === id))} value={viewConfigs[activeView]?.id}/>
                                 <div className='w-full text-lg overflow-y-scroll sapce-y-2 max-h-[50vh]'>
@@ -435,18 +481,19 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                         </UIHelper.Panel>
                     </div>
                     <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
-                        <UIHelper.Panel title="Categories" icon={<FontAwesomeIcon icon={fal.faTags} />}>
+                        <UIHelper.Panel title="Categories" icon={<FontAwesomeIcon icon={["fal","tags"]} />}>
                             <PrimitiveCard.Categories primitive={frame} scope={filters ? list.map(d=>d.id) : undefined} directOnly hidePanel className='pb-2 w-full h-fit'/>
                             <div type="button"
                             className="flex my-2 font-medium grow-0 bg-white hover:bg-gray-100 hover:shadow-sm hover:text-gray-600 justify-center ml-2 p-1 rounded-full shrink-0 text-xs text-gray-400 "
                             onClick={()=>addCategory(frame)}> 
                                     <PlusIcon className="w-5 h-5"/>
                             </div>
+                            <UIHelper.Button title="Axis" action={()=>mainstore.doPrimitiveAction(frame,"define_axis")}/>
                         </UIHelper.Panel>
                     </div>
                     <div className="space-y-2">
                         <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
-                            <UIHelper.Panel title="Filters" icon={<FontAwesomeIcon icon={fal.faFilter} />}>
+                            <UIHelper.Panel title="Filters" icon={<FontAwesomeIcon icon={["fal", "filter"]} />}>
                                         {filterPane()}
                             </UIHelper.Panel>
                         </div>

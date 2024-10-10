@@ -1,6 +1,6 @@
 import { PrimitiveCard } from './PrimitiveCard'
 import { Transition } from '@headlessui/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
     PlayIcon,
   PlusIcon as PlusIconOutline,
@@ -28,15 +28,13 @@ export function Sidebar({primitive, ...props}) {
     const [showDeletePrompt, setShowDeletePrompt] = useState(false)
     const [showUnlinkPrompt, setShowUnlinkPrompt] = useState(false)
     const [showLink, setShowLink] = useState(false)
+    const [fulltext, setFullText] = useState()
     
     useDataEvent('set_field relationship_update', Array.isArray(primitive) ?  primitive.map(d=>d?.id) : primitive?.id )
 
     let infoPane = props.infoPane
     let isMulti = false
     let commonMultiType 
-    if( primitive === undefined ){
-        return(<></>)
-    }
     
     if( Array.isArray(primitive) ){
         if(primitive.length === 1){
@@ -46,9 +44,14 @@ export function Sidebar({primitive, ...props}) {
             isMulti = true
         }
     }
-    if( !(primitive instanceof Object) ){
+    if( primitive && !(primitive instanceof Object) ){
         primitive = MainStore().primitive(primitive)
     }
+
+    useEffect(()=>{
+        setFullText()
+    }, [primitive?.id, isMulti])
+
     if( primitive === undefined ){
         return(<></>)
     }
@@ -393,7 +396,8 @@ export function Sidebar({primitive, ...props}) {
             </div>}
             {!infoPane && !isMulti && primitive.type !== "summary" && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
-                {primitive.type === "result" && primitive.referenceParameters?.url && <Panel.MenuButton title='View text' onClick={async ()=>alert(await primitive.getDocumentAsText())}/>}
+                {primitive.type === "result" && !fulltext && primitive.referenceParameters?.url && <Panel.MenuButton title='View text' onClick={async ()=>setFullText((await primitive.getDocumentAsText())?.split(" ").slice(0,5000).join(" "))}/>}
+                {primitive.type === "result" && fulltext && <div className='p-3 border rounded-md text-sm'>{fulltext}</div>}
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
                     <Panel title="Significance" collapsable={true} open={true} major>
                         <PrimitiveCard.EvidenceHypothesisRelationship primitive={primitive} title={false} />

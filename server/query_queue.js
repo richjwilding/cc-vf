@@ -2,7 +2,7 @@ import QueueManager from './base_queue';
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import Primitive from "./model/Primitive";
-import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, findResultSetForCategoryId, getDataForProcessing, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
+import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, fetchPrimitive, findResultSetForCategoryId, getDataForProcessing, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { findCompanyLIPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
@@ -28,7 +28,7 @@ export default function QueryQueue(){
             if( primitive){
                 if( job.data.mode === "query" ){
                     let embeddedTopic
-                    console.log(`GOT QUERY JOB`)
+                    console.log(`GOT QUERY JOB ${primitive.id} / ${primitive.plainId}`)
                     const category = await Category.findOne({id: primitive.referenceId})
                     if( category === undefined){
                         throw `Cant find category ${primitive.referenceId} for ${primitive.id}`
@@ -38,15 +38,13 @@ export default function QueryQueue(){
                     let baseTerms = asTitle ? primitive.title : primitive.referenceParameters?.terms
 
                     let origin
-                    //const oId = primitiveOrigin( primitive )
+                    
+//                    const oId = primitiveOrigin( primitive )
 
-
-                    const [oId, candidatePaths] = Object.keys(primitive.parentPrimitives ?? {})?.map(d=>primitive.parentPrimitives[d].map(d2=>[d,d2])).flat()?.find(d=>d[1].indexOf("primitives.search.") === 0)
+                    const [oId, candidatePaths] = Object.keys(primitive.parentPrimitives ?? {})?.map(d=>primitive.parentPrimitives[d].map(d2=>[d,d2])).flat()?.find(d=>d[1].indexOf("primitives.search.") === 0) ?? []
                     console.log(`Using ${oId} for origin`)
-                    if( candidatePaths.length === 0){
-                        throw "Cant find result path"
-                    }
-                    const resultPath = candidatePaths.replace(".search.",".results.")
+                    const addToOrigin = candidatePaths?.length > 0
+                    const resultPath = addToOrigin ? candidatePaths.replace(".search.",".results.") : undefined
 
                     const parentSearch = (await primitiveParentsOfType( primitive, "search"))?.[0]
 
@@ -65,7 +63,9 @@ export default function QueryQueue(){
                         }
                     })
                     if( parentSearch ){
-                        baseTerms = parentSearch.title
+                        const asTitle = !parentSearch.referenceParameters?.useTerms && !parentSearch?.referenceParameters.hasOwnProperty("terms") && parentSearch.title
+                        baseTerms = asTitle ? parentSearch.title : parentSearch.referenceParameters?.terms
+                        //baseTerms = parentSearch.title
                         console.log(`OVERRIDE WITH PARENT SEARCH TERMS`)
                     }
                     console.log(config)
@@ -83,9 +83,6 @@ export default function QueryQueue(){
                             console.log(`Found ${nestedSet?.id} for ${primitive.referenceId} in ${nestedCategory.title}`)
 
                             if( nestedSet && parentForNestedSearch ){
-                                //const items = await primitiveDescendents(parentForNestedSearch, undefined, {referenceId: nestedReferenceCategoryId})
-
-
                                 const [items, _] = await getDataForProcessing(parentForNestedSearch, {referenceId: nestedReferenceCategoryId})
 
                                 console.log(`Got ${items.length} items and ${nestedSearches.length} nested searches of ${nestedReferenceCategoryId}`)
@@ -120,15 +117,21 @@ export default function QueryQueue(){
                     
                     
                     // Get query results
-                    let topic = primitive.referenceParameters?.topic
+                    let topic = primitive.referenceParameters?.topic?.trim()
                     if( parentSearch ){
-                        topic = parentSearch.referenceParameters?.topic
+                        topic = parentSearch.referenceParameters?.topic?.trim()
                     }
-                    if( topic === undefined ){
+                    if( !topic  ){
+                        const realOrigin = await fetchPrimitive(primitiveOrigin( parentSearch ?? primitive ) )
+                        if( realOrigin?.type === "board" ){
+                            topic = realOrigin.referenceParameters?.topics?.trim()
+                        }
+                    }
+                    if( !topic ){
                         console.log(`Fetching topic from task`)
                         const task = await Primitive.findOne({_id: await primitiveTask( primitive ) })
                         if( task ){
-                            topic = task.referenceParameters?.topics
+                            topic = task.referenceParameters?.topics?.trim()
                         }
                     }
                     let cache = primitive.checkCache 
@@ -173,28 +176,32 @@ export default function QueryQueue(){
 
                         const existingCheck = source.primaryField ? async (item)=>{
                             if( item ){
-
                                 if( !item[source.primaryField] ){
                                     return false
                                 }
                                 // checkCache
+                                let inCache = false
+                                
                                 if( cache.items.length > 0){
                                     if(cache.items.includes(item[source.primaryField])){
                                         console.log(` --- already scanned this resource`)
-                                        return true
+                                        inCache = true
                                     }
                                 }
+
                                 cache.items.push( item[source.primaryField] )
-                                await Primitive.updateOne(
-                                    {
-                                        "_id": primitive.id,
-                                    },
-                                    {
-                                        $inc: { queryCount: 1 },
-                                        $push :{["checkCache.items"]: item[source.primaryField]}
-                                    })
-
-
+                                if( !inCache ){
+                                    await Primitive.updateOne(
+                                        {
+                                            "_id": primitive.id,
+                                        },
+                                        {
+                                            $inc: { queryCount: 1 },
+                                            $push :{["checkCache.items"]: item[source.primaryField]}
+                                        })
+                                }
+                                        
+                                    
                                 let checks = {[source.importField ?? source.primaryField]:  item[source.primaryField]}
                                 if( source.additionalDuplicateCheck ){
                                     checks = {$or: [
@@ -205,30 +212,28 @@ export default function QueryQueue(){
                                 }
                                 const query = {
                                     "workspaceId": primitive.workspaceId,
+                                    "referenceId": source.resultCategoryId,
                                     $and:[{
                                         ...checks,
-                                    }],/*{
-
-                                        $or: [
-                                            {[`parentPrimitives.${primitive.id}`]: {$in: ['primitives.origin']}},
-                                            {[`parentPrimitives.${oId}`]: {$in: [resultPath]}},
-                                        ]
-                                    }],*/
+                                    }],
                                     deleted: {$exists: false},
                                 }
                                 
-                                let existing = await Primitive.find(query, {_id: 1, parentPrimitives: 1})
-                                console.log(`Resource check = ${existing.length}`)
-                                existing = existing.filter(d=>{
-                                    return d.parentPrimitives?.[primitive.id]?.includes('primitives.origin') || d.parentPrimitives?.[oId]?.includes(resultPath)
-                                })
-                                console.log(`Post filter = ${existing.length}`)
-
-                                const results = existing.length > 0
-                                if( results ){
-                                    console.log( `--- Existing = ${results.length}`)
+                                let existing = await Primitive.find(query, {_id: 1, plainId: 1, parentPrimitives: 1})
+                                
+                                if( existing.length > 0 ){
+                                    console.log( `--- Existing = ${existing.length}`)
+                                    for(const d of existing){
+                                        if( Object.keys(d.parentPrimitives).includes(primitive.id)){
+                                            console.log(`Already linked to this search primitive`)
+                                        }else{
+                                            console.log(` - Add alt_origin to ${d.id} / ${d.plainId}`)
+                                            await addRelationship( primitive.id, d.id, "auto")
+                                            await addRelationship( primitive.id, d.id, "alt_origin")
+                                        }
+                                    }
                                 }
-                                return results
+                                return inCache || (existing.length > 0)
                             }
                             return false
                         } : undefined
@@ -326,7 +331,8 @@ export default function QueryQueue(){
                                 }
                             }
                             const newPrim = await createPrimitive( newData, skipActions )
-                            if( newPrim ){
+                            
+                            if( newPrim && addToOrigin){
                                 await addRelationship( oId, newPrim.id, resultPath )
                             }
                             return newPrim
@@ -404,6 +410,7 @@ export default function QueryQueue(){
 
 
                     dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+                    console.log(`Finished ${primitive.id} / ${primitive.plainId}`)
                 }
             }
         }catch(error){

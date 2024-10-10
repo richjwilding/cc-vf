@@ -7,10 +7,11 @@ import { ChevronRightIcon, ChevronDownIcon } from '@heroicons/react/20/solid'
 import { Button } from './@components/button'
 import clsx from 'clsx'
 import CollectionUtils from './CollectionHelper'
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { PencilSquareIcon } from '@heroicons/react/24/outline'
 import { HeroIcon } from './HeroIcon'
 import { Disclosure, Transition } from '@headlessui/react'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 
 
 function AxisPicker({className, options, name, title, type, small, disabled, autoFocus,'aria-label': ariaLabel,...props}){
@@ -120,6 +121,41 @@ function AxisPicker({className, options, name, title, type, small, disabled, aut
     
 }
 
+function IconButton({options, name, title, type, tooltip, icon, small, action, ...props}){
+
+    return (<div
+        type="button"
+        href={props.href} 
+        title={tooltip}
+        className={[
+            'text-xs ml-0.5 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full  font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+            "bg-white text-gray-400"
+        ].join(" ")}
+        onClick={(e)=>{
+            e.stopPropagation()
+            action && action(e)
+            props.onClick && props.onClick(e)
+        }}
+        >
+            {icon ?? <></>}
+        </div>)
+
+    const control = <Button 
+            href={props.href} 
+            title={tooltip}
+            plain
+            onClick={action ? ()=>action() : undefined}
+            color="white"
+            className={clsx(
+                '!font-normal !text-xs !text-slate-500 !px-1 !rounded-full !w-4'
+            )}
+            {...props}
+            >
+                {icon ?? <></>}
+                {title ?? <></>}
+        </Button>
+    return control
+}
 function MyButton({options, name, title, type, tooltip, icon, small, action, ...props}){
     const control = <Button 
             href={props.href} 
@@ -200,8 +236,61 @@ export default function UIHelper(props){
         return OptionList(props)
     }
 }
+
+const MyDisclosure = ({ children, className }) => {
+    return (
+      <Disclosure as="div" className={className}>
+        {({ open }) => (
+          <>
+            {typeof children === 'function'
+              ? children({open}) // If children is a function, pass 'open' as an argument
+              : React.Children.map(children, (child) => {
+                  // If children is an array or JSX, clone and pass 'open' prop
+                  if (React.isValidElement(child)) {
+                    return React.cloneElement(child, { open });
+                  }
+                  return child;
+                })}
+          </>
+        )}
+      </Disclosure>
+    );
+  };
+
+// Button wrapper for Disclosure.Button
+function MyDisclosureButton({ children, small,...props }){
+    const autoContent = []
+    if( props.expand){
+        const chevronClass = [
+            small ? "text-xs" : "",
+            "text-slate-500",
+            props.expand == "right-down" 
+                ? props.open ? "rotate-180" : "-rotate-90"
+                : props.open ? "rotate-180" : ""
+        ].join(" ")
+        autoContent.push(<div className='grow'/>)
+        if( props.expand == "right-down" ){
+            autoContent.push(<FontAwesomeIcon icon="chevron-down" className={chevronClass}/>)
+        }
+    }
+    return <Disclosure.Button className={`w-full flex space-x-2 place-items-center text-slate-500 my-1 ${small ? "text-xs font-semibold text-slate-400" : ""}`}>
+            {children}
+            {autoContent}
+        </Disclosure.Button>;
+};
+
+function MyDisclosurePanel({ children, open, ...props }){
+  return <Disclosure.Panel>{children}</Disclosure.Panel>;
+};
+
+MyDisclosure.Button = MyDisclosureButton
+MyDisclosure.Panel = MyDisclosurePanel
+
+
 UIHelper.OptionList = OptionList
 UIHelper.Dropdown = MyDropdown
 UIHelper.Panel = Panel
+UIHelper.Disclosure = MyDisclosure
 UIHelper.Button = MyButton
+UIHelper.IconButton = IconButton
 UIHelper.AxisPicker = AxisPicker

@@ -317,8 +317,8 @@ async function doDataQuery( options ) {
                         const outPrompt = [
                             `Return the result in a json object called "answer" which is an array containing every part of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found`,
                             includeBasicFields ? `, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in ${targetWords}` : undefined,
-                            quote ? `, a 'quote' field containing up to 50 words of the exact text used from the fragments` : undefined,
-                            `, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.`,
+                            quote ? `, a 'quote' field containing text used from the fragments (verbatim and in full so i have the complete context)` : undefined,
+                            `, a 'ids' field containing the id numbers of the text fragments (as given to you) used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.`,
                             (extraFields ?? "").length > 0 ? extraFields : undefined
                         ].filter(d=>d).join("") + "."
 
@@ -1018,7 +1018,7 @@ export default function QueueDocument(){
                                             if( number ){
                                                 fields[key] = number[0]
                                             }
-                                        }else if(p.type === "contact"){
+                                        /*}else if(p.type === "contact"){
                                             let contact = await Contact.findOne({name: value})
                                             if( !contact ){
                                                 contact = await Contact.create({name: value})
@@ -1026,7 +1026,7 @@ export default function QueueDocument(){
                                             if( contact ){
                                                 console.log(`Found contact ${value} at ${contact._id.toString()}`)
                                                 fields[`${key}Id`] = contact._id.toString()
-                                            }
+                                            }*/
                                         }
                                     }
                                 }
@@ -1190,8 +1190,8 @@ export async function extractEvidenceFromFragmentSearch( primitive, config){
         }
 
         
+        console.log(`Getting fragments`)
         fragments =  await fetchFragmentsForTerm(prompts, {serachScope,searchTerms, scanRatio, threshold_min}) 
-
         console.log(`have ${fragments.length} fragments`)
 
         const context = await buildContext( primitive ) 

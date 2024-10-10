@@ -1,6 +1,7 @@
 import {Configuration, OpenAIApi} from "openai"
 import {encode, decode} from 'gpt-3-encoder'
 import { executeConcurrently } from "./SharedFunctions"
+import { recordUsage } from "./usage_tracker"
 
 export async function consoldiateAxis( json, options = {}){
     if( json === undefined ){
@@ -70,13 +71,13 @@ export async function extractAxisFromDescriptionList( list, options = {}){
     let type = options.type || "segment"
     let opener = `Here is a list of ${type}s:`
 
-    let prompt = `I need to generate a market map based on the provided information. Please suggest 4-6 appropriate axes with as many non-overlapping and unique values necessary to help compare and contrast these ${type}s. 
+    let prompt = `I need to generate a market map based on the provided information. ${options.theme ? `My area of research is focussed on ${options.theme}` : ""} Please suggest 4-6 appropriate axes ${options.theme ? "releavnt to my are of research " : ""}with as many non-overlapping and unique values necessary to help compare and contrast these ${type}s. 
     Each suggested value should represent at least 3 items and every ${type} must be assigned to each and every applicable value in each axis. 
-    Pick axis and values which provide could coverage of as many of the ${type}s i have provided as possible
+    Pick axis and values which provide good coverage of as many of the ${type}s i have provided as possible
     
     **Steps**
-    1. **Categorize Accurately**: For each axis, categorize the ${type} based on the details described in the provided information. In categorizing an ${type} be sure to consider all of the information provided about it and ensure that the assignment doesn't overly focus on any one specific detail (for example is a company operates in healthcare amongst other sectors you must assign it to  all relevant values or to a more generic value that represents the full details). 
-    2. **Alignment with Description**: Ensure that the assigned values on each axis accurately reflects the ${type}'s description provided in the overview, particularly focusing on the explicitly stated target customers and key capabilities.
+    1. **Categorize Accurately**: For each axis, categorize the ${type} based on the details described in the provided information${options.theme ? " ensuring they are directly related to my research focus" :""}. In categorizing an ${type} be sure to consider all of the information provided about it and ensure that the assignment doesn't overly focus on any one specific detail (for example is a company operates in healthcare amongst other sectors you must assign it to  all relevant values or to a more generic value that represents the full details). 
+    2. **Alignment with Description**: Ensure that the assigned values on each axis accurately reflects the ${type}'s description$ provided in the overview, particularly focusing on the explicitly stated target customers and key capabilities. 
     3.  **Validation Check**: Review your assignments once completed, ensuring no ${type} is misplaced based on its provided overview, and that the categorization clearly aligns with the detailed descriptions.`
 
     let output = `Provide the result as a json object with the following structure: 
@@ -180,7 +181,7 @@ export async function summarizeMultiple(list, options = {} ){
         }
     }
     finalPrompt =  finalPrompt + (options.allow_infer ? "" : `.  Use only the information i have provided to produce the summary - you must not make reference to it (e.g avoid phrases like 'the text suggests', 'the provided text includes' and similar)`)
-    const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **[text]**\n" :""}indented list item:- [text]\ndouble indented list item:-- [text\ntriple indented list item:--- [text]\ntable headers: |cell|cell| (ensure you start and finish with a | character - empty cells should be ||)\n               |----|----|\ntable rows: |cell|cell| (ensure you start and finish with a | character - empty cells should be || \n Do not use any other markdown. Ensure you mark the end of paragraphs and list items with a new line character. Do not defined the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string without any formatting."
+    const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **text**\n" :""}indented list item:- text\ndouble indented list item:-- text\ntriple indented list item:--- text\ntable headers: |cell|cell| (ensure you start and finish with a | character - empty cells should be ||)\n               |----|----|\ntable rows: |cell|cell| (ensure you start and finish with a | character - empty cells should be || \n Do not use any other markdown. Ensure you mark the end of paragraphs and list items with a new line character. Do not defined the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string without any formatting."
     
     let outputFields
     if( options.outputFields) {
@@ -725,12 +726,12 @@ async function processInChunk( list, pre, post, options = {} ){
         const concurrency = 10
         const batchData = []
         const batchStart = []
-        for(let idx = 0; idx < maxIdx; idx += options.batch)
+        for(let idx = 0; idx <= maxIdx; idx += options.batch)
         {
             batchData.push( fullContent.slice(idx, idx + options.batch))
             batchStart.push(idx)
         }
-        console.log(`Will split into batches of ${options.batch} - concurrency = ${concurrency}`)
+        console.log(`Will split ${fullContent.length} into batches of ${options.batch} - concurrency = ${concurrency}`)
         const {results, cancelled} = await executeConcurrently( batchData, 
                                                                 (d, idx)=>processInChunk(d, 
                                                                                     pre, 
@@ -746,6 +747,9 @@ async function processInChunk( list, pre, post, options = {} ){
                                                                                     concurrency)
         const allResults = results.flat()
         console.log(`Got ${results.length} batches back = ${allResults.length}`)
+        /*if( allResults.length !== fullContent.length ){
+            throw `WARN: Mismtach on batch response ${allResults.length} !== ${fullContent.length} `
+        }*/
         return allResults
     }
 
@@ -849,7 +853,7 @@ async function processInChunk( list, pre, post, options = {} ){
                         values = [values]
                     }
                     if( options.markPass ){
-                        values.forEach((d)=>d._pass = pass)
+                        values.forEach((d)=>d._pass = options.inBatch ? options.batchStartOffset + "-" + pass : pass)
                     }
                     if( options.idField){
                         console.log(`Check ID field ${options.idField} bounds`)
@@ -983,6 +987,7 @@ async function executeAI(messages, options = {}){
     }
 
     if( response.status === 200){                
+        recordUsage( {workspace: options.workspaceId, functionName: options.functionName, usageId: options.usageId, api: "open_ai", data: response.data})
         if( response.data?.choices[0]?.finish_reason === 'length' ){
            return {error: true, token_limit: true} 
         }
@@ -1020,9 +1025,61 @@ async function executeAI(messages, options = {}){
 }
 
 export  async function categorize(list, categories, options = {} ){
+    if( options.batch && options.batch > 1){
+        return __categorize(list,categories, options)
+    }
+    const targetType = options.types || "item"
+    const match = options.matchPrompt ?? `here is some information about a ${options.longType ?? targetType}. Assess how well the item aligns with the candidate categories based on ${options.literal ? "a string similarirty" : "conceptual similarity"}.`
+    const scoreMap = ["Not", "Hardly", "Somewhat", "Likely", "Clear"]
+
+    let instructions = `
+    Assessment Scale:\n
+    - 0: No ${options.literal ? "string" : "conceptual"} alignment.
+    - 1: Minimal ${options.literal ? "string" : "conceptual"} similarity.
+    - 2: Some ${options.literal ? "string aignment" : "conceptual elements shared"}.
+    - 3: Significant ${options.literal ? "string" : "conceptual"} alignment.
+    - 4: Perfect ${options.literal ? "string" : "conceptual"} alignment.
+    
+    Steps:\n
+    1. Carefully analyze the provided information 
+    2. Compare the item to each and every category in turn - considering only the information that has been provided
+    3. Assign an assessment score for every category using the provided scale 
+    4. Review and correct mistakes`
+
+    if( options.complex){
+        instructions += `Return your results in a JSON object with the following structure:{a:[{c: <<category id as provided to you - e.g 0>>,s: <<assessment score of item for this category>>,r:<<5 word rationale for the score for this category>>},...<<assessments for each and every remaining category - there should be ${categories.length} in total>>] }`
+    }else{
+        instructions += `Return your results in a JSON object with the following structure: {a:[{c: <<id of category, as provided to you, with highest score>>,s: <<assessment score associated with the catgeory with the highest score>,r:<<5 word rationale for score for winning category>>}]}`
+    }
+    const interim = await processInChunk( list, 
+            [
+                {"role": "system", "content": match},
+                {"role": "user", "content": `Here is the list of numbered ${options.longType ?? targetType}s: `}
+            ],
+            [
+                {"role": "user", "content": `And here are a list of numbered categories:\n ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
+                {"role": "user", "content": instructions}
+            ],
+            {wholeResponse: true, engine:  options.engine, batch: 1, temperature: 0.6, ...options})
+
+    let remap
+    if( options.numerical ){
+        remap = interim.map((d,idx)=>{
+            return {id: idx, a: d.a?.map((d,i)=>({c: d.c, r:d.r, s: d.s}))}
+        })
+    }else{
+        remap = interim.map((d,idx)=>{
+            return {id: idx, a: d.a?.map((d,i)=>({c: d.c, r:d.r, s: scoreMap[d.s]}))}
+        })
+    }
+        
+    return remap
+}
+
+export  async function __categorize(list, categories, options = {} ){
     const targetType = options.types || "item"
 //    const match = options.matchPrompt || `I am categorizing a list of ${options.longType ?? targetType}s.  You must assess how well each of the provided numbered ${targetType}s aligns with each of the candidate numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} based on conceptual similarity, rather than exact text matches`
-    const match = options.matchPrompt ?? `I am categorizing a list of ${options.longType ?? targetType}s. Assess how well each item aligns with the candidate categories based on ${options.literal ? "a string similarirty" : "conceptual similarity"}.`
+    const match = options.matchPrompt ?? `I am categorizing a list of numbered ${options.longType ?? targetType}s. Assess how well each item aligns with the candidate categories based on ${options.literal ? "a string similarirty" : "conceptual similarity"}.`
 //options.literal ? ["unclear", "current", "adjacent","middle","far"] : 
     const scoreMap = ["Not", "Hardly", "Somewhat", "Likely", "Clear"]
 
@@ -1035,10 +1092,11 @@ export  async function categorize(list, categories, options = {} ){
     - 4: Perfect ${options.literal ? "string" : "conceptual"} alignment.
     
     Steps:
-    1. Compare each item to each category.
-    2. Assign an assessment score for each item for every category using the provided scale.
-    3. Review and correct mistakes
-    4. Do this for every item`
+    1. Each item has been numbered with all data for that item on a single line following the number
+    2. Compare each and every item to each and every category in turn - considering only the information that has been provided for this specific item.
+    3. Assign an assessment score for each item for every category using the provided scale 
+    4. Review and correct mistakes
+    5. Do this for every item`
 
     if( options.complex){
         instructions += `
@@ -1046,11 +1104,12 @@ export  async function categorize(list, categories, options = {} ){
         Return your results in a JSON object called results with the following structure:
         [
             {
-                id: <<item id as provided to you>>,
+                id: <<id for this item as provided to you>>,
                 a:[ 
                     {
                         c: <<category id as provided to you - e.g 0>>,
-                        s: <<assessment score of item for this category>>
+                        s: <<assessment score of item for this category>>,
+                        r:<<5 word rationale for the score for this item for this category>>,
                     },
                     ...<<assessments for each and every remaining category - there should be ${categories.length} in total>>
                 ] 
@@ -1084,12 +1143,11 @@ export  async function categorize(list, categories, options = {} ){
                 {"role": "user", "content": `And here are a list of numbered categories:\n ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
                 {"role": "user", "content": instructions}
             ],
-            {field: "results", engine:  options.engine, ...options})
+            {field: "results", engine:  options.engine, batch: 30, temperature: 0.6, ...options})
 
     const remap = options.numerical ? interim : interim.map(d=>{
-        return {id: d.id, a: d.a?.map((d,i)=>({c: d.c, s: scoreMap[d.s]}))}
+        return {id: d.id, a: d.a?.map((d,i)=>({c: d.c, r:d.r, s: scoreMap[d.s]}))}
     })
-    console.log(remap)
         
     return remap
 }
@@ -1490,10 +1548,12 @@ export async function buildEmbeddings( text, attempt = 3 ){
 
         const configuration = new Configuration({
             apiKey: process.env.OPEN_API_KEY,
+            timeout: 5000
         });
         const openai = new OpenAIApi(configuration);
         const response = await openai.createEmbedding({
             model: "text-embedding-ada-002",
+            timeout: 5000,
             input: text,
         });
         if( response.data?.data?.[0]?.object === "embedding"){

@@ -657,8 +657,16 @@ let mainstore = MainStore()
                   }}
           />
       }else if( item.type === "url"){
+        if( props.minor ){
+          return (
+              <a className='flex space-x-2' href={item.value?.startsWith("http") ? item.value : `https://${item.value}`} target="_blank">
+                <LinkIcon className='w-3'/>
+                <p>{item.value}</p>
+              </a>
+            )
+        }
         return (
-          <div className='ml-auto flex place-items-start space-x-2'>
+          <div className='ml-auto flex place-items-start space-x-2 w-full'>
           <EditableTextField
             {...props} 
             submitOnEnter={true} 
@@ -666,8 +674,8 @@ let mainstore = MainStore()
             default={item.default} 
             placeholder={item.placeholder} 
             icon={icon} 
-            border
-            fieldClassName={`break-all ${props.compact ? "" :`grow`} ${props.inline ? "truncate" : ""}`}
+            border={props.border ?? true}
+            fieldClassName={`break-all grow  ${props.inline ? "truncate" : ""}`}
             callback={props.callback ? props.callback : (value)=>{
                 return props.primitive.setParameter(item.key, value)
             }}
@@ -716,9 +724,9 @@ let mainstore = MainStore()
         default={item.default} 
         placeholder={item.placeholder} 
         icon={icon} 
-        border
+        border={props.border ?? true}
         //fieldClassName={`${item.type === "long_string" ? "min-h-24" : ""} ${props.compact ? "" :`${align} grow`} ${props.inline ? "truncate" : ""}`}
-        fieldClassName={`${item.type === "long_string" ? "min-h-24" : ""} ${props.compact ? "" :`${align} grow`}`}
+        fieldClassName={`${item.type === "long_string" ? "min-h-16" : ""} ${props.compact ? "" :`${align} grow`}`}
         clamp={clamp}
         callback={(value)=>{
             if( item.type === "integer" || item.type === "number"){
@@ -2293,6 +2301,68 @@ function ProcessingPane(){
           </div>)
 }
 
+
+function CardForList({primitive, fields, ...props}){
+  const metadata = primitive.metadata
+
+  let minor = metadata.renderConfig?.cards?.minor
+  if( metadata.renderConfig?.cards?.fields ){
+    fields = metadata.renderConfig?.cards?.fields
+  }
+
+  const showTitle = fields?.includes("title")
+  const showIcon = fields?.includes("icon")
+  
+  
+  let headerImg, logoImg
+  if( primitive.type === "entity" ){
+    headerImg =  primitive?.referenceParameters?.hasBgImg ? `/api/image/${primitive.id}-background` : undefined
+    logoImg = primitive?.referenceParameters?.hasImg ? true : primitive.linkedInData ? primitive.linkedInData.profile_pic_url : undefined
+  }
+  else{
+    headerImg = primitive?.referenceParameters?.hasImg ? `/api/image/${primitive.id}` : undefined
+  }
+
+  return <div 
+    onClick={props.onClick ? ()=>props.onClick(undefined, primitive) : undefined}
+    className='pcard group relative bg-white px-2 py-3 rounded-lg focus:ring-2 focus:outline-none hover:ring-1 hover:ring-ccgreen-300 hover:subtle-shadow-bottom shadow border-[1px] text-slate-600'>
+      {headerImg && (headerImg !== null) &&
+        <>
+            <div className="bg-gray-200 h-[8.25rem] mb-2 w-full rounded-t-lg"/>
+            <VFImage className="absolute top-0 left-0 object-cover h-36 w-full rounded-t-lg" src={headerImg}/>
+        </>
+      }
+      <div className="border-b flex justify-between mb-2 pb-2 place-items-center w-full">
+        {showIcon && <VFImage className="w-8 h-8 mr-2 object-contain my-auto shrink-0" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} />}
+        <EditableTextField 
+            callback={(v)=>primitive.title = v}
+            value = {primitive.title}
+            fieldClassName='grow'
+            className='w-full'
+            />
+          {metadata && metadata.icon && <HeroIcon icon={metadata.icon} className='w-12 h-12 shrink-0' strokeWidth={0.8}/>}
+        </div>
+        <div className='flex flex-col px-1 space-y-1.5 text-sm mb-2'>
+          {(fields ?? []).filter(d=>primitive.referenceParameters[d] && metadata?.parameters[d]).map(field=>(
+            <div className='felx flex-col'>
+              <p className='text-slate-400 text-xs font-semibold uppercase'>{metadata.parameters[field].title}</p>
+              <PrimitiveCard.RenderItem primitive={primitive} item={{...metadata.parameters[field], value:primitive.referenceParameters[field], key: field}} compact leftAlign showTitles border={false}/>
+            </div>
+          ))}
+        </div>
+        {minor && <div className='flex flex-col px-1 space-y-1.5 text-xs mt-1 mb-2 text-slate-400'>
+          {minor.filter(d=>primitive.referenceParameters[d] && metadata?.parameters[d]).map(field=>(
+              <PrimitiveCard.RenderItem primitive={primitive} minor editable={false} item={{...metadata.parameters[field], value:primitive.referenceParameters[field], key: field}} compact leftAlign showTitles border={false}/>
+          ))}
+        </div>}
+        <PrimitiveCard.Evidence primitive={primitive} hideTitle={true} compact={true} aggregate={true}/>
+        <div className='w-full justify-between flex '>
+          <p className='mt-2 text-slate-400 text-xs'>{primitive.displayType} #{primitive.plainId}</p>
+          <CardMenu primitive={primitive} bg="transparent" size={6}/>
+        </div>
+    </div>
+}
+
 PrimitiveCard.ProcessingBase = ProcessingBase
 PrimitiveCard.Variant = Variant
 PrimitiveCard.Details = Details
@@ -2313,3 +2383,4 @@ PrimitiveCard.RenderItem = RenderItem
 PrimitiveCard.CardMenu = CardMenu
 PrimitiveCard.SmallMeta = SmallMeta
 PrimitiveCard.ImportList = ImportList
+PrimitiveCard.ListCard = CardForList

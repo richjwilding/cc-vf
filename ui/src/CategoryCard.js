@@ -1,6 +1,4 @@
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { useState } from "react";
-import { PrimitiveCard} from "./PrimitiveCard";
 import { PencilIcon, ArrowPathIcon, TrashIcon } from "@heroicons/react/24/outline";
 import Panel from "./Panel";
 import GenericEditor from './CategoryEditor';

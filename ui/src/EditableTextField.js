@@ -85,21 +85,22 @@ import clsx from 'clsx';
     return  <div 
       contentEditable={props.editable !== false}
       suppressContentEditableWarning={true}
-      onClick={props.editable ? startEditing : undefined}
-      onFocus={props.editable ? startEditing : undefined}
+      onClick={props.editable !== false ? startEditing : undefined}
+      onFocus={props.editable !== false ? startEditing : undefined}
       key={props.key} 
       ref={editBox} 
       tabIndex={1}
-      onKeyUp={props.editable ? keyHandler : undefined}
-      onBlur={props.editable ? stopEditing : undefined}
+      onKeyUp={props.editable !== false ? keyHandler : undefined}
+      onBlur={props.editable !== false ? stopEditing : undefined}
       placeholder={props.placeholder ?? props.default}
       className={clsx([
             'place-items-center outline-none bg-white resize-none overflow-hidden',
-            props.border ? "border border-zinc-950/10 rounded-md shadow-sm" : "",
+            props.border && props.border === "hover" ? "border border-zinc-950/5 rounded-md hover:border-zinc-950/10 hover:shadow-sm" : "",
+            props.border && props.border !== "hover" ? "border border-zinc-950/10 rounded-md shadow-sm" : "",
             !props.compact && !editing ? "p-1 min-h-[2em]" : "",
             props.fieldClassName || '',
-            props.compact ? "py-1.5" : "px-1 py-1.5",
-            props.fieldClassName && props.fieldClassName.search("text-") > -1 ? "" :props.secondary ? "text-gray-400" : "text-gray-800",
+            props.compact ? (props.border ? "py-1.5" : "py-0.5") : "px-1 py-1.5",
+            props.fieldClassName && props.fieldClassName.search("text-") > -1 ? "" :props.secondary ? "text-gray-600" : "text-gray-800",
             showPlaceholder ? "italic text-gray-500" : "",
             props.editable && !editing ? props.clamp : "",
             props.editable && !editing && !errors ? "focus:bg-gray-50 focus:outline-none focus:ring-1  focus:ring-ccgreen-200" : "",

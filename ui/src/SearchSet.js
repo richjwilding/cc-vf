@@ -1,13 +1,15 @@
 import { ArrowPathIcon, MagnifyingGlassIcon, TrashIcon } from "@heroicons/react/20/solid"
 import MainStore from "./MainStore"
 import UIHelper from "./UIHelper"
-import { PrimitiveCard } from "./PrimitiveCard"
-import Panel from "./Panel"
 import useDataEvent from "./CustomHook"
-import EditableTextField from "./EditableTextField"
+import { QueryPane } from "./QueryPane"
+import Panel from "./Panel"
+import { Badge, BadgeButton } from "./@components/badge"
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
+
+const mainstore = MainStore()
 
 export default function SearchSet({primitive, searchPrimitive, resultSet, filters, toggleFilter, searchCategoryIds, props}){
-    const mainstore = MainStore()
     useDataEvent("update_field update_parameter", [primitive?.id, searchPrimitive?.id])
 
         const searches = searchPrimitive ? [searchPrimitive] : primitive.primitives.search?.[resultSet] 
@@ -25,7 +27,6 @@ export default function SearchSet({primitive, searchPrimitive, resultSet, filter
         let createSearchButton
         if(!searchCategoryIds || searchCategoryIds.length === 1){
             if( hasSearches ){
-//                createSearchButton = <Panel.MenuButton small title={<><MagnifyingGlassIcon className="h-4 mr-1"/>New Search</>} action={()=>createSearch()} className='flex place-items-center'/>
                 createSearchButton = <UIHelper.Button small  icon={<MagnifyingGlassIcon className="h-4"/>} title="New search" action={()=>createSearch()}/>
             }else{
                 createSearchButton = <button 
@@ -45,66 +46,41 @@ export default function SearchSet({primitive, searchPrimitive, resultSet, filter
                 {!hasSearches && <div className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400">{createSearchButton}</div>}
                 {searches && searches.length > 0 && <>
                     {searches.map(d=>{
-                    const asTitle = !d.referenceParameters.useTerms && !d.referenceParameters.hasOwnProperty("terms") && d.title
-                    let action = false, active = false, error = false
-                    let title = <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
                     return (
-                    <div key={d.id} className="group w-full py-2 px-4 space-y-1  hover:bg-gray-50 hover:subtle-shadow-bottom">
-                        <div className="w-full flex space-x-2 min-h-16">
-                            <MagnifyingGlassIcon className="w-5 h-5 mr-1 shrink-0 text-slate-500 place-self-center"/>
-                            <EditableTextField 
-                                editable
-                                submitOnEnter={true} 
-                                primitiveId={d.id}
-                                value={asTitle ? d.title : d.referenceParameters.terms} 
-                                placeholder="Search terms" 
-                                border
-                                fieldClassName='grow text-sm text-slate-500'
-                                callback={(value)=>{
-                                    if( asTitle ){
-                                        d.title = value
-                                        return true
-                                    }else{
-                                        return d.setParameter("terms", value)
-                                    }
-                                }}
-                            />
-                            <div className="flex w-fit shrink-0 ">
-                                <div
-                                    type="button"
-                                    onClick={toggleFilter ? ()=>toggleFilter({type: "parent", id: d.id}) : undefined}
-                                    className={[
-                                    'text-xs ml-2 py-0.5 px-1.5 shrink-0 grow-0 self-center rounded-full  font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
-                                        filters && filters.find(d2=>d2.type === "parent" && d2.id === d.id) ? "bg-ccgreen-100 border-ccgreen-600 text-ccgreen-800 border" : "bg-white text-gray-400"
-                                    ].join(" ")}
-                                    >
-                                    {d.primitives.uniqueAllIds.length} items
-                                </div>
-                                <div
-                                    type="button"
-                                    className={[
-                                    'text-xs ml-2 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full  font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
-                                        active ? "bg-ccgreen-100 border-ccgreen-600 text-ccgreen-800 border" : 
-                                        error ? "bg-red-100 border-red-600 text-red-800 border" : "bg-white text-gray-400"
-                                    ].join(" ")}
-                                    onClick={()=>mainstore.doPrimitiveAction(d, "query")}>
-                                {title}</div>
-                                <div
-                                    type="button"
-                                    className={[
-                                        'text-xs ml-0.5 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full  font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
-                                        "bg-white text-gray-400"
-                                    ].join(" ")}
-                                    onClick={()=>mainstore.promptDelete({prompt: "Remove search and all results?", handleDelete: ()=>mainstore.removePrimitive(d)})}>
-                                    {<TrashIcon className="h-4 w-4" aria-hidden="true" />}</div>
-                            </div>
-                        </div>
-                        <Panel collapsable open={false}>
-                            <div className="w-full flex-col text-xs my-2 space-y-1">
-                                <PrimitiveCard.Parameters primitive={d} hidden="terms" includeTitle={!asTitle} editing leftAlign inline compactList className="text-xs text-slate-500" fullList />
-                            </div>
-                            <span className="text-gray-400 text-xs">#{d.plainId}  {d.metadata.title ?? "Search"}</span>
-                        </Panel>
+                    <div key={d.id} className="group w-full py-2 px-4 space-y-1  hover:bg-gray-50 ">
+                        <UIHelper.Disclosure>
+                            {({ open }) => (
+                                <>
+                                    <UIHelper.Disclosure.Button counter={`${d.primitives.uniqueAllIds.length} items`}>
+                                        <MagnifyingGlassIcon className="h-4"/>
+                                        <p>{d.title}</p>
+                                        <BadgeButton 
+                                            onClick={(e)=>{
+                                                e.stopPropagation()
+                                                toggleFilter && toggleFilter({type: "parent", id: primitive.id})
+                                            }}
+                                            color={filters && filters.find(d2=>d2.type === "parent" && d2.id === primitive.id) ? "lime" : "zinc"}
+                                        >
+                                            {d.primitives.uniqueAllIds.length} items
+                                        </BadgeButton>
+                                        <UIHelper.IconButton 
+                                            icon={<ArrowPathIcon className="h-4 w-4" aria-hidden="true" />}
+                                            action={()=>mainstore.doPrimitiveAction(d, "query")}
+                                        />
+                                        <UIHelper.IconButton 
+                                            icon={<FontAwesomeIcon icon="trash" />}
+                                            action={()=>mainstore.promptDelete({prompt: "Remove search and all results?", handleDelete: ()=>mainstore.removePrimitive(d)})}
+                                        />
+                                        <div className="grow"/>
+                                        <FontAwesomeIcon icon="chevron-down" className={open ? "text-slate-500 rotate-180" : "text-slate-500 "}/>
+                                    </UIHelper.Disclosure.Button>
+                                    <UIHelper.Disclosure.Panel className='mt-4'>
+                                        <QueryPane primitive={d} toggleFilter={toggleFilter} filters={filters}/>
+                                        {open && <span className="text-gray-400 text-xs">#{d.plainId}  {d.metadata.title ?? "Search"}</span>}
+                                    </UIHelper.Disclosure.Panel>
+                                </>
+                            )}
+                        </UIHelper.Disclosure>
                     </div>
                 )}) }
                 {!searchPrimitive && <div className="px-4 pt-2">

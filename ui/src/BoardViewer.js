@@ -14,79 +14,174 @@ import CollectionInfoPane from "./CollectionInfoPane";
 import useDataEvent from "./CustomHook";
 import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 
+function dropZoneToAxis(id){
+    return id.split('-')
+}
+async function moveItemOnAxis(  primitive, axis, from, to ){
+    if( axis){
+        if( axis.type === "category"){
+            console.log(`move ${primitive.title} from ${from} to ${to}`)
+            if( from ){
+                const prim = mainstore.primitive(from)
+                if( prim ){
+                    await prim.removeRelationship( primitive, 'ref')
+                }
+            }
+            if( to ){
+                const prim = mainstore.primitive(to)
+                if( prim ){
+                    await prim.addRelationship( primitive, 'ref')
+                }
+            }
+        }
+    }
+}
+async function moveItemWithinFrame(primitiveId, startZone, endZone, frame){
+    console.log(`${primitiveId} - >${startZone} > ${endZone}`)
+    const primitive = mainstore.primitive(primitiveId)
+    if( primitive ){
+        const [sc,sr] = dropZoneToAxis( startZone)
+        const [ec,er] = dropZoneToAxis( endZone )
+        if( sc !== ec){
+            await moveItemOnAxis(primitive, frame.axis.column, frame.extents.column[sc]?.idx, frame.extents.column[ec]?.idx)
+        }
+        if( sr !== er){
+            await moveItemOnAxis(primitive, frame.axis.row, frame.extents.row[sr]?.idx, frame.extents.row[er]?.idx)
+        }
+    }
+
+}
+
 let mainstore = MainStore()
 
     function SharedPrepareBoard(d, myState){
         let didChange = false
+        const oldConfig = myState[d.id]?.config
         if( d.type === "view" || d.type === "query"){
             const items = d.itemsForProcessing
             const columnAxis = CollectionUtils.primitiveAxis(d, "column")
             const rowAxis = CollectionUtils.primitiveAxis(d, "row")
-    
+
+            
             const activeView  = d?.referenceParameters?.explore?.view
             const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
             const viewConfig = viewConfigs?.[activeView] 
 
-            let viewFilters = []//d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
-            let filterApplyColumns = d.referenceParameters?.explore?.axis?.column?.filter ?? []
-            let filterApplyRows = d.referenceParameters?.explore?.axis?.row?.filter ?? []
-            let hideNull = d.referenceParameters?.explore?.hideNull
-            let viewPivot = d.referenceParameters?.explore?.viewPivot
+            if( viewConfig?.renderType === "cat_overview"){
 
-            let liveFilters = d.primitives.allUniqueCategory.filter(d=>d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
-                return {
-                    type: "category",
-                    primitiveId: d.id,
-                    category: d,
-                    isLive: true,
-                    title: `Category: ${d.title}`                
+                const categoriesToMap = d.primitives.allUniqueCategory
+                console.log(`Got ${categoriesToMap.length} to map`)
+                let mappedCategories = categoriesToMap.map(category=>{
+                    console.log(`Doing ${category.title} - ${category.primitives.allUniqueCategory.length} subcats`)
+                    const axis = {
+                        type: "category",
+                        title: category.title,
+                        access: category.referenceParameters.access,
+                        primitiveId: category.id,
+                        relationship: category.referenceParameters.relationship
+                    }
+                    let {data, extents} = CollectionUtils.mapCollectionByAxis( items, axis, undefined, [], [], undefined )
+                    //console.log(data, extents)
+                    return {
+                            id: category.id,
+                            title: category.title,
+                            details: extents.column.filter(d=>d.idx !== "_N_").map(d=>{
+                                const items = data.filter(d2=>d2.column === d.idx || (Array.isArray(d2.column) && d2.column.includes(d.idx)))
+                                return {
+                                    idx: d.idx,
+                                    label: d.label,
+                                    count: items.length,
+                                    items
+                                }})
+                        }
+                })
+
+                /*
+                console.log(mappedCategories)
+                mappedCategories = mappedCategories.filter(d=>{
+                    const total = d.details.map(d=>d.count).reduce((a,c)=>a+c,0)
+                    if( total < 100 ){
+                        console.log(`++ Removing ${d.title} ${total}`)
+                        return false
+                    }
+                    return true
+                })*/
+
+                myState[d.id].primitive = d
+                myState[d.id].config = "cat_overview"
+                myState[d.id].renderData = {
+                    mappedCategories
                 }
-            })
-            
-            let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columnAxis, rowAxis, viewFilters, liveFilters, viewPivot )
+            }else{
+                columnAxis.allowMove = columnAxis.access === 0 && !columnAxis.relationship
+                rowAxis.allowMove = rowAxis.access === 0 && !rowAxis.relationship
 
-            let filtered = CollectionUtils.filterCollectionAndAxis( data, [
-                {field: "column", exclude: filterApplyColumns},
-                {field: "row", exclude: filterApplyRows},
-                ...viewFilters.map((d,i)=>{
-                    return {field: `filterGroup${i}`, exclude: d.filter}
-                })
-            ], {columns: extents.column, rows: extents.row, hideNull})
+                let viewFilters = []//d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
+                let filterApplyColumns = d.referenceParameters?.explore?.axis?.column?.filter ?? []
+                let filterApplyRows = d.referenceParameters?.explore?.axis?.row?.filter ?? []
+                let hideNull = d.referenceParameters?.explore?.hideNull
+                let viewPivot = d.referenceParameters?.explore?.viewPivot
 
-            if( myState[d.id].list ){
-                const changes = myState[d.id].list.some((d,i)=>{
-                    const n = filtered.data[i]
-                    if( !n ){
-                        return true
+                let liveFilters = d.primitives.allUniqueCategory.filter(d=>d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
+                    return {
+                        type: "category",
+                        primitiveId: d.id,
+                        category: d,
+                        isLive: true,
+                        title: `Category: ${d.title}`                
                     }
-                    if( n?.primitive?.id !== d.primitive?.id ){
-                        return true
-                    }
-                    if( ([n.column].flat()).map(d=>d?.idx ?? d).join("-") != ([d.column].flat()).map(d=>d?.idx ?? d).join("-")){
-                        return true
-                    }
-                    if( ([n.row].flat()).map(d=>d?.idx ?? d).join("-") != ([d.row].flat()).map(d=>d?.idx ?? d).join("-")){
-                        return true
-                    }
-                    return false
                 })
-                didChange = changes
+                
+                let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columnAxis, rowAxis, viewFilters, liveFilters, viewPivot )
+
+                let filtered = CollectionUtils.filterCollectionAndAxis( data, [
+                    {field: "column", exclude: filterApplyColumns},
+                    {field: "row", exclude: filterApplyRows},
+                    ...viewFilters.map((d,i)=>{
+                        return {field: `filterGroup${i}`, exclude: d.filter}
+                    })
+                ], {columns: extents.column, rows: extents.row, hideNull})
+
+                if( myState[d.id].list ){
+                    if( filtered.data.length !== myState[d.id].list.length){
+                        didChange = true
+                    }else{
+                        const changes = myState[d.id].list.some((d,i)=>{
+                            const n = filtered.data[i]
+                            if( !n ){
+                                return true
+                            }
+                            if( n?.primitive?.id !== d.primitive?.id ){
+                                return true
+                            }
+                            if( ([n.column].flat()).map(d=>d?.idx ?? d).join("-") != ([d.column].flat()).map(d=>d?.idx ?? d).join("-")){
+                                return true
+                            }
+                            if( ([n.row].flat()).map(d=>d?.idx ?? d).join("-") != ([d.row].flat()).map(d=>d?.idx ?? d).join("-")){
+                                return true
+                            }
+                            return false
+                        })
+                        didChange = changes
+                    }
+                }
+                            
+                myState[d.id].primitive = d
+                myState[d.id].config = undefined
+                myState[d.id].list = filtered.data
+                myState[d.id].internalWatchIds = filtered.data.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
+                myState[d.id].axis = {column: columnAxis, row: rowAxis}
+                myState[d.id].columns = filtered.columns
+                myState[d.id].viewConfig = viewConfig
+                myState[d.id].rows = filtered.rows
+                myState[d.id].extents = extents
+                myState[d.id].toggles = Object.keys(extents).reduce((a,c)=>{
+                                                                        if(c.match(/liveFilter/)){
+                                                                            a[c] = extents[c]
+                                                                        }
+                                                                        return a}, {})
             }
-                        
-            myState[d.id].primitive = d
-            myState[d.id].list = filtered.data
-            myState[d.id].internalWatchIds = filtered.data.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
-            myState[d.id].axis = {column: columnAxis, row: rowAxis}
-            myState[d.id].columns = filtered.columns
-            myState[d.id].viewConfig = viewConfig
-            myState[d.id].rows = filtered.rows
-            myState[d.id].extents = extents
-            myState[d.id].toggles = Object.keys(extents).reduce((a,c)=>{
-                                                                    if(c.match(/liveFilter/)){
-                                                                        a[c] = extents[c]
-                                                                    }
-                                                                    return a}, {})
-        }else if( d.type === "summary" ){
+        }else if( d.type === "summary"){
             myState[d.id].primitive = d
             myState[d.id].list = [{column: undefined, row: undefined, primitive: d}]
             myState[d.id].columns = [{idx: undefined, label: ''}]
@@ -110,6 +205,9 @@ let mainstore = MainStore()
                 count: d.primitives.uniqueAllIds.length
             }
         }
+        if( oldConfig !== myState[d.id].config){
+            didChange = true
+        }
         return didChange
     }
 
@@ -127,10 +225,7 @@ export default function BoardViewer({primitive,...props}){
 
     window.exportFrames = exportMultiple
 
-
-    console.log(`BOARD TOP LEVEL CALLED`)
-
-    useDataEvent("relationship_update set_parameter set_field delete_primitive", undefined, (ids, event, info)=>{
+    useDataEvent("relationship_update set_parameter set_field delete_primitive set_title", undefined, (ids, event, info)=>{
         if( myState.current.watchList  ){
             myState.current.framesToUpdate = myState.current.framesToUpdate || []
             Object.keys(myState.current.watchList).forEach(frameId=>{
@@ -138,7 +233,7 @@ export default function BoardViewer({primitive,...props}){
                 if( myState.current.watchList[frameId].filter(d=>checkIds.includes(d)).length > 0 ){
                     const existing = myState.current.framesToUpdate.find(d=>d.frameId === frameId && d.event === event) 
                     if( !existing){
-                        myState.current.framesToUpdate.push({frameId, event})
+                        myState.current.framesToUpdate.push({frameId, event, info})
                     }else{
                         console.log(`already queued`)
                     }
@@ -146,8 +241,9 @@ export default function BoardViewer({primitive,...props}){
                     if( !myState.current.frameUpdateTimer ){
                         myState.current.frameUpdateTimer = setTimeout(()=>{
                             myState.current.frameUpdateTimer = undefined
-                            for( const {frameId, event} of  myState.current.framesToUpdate){
+                            for( const {frameId, event, info} of  myState.current.framesToUpdate){
                                 let needRefresh = true
+                                let needRebuild = ((event === "set_field" || event === "set_parameter") && info === "referenceParameters.explore.view")
 
                                 if( event === "set_field" && info && typeof(info)==="strng"){
                                     if( info.match(/processing.ai/)){
@@ -157,7 +253,7 @@ export default function BoardViewer({primitive,...props}){
                                         needRefresh = false
                                     }
                                 }
-                                if( event === "relationship_update"){
+                                if( event === "relationship_update" || needRebuild){
                                     needRefresh = prepareBoard( myState[frameId].primitive )
                                     if( !needRefresh){
                                         console.log(`Cancelled refresh - no changes on ${myState[frameId]?.primitive.plainId}`)
@@ -166,7 +262,14 @@ export default function BoardViewer({primitive,...props}){
 
                                 if( needRefresh){
                                     console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}`)
-                                    canvas.current.refreshFrame( frameId )
+                                    forceUpdateLinks()
+                                    if( needRebuild ){
+                                        console.log(`With rebuild`)
+                                        const board = myState[frameId]
+                                        canvas.current.refreshFrame( frameId, renderView(board.primitive))
+                                    }else{
+                                        canvas.current.refreshFrame( frameId )
+                                    }
                                 }
                             }
                             myState.current.framesToUpdate = []
@@ -277,8 +380,7 @@ export default function BoardViewer({primitive,...props}){
         
 
     const linkList = useMemo(()=>{
-        console.log(`redo linklist ${updateLinks}`)
-        return boards.map(left=>{
+        let links = boards.map(left=>{
             return boards.map(right=>{
                                 if( right.referenceId === 118){
                                     return
@@ -354,16 +456,22 @@ export default function BoardViewer({primitive,...props}){
                 }
             }).flat(Infinity)
         }).flat().filter(d=>d)
+
+        let oldLinks = canvas.current.getLinks ? canvas.current.getLinks() :undefined
+        console.log(links)
+        if( !mainstore.deepEqual( oldLinks, links) ){
+            if( canvas.current?.updateLinks){
+                canvas.current.updateLinks(links)
+            }
+        }else{
+            console.log(`LINKS DID HNOT CAHANGE`)
+        }
+        return links
     }, [primitive?.id, update, updateLinks])
 
-    console.log("LINKLIST", linkList)
+    //console.log("LINKLIST", linkList)
     let selectedColIdx = 0
     let selectedRowIdx = 0
-    let showPane = 0
-    let colFilter = 0
-    let rowFilter = 0
-
-    function setShowPane(){}
     async function updateAxis(axisName, axis){
         if( myState?.activeBoard ){
             hideMenu()
@@ -631,6 +739,14 @@ export default function BoardViewer({primitive,...props}){
                 }
             }
             return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: "width", canvasMargin: [20,20,20,20], items: render}
+        }else if( view.config === "cat_overview"){
+            return {
+                id: d.id, 
+                title: ()=>`${d.title} - #${d.plainId}`, 
+                canChangeSize: "width", 
+                canvasMargin: [2,2,2,2], 
+                items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, config: "cat_overview", data: view.renderData})
+            }
         }else if( view.config === "widget"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, data: view.renderData})
             return {id: d.id, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
@@ -778,9 +894,14 @@ export default function BoardViewer({primitive,...props}){
     }
     function pickNewItem(){
        // addBlankView()
+
+
+       const categoryList = mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id)
+
         mainstore.globalNewPrimitive({
             title: "Add to board",
-            categoryId: [38, 117, 81, 118],
+            //categoryId: [38, 117, 81, 118],
+            categoryId: [38, 118, ...categoryList],
             parent: primitive,
             callback:(d)=>{
                 addBoardToCanvas( d, findSpace())
@@ -921,6 +1042,36 @@ export default function BoardViewer({primitive,...props}){
                             }}
                             enableFrameSelection
                             updateWatchList={updateWatchList}
+                            drag={{
+                                "primitive": {
+                                    cell:{
+                                        start: undefined,
+                                        droppable: (id,start, drop, sFrame, dFrame)=>{
+                                            if( sFrame !== dFrame ){
+                                                return false
+                                            }                                                
+                                            let frameId = sFrame
+                                            
+                                            const [sc,sr] = dropZoneToAxis(start)
+                                            const [dc,dr] = dropZoneToAxis(drop)
+                                            if( sr != dr && !myState[frameId].axis.row.allowMove){
+                                                return false
+                                            }
+                                            if( sc != dc && !myState[frameId].axis.column.allowMove){
+                                                return false
+                                            }
+                                            return true
+                                        },
+                                        drop: (id, start, drop, sFrame, dFrame)=>{
+                                            if( sFrame !== dFrame ){
+                                                return false
+                                            }                                                
+                                            let frameId = sFrame
+                                            moveItemWithinFrame(id, start, drop, myState[frameId])
+                                        }
+                                    }
+                                }
+                            }}
                             callbacks={{
                                 resizeFrame,
                                 viewportWillMove:handleViewWillChange,
@@ -949,7 +1100,6 @@ export default function BoardViewer({primitive,...props}){
                                                 ].filter(d=>d)
                                             }
                                             console.log(infoPane.filters[0])
-                                            //MainStore().sidebarSelect( frameId, {infoPane: infoPane})
                                             setCollectionPaneInfo({frame: mainstore.primitive(frameId), board: primitive, filters: infoPane.filters})
                                         }
                                     },

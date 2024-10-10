@@ -170,21 +170,33 @@ function MainStore (prims){
 
                                 if( root === 'referenceParameters'){
                                     console.log(`setting reference ${frag.join(".")}`)
+                                    let trigger = false
                                     if(frag.length === 0){
                                         for( const f in val){
                                             target.setParameter(f, val[f], true, true)
                                         }
                                     }else{
+                                        const oldValue = PrimitiveConfig.decodeParameter(target.referenceParameters, frag.join("."))
                                         if( val?.decode && val.modify !== undefined){
                                             target.modifyParameter(frag.join("."), val, val.modify, true)
                                         }else{
                                             target.setParameter(frag.join("."), val, true, true)
                                         }
+                                        console.log(`CHECK VAL PARAM`, oldValue, val)
+                                        trigger = !obj.deepEqual(oldValue, val)
                                     }
-                                    obj.triggerCallback("set_parameter", [target], field )
+                                    if( trigger ){
+                                        obj.triggerCallback("set_parameter", [target], field )
+                                    }
                                 }else{
-                                    target.setField(field, val, undefined, true)
-                                    obj.triggerCallback("set_field", [target], field )
+                                    
+                                    const oldVal = PrimitiveConfig.decodeParameter(target, field)
+                                    console.log(`CHECK VAL FIELD`, oldVal, val)
+                                    if( !obj.deepEqual(oldVal, val) ){
+                                        console.log(`TRIGGER`)
+                                        target.setField(field, val, undefined, true)
+                                        obj.triggerCallback("set_field", [target], field )
+                                    }
                                 }
                             })
                         }
@@ -206,6 +218,26 @@ function MainStore (prims){
         extendPath:function(path, ext){
             return this.stringToPath(this.pathToString(path) + "." + ext)
         },
+        deepEqual:function(obj1, obj2){
+            if (obj1 === obj2) return true;
+          
+            if (typeof obj1 !== 'object' || obj1 === null || typeof obj2 !== 'object' || obj2 === null) {
+              return false;
+            }
+          
+            const keys1 = Object.keys(obj1);
+            const keys2 = Object.keys(obj2);
+          
+            if (keys1.length !== keys2.length) return false;
+          
+            for (let key of keys1) {
+              if (!keys2.includes(key) || !obj.deepEqual(obj1[key], obj2[key])) {
+                return false;
+              }
+            }
+          
+            return true;
+          },
         pathToString:function(path){
             let out = []
             const nest = (node)=>{
@@ -1448,7 +1480,6 @@ function MainStore (prims){
                 if( prop === "removeParentRelationship"){
                     return function( parent, path){
                         const asString = receiver.primitives.flattenPath(path)
-                        console.log(asString)
                         if(!d.parentPrimitives){
                             d.parentPrimitives = {}
                         }

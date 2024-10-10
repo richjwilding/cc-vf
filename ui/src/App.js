@@ -5,8 +5,10 @@ import { BrowserRouter, Routes, Route, useParams } from "react-router-dom";
 import { ComponentView } from './ComponentView';
 import { Sidebar } from './Sidebar';
 import { library } from '@fortawesome/fontawesome-svg-core'
-import { fas } from '@fortawesome/free-solid-svg-icons'
+//import { fas } from '@fortawesome/free-solid-svg-icons'
 import { faLinkedin } from '@fortawesome/free-brands-svg-icons'
+import { faTags, faFilter } from '@fortawesome/pro-light-svg-icons';
+import { faRobot, faTrash, faChevronDown, faCircleInfo, faSpider, faSpinner, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
 import { PrimitivePage } from './PrimitivePage';
 import SideNav from './SideNav';
 import SignIn from './SignIn';
@@ -22,7 +24,7 @@ import Popup from './Popup.js';
 import GenericEditor from './CategoryEditor.js';
 import PrimitiveConfig from './PrimitiveConfig.js';
 
-library.add(fas, faLinkedin)
+library.add(faTags, faRobot, faTrash, faChevronDown, faLinkedin, faFilter, faCircleInfo, faSpinner, faTriangleExclamation)
 
 
 
@@ -150,7 +152,7 @@ function App() {
                           border:'1px solid #00d967'
                         }}}
                     />
-                    <PrimitivePage {...props} primitive={props.primitive} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
+                    <PrimitivePage key={`${mainstore.activeWorkspaceId}-${props.primitive?.id}`} {...props} primitive={props.primitive} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
                   </>
                   )}
                 </SideNav>}/>

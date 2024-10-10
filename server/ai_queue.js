@@ -72,7 +72,14 @@ async function defineAxis( primitive, action ){
         const [list, data] = await getDataForProcessing(primitive, action)
         const category = await Category.findOne({id: list[0]?.referenceId})
         const type = category?.plural ?? category.title ?? list[0]?.type ?? action.type
-        const result = await extractAxisFromDescriptionList( data, {type: type, batch: 100, debug: true, debug_content: true} )
+        const task = await primitiveTask( primitive )
+        const result = await extractAxisFromDescriptionList( data, {
+            type: type, 
+            batch: 150, 
+            theme: task?.referenceParameters?.topics,
+            debug: true, 
+            debug_content: true
+        })
         if( result?.success ){
             await dispatchControlUpdate(primitive.id, `axis`, result.output)
             axis = result.output
@@ -96,14 +103,6 @@ async function defineAxis( primitive, action ){
                     })
                 }})
                 console.log(forConsolidation)
-
-
-               /* let prompt = "Combine any and all axis which are addressing the same focus and dimension by merging the values structures of those axis."
-                prompt += "**Steps**\n1. Merge any overlapping axis based on the title, dimension and description fields by combining their respective values stuctures\n"
-                prompt += "2. Consolidate similar values within the new axis based on the title and description of the value, being cafeful to combine similar entries but without losing nuance or detail\n"
-                prompt += "3. Add a 'combined' field to the new axis containing an array of the ids that were combined to make it\n"
-                prompt += "4. Produce a list containing the new combined axis\n"
-                prompt += "5. Produce a list of ids of axis which have not been combined\n"*/
 
                 let prompt = `Combine any and all axes which are addressing the same focus and dimension by merging the values structures of those axes.
                 **Steps:**
@@ -187,6 +186,7 @@ async function defineAxis( primitive, action ){
                         type: "category",
                         title: a.title,
                         referenceParameters: {
+                            field: primitive.referenceParameters?.field ?? action.field ?? "title",
                             description: a.description,
                             dimension: a.dimension
                         }
@@ -1419,7 +1419,7 @@ export default function QueueAI(){
                                         throw "Nothing to evaluate"
                                     }
                                     if( primitive.referenceParameters.conditions){
-                                        opener = `Here is some context about a task you will perform: ${primitive.referenceParameters.conditions}.\n\nAnd here is a list of items `
+                                        opener = `Here is some context about a task you will perform: ${primitive.referenceParameters.conditions}.\n\nAnd here is the information for you to assess.`
                                     }
                                     const categoryLabels = pCategory?.mapMode === "distance" ? ["unclear", "current", "adjacent","middle","far"] : ["not at all", "possibly", "likely", "clearly"]
                                     const missing = categoryLabels.filter(d=>!catOptions.map(d=>d.title).includes(d))
@@ -1439,22 +1439,27 @@ export default function QueueAI(){
                                         }
                                     }
 
-                                    let prompt = pCategory?.mapMode === "distance" ? `For each item in the list provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
-                                                                                    : `For each item in the list provided, evaluate how close it is to the baseline described on a scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
-                                    const result = await processPromptOnText( data, {
+                                    let prompt = pCategory?.mapMode === "distance" ? `Using only the information provided, evaluate how close it is to the baseline described on a scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
+                                                                                    : `Using only the information provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
+                                                                                    
+                                    const raw_result = await processPromptOnText( data, {
                                         opener,
                                         prompt,
-                                        output: "Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed and a field called 'likelihood' set to your assessment for that item.  Do not include anything other than the json object in the response.",
+                                        //output: "Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed and a field called 'likelihood' set to your assessment for that item.  Do not include anything other than the json object in the response.",
+                                        output: `Provide the result as a json object with the following structure: 
+                                                    {likelihood:<<your assessment for this item using the scale provided>>}`,
+                                        field: 'likelihood',
                                         engine: "gpt4p",
-                                        debug: true,
-                                        no_num: false,
-                                        debug_content: true,
-                                        batch: 50
+                                        //debug: true,
+                                        no_num: true,
+                                        //debug_content: true,
+                                        batch: 1
                                     })
-                                    console.log(result)
+                                    console.log(raw_result)
                                     const resultCache = catOptions.reduce((a,c)=>{a[c.title] = {ids: [], categoryId: c.id}; return a}, {} )
-                                    if( result.success ){
-                                        for(const d of result.output){
+                                    if( raw_result.success ){
+                                        const result = raw_result.output.map((d,idx)=>({id: idx, likelihood: d}))
+                                        for(const d of result){
                                             const item = list[d.id]
                                             let category = resultCache[d.likelihood]
                                             if( !category ){
@@ -1462,7 +1467,6 @@ export default function QueueAI(){
                                             }
                                             if( item && category){
                                                 category.ids.push(item.id)
-                                                //await addRelationship( category.id, item.id, 'ref' )
                                             }
                                         }
                                     }
@@ -1498,25 +1502,25 @@ export default function QueueAI(){
                                     let types = targetConfig?.mark?.type
                                     let focus = primitive.referenceParameters?.focus ?? targetConfig?.mark?.theme ??primitive.referenceParameters?.cat_theme
                                     let literal = primitive.referenceParameters?.literal
-                                    let batchCount = categoryList.length > 15 ? 10 : 50
                                     const complex = primitive.referenceParameters?.complex ?? action.complex ?? false
                                     console.log(`Compexity = ${complex} (${primitive.referenceParameters?.complex} / ${action.complex})`)
 
                                     categoryAlloc = await categorize(data, categoryList, {
+                                        workspaceId: primitive.workspaceId,
+                                        usageId: primitive.id,
+                                        functionName: complex ? "categorize_complex" : "categorize_basic",
                                         matchPrompt:primitive.referenceParameters?.matchPrompt, 
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
                                         engine:  primitive.referenceParameters?.engine || action.engine,
                                         complex: complex,
                                         literal,
+                                        batch: (primitive.referenceParameters?.field ?? action.field) === "context" ? 1 : 50,
                                         rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
-                                        batch: primitive.referenceParameters?.batch ?? action.batch ?? batchCount,
                                         types: types,
                                         focus: focus,
-                                        temperature: 1,//0.85,
-                                        debug: true,
-                                        debug_content: true
+                                        debug: false,
+                                        debug_content: false
                                     })
-                                    console.log( categoryAlloc )
                                     
                                     let promiseList = []
 

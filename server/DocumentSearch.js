@@ -296,7 +296,9 @@ export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, s
         }
         return fragments
     }
+    console.log(`DOING LOOKUP`)
     let {results: allFragments, _} = await executeConcurrently( prompts, process )
+    console.log(`BACK`)
     
     allFragments = allFragments.flat()
     console.log(`have ${allFragments.length} fragments`)

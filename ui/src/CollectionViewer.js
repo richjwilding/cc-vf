@@ -148,7 +148,7 @@ export default function CollectionViewer({primitive, category, ...props}){
         setPage(0)
     }, [view, descend])
 
-    let cardConfig = viewCategory?.views.options?.[view] || {fields: ['title']}
+    let cardConfig = viewCategory?.views.options?.[view] || {fields: []}
 
     let list
     if(props.viewSelf ){
@@ -177,14 +177,17 @@ export default function CollectionViewer({primitive, category, ...props}){
                         primitive.primitives.strictDescendants.filter((d)=>d.type === category.type),
                         primitive.primitives.results ? primitive.primitives.results[category.id].map((d)=>d).filter((d)=>d.type === category.type) : [],
                         primitive.primitives.link.filter((d)=>d.type === category.type)
-                    ]
-                }
-                if( list ){
-                    list = MainStore().uniquePrimitives( list )
+                    ].flat()
                 }
                 
             }else{
-                list = primitive.primitives.results ? primitive.primitives.results[category.id].map((d)=>d) : []
+                list = [
+                    primitive.primitives.results[category.id].map((d)=>d),
+                    primitive.primitives.search[category.id]?.allUniqueSearch.map(d=>d.primitives.uniqueAllItems).flat().filter(d=>(category.resultCategoryId && d.referenceId === category.resultCategoryId) || (category.type && d.type === category.type)) 
+                ].flat()
+            }
+            if( list ){
+                list = MainStore().uniquePrimitives( list )
             }
         }     
         if( filters && filters.length > 0){
@@ -419,8 +422,6 @@ export default function CollectionViewer({primitive, category, ...props}){
                     }
                 }
             }
-
-            console.log(view)
             
     if( !allowed.includes(view)){
         return <></>
@@ -528,7 +529,7 @@ export default function CollectionViewer({primitive, category, ...props}){
                     columnConfig={
                         cardConfig?.wide
                             ? {"xl":2, "6xl":3, "9xl":4, "11xl":5}
-                            : {"md":2, "xl":3, "2xl":4}
+                            : {"md":2, "xl":3,"6xl":4}
                     }
                     />}
                 {view === "explore" &&

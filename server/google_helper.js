@@ -24,6 +24,7 @@ import Category from "./model/Category";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { fetchRedditThreadAsText } from "./reddit_helper.js";
 import { compareTwoStrings } from "./document_queue.js";
+import { fetchSERPViaBrightData, fetchViaBrightDataProxy } from "./brightdata.js";
 
 let adconfig = {}
 
@@ -983,6 +984,7 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
     try{
         
         const page = options?.page ?? 1
+        let useBD = true
 
         const params = { 
             "api_key": process.env.SCALESERP_KEY,
@@ -999,9 +1001,13 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
         if( options.search_type ){
             params.search_type = options.search_type
             if( options.search_type === "scholar"){
+                useBD = false
                 delete params["timeFrame"]
                 params.scholar_year_min = 2016
             }
+        }
+        if( useBD ){
+            return await fetchSERPViaBrightData(query, params)
         }
         
         const url = `https://api.scaleserp.com/search?${new URLSearchParams(params).toString() }`
@@ -1628,7 +1634,7 @@ export async function buildEmbeddingsForPrimitives( list, field = "title", fill_
 
 
 export async function queryFacebookGroup(keywords, options = {}){
-    return await queryGoogleSERP(keywords, {title: "Facebook group search", ...options, __override:{url:"https://www.facebook.com/groups/504659276407422/posts/2372112982995366/", snippet: "Fellow homeowners, I'm a new homeowner and have been in my house almost a year. Am I looking to get a decent amount of money back after writing off mortgage ..."}, prefix: ("site:facebook.com/groups/*/posts " + (options.prefix ?? "")).trim()})
+    return await queryGoogleSERP(keywords, {title: "Facebook group search", ...options, prefix: ("site:facebook.com/groups/*/posts " + (options.prefix ?? "")).trim()})
 }
 export async function queryGoogleNews(keywords, options = {}){
     return await queryGoogleSERP(keywords, {...options, search_type: "news", article: true})
@@ -1707,6 +1713,11 @@ export async function queryGoogleSERP(keywords, options = {}){
                             url: item.url,
                             posted: pageContent.posted_on,
                             source: [`Google`, searchOptions.search_type ?? "", site ? `site:${site}` :"", term ?? ""].join(" "),
+                            discovery:{
+                                engine: `Google ${searchOptions.search_type ?? ""}`.trim(),
+                                site: site,
+                                terms: term
+                            },
                             imageUrl: pageContent.image,
                             hasImg: (item.image || pageContent.image) ? true : false,
                             description: pageContent.description
@@ -1928,11 +1939,19 @@ export async function fetchURLAsText( baseUrl, options = {} ){
     }
 
 }
-export async function fetchURLAsArticle( url, threshold = 50){
+export async function fetchURLAsArticle( data, threshold = 50){
     try{
 
+        let url, html
+        if( typeof( data ) === "string"){
+            url = data
+        }else{
+            url = data.url
+            html = data.html
+        }
         const item = {}
         const articleContent = await Parser.parse(url, {
+            html,
             contentType: 'text',
         })
         console.log(articleContent)
@@ -1957,14 +1976,12 @@ export async function fetchURLAsArticle( url, threshold = 50){
 export async function getMetaImageFromURL(url) {
     try {
         const finalUrl = url.match(/:\/\//) ? url : "https://" + url
-      const response = await fetch(finalUrl);
-      const html = await response.text();
-      const $ = cheerio.load(html);
+      const response = await fetchAsTextViaProxy(finalUrl);
+        const $ = cheerio.load(response);
   
-      // Try to find the favicon link
+  
       let imageURL = $('meta[property="og:image:secure_url"]').attr('content');
   
-      // Handle relative URLs
       if (imageURL && !imageURL.startsWith('http')) {
         const baseUrl = new URL(finalUrl);
         imageURL = `${baseUrl.origin}${imageURL}`;
@@ -1979,14 +1996,11 @@ export async function getMetaImageFromURL(url) {
 export async function getFaviconFromURL(url) {
     try {
         const finalUrl = url.match(/:\/\//) ? url : "https://" + url
-      const response = await fetch(finalUrl);
-      const html = await response.text();
-      const $ = cheerio.load(html);
+        const response = await fetchAsTextViaProxy(finalUrl);
+        const $ = cheerio.load(response);
   
-      // Try to find the favicon link
       let faviconUrl = $('link[rel="icon"]').attr('href') || $('link[rel="shortcut icon"]').attr('href') || $('link[rel="apple-touch-icon"]').attr('href');
   
-      // Handle relative URLs
       if (faviconUrl && !faviconUrl.startsWith('http')) {
         const baseUrl = new URL(finalUrl);
         faviconUrl = `${baseUrl.origin}${faviconUrl}`;
@@ -2001,9 +2015,8 @@ export async function getFaviconFromURL(url) {
 export async function getMetaDescriptionFromURL(url) {
     try {
         const finalUrl = url.match(/:\/\//) ? url : "https://" + url
-        const response = await fetch(finalUrl);
-        const html = await response.text();
-        const $ = cheerio.load(html);
+        const response = await fetchAsTextViaProxy(finalUrl);
+        const $ = cheerio.load(response);
 
         const metaDescriptions = [];
         $('meta[name="description"]').each((i, elem) => {
@@ -2016,9 +2029,42 @@ export async function getMetaDescriptionFromURL(url) {
         return metaDescriptions.length > 0 ? metaDescriptions.join(". ") : null;
   
     } catch (error) {
-      console.error(`Error fetching meta: ${error}`);
+      console.error(`Error fetching meta:`);
+      console.log(error)
     }
   }
+
+export async function fetchViaProxy(url, options = {}) {
+    return await fetchViaBrightDataProxy(url, options)
+
+}
+export async function fetchAsTextViaProxy(url, options = {}) {
+  try {
+    const response = await fetchViaProxy( url, options)
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    let decoder = new TextDecoder();
+    let chunks = '';
+
+    let done = false;
+    while (!done) {
+      const { value, done: readerDone } = await reader.read();
+      done = readerDone;
+      if (value) {
+        chunks += decoder.decode(value, { stream: true });
+      }
+    }
+    return chunks;  
+  } catch (error) {
+    console.error('Fetch error:', error);
+    throw error;  
+  }
+}
+
 
 export async function extractURLsFromPageAlternative( baseUrl, options = {}, fetch_options = {},  ){
 
@@ -2152,8 +2198,8 @@ export async function processPDFDownloadBuffer( data, filename ){
     }
 }
 export async function fetchURLAsTextAlternative( url, full_options = {} ){
-    const {preferEmbeddedPdf, ...options} = full_options
-
+    const {preferEmbeddedPdf, asArticle, ...options} = full_options
+/*
         const params = 
             {
                 'url': url,
@@ -2161,11 +2207,12 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                 ...options
             }
 
-        const cUrl = `https://api.zenrows.com/v1/?${new URLSearchParams(params).toString() }`
-        const response = await fetch(cUrl,{
-            method: 'GET'
-        })
+        const cUrl = `https://api.zenrows.com/v1/?${new URLSearchParams(params).toString() }`*/
         try{
+            /*const response = await fetch(cUrl,{
+                method: 'GET'
+            })*/
+           const response = await fetchViaProxy( url, {proxy: options.proxy } )
             if(response.status !== 200){
                 if( response.status === 413 || response.status === 413){
                     // too large or unprocessable
@@ -2173,7 +2220,7 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                 }
                 return undefined
             }
-            const contentType = response.headers.get('zr-content-type')
+            const contentType = response.headers.get('zr-content-type') ?? response.headers.get('content-type')
             if( contentType.startsWith('application/pdf')){
                 console.log(`Got content type ${contentType}`)
 
@@ -2189,8 +2236,30 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                 const data = await response.arrayBuffer();
                 return await processPDFDownloadBuffer( data, filename )
             }else if( contentType.startsWith('text/html')){
-                const results = await response.text();
+                //const results = await response.text();
+
+
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let results = '';
+                let done = false;
+    
+                // Read the stream in chunks
+                while (!done) {
+                    const { value, done: readerDone } = await reader.read();
+                    done = readerDone;
+    
+                    if (value) {
+                        results += decoder.decode(value, { stream: true });
+                    }
+                }
+    
+
                 if( results){
+                    if( asArticle ){
+                        return await fetchURLAsArticle({url, html: results})
+                    }
 
                     if( preferEmbeddedPdf ){
                         // Search for embedded pdf in object
@@ -2287,7 +2356,7 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
             }
 
         }catch(error){
-            console.log(`Error in fetchURLAsTextAlternative`)
+            console.log(`Error in fetchURLAsTextAlternative ${url}`)
             console.log(error)
         }
         return undefined
@@ -2373,22 +2442,34 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
         let result
         const attempts = [
             //{title: "Article", exec: asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
-            {title: "zenRows 1", exec: async ()=>await fetchURLAsTextAlternative( url,{
-                preferEmbeddedPdf
+            {title: "BrightData", exec: async ()=>await fetchURLAsTextAlternative( url,{
+                asArticle,
+                preferEmbeddedPdf,
+                proxy: process.env.BRIGHTDATA_DC_PROXY
             } )},
-            {title: "zenRows 2", exec: async ()=>await fetchURLAsTextAlternative( url,{
-                        'js_render': 'true',
+            {title: "BrightData Unlock", exec: async ()=>await fetchURLAsTextAlternative( url,{
+                asArticle,
+                preferEmbeddedPdf,
+                proxy: process.env.BRIGHTDATA_UNLOCK_PROXY
+            } )},
+            {title: "BrightData RES", exec: async ()=>await fetchURLAsTextAlternative( url,{
+                asArticle,
+                preferEmbeddedPdf,
+                proxy: process.env.BRIGHTDATA_RES_PROXY
+            } )},
+/*            {title: "zenRows 2", exec: async ()=>await fetchURLAsTextAlternative( url,{
+                        'premium_proxy': 'true',
                         preferEmbeddedPdf
                     } )},
-            {title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
             {title: "zenRows 3", exec: async ()=>await fetchURLAsTextAlternative( url,{
                         'js_render': 'true',
                         'premium_proxy': 'true',
                         'proxy_country': 'us',
                         preferEmbeddedPdf
-                    } )},
-            {title: "Article", exec: !asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
-            {title: "PDF", exec: async ()=> await grabUrlAsPdf( url, undefined, true, preferEmbeddedPdf )}
+                    } )},*/
+           // {title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
+           // {title: "Article", exec: !asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
+            //{title: "PDF", exec: async ()=> await grabUrlAsPdf( url, undefined, true, preferEmbeddedPdf )}
         ].filter(d=>d.exec)
 
         for(const attempt of attempts){
@@ -2396,7 +2477,6 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
             result = await attempt.exec()
             if( result ){
                 console.log("Success " + attempt.title)
-//                console.log(result)
                 return result
             }
         }

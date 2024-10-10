@@ -1,5 +1,4 @@
-import { Fragment, useState, useMemo, useReducer } from 'react'
-import { Dialog, Transition } from '@headlessui/react'
+import { useState, useMemo, useReducer } from 'react'
 import { HeroIcon } from './HeroIcon'
 import { PrimitiveCard } from './PrimitiveCard'
 import DropdownButton from './DropdownButton'
@@ -7,9 +6,7 @@ import useDataEvent from './CustomHook'
 import MainStore from './MainStore'
 import ConfirmationPopup from './ConfirmationPopup'
 import { Spinner } from '@react-pdf-viewer/core'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import Popup from './Popup'
-import PrimitiveConfig from './PrimitiveConfig'
 
 
 export default function GenericEditor({item, primitive,...props}) {  

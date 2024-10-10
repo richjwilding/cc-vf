@@ -36,6 +36,24 @@ const heatMapPalette = [
             "#f03b20",
             "#bd0026"
         ]
+    },
+    {
+        title: "Ice Blue",
+        name: "ice_blue",
+        text_colors:[
+            "#222",
+            "#222",
+            "#222",
+            "#f2f2f2",
+            "#f2f2f2"
+        ],
+        colors:[
+            "#c6f1ff",
+            "#89e2ff",
+            "#46defc",
+            "#077c97",
+            "#025462"
+        ]
     }
 ]
 
@@ -218,7 +236,19 @@ const PrimitiveConfig = {
     },
     heatMapPalette:heatMapPalette,
     renderConfigs:{
-            default: {title:"Show items",parameters: {showAsCounts:false}},
+            default: {title:"Show items",parameters: {showAsCounts:false},
+                config:{
+                    "summary":{
+                        type: "option_list",
+                        title: "Show breakdown",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    }
+
+                }},
             checktable: {id: 2,title:"Truth table", renderType: "checktable",parameters: {}},
             score_dial: {id: 3,title:"Score dial", renderType: "dials",parameters: {},
                 config:{
@@ -267,8 +297,18 @@ const PrimitiveConfig = {
                     }
                 },
                 showAsCounts:true
-            }
+            },
+            cat_overview: {id: 4,title:"Category overview", renderType: "cat_overview",parameters: {}},
         },
+    decodeParameter:(data, path)=>{
+        if (!data || !path) return undefined;
+        const parts = path.split(".");
+        for (let i = 0; i < parts.length; i++) {
+            if (!data) return undefined; 
+            data = data[parts[i]];
+        }
+        return data;
+    },
     decodeExploreFilter:(filter)=>{
         if( !filter){
             return filter
@@ -520,7 +560,7 @@ const PrimitiveConfig = {
                     data = lookups[idx].map(d=>d.title)
                 }
                 else if( resolvedFilterType === "parameter"){
-                    data = lookups[idx].map(d=>d.referenceParameters?.[filter.param])//.flat()//.filter(d=>d)
+                    data = lookups[idx].map(d=>PrimitiveConfig.decodeParameter(d.referenceParameters,filter.param))
                     data = data.map(d=>Array.isArray(d) && d.length === 0 ? undefined : d).flat()
                 }else if( resolvedFilterType === "type"){
                     data = lookups[idx].map(d=>d.referenceId)
