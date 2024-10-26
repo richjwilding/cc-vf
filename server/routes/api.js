@@ -826,9 +826,10 @@ router.get('/primitive/:id/getDocumentTokenCount', async function(req, res, next
 router.get('/primitive/:id/getDocumentAsPlainText', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id
+    const force = req.query.force
     console.log( primitiveId )
     try{
-        const result = await getDocumentAsPlainText( primitiveId, req )
+        const result = await getDocumentAsPlainText( primitiveId, req, undefined, force )
         res.json({success: true, result: result?.plain, encoded: result?.data})
     }catch(err){
         res.status(400).json( {error: err.message})

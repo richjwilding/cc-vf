@@ -5,8 +5,8 @@
   "scripts": {
     "start": "npm run prod",
     "build": "npm-run-all clean transpile alias && cp -r server/templates dist-server/ && cp -r server/p_templates dist-server/",
-    "server": "node ./dist-server/bin/www",
-    "server-debug": "node --inspect ./dist-server/bin/www",
+    "server": "node --max-http-header-size=80000 ./dist-server/bin/www",
+    "server-debug": "node --max-http-header-size=80000 --inspect ./dist-server/bin/www",
     "server-profile": "node --prof ./dist-server/bin/www",
     "dev": "NODE_ENV=development npm-run-all build server-debug ",
     "profile": "NODE_ENV=development npm-run-all build server-profile ",

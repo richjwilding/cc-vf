@@ -10,6 +10,7 @@ export function reviseUserRequest( request ){
     const prompt = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to define a json structure for the output based on this request honouring any format that is specified. 
                     Each leaf in the proposed structure must have the following format {heading: a short heading that can be used when formatting the response, content: the description of what will be placed in the field by the AI, type: what format the content should be (one of list, string, number, boolean)} 
                     Focus only on the core output requested by the tasks.
+                    
                     Here is the task:`
 
 
@@ -56,31 +57,8 @@ export function reviseUserRequest( request ){
 
     const fStruct = JSON.parse(outputText)
     const oStruct = JSON.parse(outputText)
-    function removeHeading(obj) {
-        // Check if the object has a 'heading' key and delete it
-        if (obj.hasOwnProperty('heading')) {
-          delete obj.heading;
-        }
-      
-        // Loop through each key-value pair in the object
-        for (let key in obj) {
-          if (obj.hasOwnProperty(key)) {
-            if (Array.isArray(obj[key])) {
-              // If the value is an array, loop through its items
-              obj[key].forEach(item => {
-                if (typeof item === 'object') {
-                  removeHeading(item);
-                }
-              });
-            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-              // If the value is an object, recurse into it
-              removeHeading(obj[key]);
-            }
-          }
-        }
-      }
-      removeHeading(oStruct)
-      let output = JSON.stringify(oStruct)
+    removeEntries(oStruct, "heading")
+      let output = JSON.stringify(oStruct) + "\nYou must not include any fragemnt IDs in any of the content fields"
 
     console.log(output)
 
@@ -95,9 +73,57 @@ export function reviseUserRequest( request ){
 
             Analyze the text to identify all of the spoiler organisms which are relevant to the baked goos market. Be exhaustive and ensure you include all relevant spoiler organisms noted in the text i provided is taken into consideration.
 
-            Mark any data points where you had to use your own knowledge rather than the information i gave you with a ^ character`,
+            You must mark any data points where you had to use your own knowledge rather than the information i gave you with a ^ character - at the sentence, table cell or table row level as appropriate`,
             structure: fStruct.structure,
             output:JSON.stringify(output)
     }
-
 }
+
+    export function findEntries(obj, entry, out = []) {
+        // Check if the object has a 'heading' key and delete it
+        if (obj.hasOwnProperty(entry)) {
+            out.push(obj[entry]);
+        }
+      
+        // Loop through each key-value pair in the object
+        for (let key in obj) {
+          if (obj.hasOwnProperty(key)) {
+            if (Array.isArray(obj[key])) {
+              // If the value is an array, loop through its items
+              obj[key].forEach(item => {
+                if (typeof item === 'object') {
+                    findEntries(item, entry, out);
+                }
+              });
+            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+              // If the value is an object, recurse into it
+              findEntries(obj[key], entry, out);
+            }
+          }
+        }
+        return out
+      }
+
+    export function removeEntries(obj, entry) {
+        // Check if the object has a 'heading' key and delete it
+        if (obj.hasOwnProperty(entry)) {
+          delete obj[entry];
+        }
+      
+        // Loop through each key-value pair in the object
+        for (let key in obj) {
+          if (obj.hasOwnProperty(key)) {
+            if (Array.isArray(obj[key])) {
+              // If the value is an array, loop through its items
+              obj[key].forEach(item => {
+                if (typeof item === 'object') {
+                    removeEntries(item, entry);
+                }
+              });
+            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+              // If the value is an object, recurse into it
+              removeEntries(obj[key], entry);
+            }
+          }
+        }
+      }

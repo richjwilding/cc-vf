@@ -167,7 +167,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
 
     if( !forcePDF ){
         const text = await retrieveDocumentFromSearchCache( id )
-        if( text ){
+        if( text?.plain){
             return {plain: text}
         }
     }
@@ -190,6 +190,19 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
     const bucket = storage.bucket(bucketName);
 
     let file = bucket.file(id)
+    if( file ){
+        if( (await file.exists())[0] ){
+            const [metadata] = await file.getMetadata();
+            const fileSize = metadata.size; // Size in bytes
+            if( fileSize === 0 || fileSize === '0'){
+                console.log(`Zero length file - refetching`)
+                file = undefined
+            }
+
+        }else{
+            file = undefined
+        }
+    }
 
     let notes = primitive.referenceParameters?.notes
     let url = override_url || primitive.referenceParameters?.url
@@ -198,7 +211,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
         fecthFromPdf = true
     }
 
-    if( forcePDF || fecthFromPdf || !((await file.exists())[0]) ){
+    if( forcePDF || fecthFromPdf || !file ){
         let text, matches
         if( notes || fecthFromPdf || forcePDF){
             console.log(`----- EXTRACT FROM PDF`)
@@ -225,6 +238,11 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
                 }
             }else if( url && (matches = url.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/))){
                 text = (await extractPlainTextFromPdf( id, req ))?.plain
+            }else{
+                const data = await fetchURLPlainText(url, true)
+                if( data?.fullText ){
+                    text = data?.fullText
+                }
             }
             await writeTextToFile(id, text, req)
             return {plain: text}
@@ -514,6 +532,9 @@ export async function importDocument(id, req){
     return undefined
 }
 export async function writeTextToFile(id, text, req){
+    if( !text ){
+        return
+    }
     const bucketName = 'cc_vf_document_plaintext'
 
     const storage = new Storage({
@@ -2450,7 +2471,6 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
 
         let result
         const attempts = [
-            //{title: "Article", exec: asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
             {title: "BrightData", exec: async ()=>await fetchURLAsTextAlternative( url,{
                 asArticle,
                 preferEmbeddedPdf,
@@ -2476,7 +2496,7 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
                         'proxy_country': 'us',
                         preferEmbeddedPdf
                     } )},*/
-           // {title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
+            {title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
            // {title: "Article", exec: !asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
             //{title: "PDF", exec: async ()=> await grabUrlAsPdf( url, undefined, true, preferEmbeddedPdf )}
         ].filter(d=>d.exec)

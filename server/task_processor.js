@@ -7,7 +7,7 @@ import { extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL,
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
 import { analyzeListAgainstTopics, processPromptOnText, summarizeMultiple } from "./openai_helper";
-import { reviseUserRequest } from "./prompt_helper";
+import { findEntries, removeEntries, reviseUserRequest } from "./prompt_helper";
 
 const parser = PrimitiveParser()
 
@@ -956,6 +956,86 @@ export async function replicateFlow(start, target, options = {}){
     await dispatchControlUpdate(targetBoardPrimitive.id, "frames", locationMapping)
 }
 
+export async function validateResponse(task, response, nodeStruct, inputs, config, outputPrompt, pass = 0, feedback = []){
+    const maxTries = 5
+    console.log(`*** DOING REVIEW ${pass + 1} of ${maxTries}` )
+
+    const flatText = flattenStructuredResponse( response, nodeStruct)
+    console.log(flatText)
+
+    let reviewTask = `I previously gave an AI the above data alongside a task - i need you to carefully review the response as follows: 
+                    For each portion of the text carefully determine if it is marked with a ^ character near to it, for the full sentance, parapraph, table cell, or table row.
+                    If not marked with a ^, review the portion of text against the data i provided - in particular, ensure that it is based on the data provided (including checking that any company, entity or indivudal names is correctly referenced and that data points / facts havent been conflated). Do not flag omissions, abbreviations or abridged descriptions as erronoeuos - only factual inaccuracies.
+                    If marked with a ^, do not review against the data i provided - instead only review that portion of text against your general knowledge to identify any errors. You must not flag this portion of text as having an error just because it is not based on the input data - only if there is a disagreemnt with your knowledge.  
+                    Do not flag any omissions or - just errors in what is present.  Identify upto 20 errors.\n\n`
+    reviewTask += `Here is the original task: \n${task}\n\n----\n\nAnd here is the output i got: ${flatText}\n\n`
+
+    let reviewOutput = "Provide your response as an array called errors: with eeach entry having this structure {issue: a string of 100 words long and with sufficient detail that the error can be located and fixed, quote: a verbatim quote from the original output i provided - up to 10 words, not_in_data: if the text is not supported by the data i gave you, incorrect: if the item is factually incorrect, verify: if verification is recommended as no supporting evidence is available in the data, marked: indicating if the text was marked with a '^' in the text}"
+
+    let out = response
+
+    const reviewResult = await summarizeMultiple( inputs,{
+        ...config, 
+        prompt: reviewTask,
+        output: reviewOutput,
+        types: "fragments",
+        focus: config.focus, 
+        markPass: true,
+        batch: inputs.length > 1000 ? 100 : undefined,
+        markdown: config.markdown, 
+        heading: config.heading,
+        wholeResponse: true,
+        scored: config.scored,
+        //debug: true, 
+       // debug_content:true
+    })
+    
+    const errors = reviewResult?.summary?.errors
+    if(errors?.length > 0){
+        let validErrors = errors.filter(d=>(!d.marked && (d.incorrect || d.not_in_data)) || (d.marked && !d.not_in_data && d.incorrect))
+        console.log(`Review gave ${validErrors.length} (was ${errors.length})`)
+        
+        validErrors = validErrors.map(d=>d.issue)
+        if( validErrors.length > 0){
+            let correctionTask = "I previously gave an AI the above data alongside a task - i have reviewed the output and noted a number of errors that need correcting."
+            correctionTask += `Here is the original task: \n${task}\n\n----\n\nAnd here is the output i got: ${flatText}\n\nAnd here are the errors:\n${validErrors.map((d,i)=>`${i+1}. ${d}`).join("\n")}\n\nRevise the output by repeating the original task and ensuring all of the errors indentified have been corrected - make the smallest changes possible and leave other text alone - review your response to ensure no new errors are introduced.`
+            
+            const results = await summarizeMultiple( inputs,{
+                ...config, 
+                prompt: correctionTask,
+                output: outputPrompt.replace(/structure/,`revisions": "an array conatining a string with a 20 word summary of your revisions for each error provided", "structure`),
+                types: "fragments",
+                focus: config.focus, 
+                markPass: true,
+                batch: inputs.length > 1000 ? 100 : undefined,
+                allow_infer: true,
+                markdown: config.markdown, 
+                heading: config.heading,
+                wholeResponse: true,
+                scored: config.scored,
+                //debug: true, 
+                //debug_content:true
+            })
+            if(results?.summary?.structure){
+                console.log(`Revisions:`)
+                console.log(results.summary.revisions)
+                feedback.push(results.summary.revisions)
+                pass++
+                if( pass < 4){
+                    console.log(`Checking pass (${pass})`)
+                    const thisCheck = await validateResponse(task, results?.summary?.structure, nodeStruct, inputs, config, outputPrompt, pass + 1, feedback)
+                    out = thisCheck.response
+                }
+            }
+        }
+    }
+    
+    return {
+        passes: feedback.length,
+        feedback,
+        response: out
+    }
+}
 
 export async function summarizeWithQuery( primitive ){
     try{
@@ -1000,73 +1080,24 @@ export async function summarizeWithQuery( primitive ){
                 wholeResponse: true,
                 scored: config.scored,
                 debug: true, 
-                debug_content:true
+              //  debug_content:true
             })
 
 
             console.log(results?.summary?.structure)
             if( results?.summary?.structure ){
 
-
-
-                console.log(`*** DOING REVIEW`)
-
-                let reviewTask = "I previously gave an AI the above data alongside a task - i need you to review the response and validate that it is based on the data provided, this checking taht any company, entity or indivudal names is correctly referenced and that data points / facts havent been conflated. Note that text in the response that is marked with a '^' may have come from the AI and that is fine to leave as it has been noted to the user - only correct this if the AI knowlegde is wrong./\n\n"
-                reviewTask += `Here is the original task: \n${revised.task}\n\n----\n\nAnd here is the output i got: ${JSON.stringify(results?.summary?.structure)}\n\n`
-
-                let reviewOutput = "Provide your response in the following format:{revised: a boolean indicating if revisised output has been produced, errors: a boolean indicating if errors were found, references: a boolean indicating if entities were incorrectly referenced, findings:as a simple block of text sumamrising your findings in 100 words or less, revised_output: if revisions are needed - a revised output with corrections redactions - maintaing the structure and formatting of the original and adding a 'revised' field set to true for any sections that have been revised}"
-
-
-                const reviewResult = await summarizeMultiple( toProcess,{
-                    ...config, 
-                    prompt: reviewTask,
-                    output: reviewOutput,
-                    types: "fragments",
-                    focus: config.focus, 
-                    markPass: true,
-                    batch: toProcess.length > 1000 ? 100 : undefined,
-                    temperature: config.temperature ?? primitive.referenceParameters?.temperature,
-                    allow_infer: true,
-                    markdown: config.markdown, 
-                    heading: config.heading,
-                    wholeResponse: true,
-                    scored: config.scored,
-                    debug: true, 
-                    debug_content:true
-                })
-                
-                let nodeResult = results?.summary?.structure
-
-                if( reviewResult.summary.revised){
-                    console.log(`Revised text being used`)
-                    console.log(reviewResult.summary.findings)
-                    if( reviewResult.summary.revised_output ){
-                        nodeResult = reviewResult.summary.revised_output
-                    }
-                }
-
-
-                let out = ""
                 let nodeStruct = revised.structure
+                let nodeResult = results?.summary?.structure
+                const validated = await validateResponse( revised.task, results?.summary?.structure, nodeStruct, toProcess, config, revised.output)
 
-                function walkResults(nodeResult, nodeStruct, headerLevel = 0){
-                    for(const d in nodeResult){
-                        const nextR = nodeResult?.[d]
-                        const nextS = nodeStruct?.[d]
-                        if( nextS?.heading){
-                            const h_level = Math.max((3 - headerLevel), 1)
-                            out += `${"#".repeat(h_level)} ${nextS.heading}\n`
-                        }
-                        if( nextR?.content ){
-                            out += `${nextR.content}\n`
-                        }
-                        if( nextR?.subsections){
-                            walkResults(nextR?.subsections, nextS?.subsections, headerLevel + 1)
-                        }
-                    }
+                if( validated ){
+                    nodeResult = validated.response
+                    console.log(`Set to post validation`, validated)
                 }
 
-                walkResults( nodeResult, nodeStruct)
+
+                let out =flattenStructuredResponse( nodeResult, nodeStruct)
                 console.log(out)
                 return out
             }
@@ -1076,4 +1107,23 @@ export async function summarizeWithQuery( primitive ){
         console.log(error)
     }
     return ""
+}
+
+function flattenStructuredResponse(nodeResult, nodeStruct, headerLevel = 0){
+    let out = ""
+    for(const d in nodeResult){
+        const nextR = nodeResult?.[d]
+        const nextS = nodeStruct?.[d]
+        if( nextS?.heading){
+            const h_level = Math.max((3 - headerLevel), 1)
+            out += `${"#".repeat(h_level)} ${nextS.heading}\n`
+        }
+        if( nextR?.content ){
+            out += `${nextR.content}\n`
+        }
+        if( nextR?.subsections){
+            out += flattenStructuredResponse(nextR?.subsections, nextS?.subsections, headerLevel + 1)
+        }
+    }
+    return out
 }

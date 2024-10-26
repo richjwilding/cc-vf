@@ -431,6 +431,8 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
 
 
         if( options.useAxios ){
+
+            
             const response = await axios.get(url, { 
                 proxy:{
                     host: parsedProxy.hostname,
@@ -442,6 +444,7 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
                     protocol: parsedProxy.protocol,
                 }
             });
+
             return response.data
         }
             
