@@ -181,10 +181,12 @@ export async function summarizeMultiple(list, options = {} ){
         }
     }
     finalPrompt =  finalPrompt + (options.allow_infer ? "" : `.  Use only the information i have provided to produce the summary - you must not make reference to it (e.g avoid phrases like 'the text suggests', 'the provided text includes' and similar)`)
-    const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **text**\n" :""}indented list item:- text\ndouble indented list item:-- text\ntriple indented list item:--- text\ntable headers: |cell|cell| (ensure you start and finish with a | character - empty cells should be ||)\n               |----|----|\ntable rows: |cell|cell| (ensure you start and finish with a | character - empty cells should be || \n Do not use any other markdown. Ensure you mark the end of paragraphs and list items with a new line character. Do not defined the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string without any formatting."
+    const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **text**\n" :""}indented list item:- text\ndouble indented list item:-- text\ntriple indented list item:--- text\ntable headers: |cell|cell| (ensure you start and finish with a | character - empty cells should be ||)\n               |----|----|\ntable rows: |cell|cell| (ensure you start and finish with a | character - empty cells should be || \n Do not use any other markdown. Ensure you mark the end of paragraphs and list items with a new line character but do not do double newlines as that ruins the formatting. Do not define the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string without any formatting."
     
-    let outputFields
-    if( options.outputFields) {
+    let outputFields, wholeResponse = false
+    if( options.output){
+        outputFields = options.output
+    }else if( options.outputFields) {
         outputFields = `Provide the result as a json object with `
         outputFields += options.outputFields.map(d=>{
             return `a '${d.field}' field containing ${d.prompt}`
@@ -201,7 +203,8 @@ export async function summarizeMultiple(list, options = {} ){
     let interim = await processInChunk( list, 
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
-                {"role": "user", "content": listIntro}],
+                {"role": "user", "content": listIntro}
+            ],
             [
                 {"role": "user", "content":  finalPrompt},
                 {"role": "user", "content": outputFields},
@@ -209,7 +212,8 @@ export async function summarizeMultiple(list, options = {} ){
             {
                 wholeResponse: options.outputFields !== undefined || options.scored, 
                 no_num: list.length === 1 , 
-                field: "summary", 
+                wholeResponse,
+                field: wholeResponse ? undefined : (options.field ?? "summary"), 
                 debug: false, 
                 ...options })
 
@@ -248,7 +252,10 @@ export async function summarizeMultiple(list, options = {} ){
                             },
                 {"role": "user", "content": outputFields},
             ],
-            {field: "summary"})
+            {
+                wholeResponse,
+                field: wholeResponse ? undefined : (options.field ?? "summary")
+            })
 
         if( Object.hasOwn(result, "success")){
             return result
@@ -717,7 +724,11 @@ async function processInChunk( list, pre, post, options = {} ){
     let maxTokens = options.maxTokens || defaultTokens
     const fullContent = options.inBatch ? list : list.map((d, idx)=>{
         const start = options.no_num ? "" : (options.prefix ?  `${options.prefix} ${idx}: ` :`${idx}). `)
-        return `${start}${(d instanceof Object ? d.content : d)?.replaceAll(/\n|\r/g,". ")}`
+        let text = (d instanceof Object ? d.content : d)
+        if( text && !options.keepLineBreaks ){
+            text = text.replaceAll(/\n|\r/g,". ")
+        }
+        return `${start}${text}`
     })
 
     const maxIdx = fullContent.length - 1
@@ -732,6 +743,7 @@ async function processInChunk( list, pre, post, options = {} ){
             batchStart.push(idx)
         }
         console.log(`Will split ${fullContent.length} into batches of ${options.batch} - concurrency = ${concurrency}`)
+        let back = 0
         const {results, cancelled} = await executeConcurrently( batchData, 
                                                                 (d, idx)=>processInChunk(d, 
                                                                                     pre, 
@@ -744,7 +756,15 @@ async function processInChunk( list, pre, post, options = {} ){
                                                                                     }),
                                                                                     undefined,
                                                                                     undefined,
-                                                                                    concurrency)
+                                                                                    concurrency,
+                                                                                    (backIdx)=>{
+                                                                                        back++
+                                                                                        console.log(`Batch ${backIdx} (${back} total) of ${batchData.length} completed`)
+                                                                                        if(options.progressCallback){
+                                                                                            options.progressCallback({completed: back, total: batchData.length})
+                                                                                        }
+                                                                                    }
+                                                                                )
         const allResults = results.flat()
         console.log(`Got ${results.length} batches back = ${allResults.length}`)
         /*if( allResults.length !== fullContent.length ){

@@ -11,6 +11,7 @@ import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
 import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleScholar, queryYoutube } from "./google_helper";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
+import { queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, queryTiktokWithBrightData } from './brightdata';
 
 
 let instance
@@ -338,7 +339,20 @@ export default function QueryQueue(){
                             return newPrim
                         }
 
-                        const callopts = {site: config.site ,quoteKeywords: config.phrase, countPerTerm: config.countPerTerm, timeFrame: config.timeFrame, count: config.count ?? 50, existingCheck, filterPre: mapFilter(source.filterPre), filterMid: mapFilter(source.filterMid), filterPost: mapFilter(source.filterPost), createResult: createResult, prefix: prefix, cancelCheck: cancelCheck}
+                        const callopts = {
+                            site: config.site,
+                            quoteKeywords: config.phrase, 
+                            countPerTerm: config.countPerTerm, 
+                            timeFrame: config.timeFrame, 
+                            count: config.count ?? 50, 
+                            existingCheck, 
+                            filterPre: mapFilter(source.filterPre), 
+                            filterMid: mapFilter(source.filterMid), 
+                            filterPost: mapFilter(source.filterPost), 
+                            createResult: createResult, 
+                            prefix: prefix, 
+                            cancelCheck: cancelCheck
+                        }
 
                         if( source.platform === "linkedin" ){
                             if( source.type === "posts" ){
@@ -353,6 +367,15 @@ export default function QueryQueue(){
                         }
                         if( source.platform === "facebook_group" ){
                             await queryFacebookGroup( terms, callopts) 
+                        }
+                        if( source.platform === "tiktok" ){
+                            await queryTiktokWithBrightData( primitive, terms, callopts) 
+                        }
+                        if( source.platform === "reddit" ){
+                            await queryRedditWithBrightData( primitive, terms, callopts) 
+                        }
+                        if( source.platform === "instagram" ){
+                            await queryInstagramWithBrightData( primitive, terms, callopts) 
                         }
                         if( source.platform === "youtube" ){
                             await queryYoutube( terms, callopts) 
@@ -370,7 +393,24 @@ export default function QueryQueue(){
                             callopts.ignoreIds = primitive.checkCache?.items
                             await queryMetaAds( terms, callopts) 
                         }
-                        if( source.platform === "linkedin_ddg" ){
+                        if( source.platform === "linkedin_company" ){
+                            if( oId ){
+                                origin = origin ?? await Primitive.findOne({_id: oId})
+
+                                let targetProfile = origin.referenceParameters.linkedIn
+                                if( !targetProfile ){
+                                    targetProfile = await findCompanyLIPage( origin )
+                                    if( targetProfile ){
+                                        await dispatchControlUpdate( origin.id, "referenceParameters.linkedIn", targetProfile)
+                                    }
+                                }
+                                console.log(targetProfile)
+                                if( targetProfile ){
+                                    await queryLinkedInCompanyPostsBrightData( primitive, targetProfile, terms, callopts)
+                                }
+                            }
+                        }
+                        /*if( source.platform === "linkedin_ddg" ){
                             origin = origin ?? await Primitive.findOne({_id: oId})
                             //const company = origin.referenceParameters?.linkedIn?.match(/linkedin\.com\/company\/(.+)\//i)?.[1]
                             let company = origin.referenceParameters?.linkedIn?.match(/linkedin\.com\/company\/([^\/]+)(?=\/|$)/i)?.[1]
@@ -386,7 +426,7 @@ export default function QueryQueue(){
                                 const url = `linkedin.com/posts/${company}`
                                 await queryGoogleSERP( "", {...callopts, prefix: query,engine: "ddg", urlFilter: url}) 
                             }
-                        }
+                        }*/
                         if( source.platform === "crunchbase" ){
                             if( source.type === "organization" ){
 

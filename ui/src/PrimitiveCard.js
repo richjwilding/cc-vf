@@ -759,16 +759,15 @@ let mainstore = MainStore()
 
       items = items.concat([
         {
+          title: 'Show in sidebar',
+          action: ()=>mainstore.sidebarSelect(primitive),
+          icon: ArrowTopRightOnSquareIcon
+        },
+        {
           title: 'Open page',
           action: ()=>navigate(`item/${primitive.id}`),
           icon: ArrowTopRightOnSquareIcon,
           skip: props.showVisitPage === undefined ? false : !props.showVisitPage
-        },
-        {
-          title: 'Open details',
-          action: ()=>mainstore.sidebarSelect(primitive),
-          icon: ArrowTopRightOnSquareIcon,
-          skip: props.showInSidebar === undefined ? true : !props.showInSidebar
         },
         {
           title: 'Delete',

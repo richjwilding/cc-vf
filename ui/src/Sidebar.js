@@ -135,7 +135,6 @@ export function Sidebar({primitive, ...props}) {
     }
     let showButtons = !isMulti || (isMulti && commonMultiType)
     let showUnlinkFromScope = false 
-    console.log('here!!', resultIds)
 
     if( props.scope ){
         showUnlinkFromScope = true
@@ -339,6 +338,8 @@ export function Sidebar({primitive, ...props}) {
         </div>
     }
 
+    const showAsSummary = primitive.type === "summary" || (primitive.type === "segment" && primitive.referenceParameters.summary)
+
     return (
         <>
     {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
@@ -391,10 +392,10 @@ export function Sidebar({primitive, ...props}) {
             {!infoPane && !isMulti && primitive.type === "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <QueryCard primitive={primitive} showDetails={true}/>
             </div>}
-            {!infoPane && !isMulti && primitive.type === "summary" && <div className="pb-2 pl-4 pr-4 pt-4">
+            {!infoPane && !isMulti && showAsSummary && <div className="pb-2 pl-4 pr-4 pt-4">
                 <SummaryCard primitive={primitive} showDetails={true}/>
             </div>}
-            {!infoPane && !isMulti && primitive.type !== "summary" && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
+            {!infoPane && !isMulti && !showAsSummary && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
                 {primitive.type === "result" && !fulltext && primitive.referenceParameters?.url && <Panel.MenuButton title='View text' onClick={async ()=>setFullText((await primitive.getDocumentAsText())?.split(" ").slice(0,5000).join(" "))}/>}
                 {primitive.type === "result" && fulltext && <div className='p-3 border rounded-md text-sm'>{fulltext}</div>}

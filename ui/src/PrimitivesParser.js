@@ -471,10 +471,8 @@ export default function PrimitiveParser(obj){
                                 if( target.auto ){
                                     childrenIds.push( ...Object.values(target.auto ) )
                                 }
-                                //childrenIds = childrenIds.flat(Infinity)
                             }else if(direct_only){
                                 const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "ref")
-                                //childrenIds = keys.map(d=>receiver[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
                                 childrenIds = [...new Set(keys.map(d => receiver[d].uniqueAllIds).flat())];
                             }else{
                                 childrenIds = receiver.uniqueAllIds
@@ -486,18 +484,6 @@ export default function PrimitiveParser(obj){
                                     if (p && Object.keys(p._primitives).length > 0) {
                                         p.primitives._buildDescendantIds(temp, false, origin_only);
                                     }
-                                    /*if(p){
-                                        let hasProperties = false;
-                                        for (let key in p._primitives) {
-                                            if (p._primitives.hasOwnProperty(key)) {
-                                                hasProperties = true;
-                                                break;
-                                            }
-                                        }
-                                        if( hasProperties ){
-                                            p.primitives._buildDescendantIds( temp, false, origin_only)
-                                        }
-                                    }*/
                                 }
                             }
                             if( first ){

@@ -11,7 +11,7 @@ import { executeConcurrently } from "./SharedFunctions";
 export async function retrieveDocumentFromSearchCache( primitiveId){
     const fragments = await ContentEmbedding.find({foreignId: primitiveId },{foreignId:1, part:1, text: 1})
     if( fragments.length > 0 ){
-        const text = fragments.map(d=>d.text).join("\n")
+        const text = fragments.sort((a,b)=>a.part - b.part).map(d=>d.text).join("\n")
         return text
     }
     return undefined

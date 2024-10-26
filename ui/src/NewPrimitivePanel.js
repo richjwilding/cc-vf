@@ -33,6 +33,7 @@ export default function NewPrimitivePanel({selectedCategory,...props}) {
             return a
         },{})
 
+
         const {title, ...others} = parameters
 
         const fullParameters = {
@@ -40,6 +41,15 @@ export default function NewPrimitivePanel({selectedCategory,...props}) {
             ...props.parameters,
             ...others
         }
+
+        Object.keys(baseParams).filter(d=>baseParams[d].type === "list").forEach(d=>{
+            if(fullParameters[d]){
+                if( !Array.isArray(fullParameters[d])){
+                    fullParameters[d] = fullParameters[d].split(",").map(d=>d.trim())
+                }
+
+            }
+        })
 
         if( Object.keys(baseParams ?? {}).filter(d=>baseParams[d].required).filter(d=>fullParameters[d] === undefined).length > 0){
             console.log(`Missing fields`)
@@ -71,6 +81,8 @@ export default function NewPrimitivePanel({selectedCategory,...props}) {
             if( isNaN(parseFloat(value)) ){
                 return false
             }            
+        }else if( paramater.type === "list"){
+            value = value.split(",")
         }
         setParameters({
             ...parameters,

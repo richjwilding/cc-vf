@@ -8,7 +8,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { unpack, pack } from 'msgpackr';
 import CollectionUtils from "./CollectionHelper";
 
- export function uniquePrimitives(list){
+ export function __uniquePrimitives(list){
         const ids = new Set();
         return list.filter((p) => {
             if (p === undefined) {
@@ -22,7 +22,30 @@ import CollectionUtils from "./CollectionHelper";
             return true;
         });
     };
+    
 
+export function uniquePrimitives(list) {
+    if (!Array.isArray(list) || list.length === 0) {
+        return [];
+    }
+
+    const ids = new Set(); // Track unique ids
+    const result = []; // Store unique primitives
+
+    for (let i = 0; i < list.length; i++) {
+        const p = list[i];
+        if (p === undefined || p.id === undefined) {
+            continue; // Skip undefined primitives or those without an id
+        }
+        const pid = p.id; // Cache the id
+        if (!ids.has(pid)) {
+            ids.add(pid); // Add id to set
+            result.push(p); // Add the object to the result array
+        }
+    }
+
+    return result; // Return the array of unique primitives
+}
 
 let instance = undefined
 function MainStore (prims){
@@ -157,8 +180,6 @@ function MainStore (prims){
                     if( entry.fields){
                         const target = obj.primitive( entry.primitiveId)
                         if( target ){
-                            console.log(  `Updating fields on  ${target.id}` )
-
                             Object.keys(entry.fields).forEach((field)=>{
                                 const frag = field.split('.')
                                 const root = frag.shift()
@@ -169,7 +190,6 @@ function MainStore (prims){
                                 }
 
                                 if( root === 'referenceParameters'){
-                                    console.log(`setting reference ${frag.join(".")}`)
                                     let trigger = false
                                     if(frag.length === 0){
                                         for( const f in val){
@@ -182,7 +202,6 @@ function MainStore (prims){
                                         }else{
                                             target.setParameter(frag.join("."), val, true, true)
                                         }
-                                        console.log(`CHECK VAL PARAM`, oldValue, val)
                                         trigger = !obj.deepEqual(oldValue, val)
                                     }
                                     if( trigger ){
@@ -191,9 +210,7 @@ function MainStore (prims){
                                 }else{
                                     
                                     const oldVal = PrimitiveConfig.decodeParameter(target, field)
-                                    console.log(`CHECK VAL FIELD`, oldVal, val)
                                     if( !obj.deepEqual(oldVal, val) ){
-                                        console.log(`TRIGGER`)
                                         target.setField(field, val, undefined, true)
                                         obj.triggerCallback("set_field", [target], field )
                                     }
@@ -753,33 +770,12 @@ function MainStore (prims){
                 }
         },
         deletePrimitive:function(id){
-/*            
             delete obj.data.primitives[ id ]
-            if( obj._cache_prim ){
-                obj._cache_prim = obj._cache_prim.filter((d)=>d.id !== id)
-            }*/
-            /*obj.data.primitives = obj.data.primitives.filter((d)=>d.id === id || d._id === id)
-            delete obj._cache_prim[ id ]*/
-
-            delete obj.data.primitives[ id ]
-
         },
         addPrimitive:function(data){
-/*            if( obj._cache_prim === undefined){
-                obj.primitives()                
-            }
-            obj.data.primitives.push(data)*/
-            //obj._cache_prim.push(primitive_access(data,"primitive"))
-            //obj._cache_prim[data.id || data._id] = primitive_access(data,"primitive")
             obj.data.primitives[data.id || data._id] = primitive_access(data,"primitive")
         },
         primitives:function(){
-          /*  if( obj._cache_prim === undefined){
-                //obj._cache_prim = (prims || obj.data.primitives).map((p)=>primitive_access(p,"primitive"))
-                obj._cache_prim = (prims || obj.data.primitives).map((p)=>primitive_access(p,"primitive")).reduce((o,d)=>{o[d.id]=d;return o}, {})
-
-            }
-            return Object.values(obj._cache_prim)*/
             return Object.values(obj.data.primitives)
         },
         primitiveByPlain:function(id){
@@ -787,11 +783,6 @@ function MainStore (prims){
             return data
         },
         primitive:function(id){
-            /*if( obj._cache_prim === undefined){
-                obj.primitives()                
-            }*/
-            //let data = obj.primitives().find((p)=>p.id === id)
-//            let data = obj._cache_prim[id]
             let data = obj.data.primitives[id]
             if( !data && !isNaN(id) ){
                 data = this.primitiveByPlain(id)
@@ -799,9 +790,6 @@ function MainStore (prims){
                     console.warn(`Primitive lookup ${id} by plainId`)
                 }
             }
-/*                if( data === undefined){
-                    console.warn(`Primitive lookup ${id} found nothing`)
-                }*/
             return data
         },
         workspace:function(id){
@@ -811,10 +799,10 @@ function MainStore (prims){
             return obj.data.workspaces
         },
         categories:function(){
-            return obj.data.categories
+            return Object.values(obj.data.categories)
         },
         category:function(id){
-            return this.categories().find((d)=>d.id === id)
+            return obj.data.categories[ id ]
         },
         companies:function(){
             return this.data.companies
@@ -1060,6 +1048,10 @@ function MainStore (prims){
                 parentPath = undefined, 
                 categoryId = undefined, 
                 referenceParameters = {} } = options
+            
+            if(!categoryId && options.referenceId){
+                categoryId = options.referenceId 
+            }
 
             let paths = []
             if( parent ){
@@ -1107,7 +1099,6 @@ function MainStore (prims){
           //  }
 
             let data = {
-                //plainId:  Math.floor(Math.random() * 99999),
                 title: title,
                 type: type,
                 state: state,
@@ -1154,7 +1145,6 @@ function MainStore (prims){
     })
     obj.socket.on('message', (data)=>{
         let items = data
-        console.log(data)
         if( !Array.isArray(data) ){
             items = data.data
             if( data.track ){
@@ -1634,7 +1624,7 @@ function MainStore (prims){
                     }                    
                 }
                 if( prop === "metadata"){
-                    let category = obj.categories().find((p)=>p.id === d.referenceId )
+                    let category = obj.category(d.referenceId)
                     if( category === undefined){
                         category = PrimitiveConfig.metadata[receiver.type]
                     }
@@ -1820,7 +1810,11 @@ function MainStore (prims){
                                     }
                                     if( params.referenceId ){
                                         const match = params.referenceId
-                                        list = list.filter(d=>d.referenceId === match) 
+                                        if( Array.isArray(match)){
+                                            list = list.filter(d=>match.includes(d.referenceId))
+                                        }else{
+                                            list = list.filter(d=>d.referenceId === match) 
+                                        }
                                     }
                                     if( params.type ){
                                         list = list.filter(d=>d.type === params.type) 
@@ -1846,7 +1840,6 @@ function MainStore (prims){
                                         list = filterOut ?? list
                                         for(const set of config ){
                                             if( set.referenceId ){
-                                                console.log(`Descend after import`)
                                                 list = uniquePrimitives( list.map(d=>d.primitives.filter(d=>d.referenceId === set.referenceId)).flat())
                                             }
                                         }
@@ -2023,7 +2016,6 @@ function MainStore (prims){
                                     }
                                     const check = `.${rel}`
                                     return d.parentPrimitives[k].some(d => d.endsWith(check))
-                                    //return d.parentPrimitives[k].filter(d=>d.split(".").slice(-1)?.[0] === rel).length > 0
                                 }).map(id=>obj.primitive(id)).filter(d=>d && (rId === undefined || rId === d.referenceId))
                                 
                                 if( out.length === 0){
@@ -2131,32 +2123,48 @@ function MainStore (prims){
                     for(const d of Object.keys(category.ai.process.context.fields ?? [])){
                         const source = category.ai?.process?.context.fields[d]
                         if( source instanceof Object){
-                            let header = source.title
-                            let showCount = false
-                            const children = receiver.primitives.uniqueAllItems.filter(d=>d.referenceId === source.referenceId)
-                            if( children && children.length > 0){
-                                if( out.length > 0){
-                                    out += ".\n"
-                                }
-                                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>{
-                                    let interim = `${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
-                                    for(const p of Object.keys(d.referenceParameters ?? {})){
-                                        const val = [d.referenceParameters[p]].flat().filter(d=>d)
-                                        if( val.length > 0){
-                                            interim += `\n${p}: ${val.join(", ")}`
+                            if( source.referenceId){
+                                let header = source.title
+                                let showCount = false
+                                const children = receiver.primitives.uniqueAllItems.filter(d=>d.referenceId === source.referenceId)
+                                if( children && children.length > 0){
+                                    if( out.length > 0){
+                                        out += ".\n"
+                                    }
+                                    out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>{
+                                        let interim = `${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
+                                        for(const p of Object.keys(d.referenceParameters ?? {})){
+                                            const val = [d.referenceParameters[p]].flat().filter(d=>d)
+                                            if( val.length > 0){
+                                                interim += `\n${p}: ${val.join(", ")}`
+                                            }
+                                        }
+                                        return interim
+                                    }).join("\n") + "\n"
+                                }else{
+                                    if( source.fallback){
+                                        const param = source.fallback.slice(7)
+                                        if( receiver.referenceParameters?.[param] ){
+                                            out += (header?.length > 0 ? `${header}: ` : "") + receiver.referenceParameters[param] + "\n"
                                         }
                                     }
-                                    return interim
-                                }).join("\n") + "\n"
+                                }
                             }else{
-                                if( source.fallback){
-                                    const param = source.fallback.slice(7)
-                                    if( receiver.referenceParameters?.[param] ){
-                                        out += (header?.length > 0 ? `${header}: ` : "") + receiver.referenceParameters[param] + "\n"
+                                const list = [receiver.referenceParameters?.[d]].flat().filter(d=>d)
+                                if( list.length > 0){
+                                    out += (source.header ?? d) + ":\n"
+
+                                    const titleBase = source.title ?? d
+
+                                    for(const d of list){
+                                        const title = titleBase.replace(/\{([^}]+)\}/g, function(match, fieldName) {
+                                            return fieldName in d ? d[fieldName] : match;
+                                        });
+
+                                        out += title + ":" + source.fields.map(d2=>d[d2]) + "\n"
                                     }
                                 }
                             }
-
                         }else{
                             let field
                             if( d === "title"){
@@ -2219,6 +2227,44 @@ function MainStore (prims){
                 }
                 if( prop === "findParentPrimitives"){
                     return function(options = {type: undefined, referenceId: undefined, first: false}){
+                        const scatter = (list)=>{
+                            if( list === undefined){ return []}
+                            return uniquePrimitives(list.flatMap((p) => p.parentPrimitives));
+                        }
+                        let found = []
+                        let current = scatter( [receiver] )
+                        
+                        while( current.length > 0){
+                            if (options.type === undefined && options.referenceId === undefined) {
+                                found.push(...current); // Use push instead of spread for performance
+                            } else {
+                                let filtered = current;
+                                if (options.referenceId !== undefined && options.referenceId.length > 0) {
+                                    filtered = filtered.filter((p) => options.referenceId.includes(p.referenceId));
+                                }
+                                if (options.type !== undefined && options.type.length > 0) {
+                                    filtered = filtered.filter((p) => options.type.includes(p.type));
+                                }
+                                found.push(...filtered);
+                            }
+
+                            /*if( options.type === undefined && options.referenceId === undefined){
+                                found = [...found, ...current]
+                            }else if(options.type === undefined){
+                                found = [...found, ...current.filter((p)=>options.referenceId.includes(p.referenceId))]                        
+                            }else if(options.referenceId === undefined){
+                                found = [...found, ...current.filter((p)=>options.type.includes(p.type))]                        
+                            }else{
+                                found = [...found, ...current.filter((p)=>(options.referenceId.length === 0 || options.referenceId.includes(p.referenceId)) && (options.type.length === 0 || options.type.includes(p.type)))]                        
+                            }*/
+                            if( options.first && found.length > 0 ){
+                                return found
+                            }
+                            current = scatter( current )
+                        }
+                        return found
+                    }
+                    /*return function(options = {type: undefined, referenceId: undefined, first: false}){
                         const ids = {}
                         const scatter = (list)=>{
                             if( list === undefined){ return []}
@@ -2253,7 +2299,7 @@ function MainStore (prims){
                             current = scatter( current )
                         }
                         return found
-                    }
+                    }*/
                 }
                 if( prop === "parentRelationship"){
                     return function( parent, root ){
@@ -2372,7 +2418,7 @@ function MainStore (prims){
                         d.avatarUrl = `/api/avatarImage/${d.id}?${d.updatedAt ? new Date(d.updatedAt).getTime() : ""}`
                     }
                     return d} )
-                obj.data.categories = categories
+                obj.data.categories = categories.reduce((o,d)=>{o[d.id] = d; return o}, {})
                 obj.data.primitives = primitives.reduce((o,d)=>{o[d._id] = primitive_access(d, "primitive"); return o}, {})
                 obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
                 obj.activeUser.id = obj.activeUser.info.id

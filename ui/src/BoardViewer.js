@@ -53,17 +53,95 @@ async function moveItemWithinFrame(primitiveId, startZone, endZone, frame){
 }
 
 let mainstore = MainStore()
+    function SharedRenderView(d, primitive, myState){
+        const view = myState[d.id]
+        const renderOptions = {}
+        const configNames = ["width", "height"]
 
-    function SharedPrepareBoard(d, myState){
+        const title = view.noTitle ? undefined : ()=>`${d.title} - #${d.plainId}`
+        const canvasMargin = view.noTitle ? [0,0,0,0] : [20,20,20,20]
+
+
+        const mapMatrix = (stageOptions, d, view)=>renderMatrix(
+            d, 
+            view.list, {
+                axis: view.axis,
+                columnExtents: view.columns,
+                rowExtents: view.rows,
+                viewConfig: view.viewConfig,
+                ...stageOptions,
+                ...renderOptions,
+                toggles: view.toggles,
+                expand: Object.keys(primitive.frames?.[ d.id ]?.expand ?? {})
+            })
+
+        if( primitive.frames?.[d.id]){
+            for( const name of configNames){
+                if( primitive.frames[d.id][name] !== undefined){
+                    renderOptions[name] = primitive.frames[d.id][name]
+                }
+            }
+        }
+        if( view.config === "full"){
+            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})
+            if( d.referenceId === 118){
+                let boardToCombine = d.primitives.imports.allItems
+                if(d.order){
+                    boardToCombine.sort((a,b)=>d.order.indexOf(a.id) - d.order.indexOf(b.id))
+                }
+                if( boardToCombine.length >0 ){
+
+                    render = (stageOptions)=>{
+                        const partials = boardToCombine.map(d=>{
+                            const board = myState[d.id]
+                            return {
+                                primitive: d,
+                                axis: board.axis,
+                                columnExtents: board.columns,
+                                rowExtents: board.rows,
+                                viewConfig: board.viewConfig,
+                                list: board.list
+                        }})
+                        console.log("DID PARTIALS",partials)
+                        return RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, partials})
+                    }
+                }
+            }
+            return {id: d.id, title, canChangeSize: "width", canvasMargin, items: render}
+        }else if( view.config === "cat_overview"){
+            return {
+                id: d.id, 
+                title, 
+                canChangeSize: "width", 
+                canvasMargin, 
+                items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, config: "cat_overview", data: view.renderData})
+            }
+        }else if( view.config === "widget"){
+            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, data: view.renderData})
+            return {id: d.id, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
+        }
+        
+        if( d.type === "query" && d.processing?.ai?.data_query){
+            return {id: d.id, title, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions, ...renderOptions})}
+        }
+
+        const canChangeSize = view?.viewConfig?.resizable 
+
+        return {id: d.id, title, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
+
+    }
+
+    function SharedPrepareBoard(d, myState, stateId, forceViewConfig){
         let didChange = false
-        const oldConfig = myState[d.id]?.config
+        stateId = stateId ?? d.id
+        const oldConfig = myState[stateId]?.config
         if( d.type === "view" || d.type === "query"){
             const items = d.itemsForProcessing
-            const columnAxis = CollectionUtils.primitiveAxis(d, "column")
-            const rowAxis = CollectionUtils.primitiveAxis(d, "row")
+            const columnAxis = CollectionUtils.primitiveAxis(d, "column", items)
+            const rowAxis = CollectionUtils.primitiveAxis(d, "row", items)
 
             
-            const activeView  = d?.referenceParameters?.explore?.view
+            const activeView  = forceViewConfig ?? d?.referenceParameters?.explore?.view
             const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
             const viewConfig = viewConfigs?.[activeView] 
 
@@ -82,10 +160,20 @@ let mainstore = MainStore()
                     }
                     let {data, extents} = CollectionUtils.mapCollectionByAxis( items, axis, undefined, [], [], undefined )
                     //console.log(data, extents)
+                    let columnsToInclude, totalCount = data.length
+                    if( d.renderConfig?.show_none ){
+                        const none = extents.column.find(d=>d.idx === "_N_")
+                        columnsToInclude =  [none, ...extents.column.filter(d=>d.idx !== "_N_")]
+                    }else{
+                        totalCount -= data.filter(d=>d.column === "_N_").length
+                        columnsToInclude =  extents.column.filter(d=>d.idx !== "_N_")
+                    } 
+
                     return {
                             id: category.id,
-                            title: category.title,
-                            details: extents.column.filter(d=>d.idx !== "_N_").map(d=>{
+                            title: `${category.title} (${totalCount})`,
+                            //details: extents.column.filter(d=>d.idx !== "_N_").map(d=>{
+                            details: columnsToInclude.map(d=>{
                                 const items = data.filter(d2=>d2.column === d.idx || (Array.isArray(d2.column) && d2.column.includes(d.idx)))
                                 return {
                                     idx: d.idx,
@@ -107,9 +195,9 @@ let mainstore = MainStore()
                     return true
                 })*/
 
-                myState[d.id].primitive = d
-                myState[d.id].config = "cat_overview"
-                myState[d.id].renderData = {
+                myState[stateId].primitive = d
+                myState[stateId].config = "cat_overview"
+                myState[stateId].renderData = {
                     mappedCategories
                 }
             }else{
@@ -142,11 +230,11 @@ let mainstore = MainStore()
                     })
                 ], {columns: extents.column, rows: extents.row, hideNull})
 
-                if( myState[d.id].list ){
-                    if( filtered.data.length !== myState[d.id].list.length){
+                if( myState[stateId].list ){
+                    if( filtered.data.length !== myState[stateId].list.length){
                         didChange = true
                     }else{
-                        const changes = myState[d.id].list.some((d,i)=>{
+                        const changes = myState[stateId].list.some((d,i)=>{
                             const n = filtered.data[i]
                             if( !n ){
                                 return true
@@ -166,46 +254,47 @@ let mainstore = MainStore()
                     }
                 }
                             
-                myState[d.id].primitive = d
-                myState[d.id].config = undefined
-                myState[d.id].list = filtered.data
-                myState[d.id].internalWatchIds = filtered.data.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
-                myState[d.id].axis = {column: columnAxis, row: rowAxis}
-                myState[d.id].columns = filtered.columns
-                myState[d.id].viewConfig = viewConfig
-                myState[d.id].rows = filtered.rows
-                myState[d.id].extents = extents
-                myState[d.id].toggles = Object.keys(extents).reduce((a,c)=>{
+                myState[stateId].primitive = d
+                myState[stateId].config = "explore_" + activeView
+                myState[stateId].list = filtered.data
+                myState[stateId].internalWatchIds = filtered.data.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
+                myState[stateId].axis = {column: columnAxis, row: rowAxis}
+                myState[stateId].columns = filtered.columns
+                myState[stateId].viewConfig = viewConfig
+                myState[stateId].rows = filtered.rows
+                myState[stateId].extents = extents
+                myState[stateId].toggles = Object.keys(extents).reduce((a,c)=>{
                                                                         if(c.match(/liveFilter/)){
                                                                             a[c] = extents[c]
                                                                         }
                                                                         return a}, {})
             }
-        }else if( d.type === "summary"){
-            myState[d.id].primitive = d
-            myState[d.id].list = [{column: undefined, row: undefined, primitive: d}]
-            myState[d.id].columns = [{idx: undefined, label: ''}]
-            myState[d.id].rows = [{idx: undefined, label: ''}]
-            myState[d.id].config = "full"
-            myState[d.id].extents = {
+        }else if( d.type === "summary" || d.type === "element"){
+            myState[stateId].primitive = d
+            myState[stateId].list = [{column: undefined, row: undefined, primitive: d}]
+            myState[stateId].columns = [{idx: undefined, label: ''}]
+            myState[stateId].rows = [{idx: undefined, label: ''}]
+            myState[stateId].config = "full"
+            myState[stateId].extents = {
                 columns: [{idx: undefined, label: ''}],
                 row:[{idx: undefined, label: ''}]
             }
-            myState[d.id].toggles = {}
+            myState[stateId].toggles = {}
         }else if( d.type === "search" ){
 
             const resultCategory = mainstore.category( d.metadata.parameters.sources.options[0].resultCategoryId )
 
-            myState[d.id].primitive = d
-            myState[d.id].config = "widget"
-            myState[d.id].renderData = {
+            myState[stateId].primitive = d
+            myState[stateId].config = "widget"
+            myState[stateId].renderData = {
                 //icon: HeroIcon({icon: d.metadata.icon, asString: true, stroke: "#ff0000", width: 12, height: 12}),
                 icon: <HeroIcon icon={resultCategory?.icon}/>,
                 items: resultCategory.plural ?? resultCategory.title + "s",
                 count: d.primitives.uniqueAllIds.length
             }
         }
-        if( oldConfig !== myState[d.id].config){
+        console.log(oldConfig, myState[stateId].config)
+        if( oldConfig !== myState[stateId].config){
             didChange = true
         }
         return didChange
@@ -273,7 +362,7 @@ export default function BoardViewer({primitive,...props}){
                                 }
                             }
                             myState.current.framesToUpdate = []
-                        }, 320)
+                        }, 820)
                     }
                 }
             })
@@ -380,7 +469,9 @@ export default function BoardViewer({primitive,...props}){
         
 
     const linkList = useMemo(()=>{
+                        let p1 = performance.now()
         let links = boards.map(left=>{
+            let segmentSummaries
             return boards.map(right=>{
                                 if( right.referenceId === 118){
                                     return
@@ -393,12 +484,12 @@ export default function BoardViewer({primitive,...props}){
                         const route = right.findImportRoute(left.id)
                         if( route.length > 0){
 
-                            console.log(`Checking view import ${left.plainId} -> ${right.plainId}`)
+                            //console.log(`Checking view import ${left.plainId} -> ${right.plainId} ()`)
                             for(const axis of ["row","column"]){
                                 if( left.referenceParameters?.explore?.axis?.[axis]?.type === "category" ){
                                     const axisPrim = left.primitives.axis?.[axis]?.allIds?.[0]
                                     if(  axisPrim ){
-                                        const values = right.referenceParameters?.importConfig?.find(d=>d.id === left.id ).filters?.map(d=>d.sourcePrimId === axisPrim ? d.value : undefined).flat().filter(d=>d)
+                                        const values = right.referenceParameters?.importConfig?.find(d=>d.id === left.id )?.filters?.map(d=>d.sourcePrimId === axisPrim ? d.value : undefined).flat().filter(d=>d)
                                         let row, column
                                         if( values ){
                                             column = values.map(d=>myState[left.id].extents.column.findIndex(d2=>d2.idx === d)).filter(d=>d > -1)
@@ -427,20 +518,25 @@ export default function BoardViewer({primitive,...props}){
 
                         }else{
                             if( right.type === "query" || right.type === "summary"){
-                                const segmentSummaries = left.primitives.origin.allUniqueSegment.map(d=>[...d.primitives.origin.allUniqueSummary, ...d.primitives.origin.allUniqueQuery] ).flat()
+                                if( !segmentSummaries ){
+                                    segmentSummaries = left.primitives.origin.allUniqueSegment.map(d=>[...d.primitives.origin.allUniqueSummary, ...d.primitives.origin.allUniqueQuery] ).flat()
+                                }
+                                
                                 if(segmentSummaries.map(d=>d.id).includes( right.id)){
                                     const out = []
                                     let added = false
                                     myState[left.id].columns.forEach((column,cIdx)=>{
                                         myState[left.id].rows.forEach((row,rIdx)=>{
-                                            const filter = [
+                                            if(!added){
+                                                const filter = [
                                                     PrimitiveConfig.encodeExploreFilter( myState[left.id].axis.column, column ),
                                                     PrimitiveConfig.encodeExploreFilter( myState[left.id].axis.row, row ),
                                                 ].filter(d=>d)
-                                            
-                                            if( right.origin.doesImport(left.id, filter)){
-                                                out.push( {left: left.id, cell: `${cIdx}-${rIdx}`, right: right.id})
-                                                added = true
+                                                
+                                                if( right.origin.doesImport(left.id, filter)){
+                                                    out.push( {left: left.id, cell: `${cIdx}-${rIdx}`, right: right.id})
+                                                    added = true
+                                                }
                                             }
                                         })
                                     })
@@ -456,6 +552,7 @@ export default function BoardViewer({primitive,...props}){
                 }
             }).flat(Infinity)
         }).flat().filter(d=>d)
+                                    console.log("Links took", performance.now()-p1)
 
         let oldLinks = canvas.current.getLinks ? canvas.current.getLinks() :undefined
         console.log(links)
@@ -600,6 +697,9 @@ export default function BoardViewer({primitive,...props}){
     }
 
     function addBoardToCanvas( d, position ){
+        if( !position){
+            position = findSpace()
+        }
         myState[d.id] = {id: d.id}
         prepareBoard( d )
 
@@ -632,9 +732,9 @@ export default function BoardViewer({primitive,...props}){
         if(myState.activeBoard){
             const bp = myState.activeBoard.primitive
             if( bp.type === "search"){
-                const resultCategory = mainstore.category( bp.metadata.parameters.sources.options[0]?.resultCategoryId )
-                if( resultCategory ){
-                    await addBlankView( undefined, bp.id, undefined, {referenceId: resultCategory.id})
+                const resultCategoryIds = bp.metadata.parameters.sources.options.map(d=>d.resultCategoryId).filter((d,i,a)=>a.indexOf(d) === i)
+                if( resultCategoryIds.length > 0 ){
+                    await addBlankView( undefined, bp.id, undefined, {referenceId: resultCategoryIds})
                 }
                 
             }
@@ -687,81 +787,10 @@ export default function BoardViewer({primitive,...props}){
         }
     }
 
+
     function renderView(d){
-        const view = myState[d.id]
-        const renderOptions = {}
-        const configNames = ["width", "height"]
-
-
-        const mapMatrix = (stageOptions, d, view)=>renderMatrix(
-            d, 
-            view.list, {
-                axis: view.axis,
-                columnExtents: view.columns,
-                rowExtents: view.rows,
-                viewConfig: view.viewConfig,
-                ...stageOptions,
-                ...renderOptions,
-                toggles: view.toggles,
-                expand: Object.keys(primitive.frames?.[ d.id ]?.expand ?? {})
-            })
-
-        if( primitive.frames?.[d.id]){
-            for( const name of configNames){
-                if( primitive.frames[d.id][name] !== undefined){
-                    renderOptions[name] = primitive.frames[d.id][name]
-                }
-            }
-        }
-        if( view.config === "full"){
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})
-            if( d.referenceId === 118){
-                let boardToCombine = d.primitives.imports.allItems
-                if(d.order){
-                    boardToCombine.sort((a,b)=>d.order.indexOf(a.id) - d.order.indexOf(b.id))
-                }
-                if( boardToCombine.length >0 ){
-
-                    render = (stageOptions)=>{
-                        const partials = boardToCombine.map(d=>{
-                            const board = myState[d.id]
-                            return {
-                                primitive: d,
-                                axis: board.axis,
-                                columnExtents: board.columns,
-                                rowExtents: board.rows,
-                                viewConfig: board.viewConfig,
-                                list: board.list
-                        }})
-                        console.log("DID PARTIALS",partials)
-                        return RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, partials})
-                    }
-                }
-            }
-            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: "width", canvasMargin: [20,20,20,20], items: render}
-        }else if( view.config === "cat_overview"){
-            return {
-                id: d.id, 
-                title: ()=>`${d.title} - #${d.plainId}`, 
-                canChangeSize: "width", 
-                canvasMargin: [2,2,2,2], 
-                items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, config: "cat_overview", data: view.renderData})
-            }
-        }else if( view.config === "widget"){
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
-        }
-        
-        if( d.type === "query" && d.processing?.ai?.data_query){
-            return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize: true, canvasMargin: [20,20,20,20], items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions, ...renderOptions})}
-        }
-
-        const canChangeSize = view?.viewConfig?.resizable 
-
-        return {id: d.id, title: ()=>`${d.title} - #${d.plainId}`, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
-
+        return SharedRenderView(d, primitive, myState)
     }
-
     async function addBlankView(cat_or_id = 38, importId, filter, full_options = {}){
         const category = typeof(cat_or_id) === "number" ? mainstore.category(cat_or_id) : cat_or_id
         const {pivot, ...options} = full_options 
@@ -830,7 +859,7 @@ export default function BoardViewer({primitive,...props}){
                     originTask: d,
                     parent: primitive,
                     callback:(d)=>{
-                        addBoardToCanvas( d, {x:0, y: 0, s: 1})
+                        addBoardToCanvas( d )
                         return true
                     }
                 })
@@ -890,7 +919,14 @@ export default function BoardViewer({primitive,...props}){
         }*/
     }
     function findSpace(){
-        return {x:0, y:0, s:1}
+        let position = {x:0, y:0, s:1}
+        if( myState.activeBoard){
+            let current = canvas.current.framePosition(myState.activeBoardId)?.scene
+            if( current ){
+                position = {x:current.l, y: current.b + 30, s: current.s}
+            }
+        }
+        return position
     }
     function pickNewItem(){
        // addBlankView()
@@ -939,18 +975,28 @@ export default function BoardViewer({primitive,...props}){
     }
     async function exportFrame(asTable = false){
         if(myState.activeBoard){
-            const root = canvas.current.frameData( myState.activeBoardId )
-            const temp = root.node.children
-            root.node.children = root.allNodes
             if( asTable ){
+                const root = canvas.current.frameData( myState.activeBoardId )
+                const temp = root.node.children
+                root.node.children = root.allNodes
+            
                 await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: ["frame_outline", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
+                root.node.children = temp
             }else{
-                await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: ["frame_outline", "frame_label", "background", "view"],  padding: [3, 1, 0.25, 1]} )
+                const frames = canvas.current.getSelection("frame")
+                const pptx = createPptx()
+                for(const d of frames){
+                    const root = canvas.current.frameData( d.attrs.id )
+                    const temp = root.node.children
+                    root.node.children = root.allNodes
+                    await exportKonvaToPptx( root.node, pptx, {removeNodes: ["frame_outline", "frame_label", "background", "view"],  padding: [3, 1, 0.25, 1]} )
+                    root.node.children = temp
+                }
+                pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
             }
             if( !mainstore.disablePPTXSave ){
                 mainstore.keepPPTX.writeFile({ fileName: "Konva_Stage_Export.pptx" });
             }
-            root.node.children = temp
         }else{
             await exportKonvaToPptx( canvas.current.stageNode() )
         }
@@ -965,12 +1011,20 @@ export default function BoardViewer({primitive,...props}){
 
 
             }
-            const out = view.rows.map(row=>{
+            const type = view.list[0]?.primitive.type
+            let out = "~" + view.columns.map(d=>d.label).join("~")
+            
+            out += "\n" + view.rows.map(row=>{
                 return row.label +"~" + view.columns.map(column=>{
                     const subList = view.list.filter(d=>[d.column].flat().includes( column.idx) && [d.row].flat().includes( row.idx))
                     let text = "-"
                     if( subList.length > 0){
-                         text = subList.map(d=>(d.primitive.referenceParameters?.summary ?? d.primitive.referenceParameters?.description ?? "").replaceAll(/\n/g, "-ENT-")).join("-ENT-")
+                        if( type === "evidence"){
+                            //text = subList.map(d=>([d.primitive.title, d.primitive.referenceParameters?.quote].filter(d=>d).join("\n")).replaceAll(/\n/g, "-ENT-")).join("-ENT-")
+                            text = subList.length > 0 ? "✓" : ""
+                        }  else{
+                            text = subList.map(d=>(d.primitive.referenceParameters?.summary ?? d.primitive.referenceParameters?.description ?? "").replaceAll(/\n/g, "-ENT-")).join("-ENT-")
+                        }                 
                     }
                     const partial = `"${text}"`
                     return partial
@@ -1090,7 +1144,7 @@ export default function BoardViewer({primitive,...props}){
                                     canvas:(id)=>setCollectionPaneInfo(),
                                     cell:(id, frameId)=>{
                                         const cell = id?.[0]
-                                        if( cell ){
+                                        if( cell && myState[frameId].axis){
                                             const [cIdx,rIdx] = cell.split("-")
 
                                             let infoPane = {
@@ -1157,7 +1211,7 @@ export default function BoardViewer({primitive,...props}){
                             frameLinks={linkList}
                             selectable={{
                                 "frame":{
-                                    multiple: false
+                                    multiple: true
                                 },
                                 "primitive":{
                                     multiple: false
@@ -1176,3 +1230,4 @@ export default function BoardViewer({primitive,...props}){
     </>
 }
 BoardViewer.prepareBoard = SharedPrepareBoard
+BoardViewer.renderBoardView = SharedRenderView

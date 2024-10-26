@@ -173,7 +173,7 @@ const markdownToSlate = (markdownContent) => {
   */
 
   const markdownToSlate = (markdownContent) => {
-    const lines = markdownContent.split('\n');
+    const lines = (markdownContent ?? "").split('\n');
     const slateNodes = [];
   
     let currentTable = null; // Keep track of the current table
@@ -719,7 +719,8 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
           const [parentNode, parentPath] = parentEntry;
           if (
             SlateElement.isElement(parentNode) &&
-            (parentNode.type === 'unordered-list' || parentNode.type === 'ordered-list')
+            //(parentNode.type === 'unordered-list' || parentNode.type === 'ordered-list')
+            (parentNode.type === 'list-item')
           ) {
             nestingDepth++;
             currentPath = parentPath;
@@ -733,7 +734,8 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
           at: selection,
           match: n =>
             SlateElement.isElement(n) &&
-            (n.type === 'list-item' || n.type === 'unordered-list' || n.type === 'ordered-list'),
+            //(n.type === 'list-item' || n.type === 'unordered-list' || n.type === 'ordered-list'),
+            (n.type === 'unordered-list' || n.type === 'ordered-list'),
           mode: 'lowest',
           always: true,
           levels: nestingDepth + 1,
@@ -834,6 +836,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
         }
   
         const [newParentNode, newParentPath] = Editor.parent(editor, path);
+        console.log(newParentNode)
         if( newParentPath.length === 1){
             Transforms.setNodes(
                 editor,

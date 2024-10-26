@@ -28,7 +28,6 @@ class CollectionUtils{
         let timeSeries = sourceData.map(d=>({period: moment(d.date).startOf(period).diff(earliestDate, period), amount: d.amount}))
 
         let maxPeriod = config.endDate ?  moment(config.endDate).endOf(period).diff(earliestDate, period) : timeSeries.reduce((a,c)=>c.period > a.period ? c : a)?.period
-
         console.log(maxPeriod)
 
         const values = new Array( maxPeriod + 1).fill(0)
@@ -262,10 +261,22 @@ class CollectionUtils{
                 }
             }).filter(d=>d)
         }
+        
+        function getUniqueCategoryIds(list){
+            const ts = new Set()
+            list.forEach((d)=>{
+                if( d.referenceId){
+                    ts.add(d.referenceId)
+                }
+            })
+            return Array.from(ts)
+        }
 
         function txParameters(p, access, relationship ){
             let out = []
-            const catIds = p.map((d)=>d.referenceId).filter((v,idx,a)=>v && a.indexOf(v)=== idx)
+
+            const catIds = getUniqueCategoryIds( p )
+            
             if( access === 1){
                 out.push( {type: 'type', title: `Origin type`, relationship, access: access, values: catIds, order: catIds, labels: catIds.map(d=>mainstore.category(d)?.title ?? "Unknown"), passType: "origin_type"})
 
@@ -274,8 +285,19 @@ class CollectionUtils{
             function process(parameters, category){
                 function processParameter( param, parent, path = "" ){
                     let  parameter = path.length > 0 ? `${path}.${param}` : param
-
                     const type = parent[param].type
+
+                    let paramConfig = {
+                        type: 'parameter', 
+                        parameter: parameter, 
+                        parameterType: type, 
+                        category, 
+                        title: `${parent[param].title}`, 
+                        relationship, 
+                        access, 
+                        passType: parent[param].axisType,
+                        axisData: parent[param].axisType ? parent[param].axisData : undefined,
+                    }
                     if( parent[param].asAxis === false){
                         return
                     }
@@ -286,13 +308,13 @@ class CollectionUtils{
                     }else if( type === "long_string" ){
                         return
                     }else if( type === "options" ){
-                        out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parent[param].title}`, relationship, access: access, clamp: true, passType: "raw"})
+                        out.push( {clamp: true, passType: "raw", ...paramConfig})
                     }else  if( type === "currency" ||  type === "number" ||  type === "funding"){
-                        out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parent[param].title}`, relationship, access: access, passType: type})
+                        out.push( {passType: type, ...paramConfig})
                     }else if(  type === "contact"){
-                        out.push( {type: 'parameter', parameter: "contactId", parameterType: type, category, title: `${parent[param].title}`, relationship, access: access, passType: "contact"})
+                        out.push( {...paramConfig, parameter: "contactId", passType: "contact"})
                     }else if(  type === "boolean"){
-                        out.push( {type: 'parameter', parameter: parameter, parameterType: type, category, title: `${parent[param].title}`, relationship, access: access, passType: "boolean"})
+                        out.push( {passType: "boolean", ...paramConfig})
                     }else if(  type === "object"){
                         for(const d in parent[parameter]){
                             if( d === "type"){continue}
@@ -330,7 +352,21 @@ class CollectionUtils{
                     }
                 }
             })
-            p.map((d)=>d.origin && d.origin.childParameters ? d.origin.id : undefined).filter((d,idx,a)=>d && a.indexOf(d)===idx).forEach((d)=>{
+            const checkList = new Set()
+            const orignList = []
+
+            for(const d of p){
+                let oId = d.originId
+                if( !checkList.has( oId) ){
+                    checkList.add(oId)
+                    if( d.origin?.childParameters ){
+                        orignList.push(d.origin)
+                    }
+                }
+            }
+
+            //p.map((d)=>d?.origin.childParameters ? d.origin.id : undefined).filter((d,idx,a)=>d && a.indexOf(d)===idx).forEach((d)=>{
+            orignList.forEach((d)=>{
                 const o = mainstore.primitive(d)
                 process(o.childParameters, o.metadata)
             })
@@ -345,30 +381,57 @@ class CollectionUtils{
             if( Object.keys(taskParams).length > 0){
                 p.forEach(d=>process(taskParams[d.referenceId], ""))
             }
-            //console.log(out)
 
             out = out.filter((d,i)=>out.findIndex(d2=>d2.type === d.type && d.title === d2.title && d.access === d2.access && mainstore.equalRelationships(d.relationship, d2.relationship) ) === i)
 
-            return out.filter((filter)=>{
-                if( filter.type === "parameter" ){
-                    //return  (p.filter((d)=>(filter.parameterType === "boolean" && d.referenceParameters[filter.parameter] !== undefined) ||  ["number","string"].includes(typeof(d.referenceParameters[filter.parameter])) || Array.isArray(d.referenceParameters[filter.parameter])).filter((d)=>d !== undefined).length > 0)
-                    return  (p.filter((d)=>{
-                        if( filter.parameterType === "boolean"){
-                            return d.referenceParameters[filter.parameter] !== undefined 
+            const p1 = performance.now()
+            const hasData = new Set()
+            let hasTitle = false
+
+            function expandObject(d, p = ""){
+                for(const k of Object.keys(d)){
+                    const v = d[k]
+                    if(v){
+                        if( typeof(v) === "object" && !Array.isArray(v)){
+                            expandObject(v, p + k + ".")
+                        }else{
+                            hasData.add(p + k)
                         }
-                        //const value = d.referenceParameters[filter.parameter]
+                    }
+                }
+            }
+            for( const d of p){
+                if( d.title ){
+                    hasTitle = true
+                }
+                expandObject(d.referenceParameters ?? {})
+            }
+
+            const final = out.filter((filter)=>{
+                if( filter.type === "parameter" ){
+                    /*const r = (p.some((d)=>{
                         const value = PrimitiveConfig.decodeParameter(d.referenceParameters, filter.parameter)
-                        return ["number","string"].includes(typeof(value)) || Array.isArray(d.referenceParameters[filter.parameter])
-                    })).filter((d)=>d !== undefined).length > 0
+                        if( value === undefined){return false}
+                        if( filter.parameterType === "boolean"){
+                            return value !== undefined 
+                        }
+                        const t = typeof(value)
+                        return (t === "number" || t === "string") || Array.isArray(value)
+                    }))//.some((d)=>d !== undefined)
+                    */
+                   const r = hasData.has( filter.parameter)
+                    return r
                 }
                 if( filter.type === "title" ){
-                    return  (p.filter((d)=>["number","string"].includes(typeof(d.title))).filter((d)=>d !== undefined).length > 0)
+                    //return  (p.some((d)=>["number","string"].includes(typeof(d.title))).filter((d)=>d !== undefined))
+                    return hasTitle
                 }
                 if( filter.type === "icon"  || filter.type === "type" || filter.type ==="act_parent"){
                     return true
                 }
                 return false
             })
+            return final
         }
 
 
@@ -386,21 +449,23 @@ class CollectionUtils{
             out = out.concat( txParameters( items ) )
             
             const expandOrigin = (nodes, count = 0, relationshipChain = "origin_link_result")=>{
+                const pl = [relationshipChain].flat().length
+                let perf = performance.now()
                 let out = []
-                    let origins = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel(Array.isArray(relationshipChain) ? relationshipChain.slice(-1)[0] : relationshipChain,1)).flat(Infinity).filter((d)=>d)) 
-
-
+                    const relForOrigin =  Array.isArray(relationshipChain) ? relationshipChain.slice(-1)[0] : relationshipChain
+                    let origins = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel(relForOrigin,1)).flat(Infinity))
 
                     let path = [relationshipChain].flat()
                     let last = path.pop()
                     if( last === "auto"){
-                        const rejectList = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel("origin_link_result",1)).flat(Infinity).filter((d)=>d)).map(d=>d.id)
+                        const rejectList = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel("origin_link_result",1)).flat(Infinity)).map(d=>d.id)
                         const pre = origins.length
                         origins = origins.filter(d=>!rejectList.includes(d.id))
 
                     }
                     if( origins.length > 0){
-                        const referenceIds = origins.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
+                        //const referenceIds = origins.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
+                        const referenceIds = getUniqueCategoryIds( origins )
                         for(const d of referenceIds){
 
                             const theseOrigins = origins.filter(d2=>d2.referenceId === d) 
@@ -415,22 +480,16 @@ class CollectionUtils{
                             if( last !== "origin_link_result"){
                                 out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, "origin_link_result"]) )
                             }
-                            //if( last !== "link"){
-                            //    out = out.concat( expandOrigin(theseOrigins, count + 1, [...cont, "link"]) )
-                            //}
                         }
                     }
                     const questions = uniquePrimitives(uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "prompt").map(d => d.origin))
                     if( questions.length > 0 ){
 
-                        /*const labels = questions.map(d=>d.title)
-                        const values = questions.map(d=>d.id)
-                        const mapped = questions.map(d=>d.primitives.allPrompt.map(d2=>[d2.id, d.id])).flat()
-                        */
+                        const prompts = questions.map(d=>d.primitives.allPrompt.map(d=>({idx: d.id, label: d.title})))
                         const values = questions.map(d=>({idx: d.id, label: d.title, map: d.primitives.allPrompt.map(d2=>d2.id) }))
                         
-                        out.push( {type: 'question', subtype:"question", values, title: `Source search`, category: questions[0].metadata, access: count, relationship: path, passType: "question"})
-                        //out.push( {type: 'question', subtype:"question", values:mapped, title: `Source question`, access: count, relationship: path, values: values, order: values, labels: labels})
+                        out.push( {type: 'question', subtype:"question", values, title: `Question`, category: questions[0].metadata, access: count, relationship: path, passType: "question"})
+                        out.push( {type: 'question', subtype:"prompt", values, title: `Prompt`, category: questions[0].primitives.allPrompt[0]?.metadata, access: count, relationship: path, passType: "question"})
                     }
                     const search = uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "search" && d.metadata)
                     if( search.length > 0 ){
@@ -461,18 +520,24 @@ class CollectionUtils{
             if(d.subtype === "search"){
                 return a.findIndex((d2)=>(d.access === d2.access) && mainstore.equalRelationships(d.relationship, d2.relationship)) === idx
             }
+            if(d.subtype === "question"){
+                return a.findIndex((d2)=>(d.access === d2.access) && mainstore.equalRelationships(d.relationship, d2.relationship)) === idx
+            }
             return true
         })
         const labelled = final.map((d,idx)=>{return {id:idx, ...d}})
-        //console.log(labelled)
         return labelled
     }
     static axisExtents(interim, axis, field){
         const bucket = {
             "question":(field)=>{
-                //let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.indexOf(v)===idx).sort()
-                //return {labels: out, order: out, values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
-                return {values: [{idx: "_N_", label: "None"},...axis.values]}
+                const mainstore = MainStore()
+                let out = interim.map((d)=>d[field]).flat().filter((v,idx,a)=>a.indexOf(v)===idx).map(d=>{
+                    const p = mainstore.primitive(d)
+                    return {idx: p.id, label: p.title ?? ""}
+                }).sort((a,b)=>a.label.localeCompare(b.label))
+                console.log(out)
+                return {values: [{idx: "_N_", label: "None"},...out]}
             },
             "segment_filter":(field)=>{
                 const segments = uniquePrimitives(interim.map(d=>d.primitive.findParentPrimitives({type: "segment", first:true})).flat())
@@ -675,10 +740,59 @@ class CollectionUtils{
                 })
                 //return {labels: labels, bucket_min: mins, bucket_max: max, order: labels, values: labels.map((d,i)=>({idx: d, label: d}))}
                 return {labels: labels, order: labels, values: labels.map((d,i)=>({idx: d, label: d, bucket_min: mins[i], bucket_max: max[i]}))}
+            },
+            "date": (field)=>{
+                const mode = "month"//axis.axisData.dateOptions[0]
+
+                function convert(date){
+                    if( mode === "week"){
+                        return date.format('YYYY-[W]WW');
+                    }else if( mode === "month"){
+                        return date.format('YYYY-MM');
+                    }else if( mode === "year"){
+                        return date.format('YYYY');
+                    }
+                }
+
+                let minDate, maxDate
+                for(const d of interim){
+                    let dateValue
+                    if( d[field]){
+                        let date = moment(d[field])
+                        if( !minDate || (date < minDate)){
+                            minDate = date
+                        }
+                        if( !maxDate || (date > maxDate)){
+                            maxDate = date
+                        }
+                        d["original_" + field] = d[field]
+                        d[field] = convert(date)
+                    }
+                }
+                if( minDate && maxDate){
+                    let bucketCount = maxDate.diff( minDate, mode)
+                    let buckets = new Array(bucketCount).fill(0).map((_,i)=>convert(minDate.clone().add(i, mode)))
+                    console.log(bucketCount)
+                    console.log(buckets)
+                    return {values: buckets.map((d,i)=>({idx: d, label: d}))}
+                }
+                return {values: []}
+            },
+            "custom_bracket": (field)=>{
+                const brackets = axis.axisData.buckets
+                for(const d of interim){
+                    const bracket = brackets.findIndex(b=>{
+                        return (!b.min || d[field] >= b.min ) && (!b.lessThan || d[field] < b.lessThan )
+                    })
+                    d["original_" + field] = d[field]
+                    d[field] = bracket
+                }
+                return {values: brackets.map((d,i)=>({idx: i, bucket_min: d.min, bucket_max: d.lessThan, label: d.label}))}
             }
         }
 
         let out 
+
         if( axis.type === "none"){
             out = {labels: axis.labels, values: [{idx: undefined, label: ""}], order: axis.order}
         }else if( axis.type === "category"){
@@ -762,8 +876,13 @@ class CollectionUtils{
                         item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
                         if( !item ){return undefined}
                         //let out = option.values?.filter(d2=>d.parentPrimitiveIds.filter(d3=>d2.map.includes(d3)).length > 0).map(d2=>d2.idx)?.[0]
-                        let out = d.parentPrimitives.filter(d=>d.type === "prompt" && d.origin.type === "question").map(d=>d.origin.title)
-                        return out ?? "_N_"
+                        let out
+                        if( option.subtype === "prompt"){
+                            out = d.parentPrimitives.filter(d=>d.type === "prompt" && d.origin.type === "question").map(d=>d.id)
+                        }else{
+                            out = d.parentPrimitives.filter(d=>d.type === "prompt" && d.origin.type === "question").map(d=>d.origin.id)
+                        }
+                        return out 
                     }
                 }else if( option.type === "parameter"){
                     if( option.parameterType === "options"){
@@ -801,17 +920,6 @@ class CollectionUtils{
                             return value
                         })
                         return item.length === 1 ? item[0] : item
-                        /*let item = d
-                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
-                        if( !item ){return undefined}
-                        let value = item?.referenceParameters[option.parameter]
-                        if( option.parameterType === "number" && typeof(value) === "string"){
-                            value = parseFloat(value)
-                        }
-                        if( option.parameterType === "boolean"){
-                            return (value === undefined || value === false) ? value : true
-                        }
-                        return value*/
                     }
                 }
             }
@@ -957,7 +1065,7 @@ class CollectionUtils{
 
         return outList
     }
-    static primitiveAxis( primitive, axisName){
+    static primitiveAxis( primitive, axisName, items){
         let axis 
         if( axisName === "column" || axisName === "row"){
             axis = primitive.referenceParameters?.explore?.axis?.[axisName]
@@ -969,7 +1077,16 @@ class CollectionUtils{
                 return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
             }
             if( "parameter" === axis.type ){
-                return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.parameter] ?? PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
+                const pC = {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.parameter] ?? PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
+
+                const meta = items?.[0]?.metadata 
+                if( meta ){
+                    if( meta.parameters?.[axis.parameter]?.axisType){
+                        pC.passType = meta.parameters[axis.parameter].axisType
+                        pC.axisData = meta.parameters[axis.parameter].axisData
+                    }
+                }
+                return pC
             }
             const connectedPrim = isNaN(axisName) ? primitive.primitives.axis[axisName].allIds[0] : primitive.referenceParameters.explore.filters[axisName].sourcePrimId            
             if( connectedPrim ){

@@ -232,6 +232,7 @@ const PrimitiveConfig = {
         "contact": "contact",
         "icon": "icon",
         "boolean": "boolean",
+        "question": "question",
         "segment_filter":"segment_filter"
     },
     heatMapPalette:heatMapPalette,
@@ -294,11 +295,31 @@ const PrimitiveConfig = {
                             {id:false, title: "No"},
                             {id:true, title: "Yes"}
                         ]
+                    },
+                    "titles":{
+                        type: "option_list",
+                        title: "Show title",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
                     }
                 },
                 showAsCounts:true
             },
-            cat_overview: {id: 4,title:"Category overview", renderType: "cat_overview",parameters: {}},
+            cat_overview: {id: 4,title:"Category overview", renderType: "cat_overview",parameters: {},
+                config:{
+                    "show_none":{
+                        type: "option_list",
+                        title: "Show None",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                }},
         },
     decodeParameter:(data, path)=>{
         if (!data || !path) return undefined;
@@ -408,8 +429,8 @@ const PrimitiveConfig = {
             pivot = 1
             relationship = ['auto']
         }
-        if( filter.subtype === "question"){
-            pivot = (pivot ?? 0) + 1
+        if( filter.type === "question"){
+            pivot = (pivot ?? 0) + (filter.subtype === "question" ? 1 : 1)
             if( relationship){
                 if( Array.isArray(relationship)){
                     relationship = [...relationship, "auto"]
@@ -427,6 +448,8 @@ const PrimitiveConfig = {
         if( filter.subtype === "question"){
             resolvedFilterType = "parent"
         }else if( filter.subtype === "search"){
+            resolvedFilterType = "parent"
+        }else if( filter.subtype === "prompt"){
             resolvedFilterType = "parent"
         }
 
@@ -553,6 +576,10 @@ const PrimitiveConfig = {
             }
             const doCheck = isRange ? rangeCheck : basicCheck
 
+            function fastUnique(arr){
+                return Array.from(new Set(arr));
+            }
+
             let idx = 0
             for(const d of setToCheck){
                 let data
@@ -569,9 +596,11 @@ const PrimitiveConfig = {
                     data = scope.filter(d=>parentIds.includes(d))
                 }else if( resolvedFilterType === "parent"){
                     if( filter.sourcePrimId ){
-                        data = lookups[idx].map(d=>fns.parentIds(d)).flat().filter((d,i,a)=>a.indexOf(d)===i)
+                        //data = lookups[idx].map(d=>fns.parentIds(d)).flat().filter((d,i,a)=>a.indexOf(d)===i)
+                        data = fastUnique(lookups[idx].map(d=>fns.parentIds(d)).flat())
                     }else{
-                        data = lookups[idx].map(d=>d.id).flat().filter((d,i,a)=>a.indexOf(d)===i)
+                        //data = lookups[idx].map(d=>d.id).flat().filter((d,i,a)=>a.indexOf(d)===i)
+                        data = fastUnique(lookups[idx].map(d=>d.id).flat())
                     }
                     if( scope ){
                         data = data.filter(d=>scope.includes(d))

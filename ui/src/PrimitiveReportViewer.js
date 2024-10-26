@@ -48,6 +48,7 @@ export default function PrimtiveReportViewer({primitive, ...props}){
             list = source ? source.primitives.descendants.filter(d=>d.referenceId === targetResultCategoryId) : []
         }
     }
+    console.log(list)
 
     function setSelectedElement(e){
         MainStore().sidebarSelect( e)

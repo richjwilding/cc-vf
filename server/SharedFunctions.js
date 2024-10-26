@@ -11,19 +11,20 @@ import { buildEmbeddingsForPrimitives, decodeBase64ImageToStorage, extractURLsFr
 import { SIO } from './socket';
 import EnrichPrimitive from './enrich_queue';
 import QueueAI from './ai_queue';
-import QueueDocument, { extractEvidenceFromFragmentSearch, mergeDataQueryResult } from './document_queue';
+import QueueDocument, { compareTwoStrings, extractEvidenceFromFragmentSearch, mergeDataQueryResult } from './document_queue';
 //import silhouetteScore from '@robzzson/silhouette';
 import { localeData } from 'moment';
 import Parser from '@postlight/parser';
 import QueryQueue from './query_queue';
-import { buildDocumentTextEmbeddings, indexDocument, storeDocumentEmbeddings } from './DocumentSearch';
+import { buildDocumentTextEmbeddings, fetchFragmentsForTerm, indexDocument, storeDocumentEmbeddings } from './DocumentSearch';
 import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
 import Embedding from './model/Embedding';
 import { buildPage } from './htmlexporter';
-import { aggregateItems, checkAndGenerateSegments, compareItems, extractor, getSegemntDefinitions, iterateItems, queryByAxis, replicateFlow, resourceLookupQuery, runProcess } from './task_processor';
+import { aggregateItems, checkAndGenerateSegments, comapreToPeers, compareItems, extractor, getSegemntDefinitions, iterateItems, queryByAxis, replicateFlow, resourceLookupQuery, runProcess, summarizeWithQuery } from './task_processor';
 import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helper';
-import { fetchSERPViaBrightData } from './brightdata';
+import { enrichPrimitiveViaBrightData, fetchSERPViaBrightData, handleCollection, restartCollection } from './brightdata';
+import BrightDataQueue, { enrichmentDuplicationCheck } from './brightdata_queue';
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -70,6 +71,7 @@ export async function queueStatus(){
 
         return [
             ...(await QueryQueue().pending()),
+            ...(await BrightDataQueue().pending()),
             ...(await EnrichPrimitive().pending())
         ]
     }catch(error){
@@ -549,11 +551,16 @@ export async function fetchPrimitives(ids, queryOptions, projection){
     ids = [ids].flat()
 
     let query = [
-            {_id: {$in: ids}},
-            { deleted: {$exists: false}}
+        { deleted: {$exists: false}}
     ]
+    if( ids && ids.length > 0){
+        query.push( {_id: {$in: ids}} )
+    }
     if(queryOptions){
         query = [...query, ...[queryOptions].flat()]   
+    }
+    if(query.length === 1){
+        return []
     }
 
     return (await Primitive.find(
@@ -650,8 +657,13 @@ export async function primitiveDescendents(primitive, types, options={}){
 
     let ids = [primitive].flat().map(d=>getIds(d)).flat()
     let checked = {}
+    if( ids.length === 0){
+        console.log(`NO DESCENDANTS`)
+        return []
+    }
 
     do{
+        console.log(`ids at`, ids.length)
          list = await Primitive.find({
             $and:[
                 {_id: {$in: ids}},
@@ -1235,7 +1247,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
     /*for( const imp of sources){
         fullList = fullList.concat(list)
     }*/
-    async function doImport(imp){
+    async function doImport(imp, idx){
         let requiresFullDocument = false
         const filterConfig = source.referenceParameters?.importConfig?.filter(d=>d.id === imp.id)
         if( filterConfig && filterConfig.length > 0){
@@ -1278,7 +1290,11 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             list = uniquePrimitives([list, await primitiveDescendents( list, undefined, {fullDocument:requiresFullDocument, deferFullDocument: true, fields: "parentPrimitives"} )].flat())
         }
         if( params.referenceId ){
-            list = list.filter(d=>d.referenceId === params.referenceId) 
+            if( Array.isArray(params.referenceId)){
+                list = list.filter(d=>params.referenceId.includes(d.referenceId)) 
+            }else{
+                list = list.filter(d=>d.referenceId === params.referenceId) 
+            }
         }
         if( params.type ){
             list = list.filter(d=>d.referenceId === params.type) 
@@ -1310,7 +1326,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         }
         return list
     }
-    const process = await executeConcurrently( sources, doImport)
+    const process = await executeConcurrently( sources, doImport, undefined, undefined,10)
     if( process.results ){
         fullList = process.results.flat()
     }else{
@@ -1850,7 +1866,7 @@ export async function primitiveParents(primitive, path){
 export async function createSegmentQuery(primitive, queryData, importData){
     let interimSegment
     let needsSegment = true
-    if( queryData.referenceId === 113 || queryData.referenceId === 112 || queryData.referenceParameters?.useAxis){
+    if( queryData.referenceId === 114 || queryData.referenceId === 113 || queryData.referenceId === 112 || queryData.referenceParameters?.useAxis){
         if( !importData?.[0]?.filters ){
             needsSegment = false
         }
@@ -1899,7 +1915,7 @@ export async function createSegmentQuery(primitive, queryData, importData){
 }
 export async function doPrimitiveAction(primitive, actionKey, options, req){
 
-    if( primitive.type === "search" ){
+    if( primitive.type === "search" && actionKey !== "bdcollect"){
         return await QueryQueue().doQuery(primitive, options)
     }
     if( actionKey === "d_test"){
@@ -2039,6 +2055,37 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             return
         }
+            if( actionKey === "content_lookup"){
+                console.log(`looking up ${options.text}`)
+                const serachScope = [{workspaceId: primitive.workspaceId}]
+                let r = await fetchFragmentsForTerm([options.text], {threshold_min: options.score, searchTerms: 100, serachScope})
+                const prims = await fetchPrimitives( r.map(d=>d.id) )
+
+                r = r.sort((a,b)=>(a.text.indexOf(options.text) == - 1 ? 9 :0) - (b.text.indexOf(options.text) == - 1 ? 9 :0))
+                for(const d of r){
+                    console.log(`--`)
+                    console.log( d.text )
+                    const prim = prims.find(d2=>d2.id === d.id)
+                    console.log( prim.title, prim.plainId, prim.id)
+                }
+            }
+            if( actionKey === "fetch_media_assets"){
+                const category = await Category.findOne({id: primitive.referenceId})
+                const withImages = Object.keys(category.parameters).filter(d=>category.parameters[d].store && category.parameters[d].store.startsWith("image"))
+                console.log(withImages)
+                for(const key of withImages){
+                    if( primitive.referenceParameters[key] ){
+                        const bucket = "cc_vf_images"
+                        console.log(`Storing ${key} > ${bucket} for ${primitive.id} / ${primitive.plainId} `)
+                        await replicateURLtoStorage(primitive.referenceParameters[key], primitive.id, bucket)
+                        await dispatchControlUpdate(primitive.id, "referenceParameters.hasImg", true)
+                    }
+                }
+            }
+            if( actionKey === "bdcollect"){
+                await restartCollection( primitive, options )
+                return
+            }
             if( actionKey === "zfat_test"){
                 console.log(`Testing ${options.url}`)
                 let result
@@ -2070,6 +2117,65 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         await runProcess( primitive )
         return
     }
+    if( actionKey === "create_summary"){
+        let parent = primitive
+        let configFromParent = options.configFromParent
+        if( options.segment ){
+            const newData = {
+                workspaceId: parent.workspaceId,
+                paths: ['origin', 'config'],
+                parent: parent.id,
+                data:{
+                    type: "segment",
+                    title: "New segment",
+                    referenceId: PrimitiveConfig.Constants.GENERIC_SUMMARY,
+                    referenceParameters:{
+                        "target":"items",
+                        importConfig: options.segment
+                    }
+                }
+            }
+            const newPrim = await createPrimitive( newData )
+            if( newPrim ){
+                for(const d of options.segment ){
+                    await addRelationship( newPrim.id, d.id, "imports")
+                }
+                configFromParent = true
+                parent = newPrim
+            }else{
+                throw "Couldn create segment"
+            }
+
+        }
+        const newData = {
+            workspaceId: parent.workspaceId,
+            paths: configFromParent ? ['origin', 'config'] : ['origin'],
+            parent: parent.id,
+            data:{
+                type: "summary",
+                title: "New summary",
+                referenceId: PrimitiveConfig.Constants.GENERIC_SUMMARY,
+                referenceParameters:{
+                    "field": options.field,
+                    "target":"items",
+                    "summary_type":  options.summary_type,
+                        "prompt": options.prompt
+                }
+            }
+        }
+        const newPrim = await createPrimitive( newData )
+        if( newPrim ){
+            await addRelationship( newPrim.id, parent.id, "imports")
+
+            let refreshedPrim = await fetchPrimitive( newPrim.id )
+            
+            //const result = await doPrimitiveAction(newPrim, "auto_summarize", {source: newPrim.id, ...newPrim.referenceParameters})
+            const result = await doPrimitiveAction(refreshedPrim, "rebuild_summary")
+            console.log(result)
+            dispatchControlUpdate( refreshedPrim.id, "referenceParameters.summary", result)
+        }
+        return options.segment ? {segment:parent.id, primitive: newPrim.id} : {primitive: newPrim.id}
+    }
     if( actionKey === "auto_extract" || actionKey === "auto_summarize"){
         console.log(options)
         const source = options.source ? await fetchPrimitive( options.source ) : undefined
@@ -2079,13 +2185,16 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
 
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
             let config = evidenceCategory?.ai?.summarize?.[ options.summary_type ?? "summary"] ?? {}
-            if( options.summary_type === "custom" && options.prompt){
+            //if( options.summary_type === "custom" && options.prompt){
+            let isCustomPrompt = false
+            if( options.prompt?.trim && options.prompt.trim().length > 0){
                 config.prompt = options.prompt
+                isCustomPrompt = true
 
                 const segmentSource = primitive.primitives?.imports?.[0]
                 if( segmentSource ){
                     console.log(`getting ${segmentSource}`)
-                    const segment = await fetchPrimitive( segmentSource )
+                    const segment = primitive.type === "segment" ? primitive : (await fetchPrimitive( segmentSource ))
                     if( segment ){
                         const name = (await getFilterName(segment)) ?? segment.title
                         config.prompt = config.prompt.replaceAll('{focus}', name)
@@ -2169,7 +2278,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                                             markdown: options.markdown, 
                                                             heading: options.heading,
                                                             scored: options.scored ?? primitive.referenceParameters.scored,
-                                                            outputFields: options.summary_type === "custom" ? undefined : [
+                                                            outputFields: isCustomPrompt ? undefined : [
                                                                 {field:"headline", prompt:"a short overview", header: true},
                                                                 {field:"main", prompt: "the main summary", formatted: true},
                                                                 {field:"noteworthy", prompt: "a list of the top 5 most noteworthy insights as a single string in markdown format.", formatted: true},
@@ -2256,6 +2365,14 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
                 done = true
+            }
+            if( command === "brightdata_enrichment"){
+                if(action.create?.checkDuplicatePre ){
+                    if( await enrichmentDuplicationCheck( primitive, primitive.referenceParameters?.[action.field], action.create )){
+                        return
+                    }
+                }
+                await enrichPrimitiveViaBrightData(primitive, action)
             }
             if( command === "extractor"){
                 await extractor( primitive, action )
@@ -2684,8 +2801,36 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 const config = await getConfig(primitive)
                 console.log(config)
 
-                const result = await doPrimitiveAction(primitive, "auto_summarize", {...config, action_override: true})
-                dispatchControlUpdate( primitive.id, "referenceParameters.summary", result)
+                const parent = await fetchPrimitive( primitiveOrigin( primitive ) )
+                const thisCategory = await Category.findOne({id: parent.referenceId})
+
+                setTimeout(async () => {
+                    console.log(`**** SHOULD GO INTO QUEUE`)
+                    let result 
+                    
+                    if( thisCategory?.type === "comparator"){
+                        const segment = (await primitiveParentsOfType(primitive, "segment"))?.[0]
+                        if( segment ){
+                            const parentForScope = (await primitiveParentsOfType(segment, ["working", "view", "segment", "query"]))?.[0] ?? segment
+                            result = await comapreToPeers( parentForScope, segment, primitive, options)
+                        }else{
+                            console.log(`Couldnt get parent segment for ${primitive.id} / ${primitive.plainId} in compare_to_peers`)
+                        }
+                    }else{
+                        if( primitive.plainId === 700519){
+                            try{
+                                result = await summarizeWithQuery(primitive)
+                            }catch(error){
+                                console.log(`error in summarizeWithQuery call`)
+                                console.log(error)
+                            }
+                        }else{
+                            result = await doPrimitiveAction(primitive, "auto_summarize", {...config, action_override: true})
+                        }
+                    }
+                    dispatchControlUpdate( primitive.id, "referenceParameters.summary", result)
+                }, 100);
+                done = true
 
             }
             if( command === "normalize_paper_authors" ){
@@ -2696,33 +2841,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     await loopkupOrganizationsForAcademic(d)
                 }
                 return
-            }
-            if( command === "create_summary"){
-                const newData = {
-                    workspaceId: primitive.workspaceId,
-                    paths: ['origin'],
-                    parent: primitive.id,
-                    data:{
-                        type: "summary",
-                        title: "New summary",
-                        referenceId: PrimitiveConfig.Constants.GENERIC_SUMMARY,
-                        referenceParameters:{
-                            "field": options.field,
-                            "target":"items",
-                            "summary_type":  options.summary_type,
-                             "prompt": options.prompt
-                        }
-                    }
-                }
-                const newPrim = await createPrimitive( newData )
-                if( newPrim ){
-                    await addRelationship( newPrim.id, primitive.id, "imports")
-
-                    
-                    const result = await doPrimitiveAction(newPrim, "auto_summarize", {source: newPrim.id, ...newPrim.referenceParameters})
-                    console.log(result)
-                    dispatchControlUpdate( newPrim.id, "referenceParameters.summary", result)
-                }
             }
             if( command === "build_image"){
                 const concept = (await primitiveListOrigin( [primitive], "hierarchy", undefined, "ALL", PrimitiveConfig.Constants["CONCEPT"]))?.[0]
@@ -2800,8 +2918,22 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 await EnrichPrimitive().siteSummarize(primitive, {...action, ...options}, req)
             }
             if( command === "fetch_social_content"){
+                let pageContent
+
+                const category =  await Category.findOne({id:  primitive.referenceId})
+                const field = Object.keys(category?.parameters ?? {}).find(d=>category?.parameters[d].useAsContent)
+                if( field && primitive.referenceParameters){
+                    pageContent = primitive.referenceParameters[field]
+                    if( primitive.referenceParameters.imageUrl ){
+                        await replicateURLtoStorage(primitive.referenceParameters.imageUrl, primitive.id, "cc_vf_images")
+                    }
+                    return
+                }
+
                 if( primitive.referenceParameters.url){
-                    const pageContent = await fetchURLPlainText( primitive.referenceParameters.url  )
+                    pageContent = await fetchURLPlainText( primitive.referenceParameters.url  )
+                }
+                if( pageContent ){
                     if( pageContent ){
                         const title = pageContent.title ?? primitive.title
                         const params = {
@@ -3852,6 +3984,10 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     result = EnrichPrimitive().enrichCompany( primitive, "url", true )
                     done = true
                 }
+                if( command === "enrich_li_profile"){
+                    result = EnrichPrimitive().enrichCompany( primitive, "li_profile", true )
+                    done = true
+                }
                 if( command === "enrich_owler"){
                     result = EnrichPrimitive().enrichCompany( primitive, "owler", true )
                     done = true
@@ -4280,7 +4416,7 @@ export async function buildContext(primitive, category){
     }
 
     let out = ""
-    const lookupSet = Object.values(category.ai.process.context.fields ?? {}).filter(d=>d instanceof Object).map(d=>({referenceId: d.referenceId, agg: (d.target ?? "children") + "-" + (d.field ?? "title"), target: d.target ?? "children", field: d.field ?? "title"}))
+    const lookupSet = Object.values(category.ai.process.context.fields ?? {}).filter(d=>(d instanceof Object) && d.referenceId).map(d=>({referenceId: d.referenceId, agg: (d.target ?? "children") + "-" + (d.field ?? "title"), target: d.target ?? "children", field: d.field ?? "title"}))
     let batches = {}
     if( lookupSet.length > 0 ){
         const unique = lookupSet.map(d=>d.agg).filter((d,i,a)=>a.indexOf(d) === i)
@@ -4298,48 +4434,51 @@ export async function buildContext(primitive, category){
     for(const d of Object.keys(category.ai.process.context.fields ?? [])){
         const source = category.ai?.process?.context.fields[d]
         if( source instanceof Object){
-            let header = source.title
-            const key = (source.target ?? "children") + "-" + (source.field ?? "title")
-            const children = batches[key].children
-            const content = batches[key].content
-            //const [children, content] = await getDataForProcessing( primitive, {referenceId: source.referenceId, target: source.target ?? "children", field: source.field ?? "title"})
-            const showCount = false//children.length > 1
-                            if( children && children.length > 0){
-                                if( out.length > 0){
-                                    out += ".\n"
-                                }
-                                out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>{
-                                    let interim = `${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
-                                    for(const p of Object.keys(d.referenceParameters ?? {})){
-                                        const val = [d.referenceParameters[p]].flat().filter(d=>d)
-                                        if( val.length > 0){
-                                            interim += `\n${p}: ${val.join(", ")}`
-                                        }
-                                    }
-                                    return interim
-                                }).join("\n") + "\n"
-                            }else{
-                                if( source.fallback){
-                                    const param = source.fallback.slice(7)
-                                    if( primitive.referenceParameters?.[param] ){
-                                        out += (header?.length > 0 ? `${header}: ` : "") + primitive.referenceParameters[param] + "\n"
-                                    }
-                                }
+            if( source.referenceId ){
+                let header = source.title
+                const key = (source.target ?? "children") + "-" + (source.field ?? "title")
+                const children = batches[key].children
+                const content = batches[key].content
+                const showCount = false//children.length > 1
+
+                if( children && children.length > 0){
+                    if( out.length > 0){
+                        out += ".\n"
+                    }
+                    out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>{
+                        let interim = `${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
+                        for(const p of Object.keys(d.referenceParameters ?? {})){
+                            const val = [d.referenceParameters[p]].flat().filter(d=>d)
+                            if( val.length > 0){
+                                interim += `\n${p}: ${val.join(", ")}`
                             }
-          /*  if( false &&  children && children.length > 0){
-                if( out.length > 0){
-                    out += ". "
-                }
-                out += (header?.length > 0 ? `**${header}**: ` : "") + children.map((d,i)=>`${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${content[i] ?? d.title}`).join("\n")
-            }else{
-                if( source.fallback){
-                    const param = source.fallback.slice(7)
-                    if( primitive.referenceParameters?.[param] ){
-                        out += (header?.length > 0 ? `**${header}**: ` : "") + primitive.referenceParameters[param] + "\n"
+                        }
+                        return interim
+                    }).join("\n") + "\n"
+                }else{
+                    if( source.fallback){
+                        const param = source.fallback.slice(7)
+                        if( primitive.referenceParameters?.[param] ){
+                            out += (header?.length > 0 ? `${header}: ` : "") + primitive.referenceParameters[param] + "\n"
+                        }
                     }
                 }
-            }*/
-            
+            }else{
+                const list = [primitive.referenceParameters?.[d]].flat().filter(d=>d)
+                if( list.length > 0){
+                    out += (source.header ?? d) + ":\n"
+
+                    const titleBase = source.title ?? d
+
+                    for(const d of list){
+                        const title = titleBase.replace(/\{([^}]+)\}/g, function(match, fieldName) {
+                            return fieldName in d ? d[fieldName] : match;
+                        });
+
+                        out += title + ":" + source.fields.map(d2=>d[d2]) + "\n"
+                    }
+                }
+            }
         }else{
             if( d === "title"){
                 out += source?.length > 0 ? `${source}: ${primitive.title}\n` : `${primitive.title}\n`
@@ -4354,7 +4493,7 @@ export async function buildContext(primitive, category){
     return out.length === 0 ? undefined : out
 }
 
-export async function executeConcurrently(list, process, cancelCheck, stopCheck, concurrencyLimit = 5 ){
+export async function executeConcurrently(list, process, cancelCheck, stopCheck, concurrencyLimit = 5, progressCallback ){
     let currentIndex = 0;
     let activePromises = []
     let cancelled = false
@@ -4377,9 +4516,12 @@ export async function executeConcurrently(list, process, cancelCheck, stopCheck,
             }
             const thisIndex = currentIndex++
             const item = list[thisIndex];
-            if( item){
+            if( item !== undefined && item !== null){
                 try{
                     const result = await process(item, thisIndex);
+                    if(progressCallback){
+                        await progressCallback(thisIndex)
+                    }
                     results[thisIndex] = result
                 }catch(error){
                     console.log(`Error in concurrent thread`) 

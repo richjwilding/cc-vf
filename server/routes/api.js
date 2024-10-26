@@ -348,6 +348,7 @@ router.get('/primitives', async function(req, res, next) {
             workspaceId = undefined
         }
 
+        
       if( workspaceId !== undefined){
         query = {
             $and: [
@@ -375,17 +376,43 @@ router.get('/primitives', async function(req, res, next) {
         let results
         if( workspaceId ){
             console.time(`multi`)
-            const ids = (await Primitive.find(query,{_id: 1})).map(d=>d.id)
-            const chunks = [], chunkCount = 2000, len = ids.length
-            for(let i = 0; i < len; i+= chunkCount){
-                chunks.push(ids.slice(i, i + chunkCount))
+            if( true ){
+                async function getData(hexChar){
+                    if( hexChar === "-"){
+                        let query = {$and: [
+                            { workspaceId: { $in: workspaces.filter(d=>d !== workspaceId) }},
+                            { type: { $in: ['activity','experiment','venture', 'board','working'] }},
+                            { deleted: {$exists: false}}
+                        ]}
+                        return await Primitive.find(query, DONT_LOAD)
+                    }
+//                    return await fetchPrimitives(undefined, { "_id": { "$regex": `[${hexChar}]$`}, "workspaceId": workspaceId }, DONT_LOAD)
+                    const set = await Primitive.aggregate([
+                        { "$match": { "workspaceId": workspaceId,  "deleted": {$exists: false}} },
+                        { "$addFields": { "_idStr": { "$toString": "$_id" } } },
+                        { "$match": { "_idStr": { "$regex": `${hexChar}$` } } },
+                        { "$project": DONT_LOAD }
+                    ])
+                    return set
+                }
+                const {results:data} = await executeConcurrently(["-",0,1,2,3,4,5,6,7,8,9,"a","b","c","d","e","f"], getData, undefined, undefined, 8)
+
+                results = data.flat()
+                
+
+            }else{
+                const ids = (await Primitive.find(query,{_id: 1})).map(d=>d.id)
+                const chunks = [], chunkCount = 2000, len = ids.length
+                for(let i = 0; i < len; i+= chunkCount){
+                    chunks.push(ids.slice(i, i + chunkCount))
+                }
+                console.log(`Got ${ids.length} - split to ${chunks.length}`)
+                async function getData(ids){
+                    return await fetchPrimitives(ids, undefined, DONT_LOAD)
+                }
+                const {results:data} = await executeConcurrently(chunks, getData, undefined, undefined, 10)
+                results = data.flat()
             }
-            console.log(`Got ${ids.length} - split to ${chunks.length}`)
-            async function getData(ids){
-                return await fetchPrimitives(ids, undefined, DONT_LOAD)
-            }
-            const {results:data} = await executeConcurrently(chunks, getData, undefined, undefined, 10)
-            results = data.flat()
             console.log(`Back with ${results.length}`)
             console.timeEnd(`multi`)
         }else{

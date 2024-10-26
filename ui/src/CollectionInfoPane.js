@@ -41,7 +41,8 @@ const tabs = [
 const mainTabs = [
     { name: 'Query', referenceId: 81, initial: true},
     //{ name: 'Summarize (singular)', referenceId: 109},
-    { name: 'Summarize', referenceId: 113}
+    { name: 'Summarize', referenceId: 113},
+    { name: 'Compare', referenceId: 114}
 //    { name: 'Lookup', referenceId: 117}
     //{ name: 'Process', referenceId: 112},
 ]
@@ -347,15 +348,16 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
 
         }
         function filterPane(){
-            const columnAxis = CollectionUtils.primitiveAxis(frame, "column")
-            const rowAxis = CollectionUtils.primitiveAxis(frame, "row")
+            const fullList = frame.itemsForProcessingWithFilter(filters, {ignoreFinalViewFilter: true}) 
+
+            const columnAxis = CollectionUtils.primitiveAxis(frame, "column", fullList)
+            const rowAxis = CollectionUtils.primitiveAxis(frame, "row", fullList)
             const colFilter = PrimitiveConfig.decodeExploreFilter(frame.referenceParameters?.explore?.axis?.column?.filter)
             const rowFilter = PrimitiveConfig.decodeExploreFilter(frame.referenceParameters?.explore?.axis?.row?.filter)
             
 
-            const fullList = frame.itemsForProcessingWithFilter(filters, {ignoreFinalViewFilter: true}) 
 
-            const viewFilters = frame.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(frame, i)) ?? []            
+            const viewFilters = frame.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(frame, i, fullList)) ?? []            
             let viewPivot = frame.referenceParameters?.explore?.viewPivot
             const axisOptions = CollectionUtils.axisFromCollection( fullList, frame ).map(d=>{
                 const out = {...d}
@@ -494,7 +496,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                     <div className="space-y-2">
                         <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
                             <UIHelper.Panel title="Filters" icon={<FontAwesomeIcon icon={["fal", "filter"]} />}>
-                                        {filterPane()}
+                                        {filterPane}
                             </UIHelper.Panel>
                         </div>
                     </div>

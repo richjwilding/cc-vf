@@ -204,9 +204,9 @@ function Panel(props){
                 <p>{props.title}</p>
                 <ChevronRightIcon strokeWidth={2} className={`${props.narrow ? "" :"!ml-auto !mr-0"} w-5 h-5 ${open ? '-rotate-90 transform' : ''}`}/>
             </Disclosure.Button>
-        <Disclosure.Panel className={props.panelClassName}>
+        {open && <Disclosure.Panel className={props.panelClassName}>
             {typeof(props.children) === "function" ? props.children() : props.children}
-        </Disclosure.Panel>
+        </Disclosure.Panel>}
         </div>
       )}
       </Disclosure>

@@ -12,6 +12,7 @@ import PrimitiveParser from "./PrimitivesParser";
 import { searchPosts } from "./linkedin_helper";
 import { fetchFragmentsForTerm } from "./DocumentSearch";
 import { aggregateItems, checkAndGenerateSegments } from "./task_processor";
+import { reviseUserRequest } from "./prompt_helper";
 
 const parser = PrimitiveParser()
 
@@ -227,7 +228,7 @@ async function doDataQuery( options ) {
                         }
                     }
                 }
-
+                /*
                 const default_metadata = {
                     "organizations": "an 'organizations' field containing an array of specific and relevant orgnaization name (where specified)", 
                     "organization_type": "an 'organization_type' field containing an array of specific and relevant orgnaization name (where specified)", 
@@ -240,7 +241,7 @@ async function doDataQuery( options ) {
                     "needs": "a 'needs' field containing an array of needs and relevant needs (where specified)", 
                     "experience_level": "a 'experience_level' field containing an array of seniority or experience level (where specified or infrerred)", 
                     "responsibilities": "a 'responsibilities' field containing an array of responsiilities the person has (where specified or infrerred)", 
-                }
+                }*/
 
                 let metadata
                 if( doingExtracts){
@@ -274,10 +275,7 @@ async function doDataQuery( options ) {
 
                     results = await processPromptOnText( query,{
                         opener: `You have access to a database of many thousands of text fragments and must answer questions or complete tasks using information in the database.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases. Here is a task or question:`,
-                        //prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question. The database can also support extraction of different metadata (organizations, organization_type, responsibilities, experience_level, individuals, roles, problems, solutions, jobs to be done, value proposition, and needs), assess which of this meatadata is key to the question or task`,
                         prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
-                        //prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question. The database can also support extraction of different metadata (${Object.keys(metadata).join(", ")}), assess which of this meatadata is key to the question or task`,
-                        //output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array, and a 'metadata' field containing the identified metadata to extract as an array`,
                         output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
                         engine: "gpt4p",
                         debug: true,
@@ -328,16 +326,11 @@ async function doDataQuery( options ) {
                             const searchTerms = primitive.referenceParameters?.candidateCount ?? 1000
                             const scanRatio = primitive.referenceParameters?.scanRatio ?? 0.15
                             let fragments = await fetchFragmentsForTerm(prompts, {searchTerms, scanRatio, threshold_seek, threshold_min, serachScope})
-                            /*
-                            for( const prompt of prompts ){
-                                console.log(`Fetching for ${prompt}`)
-                                fragments = fragments.concat( await fetchFragmentsForTerm(prompt, {searchTerms, scanRatio, threshold_seek, threshold_min, serachScope}) )
-                            }*/
-                            console.log(`have ${Object.keys(fragments).length} fragments`)
+                            const oldCount = fragments.length
                             fragments = fragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i)
-                            console.log(`have ${Object.keys(fragments).length} fragments`)
+                            console.log(`have ${oldCount} -> ${Object.keys(fragments).length} fragments`)
 
-                            fragmentList = Object.values( fragments )//.slice(132,270)
+                            fragmentList = Object.values( fragments )
 
                         }else{
                             fragmentList = await ContentEmbedding.find({$and: serachScope},{foreignId:1, part:1, text: 1})
@@ -346,12 +339,14 @@ async function doDataQuery( options ) {
 
 
                         const fragmentText = fragmentList.map(d=>d.text)
+
+
+
+
                         const results = await processPromptOnText( fragmentText,{
                             opener:  doingExtracts ? "Here is a list of numbered items to process" : `Here is a list of numbered text fragments you can use to answer a question `,
                             prompt: `Using only the information explcitly provided in the text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer.`,
-                            //output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  Each part must have a 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in 100-250 words, a 'quote' field containing up to 50 words of the exact text used from the fragments, a 'ids' field containing the number of the text fragments containing information used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.${(extraFields ?? "").length > 0 ? extraFields + ", " : ""}`,
                             output: outPrompt,
-                          //  engine: "gpt4p",
                             no_num: false,
                             maxTokens: 40000,
                             temperature: 1,
@@ -647,6 +642,7 @@ async function processQuestions( data ){
                     temperature: group.category.openai.temperature,
                 })
 
+                console.log(result.response)
             }
 
             

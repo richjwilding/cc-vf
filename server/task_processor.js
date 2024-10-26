@@ -6,7 +6,8 @@ import { lookupCompanyByName } from "./crunchbase_helper";
 import { extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, queryGoogleSERP } from "./google_helper";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
-import { analyzeListAgainstTopics, processPromptOnText } from "./openai_helper";
+import { analyzeListAgainstTopics, processPromptOnText, summarizeMultiple } from "./openai_helper";
+import { reviseUserRequest } from "./prompt_helper";
 
 const parser = PrimitiveParser()
 
@@ -223,7 +224,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
 
     }else{
         let targetSegmentConfig
-        if( primitive.referenceParameters?.by_axis === false){
+        if( (primitive.referenceParameters?.by_axis === false) && (!options.by_axis)){
             targetSegmentConfig = [
                 {
                     id: parent.id
@@ -285,7 +286,10 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
     return out
 } 
 export async function aggregateItems( parent, primitive, options = {}){
-    const segments = await checkAndGenerateSegments( parent, primitive, options)
+    return await baselineItemProcess( parent, primitive, options, {action: "rebuild_summary"})
+}
+export async function baselineItemProcess( parent, primitive, options = {}, execOptions = {}){
+    const segments = await checkAndGenerateSegments( parent, primitive, {...options, ...(execOptions.lookup ?? {})})
     const config = await getConfig( primitive )
     const currentAggregators = (await primitiveChildren( primitive )).filter(d=>d.referenceId === config.aggregate)
     const aggregatorCategory = await Category.findOne({id: config.aggregate})
@@ -332,17 +336,82 @@ export async function aggregateItems( parent, primitive, options = {}){
         }
         if( existing ){
             console.log(`Aggregation ${existing.plainId}`)
-            await doPrimitiveAction( existing, "rebuild_summary")
+            await doPrimitiveAction( existing, execOptions.action ?? "rebuild_summary")
         }
         
     }
 }
 export async function compareItems( parent, primitive, options = {}){
-    const config = primitive.referenceParameters ?? {}
-    let [items,data] = await getDataForProcessing(primitive, config, parent)
-    console.log(`got ${items.length} items`)
-    console.log(data)
+    return await baselineItemProcess( parent, primitive, options, {lookup: {by_axis: true}})
+}
+export async function comapreToPeers( parent, activeSegment, primitive, options = {}){
+    const allSegments = await primitiveChildren( parent, "segment")
+    const config = await getConfig( primitive )
+    let targetSegmentConfig
+    if( (primitive.referenceParameters?.by_axis === false) && (!options.by_axis)){
+        targetSegmentConfig = [
+            {
+                id: parent.id
+            }
+            
+        ]
+    }else{
+        targetSegmentConfig = await getSegemntDefinitions(parent)
+    }
 
+    const others = [], thisOne = []
+    
+    for(const importConfig of targetSegmentConfig){
+        let existing = allSegments.find(d=>PrimitiveConfig.checkImports( d, importConfig.id, importConfig.filters))
+        if(existing){
+            const importSet = existing.referenceParameters.importConfig.find(d=>d.id === parent.id)
+            if( PrimitiveConfig.checkImports( activeSegment, parent.id, importSet?.filters)){
+                thisOne.push(existing)
+            }else{
+                others.push( existing )
+            }
+        }
+    }
+    console.log(`Got ${thisOne.length} / ${others.length} segments`)
+
+    const param = config.field?.slice(6)
+
+    function translateItem(items){
+        return items.map(d=>{
+            if(config.field === "title"){
+                return d.title
+            }else{
+                return d.referenceParameters[param]
+            }
+        })
+    }
+    const {results:otherItems} = await executeConcurrently( others, async (segment)=>{
+        const items = await getItemsForQuery( segment)
+        return translateItem(items).filter(d=>d)
+    })
+
+    const activePrimitives = await getItemsForQuery( thisOne[0] )
+    const activeText = translateItem(activePrimitives).filter(d=>d)[0]
+    const otherText = otherItems.map((d,i)=>`Item ${i+1}\n=============\n${d}`)
+
+    const fullText = `The data is a set of summaries for different segements - i need your help to compare and contrast these segments with one i am particularly interested in. Here are the peer segments for context:\n ${otherText}\n\nAnd here is the segement i am interested in:\n ${activeText}\n---END OF SEGMENT\n\n`
+
+    let result
+    let prompt = (config.summary_type === "custom" ? config.prompt : undefined) ?? "Compare all of the segments and then highlight what is unique about the one i am interested in"
+    const streamline = await summarizeMultiple([fullText],{
+        prompt,
+        output: "Provide the output as a json object with a field called 'results' containing the new summary as a string with suitable linebreaks to deliniate sections",
+        engine: "gpt4p",
+        markdown: config.markdown, 
+        temperature: config.temperature ?? primitive.referenceParameters?.temperature,
+        heading: config.heading,
+        keepLineBreaks: true,
+        debug: true,
+        debug_content:true
+    })
+    if( streamline.success && streamline.summary){
+        return streamline.summary
+    }
 }
 
 
@@ -885,4 +954,126 @@ export async function replicateFlow(start, target, options = {}){
     console.log(locationMapping)
 
     await dispatchControlUpdate(targetBoardPrimitive.id, "frames", locationMapping)
+}
+
+
+export async function summarizeWithQuery( primitive ){
+    try{
+
+        const primitiveConfig = await getConfig(primitive)
+        const [items, toSummarize] = await getDataForProcessing(primitive, {...primitiveConfig})
+        if( items.length > 0){
+            
+            const evidenceCategory = await Category.findOne({id: items[0].referenceId})
+            let config = evidenceCategory?.ai?.summarize?.[ config.summary_type ?? "summary"] ?? {}
+            if( config.prompt?.trim && config.prompt.trim().length > 0){
+                config.prompt = config.prompt
+                
+                const segmentSource = primitive.primitives?.imports?.[0]
+                if( segmentSource ){
+                    console.log(`getting ${segmentSource}`)
+                    const segment = primitive.type === "segment" ? primitive : (await fetchPrimitive( segmentSource ))
+                    if( segment ){
+                        const name = (await getFilterName(segment)) ?? segment.title
+                        config.prompt = config.prompt.replaceAll('{focus}', name)
+                        config.prompt = config.prompt.replaceAll('{segment}', name)
+                    }
+                }
+            }
+            
+            const toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
+            
+            const revised = reviseUserRequest(config.prompt)
+            
+            const results = await summarizeMultiple( toProcess,{
+                ...config, 
+                prompt: revised.task,
+                output: revised.output,
+                types: "fragments",
+                focus: config.focus, 
+                markPass: true,
+                batch: toProcess.length > 1000 ? 100 : undefined,
+                temperature: config.temperature ?? primitive.referenceParameters?.temperature,
+                allow_infer: true,
+                markdown: config.markdown, 
+                heading: config.heading,
+                wholeResponse: true,
+                scored: config.scored,
+                debug: true, 
+                debug_content:true
+            })
+
+
+            console.log(results?.summary?.structure)
+            if( results?.summary?.structure ){
+
+
+
+                console.log(`*** DOING REVIEW`)
+
+                let reviewTask = "I previously gave an AI the above data alongside a task - i need you to review the response and validate that it is based on the data provided, this checking taht any company, entity or indivudal names is correctly referenced and that data points / facts havent been conflated. Note that text in the response that is marked with a '^' may have come from the AI and that is fine to leave as it has been noted to the user - only correct this if the AI knowlegde is wrong./\n\n"
+                reviewTask += `Here is the original task: \n${revised.task}\n\n----\n\nAnd here is the output i got: ${JSON.stringify(results?.summary?.structure)}\n\n`
+
+                let reviewOutput = "Provide your response in the following format:{revised: a boolean indicating if revisised output has been produced, errors: a boolean indicating if errors were found, references: a boolean indicating if entities were incorrectly referenced, findings:as a simple block of text sumamrising your findings in 100 words or less, revised_output: if revisions are needed - a revised output with corrections redactions - maintaing the structure and formatting of the original and adding a 'revised' field set to true for any sections that have been revised}"
+
+
+                const reviewResult = await summarizeMultiple( toProcess,{
+                    ...config, 
+                    prompt: reviewTask,
+                    output: reviewOutput,
+                    types: "fragments",
+                    focus: config.focus, 
+                    markPass: true,
+                    batch: toProcess.length > 1000 ? 100 : undefined,
+                    temperature: config.temperature ?? primitive.referenceParameters?.temperature,
+                    allow_infer: true,
+                    markdown: config.markdown, 
+                    heading: config.heading,
+                    wholeResponse: true,
+                    scored: config.scored,
+                    debug: true, 
+                    debug_content:true
+                })
+                
+                let nodeResult = results?.summary?.structure
+
+                if( reviewResult.summary.revised){
+                    console.log(`Revised text being used`)
+                    console.log(reviewResult.summary.findings)
+                    if( reviewResult.summary.revised_output ){
+                        nodeResult = reviewResult.summary.revised_output
+                    }
+                }
+
+
+                let out = ""
+                let nodeStruct = revised.structure
+
+                function walkResults(nodeResult, nodeStruct, headerLevel = 0){
+                    for(const d in nodeResult){
+                        const nextR = nodeResult?.[d]
+                        const nextS = nodeStruct?.[d]
+                        if( nextS?.heading){
+                            const h_level = Math.max((3 - headerLevel), 1)
+                            out += `${"#".repeat(h_level)} ${nextS.heading}\n`
+                        }
+                        if( nextR?.content ){
+                            out += `${nextR.content}\n`
+                        }
+                        if( nextR?.subsections){
+                            walkResults(nextR?.subsections, nextS?.subsections, headerLevel + 1)
+                        }
+                    }
+                }
+
+                walkResults( nodeResult, nodeStruct)
+                console.log(out)
+                return out
+            }
+            
+        }
+    }catch(error){
+        console.log(error)
+    }
+    return ""
 }

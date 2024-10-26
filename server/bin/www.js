@@ -12,6 +12,7 @@ import QueueDocument from '../document_queue';
 import QueueAI from '../ai_queue';
 import EnrichPrimitive from '../enrich_queue';
 import QueryQueue from '../query_queue';
+import BrightDataQueue from '../brightdata_queue';
 const debug = debugLib('your-project-name:server');
 
 /**
@@ -37,6 +38,7 @@ QueueDocument().myInit()
 QueueAI().myInit()
 EnrichPrimitive().myInit()
 QueryQueue().myInit()
+BrightDataQueue().myInit()
 
 server.listen(port);
 server.on('error', onError);

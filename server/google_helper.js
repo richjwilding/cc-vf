@@ -163,6 +163,8 @@ export async function buildDocumentEmbedding(id, req){
 export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
 
 
+        
+
     if( !forcePDF ){
         const text = await retrieveDocumentFromSearchCache( id )
         if( text ){
@@ -173,6 +175,13 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
 
     const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
     const category =  await Category.findOne({id:  primitive.referenceId})
+
+    const field = Object.keys(category?.parameters ?? {}).find(d=>category?.parameters[d].useAsContent)
+    if( field ){
+        return { plain: primitive.referenceParameters[field] }
+    }
+
+
     const bucketName = 'cc_vf_document_plaintext'
     const storage = new Storage({
         projectId: process.env.GOOGLE_PROJECT_ID,

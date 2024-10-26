@@ -131,21 +131,29 @@ class QueueManager {
 
                     // Process job here
                     console.log(`Processing job ${job.name}`);
+                    let result
                     if( this.processCallback ){
-                        await this.processCallback( job, ()=>this.checkIfJobCancelled(job.name) )
+                        result = await this.processCallback( job, ()=>this.checkIfJobCancelled(job.name) )
+                        if( result.reschedule ){
+                            console.log(`Job asked to be rescheduled`)
+                            const state = await job.getState();
+                            console.log(state)
+                            await result.reschedule()
+                        }
                     }
                     await this.resetCancelJob(job.name)
 
                     await this.setQueueActivity(queueName, false);
+                    return true
                 }, { connection: this.connection, ...this.settings }));
             }
         }
         return this.queues[queueName];
     }
 
-    async addJob(workspaceId, jobData) {
+    async addJob(workspaceId, jobData, options = {}) {
         try {
-            const jobId = jobData.id + "-" + jobData.mode
+            const jobId = jobData.id + "-" + jobData.mode + (options.reschedule ? Date.now() : "")
             const queue = await this.getQueue(workspaceId);
             const existing = await queue.getJob(jobId)
             if(  existing ){
@@ -153,7 +161,7 @@ class QueueManager {
                 return
             }
             console.log(`Starting job ${jobId} on ${workspaceId}`)
-            await queue.add(jobId, jobData, { removeOnComplete: true, removeOnFail: true, jobId: jobId });
+            await queue.add(jobId, jobData, { removeOnComplete: true, removeOnFail: true, jobId: jobId, ...options });
             await this.updateQueueActivity(`${workspaceId}-${this.type}`);
         } catch (error) {
             console.error(`Error adding job to queue: ${error}`);

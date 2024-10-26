@@ -3,7 +3,7 @@ import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import Primitive from "./model/Primitive";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
-import { enrichCompanyFromLinkedIn } from "./linkedin_helper";
+import { enrichCompanyFromLinkedIn, findCompanyLIPage } from "./linkedin_helper";
 import { enrichFromCrunchbase, fetchCompanyDataFromCrunchbase, findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
 import Category from "./model/Category";
 //import { fetchArticlesFromGNews } from "./gnews_helper";
@@ -794,6 +794,13 @@ export default function EnrichPrimitive(){
                         if( job.data.options.source === "linkedin" ){
                             const result = await enrichCompanyFromLinkedIn( primitive, true)
                             SIO.notifyPrimitiveEvent( primitive, result)
+                        }
+                        if( job.data.options.source === "li_profile" ){
+                            const targetProfile = await findCompanyLIPage( primitive )
+                            if( targetProfile ){
+                                await dispatchControlUpdate( primitive.id, "referenceParameters.linkedIn", targetProfile)
+                            }
+                            //SIO.notifyPrimitiveEvent( primitive, result)
                         }
                         if( job.data.options.source === "owler" ){
                             const result = await enrichEntityFromOwler( primitive)

@@ -1439,26 +1439,30 @@ export default function QueueAI(){
                                         }
                                     }
 
+
+                                    let runInBatch = (primitive.referenceParameters?.field ?? action.field) !== "context"
+
                                     let prompt = pCategory?.mapMode === "distance" ? `Using only the information provided, evaluate how close it is to the baseline described on a scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
                                                                                     : `Using only the information provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
                                                                                     
                                     const raw_result = await processPromptOnText( data, {
                                         opener,
                                         prompt,
-                                        //output: "Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed and a field called 'likelihood' set to your assessment for that item.  Do not include anything other than the json object in the response.",
-                                        output: `Provide the result as a json object with the following structure: 
+                                        output: runInBatch ? "Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed and a field called 'likelihood' set to your assessment for that item.  Do not include anything other than the json object in the response."
+                                                            : `Provide the result as a json object with the following structure: 
                                                     {likelihood:<<your assessment for this item using the scale provided>>}`,
-                                        field: 'likelihood',
+                                        field: runInBatch ? "results" : 'likelihood',
                                         engine: "gpt4p",
-                                        //debug: true,
-                                        no_num: true,
-                                        //debug_content: true,
-                                        batch: 1
+                                        debug: true,
+                                        no_num: !runInBatch,
+                                        debug_content: true,
+                                        batch: runInBatch ? 50 : 1,
+                                        //batch: 1
                                     })
                                     console.log(raw_result)
                                     const resultCache = catOptions.reduce((a,c)=>{a[c.title] = {ids: [], categoryId: c.id}; return a}, {} )
                                     if( raw_result.success ){
-                                        const result = raw_result.output.map((d,idx)=>({id: idx, likelihood: d}))
+                                        const result = runInBatch ? raw_result.output : raw_result.output.map((d,idx)=>({id: idx, likelihood: d}))
                                         for(const d of result){
                                             const item = list[d.id]
                                             let category = resultCache[d.likelihood]
@@ -1505,6 +1509,8 @@ export default function QueueAI(){
                                     const complex = primitive.referenceParameters?.complex ?? action.complex ?? false
                                     console.log(`Compexity = ${complex} (${primitive.referenceParameters?.complex} / ${action.complex})`)
 
+                                    let runInBatch = (primitive.referenceParameters?.field ?? action.field) !== "context"
+
                                     categoryAlloc = await categorize(data, categoryList, {
                                         workspaceId: primitive.workspaceId,
                                         usageId: primitive.id,
@@ -1514,12 +1520,17 @@ export default function QueueAI(){
                                         engine:  primitive.referenceParameters?.engine || action.engine,
                                         complex: complex,
                                         literal,
-                                        batch: (primitive.referenceParameters?.field ?? action.field) === "context" ? 1 : 50,
+                                        batch: runInBatch ? 50 : 1,
+                                        no_num: !runInBatch,
                                         rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
                                         types: types,
                                         focus: focus,
                                         debug: false,
-                                        debug_content: false
+                                        debug_content: false,
+                                        progressCallback:(status)=>{
+                                            dispatchControlUpdate(primitive.id, job.data.field + ".progress", status.completed / status.total , {track: primitive.id})
+                                        }
+
                                     })
                                     
                                     let promiseList = []

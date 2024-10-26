@@ -61,12 +61,13 @@ export default function AIProcessButton({primitive, ...props}){
           }
         }
 
-      if( error || (new Date() - new Date(primitive.processing.ai?.[props.active]?.started)) > (5 * 60 *1000) ){
+      if( error || (new Date() - new Date(primitive.processing.ai?.[props.active]?.started)) > (25 * 60 *1000) ){
         title = <div className='text-red-600'><FontAwesomeIcon icon='triangle-exclamation'/> Error</div>
         active = false
         error = true
       }else if(active){
-        title = <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin"/>{props.small ? "" :" Processing"}</div>
+        const percent = parseInt((primitive.processing.ai?.[props.active]?.progress ?? 0) * 100) + "%"
+        title = <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin"/>{props.small ? "" :" Processing " + percent}</div>
         //action = (e)=>{e.stopPropagation();}
       }
       

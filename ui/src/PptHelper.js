@@ -126,6 +126,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
 
         let rx = x * scale, ry = (y - pageOffset) * scale
         let rw = konvaNode.width() * scale * thisScale, rh = konvaNode.height() * scale * thisScale
+        let rr = konvaNode.radius ? konvaNode.radius() * scale * thisScale : undefined
 
         if(options.asTable){
 
@@ -187,12 +188,12 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 let bulletNeedsFlushing = false
                 for( const d of konvaNode.textArr){
                     let flush = false
-                    let markEndList = false
+                    let markEndList = d.lastInParagraph
                     if( d.bullet ){
                         if( bulletNeedsFlushing ){
                             flush = true
                             lastBullet = true
-                            markEndList = true
+                            //markEndList = true
                         }
                         bulletNeedsFlushing = true
                         hasIndents = true
@@ -217,6 +218,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     }else{
                         if( lastWasLastInPara ){
                             indentLevel = 0
+                            indentTracker = false
                             flush = true
                         }
                     }
@@ -234,25 +236,30 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             //spacingAfter = 0
                         }
                         if( agg.length ){
-                            bulletNeedsFlushing = d.bullet
                             if( lastIndent ){
                                 spacingBefore = fontSize * 0.2
                                 if( indentLevel === 0){
-                                    markEndList = true
+                               //     markEndList = true
                                 }
                             }
-                            stack.push({
-                                text: agg.join(" ") + (!d.bullet && lastIndent === 0 ? "\n" : ""),
-                                options:{
+                            let options = {
                                     paraSpaceBefore: spacingBefore,
                                     paraSpaceAfter: spacingAfter,
-                                    bold: lastBold,
-                                    bullet: lastBullet && lastIndent ? {indentLevel: indentLevel, indent: (fontScale * 10).toFixed(3)} : false,
+                                    bold: lastBold || lastLarge,
                                     fontSize: (lastLarge ?  largeFontSize : fontSize).toFixed(3),
-                                    breakLine: markEndList ? true : false 
+                                    breakLine: lastEndList ? true : false 
                                 }
+                            if( bulletNeedsFlushing && lastIndent ){
+                                options.bullet = {indentLevel: lastIndent, indent: (fontScale * 10).toFixed(3)}
+                            }
+                            stack.push({
+                                text: agg.join(" ").trim(),// + (!d.bullet && bulletNeedsFlushing && markEndList ? "\n" : ""),//(!d.bullet && lastIndent === 0 ? "\n" : ""),
+                                //text: agg.join(" ") + (!d.bullet && lastIndent === 0 ? "\n" : ""),
+                                options
                             })
                             agg = []
+                            console.log(stack.slice(-1)[0].text, stack.slice(-1)[0].options)
+                            bulletNeedsFlushing = d.bullet
                         }
                     }
                     agg.push(d.text)
@@ -276,7 +283,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     })
                 }
                 console.log(stack)
-                if( konvaNode.parent?.attrs?.name.includes("primitive")){
+                if( konvaNode.parent?.attrs?.name?.includes("primitive")){
                     if( window.pptlinks){
                         if( window.pptlinks[konvaNode.parent?.attrs.id]){
                             stack[0].options.hyperlink = {slide: window.pptlinks[konvaNode.parent?.attrs.id]}
@@ -293,7 +300,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     italic: konvaNode.fontStyle() === "italic",
                     fontFace: konvaNode.fontFamily(),
                     align: hasIndents ? undefined : konvaNode.align(),
-                    valign: hasIndents ? undefined : konvaNode.verticalAlign(),
+                    valign: hasIndents ? "top" : konvaNode.verticalAlign(),
                     margin:konvaNode.padding(),
                     fontSize: fontSize.toFixed(3),
                     color: toHex(konvaNode.fill()),
@@ -331,6 +338,25 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         width: konvaNode.strokeWidth() /2
                     },
                 });
+        }else if (konvaNode instanceof Konva.Wedge) {
+            const wedgeWidth = 2 * rr;
+            const wedgeHeight = 2 * rr;
+        
+            slide.addShape(pptx.shapes.ARC, {
+                x: rx - rr,
+                y: ry - rr,
+                w: wedgeWidth,
+                h: wedgeHeight,
+                angleRange:[konvaNode.rotation(), konvaNode.rotation() + konvaNode.angle()],
+                fill: {color: toHex(konvaNode.fill())},
+                line: {
+                    color: toHex(konvaNode.stroke()),
+                    width: konvaNode.strokeWidth() / 2,
+                },
+            });
+            
+
+            //slide.addShape(pptx.shapes.ARC, { x: rx, y: ry, w: 1.5, h: 1.45, fill: { color: pptx.colors.ACCENT3 }, angleRange:[konvaNode.rotation(), konvaNode.rotation() + konvaNode.angle()] });
         } else if (konvaNode instanceof Konva.Arc ) {
             // Handle rectangle
             const width = konvaNode.width() * scale * thisScale

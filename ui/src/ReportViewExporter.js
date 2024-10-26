@@ -6,7 +6,7 @@ import { PrimitiveCard } from './PrimitiveCard';
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import DropdownButton from "./DropdownButton";
 import { HeroIcon } from "./HeroIcon";
-import { ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, DocumentArrowDownIcon, MinusCircleIcon, PlusCircleIcon, PlusIcon, RectangleGroupIcon } from "@heroicons/react/24/outline";
+import { ArrowDownCircleIcon, ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, DocumentArrowDownIcon, MinusCircleIcon, PlusCircleIcon, PlusIcon, RectangleGroupIcon } from "@heroicons/react/24/outline";
 import { InputPopup } from "./InputPopup";
 import Panel from "./Panel";
 import PrimitiveReport from "./PrimitiveReport";
@@ -16,6 +16,7 @@ import CollectionUtils from "./CollectionHelper";
 import BoardViewer from "./BoardViewer";
 import InfiniteCanvas from "./InfiniteCanvas";
 import { renderMatrix, RenderPrimitiveAsKonva, RenderSetAsKonva } from "./RenderHelpers";
+import PrimitiveConfig from "./PrimitiveConfig";
 
 
 
@@ -27,6 +28,10 @@ export default function ReportViewExporter({primitive, ...props}){
     let targetList 
     if( primitive.workspaceId ===  "66a3cbccb95d676c5b4db74b"){
         targetList = mainstore.primitive(516283).itemsForProcessing
+    }else if( primitive.plainId === 699437){
+        //targetList = [699128,698685, 698691, 699136, 699144,699269, 699416].map(d=>MainStore().primitive(d))
+        //targetList = [699598, 699563,699564,699565].map(d=>MainStore().primitive(d))
+        targetList = [700480, 700481,700482,700483].map(d=>MainStore().primitive(d))
     }else{
         targetList = ["669f45c26e1bd45cc906346b", "666be85605ff1c2b42bc00d4", "669f455e6e1bd45cc90631be", "66a0c1e7abb4c2893f73d839", 
             "666be41e05ff1c2b42bbe25e", "669f43036e1bd45cc90621a5", "66a0b3ea2d1b19b3e90facdd", "669f42d46e1bd45cc9062064", 
@@ -57,16 +62,38 @@ export default function ReportViewExporter({primitive, ...props}){
     const [activeTarget, setActiveTarget] = useState(targetList?.[0])
     const [autoExport, setAutoExport] = useState(undefined)
     const [slideMap, setSlideMap] = useState({})
+    const [rInstance, setRInstance] = useState(  )
+    const [asyncCalls, setAsyncCalls] = useState(  )
 
     const setViewerPick = (d)=>{
         setActiveTarget(d)
         forceUpdate()
     }
 
-    const pptConfig = {removeNodes: ["frame_outline", "plainId", "background"], padding: [2.5, 3, 0.5, 3], scale: 0.03}
+    const pptConfig = {removeNodes: ["frame_outline", "plainId", "background"], padding: [2, 0.2, 0.2, 0.2], scale: 0.03}
     
-    const prepareBoard = (d)=>BoardViewer.prepareBoard(d, myState)
+    useEffect(()=>{
+        async function doCallback(){
+            if( asyncCalls ){
+                for( const a of asyncCalls ){
+                    console.log(`Running async`)
+                    await a()
+                }
+                setAsyncCalls(undefined)
+            }
 
+        }
+        doCallback()
+    }, [asyncCalls])
+
+    async function addElement(){
+        const newElement = await MainStore().createPrimitive({
+            title: "New Element",
+            type: "element",
+            parent: primitive
+        })
+        forceUpdate()
+    }
 
     async function exportFrame(){
         await exportKonvaToPptx( canvas.current.stageNode(), undefined, pptConfig )
@@ -83,6 +110,13 @@ export default function ReportViewExporter({primitive, ...props}){
     }
 
     function renderView(d){
+        if( myState[d.id]?.processing ){
+            return
+        }
+        if( myState[d.id]?.underlying){
+            myState[d.id].noTitle = true
+            return BoardViewer.renderBoardView(d, primitive, myState)
+        }
         const configNames = ["width", "height"]
         const renderOptions = {
             renderConfig:{
@@ -170,6 +204,131 @@ export default function ReportViewExporter({primitive, ...props}){
 
 
     }
+    function prepareBoard(element, underlying){
+        const config = element.referenceParameters ?? {}
+        if( config.transform){
+            
+            const items = underlying.itemsForProcessing
+            const columnAxis = CollectionUtils.primitiveAxis(underlying, "column", items)
+            const rowAxis = CollectionUtils.primitiveAxis(underlying, "row", items)
+            
+            let viewFilters = []//d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
+            let filterApplyColumns = underlying.referenceParameters?.explore?.axis?.column?.filter ?? []
+            let filterApplyRows = underlying.referenceParameters?.explore?.axis?.row?.filter ?? []
+            let hideNull = underlying.referenceParameters?.explore?.hideNull
+            let viewPivot = underlying.referenceParameters?.explore?.viewPivot
+
+            let liveFilters = []
+            
+            let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columnAxis, rowAxis, viewFilters, liveFilters, viewPivot )
+
+            let filtered = CollectionUtils.filterCollectionAndAxis( data, [
+                {field: "column", exclude: filterApplyColumns},
+                {field: "row", exclude: filterApplyRows},
+                ...viewFilters.map((d,i)=>{
+                    return {field: `filterGroup${i}`, exclude: d.filter}
+                })
+            ], {columns: extents.column, rows: extents.row, hideNull})
+
+            console.log(extents)
+
+            if( config.transform.mode === "summary"){
+                const stateId = element.id
+                myState[stateId].processing = true
+                const toExec = async ()=>{
+                    const segmentList = element.primitives.allSegment
+                    const remappedData = []
+                    let needUpdate = false
+
+                    function updateSet(){
+                        myState[stateId].processing = remappedData.length === 0 
+                        myState[stateId].primitive = element
+                        myState[stateId].config = "explore_0" 
+                        myState[stateId].list = remappedData
+                        myState[stateId].internalWatchIds =  remappedData.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
+                        myState[stateId].axis = {column: columnAxis, row: rowAxis}
+                        myState[stateId].columns = filtered.columns
+                        myState[stateId].viewConfig = Object.values(PrimitiveConfig.renderConfigs)[0]
+                        myState[stateId].rows = filtered.rows
+                        myState[stateId].extents = extents
+                        myState[stateId].toggles = {}
+                        
+                        const r = renderView(element)
+                        if( r ){
+                            console.log("Rerender post async")
+                            canvas.current.refreshFrame( element.id, r)
+                        }
+                    }
+
+                    const requestsPending = element.processing?.summary?.pending?.[underlying.id]
+                    
+                    for( const row of filtered.rows ){
+                        for( const col of filtered.columns ){
+                            const filter = [
+                                PrimitiveConfig.encodeExploreFilter( columnAxis, col ),
+                                PrimitiveConfig.encodeExploreFilter( rowAxis, row ),
+                            ].filter(d=>d)
+                            
+                            let existing = segmentList.find(d=>d.doesImport( underlying.id, filter))
+
+
+                            function addItem(existing){
+                                const summary = existing.primitives.allUniqueSummary[0]
+                                if( summary ){
+                                    remappedData.push({
+                                        column: col.idx ? [col.idx] : undefined,
+                                        row: row.idx ? [row.idx] : undefined,
+                                        primitive: summary
+                                    })
+                                }
+
+                            }
+
+                            if( existing ){
+                                addItem(existing)
+                            }else{
+                                if( !requestsPending ){
+                                    element.setField(`processing.summary.pending.${underlying.id}`,true)
+                                    await mainstore.doPrimitiveAction( element, 
+                                        "create_summary", {
+                                            segment: [{id: underlying.id, filters: filter}]
+                                        }, async (data)=>{
+                                            console.log(`Got back from create_summary`)
+                                            console.log(data)
+                                            existing = await mainstore.waitForPrimitive(data.segment)
+                                            if( existing ){
+                                                addItem(existing)
+                                                updateSet()
+                                            }
+                                        })
+                                }else{
+                                    console.log(`Requests alreddy pending`)
+                                }
+                            }
+                        }
+                    }
+                    updateSet()
+
+
+                }
+                setAsyncCalls( [toExec] )
+                return
+            }
+        }
+        BoardViewer.prepareBoard(underlying, myState, element.id, config.viewConfig)
+    }
+    function refreshTransforms(){
+        const txList = primitive.primitives.allUniqueElement.filter(d=>d.referenceParameters.transform)
+        for(const element of txList){
+            const segments = element.primitives.allUniqueSegment
+            const toClear = segments.filter(d=>d.primitives.imports.allIds.includes(activeTarget.id))
+            element.setField(`processing.summary.pending.${activeTarget.id}`,null)
+            for(const d of toClear){
+                //d.setParameter("summary", null)
+                mainstore.removePrimitive(d)
+            }
+        }
+    }
     function exportAll(){
             let pptx = new pptxgen();
             mainstore.keepPPTX = pptx
@@ -228,21 +387,63 @@ export default function ReportViewExporter({primitive, ...props}){
             myState.activeBoard = undefined
         }
     }
+
+    useEffect(()=>{
+        async function resolveReport(){
+            if( activeTarget ){
+                let instance = primitive.primitives.allReportinstance.find(d=>d.parentPrimitiveIds.includes(activeTarget.id) )
+                if( !instance){
+                    console.log(`Cant find instance of report - creating`)
+                    instance = await MainStore().createPrimitive({title:`RI - ${primitive.plainId} / ${activeTarget.plainId}`,type:"reportinstance", parent: primitive }) 
+                    activeTarget.addRelationship( instance, "auto" )
+                }else{
+                  /*  const elements = primitive.primitives.allElement
+                    for(const d of elements){
+                        if( d.referenceParameters?.transform ){
+                            const eInstance = d.primitives.allReportinstance.find(d=>d.parentPrimitiveIds.includes(instance.id) )
+
+                        }
+                    }*/
+
+                }
+                setRInstance( instance )
+            }
+        }
+        resolveReport()
+    }, [primitive?.id, activeTarget?.id])
+
     const [renderedSet] = useMemo(()=>{
+
         let fields = [], boards = []
         if( primitive.workspaceId ===  "66a3cbccb95d676c5b4db74b"){
             fields = ["summary/application/bold","summary/use case/bold", "summary/industry/bold", "summary/summary", "summary/key factors driving growth", "cagr//bold", "size//bold"]
             boards = [522857].map(d=>mainstore.primitive(d)).filter(d=>d)
+        }else if( primitive.workspaceId ===  "66fabc00984ea44ecdf7eda4"){
+            console.log(`Set to ${activeTarget.plainId}`)
+            const elements = primitive.primitives.allElement
+            boards =  elements.map(d=>{
+                const config = d.referenceParameters ?? {}
+                return {
+                        primitive: d,
+                        underlying: config.sourceData === "active" ? activeTarget : undefined,
+                        forceRefresh: true
+                    }
+                })
         }else{
             fields = ["location", "title", "url"]
             boards = [411261, 411138, 435057, 434996, 435515, 435526, 435532, 435533, 435544, 436467].map(d=>mainstore.primitive(d)).filter(d=>d)
         }
         
         const set = []
-        for(const d of boards){
-            if(!myState[d.id] ){
-                myState[d.id] = {id: d.id}
-                prepareBoard(d)
+        for(const setting of boards){
+            const d = setting.primitive
+            if(!myState[d.id] || setting.forceRefresh){
+                myState[d.id] = {id: d.id, underlying: setting.underlying, primitive: d}
+                if( setting.underlying){
+                    prepareBoard(d, setting.underlying)
+                }else{
+                    BoardViewer.prepareBoard(d, myState)
+                }
             }
             set.push(d)
         }
@@ -253,10 +454,25 @@ export default function ReportViewExporter({primitive, ...props}){
         }
         const renderedSet = set.map(d=>renderView(d)).filter(d=>d)
         if( canvas.current?.refreshFrame ){
-            renderedSet.forEach(d=>canvas.current.refreshFrame( d.id, d ))
+            let currentFramesInCanvas = canvas.current.frameList()
+            renderedSet.forEach(d=>{
+                if( currentFramesInCanvas.includes( d.id) ){
+
+                    console.log(`refresh ${d.id}`)
+                    canvas.current.refreshFrame( d.id, d )
+                }else{
+                    console.log(`add ${d.id}`)
+                    canvas.current.addFrame( d )
+                }
+                currentFramesInCanvas = currentFramesInCanvas.filter(d2=>d2 !== d.id)
+            })
+            for(const d of currentFramesInCanvas){
+                    console.log(`remove ${d}`)
+                canvas.current.removeFrame(d)
+            }
         }
         return [renderedSet]
-    }, [primitive?.id, update])
+    }, [rInstance?.id, update])
 
     return <div 
             //  style={{gridTemplateColumns: "9rem calc(100% - 9rem)"}}
@@ -278,7 +494,8 @@ export default function ReportViewExporter({primitive, ...props}){
         <div className="relative w-[calc(100%_-192px)] h-full flex">
         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
             <div className='p-3 flex place-items-start space-x-2 '>
-                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={forceUpdate} flat placement='left-start' />
+                    <DropdownButton noBorder icon={<ArrowDownCircleIcon className='w-6 h-6 mr-1.5'/>} onClick={refreshTransforms} flat placement='left-start' />
+                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={addElement} flat placement='left-start' />
                     <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={exportFrame} flat placement='left-start' />
             </div>
         </div>
@@ -315,7 +532,7 @@ export default function ReportViewExporter({primitive, ...props}){
                                 },
                                 onClick:{
                                     frame: (id)=>setActiveBoard(id),
-                                    //primitive:(id)=>mainstore.sidebarSelect(id),
+                                    primitive:(id)=>mainstore.sidebarSelect(id),
                                     //canvas:(id)=>setCollectionPaneInfo(),
                                 }
                             }}

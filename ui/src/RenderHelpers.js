@@ -11,6 +11,11 @@ import { MagnifyingGlassIcon } from "@heroicons/react/20/solid";
 const typeMaps = {}
 const categoryMaps = {}
 
+
+const defaultWidthByCategory = {
+    124: 480
+}
+
 export const heatMapPalette = PrimitiveConfig.heatMapPalette
 
 export const categoryColors = [ "#4e79a7",
@@ -31,13 +36,23 @@ export function roundCurrency(number){
     if( isNaN(number)){
         return "-"
     }
+
+    return "$" + formatNumber(number)
+}
+export function formatNumber(number){
+    if(number === 0){
+        return "0"
+    }
+    if( isNaN(number)){
+        return "-"
+    }
     const suffixes = ["", "K", "M","B","T"];
     const suffixIndex = Math.floor(Math.log10(Math.abs(number)) / 3);
 
     const scaledNumber = number / Math.pow(10, suffixIndex * 3);
     const formattedNumber = scaledNumber.toFixed( suffixIndex > 1 ? 0 : 2);
 
-    return "$" + formattedNumber.replace(/\.00$/, '') + (suffixes[suffixIndex] ?? "");
+    return formattedNumber.replace(/\.00$/, '') + (suffixes[suffixIndex] ?? "");
 }
 
 function registerRenderer( mappings, callback){
@@ -564,12 +579,15 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
         return undefined
     }
     let range = options.range
+    let title = ""
     if(!options.inTable){
 
         if( primitive.renderConfig?.group_by === "row"){
             range = options.rowRange[options.rIdx]
+            title = options.rowTitles[options.rIdx]
         }else if( primitive.renderConfig?.group_by === "col"){
             range = options.colRange[options.cIdx]
+            title = options.colTitles[options.cIdx]
         }
     }
 
@@ -611,6 +629,21 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
             x: config.padding[3],
             y: (config.height - 20) / 2,
             text: items.length,
+            fontSize: 16,
+            width: config.width - config.padding[3] - config.padding[1],
+            align:'center',
+            height:20,
+            bgFill: 'transparent',
+            refreshCallback: options.imageCallback
+        })
+        g.add(t)
+        t.y((config.height - t.height() ) /2)
+
+    }else if( primitive.renderConfig?.titles){
+        const t = new Konva.CustomText({
+            x: config.padding[3],
+            y: (config.height - 20) / 2,
+            text: title,
             fontSize: 16,
             width: config.width - config.padding[3] - config.padding[1],
             align:'center',
@@ -1158,9 +1191,10 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
             cIdx++
         }
         for(const partial of partials){
-            let minWidth = 100
             const range = rowLabels.map((_,i)=>cells.filter(d=>d.cIdx === cIdx && d.rIdx === i).map(d=>d.listLength))
             const cell = cells.find(d=>d.cIdx === cIdx && d.rIdx === rIdx)
+            let minWidth =  defaultWidthByCategory[cell.list[0]?.referenceId] ?? 100
+            let preferredWith = primitive.columns?.[cIdx]?.width
             
             let configName = partial.viewConfig?.renderType ?? "grid" 
             const asCounts = partial.viewConfig?.showAsCounts
@@ -1187,6 +1221,9 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
                         minWidth: minWidth,
                         columns: 1,
                     }                
+            }
+            if( preferredWith ){
+                config.renderConfig.width = preferredWith 
             }
             if(primitive.widths?.[cIdx] ){
                 config.renderConfig.width = 80//primitive.widths[cIdx]
@@ -1951,7 +1988,8 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
             x: config.padding[3],
             y: config.padding[0],
             fontSize: config.fontSize,
-            lineHeight: 1.5,
+            //fontFamily: "Poppins",
+            lineHeight: 1.3,
             text: text,
             withMarkdown: true,
             fill: '#334155',
@@ -2014,6 +2052,153 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
     }
     return g
 })
+registerRenderer( {type: "categoryId", id: 124, configs: "default"}, function renderFunc(primitive, options = {}){
+    return baseSocialMedia(primitive, {
+            ...options, 
+            width: defaultWidthByCategory[124],
+            account_name: primitive.referenceParameters?.account,
+            name: primitive.referenceParameters?.full_name,
+            type: primitive.referenceParameters?.category_name,
+            bioline1: primitive.referenceParameters?.biography,
+            bioline2: primitive.referenceParameters?.bio_hastags,
+            followers: primitive.referenceParameters?.followers,
+            post_count: primitive.referenceParameters?.posts_count,
+            engagement_score: primitive.referenceParameters?.avg_engagement,
+        })
+})
+
+
+function baseSocialMedia(primitive, options){
+    const config = {showId: true, idSize: 14, width: 480, padding: [10,10,10,10], ...options}
+    if( options.getConfig){
+        return config
+    }
+
+    let toggleWidth = 0
+    if( options.toggles){
+        toggleWidth = 26
+    }
+
+    let idHeight = config.showId ?  20 : 0
+    let availableWidth = config.width - config.padding[1] - config.padding[3]
+    let availableHeight = config.maxHeight !== undefined ? config.maxHeight - config.padding[0] - config.padding[2] - idHeight: undefined
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        onClick: options.onClick,
+        name:"inf_track primitive"
+    })
+    if( g ){
+        const r = new Konva.Rect({
+            x: 0,
+            y: 0,
+            width: config.width,
+            cornerRadius: 2,
+            fill: 'white',
+        })
+        g.add(r)
+
+        let imageWidth = config.width
+        let imageHeight = 0
+        if( primitive.referenceParameters?.hasImg){
+            imageHeight = (imageWidth / 16 * 9) + 10
+            const img = imageHelper( `/api/image/${primitive.id}`, {
+                x: 0,
+                y: 0,
+                padding: config.padding,
+                width: imageWidth,
+                height: imageHeight,
+                center: true,
+                fit:"cover",
+                imageCallback: options.imageCallback,
+                placeholder: options.placeholder !== false,
+                maxScale: 1,
+                scaleRatio: 2
+                
+            })
+            g.add( img )
+        }
+
+        const textToShow = [
+            options.account_name,
+            options.name && `**${options.name}**`,
+            options.bioline1,
+            options.bioline2,
+            " ",
+            options.followers && `Followers: ${formatNumber(options.followers)}`,
+            options.post_count && `Posts: ${formatNumber(options.post_count)}`,
+            options.engagement_score && `Engagement Score: ${options.engagement_score}`
+        ].filter(d=>d).join("\n")
+
+        const t = new CustomText({
+            x: config.padding[3],
+            y: config.padding[0] + imageHeight,
+            fontSize: 16,
+            lineHeight: 1.15,
+            withMarkdown: true,
+            text: textToShow,
+            fill: '#334155',
+            wrap: true,
+            imageCallback: options.imageCallback,
+            ellipsis: true,
+            width: availableWidth,
+        })
+        t.attrs.refreshCallback = options.imageCallback
+
+        let h = t.height()
+        if( availableHeight ){
+            if( h > availableHeight ){
+                t.ellipsis(true)
+                t.height( availableHeight )
+                h = availableHeight
+            }
+        }
+        //t.height(h)
+        g.add(t)
+
+
+        let fy = 0
+
+        let totalheight = fy + h + config.padding[0] + config.padding[2] + idHeight + imageHeight
+
+        if( options.toggles ){
+            const active = Object.values(options.toggles)[0][primitive.id]
+            const startX = availableWidth + config.padding[3] - toggleWidth + 2
+            const startY = totalheight - config.padding[2] - config.idSize
+            g.add( renderToggle(active, startX, startY, toggleWidth, config.idSize, Object.keys(options.toggles)[0]))
+        }
+
+
+        if( config.showId ){
+            const idText = new CustomText({
+                x: config.padding[3],
+                y: totalheight - config.padding[2] - config.idSize ,
+                fontSize: config.idSize,
+                text: `${primitive.displayType} #${primitive.plainId}`,
+                fill: '#94a3b8',
+                wrap: true,
+                width: availableWidth - toggleWidth,
+            })
+            idText.attrs.refreshCallback = options.imageCallback
+            g.add(idText)
+        }
+
+        g.setAttrs({
+            width: config.width,
+            height: totalheight
+        })
+        r.height( totalheight )
+    }
+    return g
+}
+
 registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function renderFunc(primitive, options = {}){
     return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.snippet ?? primitive.text})
 })
@@ -3061,7 +3246,7 @@ export function renderMatrix( primitive, list, options ){
 
             if( asCounts ){
                 console.log(`MAPPING FOR asCounts`)
-                subList = mainstore.uniquePrimitives( subList.map(d=>d.origin) )
+                //subList = mainstore.uniquePrimitives( subList.map(d=>d.origin) )
             }
 
             let cellShowExtra
@@ -3099,10 +3284,12 @@ export function renderMatrix( primitive, list, options ){
 
 
     let minHeight = 0
-    let minWidth = options.width ?? 300
+    let minWidth = defaultWidthByCategory[referenceIds[0]] ?? options.width ?? 300
     if( referenceIds[0] === 29){
         minWidth = options.hideColumnHeader ? 60 : 120
     }
+
+    
     if( asCounts ){
         minWidth = 128
     }else if( asChecks || configName === "checktable" || configName === "dials"){
@@ -3130,6 +3317,8 @@ export function renderMatrix( primitive, list, options ){
         baseRenderConfig.range = [Math.min(...cellCount), Math.max(...cellCount)]
         baseRenderConfig.colRange = columnRange.map(d=>[Math.min(...d), Math.max(...d)])
         baseRenderConfig.rowRange = rowRange.map(d=>[Math.min(...d), Math.max(...d)])
+        baseRenderConfig.colTitles = columnExtents.map(d=>d.label)
+        baseRenderConfig.rowTitles = rowExtents.map(d=>d.label)
     }
 
     for(const cell of cells){
@@ -3431,7 +3620,7 @@ function renderPieChart( segments, options = {}){
     })
 
     const total = segments.map(d=>d?.count ?? 0).reduce((a,c)=>a+c,0)
-    const scale = 360 / total
+    const scale = total ? (360 / total) : 0
 
     const outline = new Konva.Circle({
         x: r,
@@ -3549,6 +3738,7 @@ function renderSubCategoryChart( title, data, options = {}){
         sg.add(t)
         lIdx++
     }            
+    ly += innerPadding[2]
     sg.height( ly )
     return sg
 }
@@ -3559,14 +3749,6 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
     let ox = (options.x ?? 0) 
     let oy = (options.y ?? 0) 
 
-    const g = new Konva.Group({
-        id: primitive.id,
-        x: ox,
-        y: oy,
-        width: config.width,
-        onClick: options.onClick,
-        name:"inf_track"
-    })
 
     const sets = options.data?.mappedCategories ?? []
     const usableWidth = config.width - config.padding[1] - config.padding[3]
@@ -3574,12 +3756,13 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
     
     const itemSize = config.itemSize
     const columns = Math.floor(usableWidth / (itemSize + 10))
-    const spacing = (usableWidth - (columns * itemSize)) / (columns + 1)
-    const rows = Math.ceil( setCount / columns )
+    const spacing = (usableWidth - (columns * itemSize)) / (columns - 1)
     let ySpacing = 30
+    const actualColumns = Math.min(columns, setCount)
     
-    let x = config.padding[3] + spacing
-    let y = config.padding[0] + ySpacing
+    const actualWidth = ((spacing + itemSize) * actualColumns) - spacing
+    let x = config.padding[3]// + spacing
+    let y = config.padding[0] //+ ySpacing
     let maxY = 0
     let cIdx = 0
 
@@ -3587,9 +3770,19 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
     let rowCells = []
     let innerPadding = [10,10,10,10]
 
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: actualWidth,
+        onClick: options.onClick,
+        name:"inf_track"
+    })
+
     function updateGraphBackground(){
         for(const d of rowCells){
-            d.find('.background')[0]?.height(rHeight + innerPadding[2])
+            d.find('.background')[0]?.height(rHeight)
         }
     }
 
@@ -3598,7 +3791,6 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
         g.add(sg)
         rowCells.push( sg )
         
-        console.log(sg.attrs.height)
         rHeight = sg.attrs.height > rHeight  ? sg.attrs.height : rHeight
 
         x += itemSize + spacing
@@ -3606,7 +3798,7 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
         maxY = y + rHeight
         if( cIdx === columns ){
             updateGraphBackground()
-            x = config.padding[3] + spacing
+            x = config.padding[3] //+ spacing
             y += rHeight + ySpacing
             rHeight = 0
             cIdx = 0
@@ -3615,7 +3807,7 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
         
     }
     updateGraphBackground()
-    const h = maxY + config.padding[2] + ySpacing
+    const h = maxY + config.padding[2] //+ ySpacing
     //r.height(h)
     g.height(h)
     return g

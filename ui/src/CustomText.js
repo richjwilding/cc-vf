@@ -190,7 +190,8 @@ _setTextData() {
   var translateY 
 
   let wasIndented = false
-  let wasHeader = false
+  let wasHeader = undefined
+  let lastLarge = undefined
 
   for (var i = 0, max = lines.length; i < max; ++i) {
       var line = lines[i];
@@ -215,14 +216,20 @@ _setTextData() {
       }
       
       let indent = startIndent
+      let large = line.trim().startsWith("#")
+      if( large ){
+        line = line.replace(/^\s*#\s*/,"")
+      }
+
       const fragments = line.split("**")
       let bold = false
       let advanced = false
-      let large = fragments.length === 3 && fragments[0].length === 0 && fragments[2].length === 0
+      //let large = fragments.length === 3 && fragments[0].length === 0 && fragments[2].length === 0
       
       let lineHeightPx = large ? baseLineHeightPx * 1.2 : baseLineHeightPx
-      if( !large && wasHeader){
-        padding = -0.25
+      if( large && !wasHeader){
+        //padding = -0.1
+        currentHeightPx += lineHeightPx * 0.4;
       }
 
       if( i > 0){
@@ -234,7 +241,7 @@ _setTextData() {
       for( let line of fragments ){
         idx++
         let thisBold = idx % 2 === 1
-        if( bold!= thisBold ){
+        if( bold!= thisBold || large != wasHeader){
           bold = thisBold
           getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : this.standardFont
           if( bold ){
@@ -413,7 +420,7 @@ checkCanvasCleared() {
         if( bold !== obj.bold || large !== obj.large){
           bold = obj.bold
           large = obj.large
-          context.font = bold ? (obj.large ? this.headlineFont : this.boldFont) : this.standardFont
+          context.font = bold ? (obj.large ? this.headlineFont : this.boldFont) : (obj.large ? this.headlineFont : this.standardFont)
         }
         let offset = (alignCenter ? (this.attrs.width - obj.width)/2 : 0) + (obj.indent ?? 0)
         

@@ -379,7 +379,7 @@ export function PrimitivePage({primitive, ...props}) {
     <>
       <div 
         style={{minHeight: showWorkingPane ? "100%" : 'calc(100% - 4rem)'}}
-        className="overflow-y-scroll overscroll-contain w-full"
+        className="overflow-y-scroll overscroll-contain w-full overflow-x-hidden"
         onScroll={()=>{
           if( header.current && page.current){
 
