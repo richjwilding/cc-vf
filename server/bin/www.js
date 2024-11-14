@@ -13,6 +13,9 @@ import QueueAI from '../ai_queue';
 import EnrichPrimitive from '../enrich_queue';
 import QueryQueue from '../query_queue';
 import BrightDataQueue from '../brightdata_queue';
+
+import "../actions/finance_actions"
+
 const debug = debugLib('your-project-name:server');
 
 /**

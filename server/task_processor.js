@@ -1,9 +1,9 @@
 import { fetchFragmentsForTerm } from "./DocumentSearch";
-import PrimitiveConfig from "./PrimitiveConfig"
+import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
-import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
+import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { lookupCompanyByName } from "./crunchbase_helper";
-import { extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, queryGoogleSERP } from "./google_helper";
+import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
 import { analyzeListAgainstTopics, processPromptOnText, summarizeMultiple } from "./openai_helper";
@@ -345,72 +345,101 @@ export async function compareItems( parent, primitive, options = {}){
     return await baselineItemProcess( parent, primitive, options, {lookup: {by_axis: true}})
 }
 export async function comapreToPeers( parent, activeSegment, primitive, options = {}){
-    const allSegments = await primitiveChildren( parent, "segment")
-    const config = await getConfig( primitive )
-    let targetSegmentConfig
-    if( (primitive.referenceParameters?.by_axis === false) && (!options.by_axis)){
-        targetSegmentConfig = [
-            {
-                id: parent.id
-            }
-            
-        ]
-    }else{
-        targetSegmentConfig = await getSegemntDefinitions(parent)
-    }
+    try{
+        const allSegments = await primitiveChildren( parent, "segment")
+        const config = await getConfig( primitive )
+        let targetSegmentConfig
+        if( (primitive.referenceParameters?.by_axis === false) && (!options.by_axis)){
+            targetSegmentConfig = [
+                {
+                    id: parent.id
+                }
+                
+            ]
+        }else{
+            targetSegmentConfig = await getSegemntDefinitions(parent)
+        }
 
-    const others = [], thisOne = []
-    
-    for(const importConfig of targetSegmentConfig){
-        let existing = allSegments.find(d=>PrimitiveConfig.checkImports( d, importConfig.id, importConfig.filters))
-        if(existing){
-            const importSet = existing.referenceParameters.importConfig.find(d=>d.id === parent.id)
-            if( PrimitiveConfig.checkImports( activeSegment, parent.id, importSet?.filters)){
-                thisOne.push(existing)
-            }else{
-                others.push( existing )
+        const others = [], thisOne = []
+        
+        for(const importConfig of targetSegmentConfig){
+            let existing = allSegments.find(d=>PrimitiveConfig.checkImports( d, importConfig.id, importConfig.filters))
+            if(existing){
+                const importSet = existing.referenceParameters.importConfig.find(d=>d.id === parent.id)
+                if( PrimitiveConfig.checkImports( activeSegment, parent.id, importSet?.filters)){
+                    thisOne.push(existing)
+                }else{
+                    others.push( existing )
+                }
             }
         }
-    }
-    console.log(`Got ${thisOne.length} / ${others.length} segments`)
+        console.log(`Got ${thisOne.length} / ${others.length} segments`)
 
-    const param = config.field?.slice(6)
+        const param = config.field?.slice(6)
+        let structured = false
 
-    function translateItem(items){
-        return items.map(d=>{
-            if(config.field === "title"){
-                return d.title
-            }else{
-                return d.referenceParameters[param]
-            }
+        function translateItem(items){
+            return items.map(d=>{
+                if(config.field === "title"){
+                    return d.title
+                }else{
+                    if( param === "summary" && d.referenceParameters.structured_summary){
+                        structured = true
+                        return JSON.stringify(d.referenceParameters.structured_summary)
+                    }
+                    return d.referenceParameters[param]
+                }
+            })
+        }
+        const {results:otherItems} = await executeConcurrently( others, async (segment)=>{
+            const items = await getItemsForQuery( segment)
+            return translateItem(items).filter(d=>d)
         })
-    }
-    const {results:otherItems} = await executeConcurrently( others, async (segment)=>{
-        const items = await getItemsForQuery( segment)
-        return translateItem(items).filter(d=>d)
-    })
 
-    const activePrimitives = await getItemsForQuery( thisOne[0] )
-    const activeText = translateItem(activePrimitives).filter(d=>d)[0]
-    const otherText = otherItems.map((d,i)=>`Item ${i+1}\n=============\n${d}`)
+        const activePrimitives = await getItemsForQuery( thisOne[0] )
+        const activeText = translateItem(activePrimitives).filter(d=>d)[0]
+        const otherText = otherItems.map((d,i)=>`Item ${i+1}\n=============\n${d}`)
 
-    const fullText = `The data is a set of summaries for different segements - i need your help to compare and contrast these segments with one i am particularly interested in. Here are the peer segments for context:\n ${otherText}\n\nAnd here is the segement i am interested in:\n ${activeText}\n---END OF SEGMENT\n\n`
+        const fullText = `The data is a set of summaries for different segements - i need your help to compare and contrast these segments with one i am particularly interested in. Here are the peer segments for context:\n ${otherText}\n\nAnd here is the segement i am interested in:\n ${activeText}\n---END OF SEGMENT\n\n`
 
-    let result
-    let prompt = (config.summary_type === "custom" ? config.prompt : undefined) ?? "Compare all of the segments and then highlight what is unique about the one i am interested in"
-    const streamline = await summarizeMultiple([fullText],{
-        prompt,
-        output: "Provide the output as a json object with a field called 'results' containing the new summary as a string with suitable linebreaks to deliniate sections",
-        engine: "gpt4p",
-        markdown: config.markdown, 
-        temperature: config.temperature ?? primitive.referenceParameters?.temperature,
-        heading: config.heading,
-        keepLineBreaks: true,
-        debug: true,
-        debug_content:true
-    })
-    if( streamline.success && streamline.summary){
-        return streamline.summary
+        let result
+        let prompt = (config.summary_type === "custom" ? config.prompt : undefined) ?? "Compare all of the segments and then highlight what is unique about the one i am interested in"
+        const streamline = await summarizeMultiple([fullText],{
+            prompt,
+            output: structured ? "Generate a n new output for the segment im interested in in a json object with a field called 'new_segment'. The field must be in the same structure as the input for this segment - including nested subsections - but with the relevant content fields updated where necessary - add a 'omit' field to any subsections which should be removed from this segment. Ensure you consider and include every entry in the input array - and every nested subsection of this segment."
+            : "Provide the output as a json object with a field called 'summary' containing the new summary as a string with suitable linebreaks to deliniate sections",
+            engine: "gpt4p",
+            markdown: config.markdown, 
+            temperature: config.temperature ?? primitive.referenceParameters?.temperature,
+            heading: config.heading,
+            keepLineBreaks: true,
+            wholeResponse: structured,
+            debug: true,
+            debug_content:true
+        })
+
+        if( structured ){
+            console.log(streamline)
+            if( streamline.success ){
+                const segment = removeOmittedItemsFromStructure( streamline.summary.new_segment )
+                const flat = flattenStructuredResponse( segment, segment)
+                console.log(flat)
+                console.log("done")
+                return {
+                    plain: flattenStructuredResponse( segment, segment),
+                    structured: segment
+                }
+
+            }
+        }
+
+        if( streamline.success && streamline.summary){
+            return streamline.summary
+        }
+    }catch(e){
+                console.log(`Error in comparePeers`)
+                console.log(e)
+
     }
 }
 
@@ -571,9 +600,90 @@ export async function extractor( source, config, options = {} ){
 export async function lookupEntity( value, referenceCategory, workspaceId, options = {} ){
     if( referenceCategory.id === 29){
         return await loopkupOrganization(value, referenceCategory, workspaceId, options)
+    }else if( referenceCategory.id === 44){
+        return await lookupPerson(value, referenceCategory, workspaceId, options)
     }
 }
-export async function loopkupOrganization( value, referenceCategory, workspaceId, options = {} ){
+export async function lookupPerson( value, referenceCategory, workspaceId, options = {} ){
+    let item = await findExistingEntityByTitle( value, referenceCategory, workspaceId)
+    if( item ){
+        return item
+    }
+    let candidates = []
+    const valuesToTry = [value].filter(d=>d && d.length > 0)
+    for(const cValue of valuesToTry){
+        const googleKnowledge = await googleKnowledgeForQuery( `who is ${cValue}`, {overview: true}, )
+
+        if( googleKnowledge){
+
+            let actualName = googleKnowledge.overview?.title
+            if( !actualName && googleKnowledge.knowledge?.description){
+                const result = await processPromptOnText( googleKnowledge.knowledge?.description,{
+                    opener: "Here a description about a person",
+                    prompt:"Identify the name they are most commonly known by",
+                    output: "provide your answer in a json object called with a single field called 'known_by' contianing you answer",
+                    wholeResponse: true,
+                    debug:true,
+                    debug_content:true
+
+                })
+                if( result?.success && result.output?.[0]){
+                    actualName = result.output[0].known_by
+                }
+                
+            }
+
+            const candidate = {
+                title: actualName ?? cValue,
+                description: googleKnowledge.knowledge?.description,
+                description_source: googleKnowledge.knowledge?.description_source,
+                image: googleKnowledge.overview?.items?.find(d=>d.attrid==="VisualDigestFirstImageResult")?.image
+            }
+            candidates.push( candidate )
+        }
+    }
+
+    console.log(`Got ${candidates.length} candidates from remote`)
+    let match = candidates[0]
+    if( match ){
+        console.log(match)
+        let item = await findExistingEntityByTitle( match.title, referenceCategory, workspaceId)
+        if( item ){
+            return item
+        }
+        item = match
+
+        const newData = {
+            workspaceId: workspaceId,
+            parent: options.parent?.id,
+            data:{
+                type: referenceCategory.primitiveType,
+                referenceId: referenceCategory.id,
+                title: item.title,
+                referenceParameters:{
+                    description: item.description,
+                    description_source: item.description_source,
+                }
+            }
+        }
+        if( item.image ){
+            newData.data.referenceParameters.hasImg = true
+        }
+        const newPrim = await createPrimitive( newData )
+        console.log(`created new ${newPrim?.id}`)
+        if( newPrim && item.image ){
+            if( item.image.match(/https?:\/\// )){
+                await replicateURLtoStorage(item.image, newPrim._id.toString(), "cc_vf_images")
+            }else if(item.image.match(/^data:image/ )){
+                await decodeBase64ImageToStorage(item.image, newPrim._id.toString(), "cc_vf_images")
+            }
+        }
+        return newPrim
+
+    }
+}
+
+export async function findExistingEntityByTitle(value, referenceCategory, workspaceId ){
     const valuesToTry = [value].filter(d=>d && d.length > 0)
     let match
 
@@ -590,7 +700,16 @@ export async function loopkupOrganization( value, referenceCategory, workspaceId
             return candidates[0]
         }
     }
-    let item
+
+    return undefined
+}
+
+
+export async function loopkupOrganization( value, referenceCategory, workspaceId, options = {} ){
+    let item = await findExistingEntityByTitle( value, referenceCategory, workspaceId)
+    if( item ){
+        return item
+    }
     const remoteLookup = await lookupCompanyByName( value )
     console.log(`Got ${remoteLookup.length} candidates from remote`)
     if( remoteLookup.length > 0){
@@ -743,6 +862,7 @@ export async function findCompanyURLByNameByAboutUs( name, context = {}){
             'finance.yahoo.com',
             'uk.marketscreener.com',
             'www.dnb.com',
+            '.instagram.com',
             '.indeed.com',
             'www.zoominfo.com',
             'www.apollo.io',
@@ -963,14 +1083,46 @@ export async function validateResponse(task, response, nodeStruct, inputs, confi
     const flatText = flattenStructuredResponse( response, nodeStruct)
     console.log(flatText)
 
-    let reviewTask = `I previously gave an AI the above data alongside a task - i need you to carefully review the response as follows: 
-                    For each portion of the text carefully determine if it is marked with a ^ character near to it, for the full sentance, parapraph, table cell, or table row.
-                    If not marked with a ^, review the portion of text against the data i provided - in particular, ensure that it is based on the data provided (including checking that any company, entity or indivudal names is correctly referenced and that data points / facts havent been conflated). Do not flag omissions, abbreviations or abridged descriptions as erronoeuos - only factual inaccuracies.
-                    If marked with a ^, do not review against the data i provided - instead only review that portion of text against your general knowledge to identify any errors. You must not flag this portion of text as having an error just because it is not based on the input data - only if there is a disagreemnt with your knowledge.  
-                    Do not flag any omissions or - just errors in what is present.  Identify upto 20 errors.\n\n`
-    reviewTask += `Here is the original task: \n${task}\n\n----\n\nAnd here is the output i got: ${flatText}\n\n`
+    let reviewTask = `I previously gave an AI the above data alongside a task - i need you to carefully review the response as follows.
 
-    let reviewOutput = "Provide your response as an array called errors: with eeach entry having this structure {issue: a string of 100 words long and with sufficient detail that the error can be located and fixed, quote: a verbatim quote from the original output i provided - up to 10 words, not_in_data: if the text is not supported by the data i gave you, incorrect: if the item is factually incorrect, verify: if verification is recommended as no supporting evidence is available in the data, marked: indicating if the text was marked with a '^' in the text}"
+                        HERE IS THE RESPONSE OUTPUT:
+                        ${flatText}
+                        ----- END OF RESPONSE OUTPUT
+
+                        You are tasked with reviewing a response output against provided data fragments. For each statement or claim in the response output, follow these steps:
+
+                        1. **Marking Check**: Identify if the statement or claim is marked with a ^ character:
+                        - If marked, verify the statement against your general knowledge for errors. Do not flag it as incorrect unless it disagrees with known facts.
+                        - If not marked, proceed to the next steps.
+
+                        2. **Data Verification**: Carefully review each unmarked statement:
+                        - Identify which fragment(s) support the statement directly, through implication, or inference.
+                        - Check each data point and entity name for accuracy against the fragments.
+
+                        3. **Comprehensive Review**:
+                        - Cross-reference each statement with all fragments to ensure it is supported by combining multiple fragments or through valid reasoning.
+                        - Specifically verify numerical values for any discrepancies, regardless of magnitude.
+                        4. **Qualitative Assessment Check**:,
+                            - Identify and flag qualitative assessments, focusing on subjective language or claims.
+                            - Verify if qualitative statements are supported by data trends or broader context 
+                            - Assess whether qualitative claims align with the overall trends and context provided by the data - or if they have been  significantly exaggerated / down-played.
+                        5. **Error Identification**:
+                        - Highlight statements that are completely lacking provenance, contain factual inaccuracies, or instances where qualitative statements are wildly off.
+                        - Ensure your findings are genuine errors, not omissions, abbreviations, or abridged details.
+                        Do this for all statements or claims in the response output i provided.  Filter out all of the statements or claims which do not contain errors. Your response should be an empty array if no statement contain an error. `.replaceAll(/[^\S\r\n]+/g," ")
+
+
+    let reviewOutput = `Provide your in a JSON structure with an array called "issues" with an entry for each statement which is incorrect or not in the data.  Use this format:
+    {
+    claim: the statement or claim,
+    ids: ids of the fragment(s) which substantiate the claim
+    not_in_data: if the statement or claim is not support by the data,
+    marked: if the statement of claim has been marked with a ^ character
+    incorrect: if the statement or claim is factually incorrect,
+    verify: if the statement or claim should be verified,
+    issue: a 15 word summary of the issue identified,
+    fix: a 20 word instruction to the AI on how to fix the issue
+    }`.replaceAll(/[^\S\r\n]+/g," ")
 
     let out = response
 
@@ -982,23 +1134,23 @@ export async function validateResponse(task, response, nodeStruct, inputs, confi
         focus: config.focus, 
         markPass: true,
         batch: inputs.length > 1000 ? 100 : undefined,
+        temperature: 0.6,
         markdown: config.markdown, 
         heading: config.heading,
         wholeResponse: true,
         scored: config.scored,
-        //debug: true, 
-       // debug_content:true
+        debug: true, 
+        debug_content:true
     })
     
-    const errors = reviewResult?.summary?.errors
+    const errors = reviewResult?.summary?.issues
     if(errors?.length > 0){
         let validErrors = errors.filter(d=>(!d.marked && (d.incorrect || d.not_in_data)) || (d.marked && !d.not_in_data && d.incorrect))
         console.log(`Review gave ${validErrors.length} (was ${errors.length})`)
         
-        validErrors = validErrors.map(d=>d.issue)
         if( validErrors.length > 0){
             let correctionTask = "I previously gave an AI the above data alongside a task - i have reviewed the output and noted a number of errors that need correcting."
-            correctionTask += `Here is the original task: \n${task}\n\n----\n\nAnd here is the output i got: ${flatText}\n\nAnd here are the errors:\n${validErrors.map((d,i)=>`${i+1}. ${d}`).join("\n")}\n\nRevise the output by repeating the original task and ensuring all of the errors indentified have been corrected - make the smallest changes possible and leave other text alone - review your response to ensure no new errors are introduced.`
+            correctionTask += `Here is the original task: \n${task}\n\n----\n\nAnd here is the output i got: ${flatText}\n\nAnd here are the errors:\n${validErrors.map((d,i)=>`${i+1}. ${d.fix}`).join("\n")}\n\nRevise the output by repeating the original task and ensuring all of the errors indentified have been corrected - make the smallest changes possible and leave other text alone - review your response to ensure no new errors are introduced.`
             
             const results = await summarizeMultiple( inputs,{
                 ...config, 
@@ -1008,7 +1160,7 @@ export async function validateResponse(task, response, nodeStruct, inputs, confi
                 focus: config.focus, 
                 markPass: true,
                 batch: inputs.length > 1000 ? 100 : undefined,
-                allow_infer: true,
+                //allow_infer: true,
                 markdown: config.markdown, 
                 heading: config.heading,
                 wholeResponse: true,
@@ -1046,8 +1198,8 @@ export async function summarizeWithQuery( primitive ){
             
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
             let config = evidenceCategory?.ai?.summarize?.[ config.summary_type ?? "summary"] ?? {}
-            if( config.prompt?.trim && config.prompt.trim().length > 0){
-                config.prompt = config.prompt
+            if( primitiveConfig.prompt?.trim && primitiveConfig.prompt.trim().length > 0){
+                config.prompt = primitiveConfig.prompt
                 
                 const segmentSource = primitive.primitives?.imports?.[0]
                 if( segmentSource ){
@@ -1062,44 +1214,55 @@ export async function summarizeWithQuery( primitive ){
             }
             
             const toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
+            if( false ){
+                const primitive = await fetchPrimitive("672c8286b63ecd0483f342fd")
+                const finances = await doPrimitiveAction(primitive, "convert_financials", {})
+                if( finances){
+                    toProcess.push(`Finance information (values in thousands USD)\n${finances}`)
+                }
+            }
             
-            const revised = reviseUserRequest(config.prompt)
+            const revised = await reviseUserRequest(config.prompt)
+
+            await dispatchControlUpdate( primitive.id, "log.ai.structured", revised.structure)
             
             const results = await summarizeMultiple( toProcess,{
                 ...config, 
                 prompt: revised.task,
                 output: revised.output,
                 types: "fragments",
-                focus: config.focus, 
+                focus: primitiveConfig.focus, 
                 markPass: true,
                 batch: toProcess.length > 1000 ? 100 : undefined,
-                temperature: config.temperature ?? primitive.referenceParameters?.temperature,
-                allow_infer: true,
-                markdown: config.markdown, 
-                heading: config.heading,
+                temperature: primitiveConfig.temperature,
+                //allow_infer: true,
+                markdown: primitiveConfig.markdown, 
+                heading: primitiveConfig.heading,
                 wholeResponse: true,
-                scored: config.scored,
+                scored: primitiveConfig.scored,
                 debug: true, 
-              //  debug_content:true
+                debug_content:true
             })
 
 
             console.log(results?.summary?.structure)
             if( results?.summary?.structure ){
-
                 let nodeStruct = revised.structure
                 let nodeResult = results?.summary?.structure
-                const validated = await validateResponse( revised.task, results?.summary?.structure, nodeStruct, toProcess, config, revised.output)
 
-                if( validated ){
-                    nodeResult = validated.response
-                    console.log(`Set to post validation`, validated)
+                if( primitiveConfig.verify ){
+                    const validated = await validateResponse( revised.task, results?.summary?.structure, nodeStruct, toProcess, config, revised.output)
+                    
+                    if( validated ){
+                        nodeResult = validated.response
+                        console.log(`Set to post validation`, validated)
+                    }
                 }
 
 
-                let out =flattenStructuredResponse( nodeResult, nodeStruct)
+                let out = flattenStructuredResponse( nodeResult, nodeStruct, primitiveConfig.heading !== false)
                 console.log(out)
-                return out
+                return {plain:out, structured: nodeResult}
             }
             
         }
@@ -1108,21 +1271,17 @@ export async function summarizeWithQuery( primitive ){
     }
     return ""
 }
-
-function flattenStructuredResponse(nodeResult, nodeStruct, headerLevel = 0){
-    let out = ""
-    for(const d in nodeResult){
-        const nextR = nodeResult?.[d]
-        const nextS = nodeStruct?.[d]
-        if( nextS?.heading){
-            const h_level = Math.max((3 - headerLevel), 1)
-            out += `${"#".repeat(h_level)} ${nextS.heading}\n`
-        }
-        if( nextR?.content ){
-            out += `${nextR.content}\n`
-        }
-        if( nextR?.subsections){
-            out += flattenStructuredResponse(nextR?.subsections, nextS?.subsections, headerLevel + 1)
+function removeOmittedItemsFromStructure(nodeResult){
+    let out = []
+    for(const d of nodeResult){
+        if( !d.omit){
+            const {subsections, ...data} = d
+            if( subsections){
+                data.subsections = removeOmittedItemsFromStructure(subsections)
+            }
+            out.push( data )
+        }else{
+            console.log(`Skipping ${d.heading}`)
         }
     }
     return out

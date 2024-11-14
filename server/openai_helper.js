@@ -180,10 +180,13 @@ export async function summarizeMultiple(list, options = {} ){
             finalPrompt =  prompt + `.  Ensure the summary focus mainly on ${options.focus}.`
         }
     }
-    finalPrompt =  finalPrompt + (options.allow_infer ? "" : `.  Use only the information i have provided to produce the summary - you must not make reference to it (e.g avoid phrases like 'the text suggests', 'the provided text includes' and similar)`)
+    if( !options.allow_infer){
+        finalPrompt += `\n\nRegardless of any prior instructions, you MUST ONLY use the data I provided to you to write your answer - you MUST NOT use your own knowledge.\nOmit any section where the data i provided is not relevant to task - simply writing  "No relevant data for task" instead`
+    }
+    //finalPrompt =  finalPrompt + (options.allow_infer ? "" : `.  Use only the information i have provided to produce the summary - you must not make reference to it (e.g avoid phrases like 'the text suggests', 'the provided text includes' and similar)`)
     const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **text**\n" :""}indented list item:- text\ndouble indented list item:-- text\ntriple indented list item:--- text\ntable headers: |cell|cell| (ensure you start and finish with a | character - empty cells should be ||)\n               |----|----|\ntable rows: |cell|cell| (ensure you start and finish with a | character - empty cells should be || \n Do not use any other markdown. Ensure you mark the end of paragraphs and list items with a new line character but do not do double newlines as that ruins the formatting. Do not define the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string without any formatting."
     
-    let outputFields, wholeResponse = false
+    let outputFields, wholeResponse = options.wholeResponse
     if( options.output){
         outputFields = options.output
     }else if( options.outputFields) {
@@ -210,9 +213,7 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "user", "content": outputFields},
             ],
             {
-                wholeResponse: options.outputFields !== undefined || options.scored, 
                 no_num: list.length === 1 , 
-                wholeResponse,
                 field: wholeResponse ? undefined : (options.field ?? "summary"), 
                 debug: false, 
                 ...options })
@@ -253,8 +254,10 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "user", "content": outputFields},
             ],
             {
-                wholeResponse,
-                field: wholeResponse ? undefined : (options.field ?? "summary")
+                field: wholeResponse ? undefined : (options.field ?? "summary"),
+                ...options,
+                debug: true,
+                debug_content: true
             })
 
         if( Object.hasOwn(result, "success")){
@@ -942,7 +945,7 @@ async function executeAI(messages, options = {}){
 
     let model = "gpt-4o-2024-08-06"
     let output = 16384
-    let response_format = { type: "json_object" }
+    let response_format = options.schema ? { "type": "json_schema", "json_schema": options.schema } : { type: "json_object" }
 
     if( options.engine === "gpt4o-mini" ){
         model = "gpt-4o-mini"

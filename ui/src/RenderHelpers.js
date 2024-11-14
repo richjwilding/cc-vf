@@ -2,12 +2,13 @@ import Konva from "konva";
 import { Util } from 'konva/lib/Util'
 import CustomImage  from "./CustomImage";
 import CustomText from "./CustomText";
-import PrimitiveConfig from "./PrimitiveConfig";
+import PrimitiveConfig, { flattenStructuredResponse } from "./PrimitiveConfig";
 import CollectionUtils from "./CollectionHelper";
 import moment from "moment";
 import MainStore from "./MainStore";
 import { renderToString } from "react-dom/server";
 import { MagnifyingGlassIcon } from "@heroicons/react/20/solid";
+import { convertOrganizationFinancialData, formatNumber, roundCurrency } from "./SharedTransforms";
 const typeMaps = {}
 const categoryMaps = {}
 
@@ -29,31 +30,6 @@ export const categoryColors = [ "#4e79a7",
                                 "#9c755f",
                                 "#bab0ab"]
 
-export function roundCurrency(number){
-    if(number === 0){
-        return "$0"
-    }
-    if( isNaN(number)){
-        return "-"
-    }
-
-    return "$" + formatNumber(number)
-}
-export function formatNumber(number){
-    if(number === 0){
-        return "0"
-    }
-    if( isNaN(number)){
-        return "-"
-    }
-    const suffixes = ["", "K", "M","B","T"];
-    const suffixIndex = Math.floor(Math.log10(Math.abs(number)) / 3);
-
-    const scaledNumber = number / Math.pow(10, suffixIndex * 3);
-    const formattedNumber = scaledNumber.toFixed( suffixIndex > 1 ? 0 : 2);
-
-    return formattedNumber.replace(/\.00$/, '') + (suffixes[suffixIndex] ?? "");
-}
 
 function registerRenderer( mappings, callback){
     for(const d of [mappings].flat()){
@@ -82,7 +58,7 @@ export function RenderSetAsKonva( primitive, list, options = {} ){
     }
     let config = "set_" + (options.config || "default")
     let source =  list?.[0]
-    let referenceId =  options.referenceId ?? source?.referenceId
+    let referenceId =  options.referenceId ?? source?.primitive?.referenceId
     let renderer = categoryMaps[referenceId]?.[config] ?? typeMaps[ source?.type ]?.[config]
     if( !renderer ){
         renderer = typeMaps[ "default" ]?.[config]
@@ -458,12 +434,31 @@ registerRenderer( {type: "default", configs: "set_totalValue"}, (primitive, opti
 
     return g
 })
+
+function mixHexWithWhite(hex, opacity = 0.25) {
+    // Convert hex to RGB
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+
+    // Calculate the new RGB values by blending each channel with white (255)
+    const newR = Math.round((1 - opacity) * r + opacity * 255);
+    const newG = Math.round((1 - opacity) * g + opacity * 255);
+    const newB = Math.round((1 - opacity) * b + opacity * 255);
+
+    // Convert the new RGB values back to hex
+    const toHex = (value) => value.toString(16).padStart(2, '0');
+    const newHex = `#${toHex(newR)}${toHex(newG)}${toHex(newB)}`;
+
+    return newHex;
+}
+
 registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, options = {})=>{
     const config = {width: 128, height: 80, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     if( !options.list ){
         return undefined
     }
-    const alignScale = primitive.renderConfig?.align_scale
+    const alignScale = primitive.renderConfig?.align_scale ??"no"
     const doBoth = alignScale === "both"
     if( doBoth && options.getConfig){
         if( !options.renderConfig.width){
@@ -471,24 +466,40 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
         }
     }
 
+    let locateThreshold //= 0.15
+    let location
+
     const renderWidth = (config.width - config.padding[3] - config.padding[1]) * (doBoth ? 0.45 : 1)
     const renderHeight = config.height - config.padding[0] - config.padding[2]
+    let period = "day"
 
     if( options.getConfig){
         const years = parseInt(primitive.renderConfig?.range ?? "1") 
-        const endDate = primitive.renderConfig?.end ?? new Date()
-        const startDate = moment(endDate).subtract(years, "year")
+        const endDate = primitive.renderConfig?.end ? new Date(primitive.renderConfig?.end) : new Date()
+        //const startDate = moment(endDate).subtract(years, "year")
+        const startDate = moment(endDate).subtract(1, "Q").toDate()
+        //const endDate = new Date('Wed Oct 10 2024 23:59:59 GMT+0100 (British Summer Time)')
+        //const startDate = moment(endDate).subtract(2, "months")
         config.data = CollectionUtils.convertToTimesSeries( 
                                         options.list, 
                                         {
-                                            field: primitive.renderConfig?.field,
+                                            dataset: primitive.renderConfig?.set ?? options.renderConfig?.viewConfig?.set,
+                                            dateField: primitive.renderConfig?.dateField ?? options.renderConfig?.viewConfig?.dateField,
+                                            field: primitive.renderConfig?.field ?? options.renderConfig?.viewConfig?.field,
+                                            cumulative: false,
                                             startDate: startDate,
                                             endDate: endDate,
-                                            period: "month"
+                                            period: period
                                         })
         return config
     }
     const series = options.data
+    
+
+    if( locateThreshold ){
+        let maximum = Math.max(...series)
+        location = series.findIndex(d=>d >= (locateThreshold * maximum))
+    }
 
     
     const g = new Konva.Group({
@@ -510,8 +521,24 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
 
 
+    let color = primitive.renderConfig?.color ? categoryColors[primitive.renderConfig?.color] : "#0ea5e9"
+    if( options.renderConfig?.viewConfig?.scheme === "under_over" ){
+        const cleaned = series.filter(d=>d)
+        const first = cleaned[0]
+        const last = cleaned[ cleaned.length - 1 ]
+        color = "#000000"
+        if( last > first ){
+            color = "#22c55e"
+        }else if( last < first ){
+            color = "#dc2626"
+        }
+    }
+
+    let fadeColor = mixHexWithWhite(color, 0.5)
+
 
     let offsetX = 0
+    const len = series.length
     g.add(r)
     function renderPlot(alignScale){
         const maxValue = (alignScale ? (options.globalData?.maximumValue ?? 0) : series.reduce((a,c)=>c > a ? c : a, -Infinity)) + 1
@@ -519,13 +546,12 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
         const range = maxValue - minValue
         
-        const len = series.length
         const dx = renderWidth / (len - 1)
         const lineMargin = renderHeight * 0.1
         const scale = (renderHeight - lineMargin - lineMargin) / range
-        const points = series.map((d,i)=>[offsetX + (i * dx), renderHeight - lineMargin - (scale * (d - minValue))]).flat()
+        const points = series.map((d,i)=>d ? [offsetX + (i * dx), renderHeight - lineMargin - (scale * (d - minValue))] : undefined).filter(d=>d).flat()
         //const lower = series.map((_,i)=>[(len - 1 - i) * dx, renderHeight - lineMargin - (scale * (series[len - i - 1] - minValue)) + (renderHeight * 0.1)]).flat()
-        const lower = series.map((_,i)=>[ offsetX + (len - 1 - i) * dx, renderHeight - lineMargin ]).flat()
+        const lower = series.map((d,i)=>d ? [ offsetX + (len - 1 - i) * dx, renderHeight - lineMargin ] : undefined).filter(d=>d).flat()
 
         const shaded = [
             ...points,
@@ -540,25 +566,71 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
         }
 
         const l2 = new Konva.Line({
+            x: config.padding[0],
+            y: config.padding[1],
             points: shaded,
             strokeEnabled: false,
             fillLinearGradientStartPoint: { x: renderWidth / 2, y: 0 },
             fillLinearGradientEndPoint: { x: renderWidth / 2, y: renderHeight },
-            fillLinearGradientColorStops: [0, '#e0f2fe', 0.7, 'white'],
+            fillLinearGradientColorStops: [0, fadeColor, 0.8, 'white'],
             closed: true
         })
         g.add(l2)
 
         
         const l = new Konva.Line({
+            x: config.padding[0],
+            y: config.padding[1],
             points: points,
             strokeWidth: 1,
             strokeScaleEnabled: false,
-            stroke: "#0ea5e9"
+            stroke: color
         })
         g.add(l)
+
+        if( location ){
+            let locationX = (location * dx)
+
+            const r = new Konva.Rect({
+                x: offsetX + config.padding[0] + locationX,
+                y: config.padding[1],
+                width: renderWidth - locationX,
+                height: renderHeight,
+                strokeWidth: 1,
+                strokeScaleEnabled: true,
+                stroke: fadeColor
+            })
+            g.add(r)
+            const r2 = new Konva.Rect({
+                x: offsetX + config.padding[0] + locationX - (dx / 2),
+                y: config.padding[1],
+                width: dx,
+                height: renderHeight,
+                strokeWidth: 1,
+                strokeScaleEnabled: true,
+                fill: color
+            })
+            g.add(r2)
+            const count = len -location
+            const px = offsetX + config.padding[0] + locationX - dx
+            const t = new CustomText({
+                x: px,
+                y: config.padding[1] + (renderHeight / 2),
+                fontSize: 8,
+                lineHeight: 1,
+                text: `${count} ${period}${count === 1 ? "" : "s"}`,
+                verticalAlign:"middle",
+                fill: color,
+                refreshCallback: options.imageCallback
+            })
+            t.x( px - t.width())
+            g.add(t)
+
+        }
         offsetX += renderWidth + (renderWidth / 4.5)
+
     }
+    
     if( series.length > 0){
         if(doBoth || alignScale === "yes"){
             renderPlot(true)
@@ -1562,8 +1634,68 @@ function addExtraNode(config, options, x,y, fullWidth){
 
     return node
 }
+registerRenderer( {type: "default", configs: "set_export_finances"}, (primitive, options = {})=>{
+    const config = {width: 612, spacing: 10,/*height: 1400,count: 4,*/ itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
+    if( primitive.renderConfig?.count){
+        config.count = primitive.renderConfig?.count
+    }
+    const width = config.width 
+    const height = config.count ? undefined : config.height 
+    
+    
+    const g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: width,
+        height: height,
+    })
+    const r = new Konva.Rect({
+        x: config.padding[3],
+        y: config.padding[0],
+        width: width - config.padding[3] - config.padding[1],
+        height: height - config.padding[0] - config.padding[2],
+        fill: '#f9fafb',
+        name: "background"
+    })
+    g.add(r)
+    let x = config.padding[3]
+    let y = config.padding[0]
+
+
+    let items = options.list
+    const maxScale = items.map(d=>d.referenceParameters.funding).reduce((a,c)=>c > a ? c : a, 0)
+
+    let rWidth = 0
+    let renderList = config.count ? items.slice(0, config.count) : items
+    for( const d of renderList ){
+        const node = RenderPrimitiveAsKonva( d, {
+            config: "export_finances", 
+            x: x, 
+            y: y, 
+            width: width - config.itemPadding[1] - config.itemPadding[3], 
+            imageCallback: options.imageCallback,
+            renderConfig: primitive.renderConfig,
+            padding: config.itemPadding, imageCallback: options.imageCallback})
+        
+        g.add(node)
+        rWidth = Math.max(rWidth, node.width())
+        y += node.height() + config.spacing
+    }
+    g.width( rWidth + config.padding[1])
+    g.height( y + config.padding[2])
+
+    if( options.getConfig){
+        config.width = g.width()
+        config.height = g.height()
+        return config
+    }
+
+    return g
+})
 registerRenderer( {type: "default", configs: "set_overview"}, (primitive, options = {})=>{
-    const config = {width: 300, spacing: 10,/*height: 1400,*/count: 4, itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
+    const config = {width: 300, spacing: 10,/*height: 1400,count: 4,*/ itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
     if( primitive.renderConfig?.count){
         config.count = primitive.renderConfig?.count
     }
@@ -1592,15 +1724,7 @@ registerRenderer( {type: "default", configs: "set_overview"}, (primitive, option
     let y = config.padding[0]
 
 
-    //const items = options.list.filter(d=>d.referenceParameters?.funding).sort((a,b)=>b.referenceParameters.funding - a.referenceParameters.funding)
     let items = options.list
-    /*
-    const mode = primitive.renderConfig?.mode ?? "none"
-    if( mode == "funding"){
-        items = options.list.filter(d=>d.referenceParameters?.funding).sort((a,b)=>b.referenceParameters.funding - a.referenceParameters.funding)
-    }else{
-        items = options.list
-    }*/
     const maxScale = items.map(d=>d.referenceParameters.funding).reduce((a,c)=>c > a ? c : a, 0)
 
     let renderList = config.count ? items.slice(0, config.count) : items
@@ -1625,7 +1749,6 @@ registerRenderer( {type: "default", configs: "set_overview"}, (primitive, option
 
     return g
 })
-//registerRenderer( {type: "default", configs: "overview"}, (primitive, options = {})=>{
 registerRenderer( {type: "default",  configs: "overview"}, (primitive, options = {})=>{
     
     const config = {width: 300, padding: [10,10,10,10], fontSize: 10, leftSize: 150, maxScale: 100, parameter: "funding", ...options}
@@ -1692,6 +1815,105 @@ registerRenderer( {type: "default",  configs: "overview"}, (primitive, options =
         const h = t.height() + t.y()
         r.height(h)
         g.height(h)
+
+
+
+    }
+    return g
+
+
+})
+registerRenderer( {type: "categoryId", id: 44, configs: "overview"}, (primitive, options = {})=>{
+    const config = {width: 300, itemSize: 60, padding: [10,10,10,10], fontSize: 10, leftSize: 150, maxScale: 100, ...options}
+    if( options.getConfig){
+        return config
+    }
+
+    let availableWidth = config.width - config.padding[1] - config.padding[3]
+    let availableHeight = config.height ? (config.height - config.padding[0] - config.padding[2]) :undefined
+    let ox =  config.padding[3]
+    let oy =  config.padding[0]
+
+
+
+    const g = new Konva.Group({
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height,
+        name:"inf_track primitive"
+    })
+    if( g ){
+        const r = new Konva.Rect({
+            x: 0,
+            y: 0,
+            width: config.width,
+            height: config.height,
+            cornerRadius: 2,
+            fill: 'white',
+        })
+        g.add(r)
+
+
+        const logo = imageHelper( `/api/image/${primitive.id}`, {
+            x: ox,
+            y: oy,
+            size: config.itemSize,
+            center: true,
+            imageCallback: options.imageCallback,
+            placeholder: options.placeholder !== false,
+            maxScale: 1,
+            scaleRatio: 2
+        })
+        g.add( logo )
+
+
+
+        let tx = ox + config.itemSize + (config.itemSize / 5)
+        const title = new CustomText({
+            fontSize: config.fontSize - 2,
+            fontStyle:"bold",
+            text: primitive.title,
+            y: oy + config.padding[0],
+            x: tx,
+            width: availableWidth - tx,
+            height: 16,
+            wrap: false,
+            ellipsis: true,
+            refreshCallback: options.imageCallback
+        })
+        g.add(title);
+
+        let overview = primitive.referenceParameters?.description ?? ""
+
+        if(overview.length > 200){
+            let lines = overview.split(/(?<!\d)\.(?!\d)|\n/).map(d=>d.trim())
+            overview = ""
+            do{
+                overview += lines.shift() + " "
+
+            }while(lines[0] && ((overview.length + lines[0].length) < 200))
+        }
+        
+        const t = new CustomText({
+            x: tx,
+            y: config.padding[0] + oy + 16,
+            fontSize: config.fontSize,
+            lineHeight: 1.5,
+            text: overview.trim(),
+            fill: '#334155',
+            wrap: true,
+            refreshCallback: options.imageCallback,
+            ellipsis: true,
+            width: availableWidth - tx,
+            height: availableHeight ? availableHeight - (config.padding[0] +oy+16) : undefined,
+        })
+        g.add(t)
+        if( !availableHeight){
+            const h = Math.max( t.height() + t.y(), config.itemSize + oy) + config.padding[2]
+            r.height(h)
+            g.height(h)
+        }
 
 
 
@@ -3333,10 +3555,15 @@ export function renderMatrix( primitive, list, options ){
                     showExtra: cell.showExtra,
                     columns: itemColsByColumn[cell.cIdx], 
                     minWidth: minWidth,
+                    viewConfig: options.viewConfig
                 },
                 checkMap,
                 getConfig: true
             } )    
+            if(!config){
+                console.warn("Did not get a render result")
+                return
+            }
         
         itemColsByColumn[cell.cIdx] = Math.max(itemColsByColumn[cell.cIdx], config.columns)
         
@@ -3360,16 +3587,19 @@ export function renderMatrix( primitive, list, options ){
     let columnLabels
     let headerTextHeight = 0
 
-    if( options.hideColumnHeader !== true){
+    let showColumnHeaders = options.hideColumnHeader !== true && (columnExtents.length > 1)
+
+    if( configName === "timeseries"){
+        globalData.maximumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a > c ? a : c, -Infinity) 
+        globalData.minimumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a < c ? a : c, Infinity) 
+    }
+
+    if( showColumnHeaders){
 
         headerHeight = (headerFontSize * 4)
         headerTextHeight = headerHeight - textPadding[0] - textPadding[2]
         
         
-        if( configName === "timeseries"){
-            globalData.maximumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a > c ? a : c, -Infinity) 
-            globalData.minimumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a < c ? a : c, Infinity) 
-        }
         
         
         rowSize.forEach((d,i)=>{if(d < headerHeight){
@@ -3464,7 +3694,7 @@ export function renderMatrix( primitive, list, options ){
                     y: cellConfig.padding[0] + textPadding[0],
                     size: iconSize,
                     center: true,
-                    linkUrl: d.referenceParameters.url,
+                   // linkUrl: d.referenceParameters?.url,
                     imageCallback: options.imageCallback,
                     placeholder: options.placeholder !== false
                 })
@@ -3500,23 +3730,23 @@ export function renderMatrix( primitive, list, options ){
                 rowLabels.forEach(d=>d.fontSize(headerFontSize))
                 recalcRow = true
             }
-            if( recalcRow ){
+            if( recalcRow && showColumnHeaders ){
                 columnLabels.forEach(d=>d.fontSize(headerFontSize))
             }
         }
     }
     if( recalc || recalcRow ){
-        headerTextHeight = columnLabels.reduce((a,c)=>c.height() > a ? c.height() : a, 0)
+        headerTextHeight = columnLabels ? columnLabels.reduce((a,c)=>c.height() > a ? c.height() : a, 0) : 0
         headerHeight = headerTextHeight + textPadding[0] + textPadding[2] 
     }
-    if( options.hideColumnHeader !== true){
+    if( showColumnHeaders){
         columnLabels.forEach(d=>{
             d.y(d.y() + ((headerTextHeight - d.height())/2) )
         })
     }
     let headerPadding = cells[0]?.config.padding[0] ?? 0
 
-    const columnY = rowSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), options.hideColumnHeader ? 0 : headerHeight + headerPadding))
+    const columnY = rowSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), showColumnHeaders ?  headerHeight + headerPadding : 0))
     
     if( showRowheaders ){
         rowExtents.forEach((header,idx)=>{
@@ -3545,7 +3775,7 @@ export function renderMatrix( primitive, list, options ){
 
 
     const columnX = columnSize.map((d,i,a)=>a.reduce((t,c,i2)=>t + (i2 < i ? c : 0), headerWidth ))
-    if( options.hideColumnHeader !== true){
+    if( showColumnHeaders){
         columnExtents.forEach((header,idx)=>{
             const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding:[0,0,0,0]}
             const group = new Konva.Group({
@@ -3586,7 +3816,8 @@ export function renderMatrix( primitive, list, options ){
                     minWidth: minWidth,
                     minHeight: rowSize[cell.rIdx] - cell.config.padding[0] - cell.config.padding[2],
                     columns: itemColsByColumn[cell.cIdx], 
-                    rows: cell.itemRows
+                    rows: cell.itemRows,
+                    viewConfig: options.viewConfig
                 },
                 data: cell.config.data,
                 globalData,
@@ -3622,13 +3853,13 @@ function renderPieChart( segments, options = {}){
     const total = segments.map(d=>d?.count ?? 0).reduce((a,c)=>a+c,0)
     const scale = total ? (360 / total) : 0
 
-    const outline = new Konva.Circle({
+    /*const outline = new Konva.Circle({
         x: r,
         y: r,
         radius: r,
         stroke: "#555"
     })
-    g.add(outline)
+    g.add(outline)*/
 
 
     let a = 0
@@ -3685,59 +3916,65 @@ function renderSubCategoryChart( title, data, options = {}){
         name:"background"
     })
     sg.add(r)
-   // rowCells.push(r)
-    const t = new CustomText({
-        x: innerPadding[3],
-        y: innerPadding[0],
-        fontSize: config.fontSize,
-        height: config.fontSize * 2.3,
-        lineHeight: 1.1,
-        fontStyle: "bold",
-        text: title,
-        align: 'center',
-        fill: '#334155',
-        wrap: false,
-        ellipsis: true,
-        width: itemSize - innerPadding[3] - innerPadding[1],
-    })
-    sg.add(t)
-    const pieSize = (itemSize - innerPadding[3] - innerPadding[1]) * 0.95
     const innerSpacing = config.fontSize * 1.2
-    const pieY = (config.fontSize * 2.5) + innerSpacing
-    sg.add( renderPieChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY, colors: colors}))
-
-    const legendFontSize = config.fontSize * 0.8
-    const lx = (legendFontSize * 1.2) + innerPadding[3]
-    let ly = pieY + pieSize + (innerSpacing * 1.5) 
-    let lIdx = 0
-
-    for( const d of (data ?? []) ){
-        const r = new Konva.Rect({
-            x: innerPadding[3] + (legendFontSize * 0.05),
-            y: ly + (legendFontSize * 0.05),
-            width: legendFontSize * 0.9,
-            height: legendFontSize * 0.9,
-            fill: colors[ lIdx % colors.length],
-            strokeScaleEnabled: false,
-            strokeWidth:1,
-            stroke: '#555'
-        })
-        sg.add(r)
-
+    let pieY = innerSpacing
+    if( !options.hideTitle){
 
         const t = new CustomText({
-            x: lx,
-            y: ly,
-            fontSize: legendFontSize,
-            text: d.label,
+            x: innerPadding[3],
+            y: innerPadding[0],
+            fontSize: config.fontSize,
+            height: config.fontSize * 2.3,
+            lineHeight: 1.1,
+            fontStyle: "bold",
+            text: title,
+            align: 'center',
             fill: '#334155',
+            wrap: false,
             ellipsis: true,
-            width: itemSize - lx
+            width: itemSize - innerPadding[3] - innerPadding[1],
         })
-        ly += legendFontSize * 1.5
         sg.add(t)
-        lIdx++
-    }            
+        pieY = (config.fontSize * 2.5) + innerSpacing
+    }
+    const pieSize = (itemSize - innerPadding[3] - innerPadding[1]) * 0.95
+    sg.add( renderPieChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY, colors: colors}))
+
+    let ly = pieY + pieSize + (innerSpacing * 1.5) 
+    if( !options.hideLegend){
+
+        const legendFontSize = config.fontSize * 0.8
+        const lx = (legendFontSize * 1.2) + innerPadding[3]
+        let lIdx = 0
+        
+        for( const d of (data ?? []) ){
+            const r = new Konva.Rect({
+                x: innerPadding[3] + (legendFontSize * 0.05),
+                y: ly + (legendFontSize * 0.05),
+                width: legendFontSize * 0.9,
+                height: legendFontSize * 0.9,
+                fill: colors[ lIdx % colors.length],
+                strokeScaleEnabled: false,
+                strokeWidth:1,
+                stroke: '#555'
+            })
+            sg.add(r)
+            
+            
+            const t = new CustomText({
+                x: lx,
+                y: ly,
+                fontSize: legendFontSize,
+                text: d.label,
+                fill: '#334155',
+                ellipsis: true,
+                width: itemSize - lx
+            })
+            ly += legendFontSize * 1.5
+            sg.add(t)
+            lIdx++
+        }            
+    }
     ly += innerPadding[2]
     sg.height( ly )
     return sg
@@ -3787,7 +4024,7 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
     }
 
     for( const item of sets ){
-        const sg = renderSubCategoryChart(item.title, item.details, {x: x, y: y, itemSize, innerPadding})
+        const sg = renderSubCategoryChart(item.title, item.details, {x: x, y: y, itemSize, innerPadding, hideTitle: options.show_title === false, hideLegend: options.show_legend === false})
         g.add(sg)
         rowCells.push( sg )
         
@@ -3813,3 +4050,822 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
     return g
 
 })
+registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, function renderFunc(primitive, options = {}){
+
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, height: 1200, itemSize: 280, padding: [10,10,10,10], ...options}
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+    const setCount = options.extents.column.length * options.extents.row.length
+    const usableWidth = config.width - config.padding[1] - config.padding[3]
+    const itemSize = config.itemSize
+    const columns = Math.floor(usableWidth / (itemSize + 10))
+    const spacing = (usableWidth - (columns * itemSize)) / (columns - 1)
+    let ySpacing = spacing
+    const actualColumns = Math.min(columns, setCount)
+    let colors = categoryColors
+    
+    const actualWidth = ((spacing + itemSize) * actualColumns) - spacing
+    let x = config.padding[3]// + spacing
+    let y = config.padding[0] //+ ySpacing
+    let maxY = 0
+    let cIdx = 0
+    let idx = 0
+
+    let rHeight = 0
+    let rowCells = []
+    let innerPadding = [10,10,10,10]
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        height: config.height,
+        onClick: options.onClick,
+        name:"inf_track"
+    })
+
+
+    function updateBackground(){
+        for(const d of rowCells){
+            d.find('.background_rect')[0]?.height(rHeight)
+        }
+    }
+
+    for(const row of options.extents.row){
+        for(const column of options.extents.column){
+            const tg = new Konva.Group({
+                x: x,
+                y: y,
+                width: itemSize,
+                height: itemSize,
+                onClick: options.onClick,
+                name:"inf_track primitive"
+            })
+            const r = new Konva.Rect({
+                x: 0,
+                y: 0,
+                width: itemSize,
+                height: itemSize,
+                stroke: colors[idx % colors.length],
+                strokeWidth: 1,
+                name:"background_rect"
+            })
+            tg.add(r)
+
+            const titleText = [row.label, column.label].filter(d=>d).join(" - ")
+
+            const header = new CustomText({
+                        fontSize: 16,
+                        text: titleText,
+                        align:"left",
+                        wrap: false,
+                        ellipsis: true,
+                        verticalAlign:"top",
+                        fontStyle: "bold",
+                        fontFamily: "Poppins",
+                        fill:"white",
+                        x: innerPadding[3],
+                        y: innerPadding[0],
+                        width: itemSize - innerPadding[3] - innerPadding[1],
+                        refreshCallback: options.imageCallback
+                    })
+
+            const r2 = new Konva.Rect({
+                x: 0,
+                y: 0,
+                width: itemSize,
+                height: header.height() + innerPadding[3] + innerPadding[1],
+                fill: colors[idx % colors.length],
+            })
+            tg.add(r2)
+            tg.add(header)
+
+            
+            const thisSet = options.list.filter(d=>(!d.column || d.column.includes(column.idx)) && (!d.row || d.row.includes(row.idx)))
+            let ty = r2.height() + innerPadding[0]
+            let mainText
+            if( thisSet.length > 0){
+                tg.attrs.id = thisSet[0].primitive.id
+            }
+            for(const item of thisSet){
+                mainText = new CustomText({
+                    fontSize: 11,
+                    fontFamily: "Poppins",
+                    text: item.primitive.referenceParameters.summary,
+                    align:"left",
+                    wrap: false,
+                    ellipsis: true,
+                    withMarkdown: true,
+                    verticalAlign:"top",
+                    fill:"#334155",
+                    x: 4,
+                    y: ty,
+                    width: itemSize - 8,
+                    refreshCallback: options.imageCallback
+                })
+                ty += mainText.height() + innerPadding[2]
+                tg.add( mainText )
+            }
+            g.add(tg)
+
+            rHeight = ty > rHeight  ? ty : rHeight
+
+            tg.height( rHeight)
+            r.height( rHeight)
+
+            rowCells.push(tg)
+            
+            x += itemSize + spacing
+            cIdx ++
+            idx++
+            maxY = y + rHeight
+            
+            if( cIdx === columns ){
+                updateBackground()
+                x = config.padding[3] 
+                y += rHeight + innerPadding[2] + innerPadding[0]
+                rHeight = 0
+                cIdx = 0
+                rowCells = []
+            }
+        }
+    }
+    updateBackground()
+
+    const h = maxY + config.padding[2] //+ ySpacing
+    g.height(h)
+    
+    return g
+})
+registerRenderer( {type: "categoryId", id: 29, configs: "export_finances"}, function renderFunc(primitive, options = {}){
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 612, itemSize: 280, padding: [10,10,10,10], ...options}
+
+    let lineColor
+    let withBackground = false
+    let bgColor = "white"
+    let textColor = "black"
+    let padding = [0,0,0,0]
+    let columnWidths = []
+
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+    if( options.renderConfig?.layout === "narrow"){
+        config.width = 156
+        bgColor = "#1C258C"
+        lineColor = "white"
+        withBackground = true
+        textColor = "white"
+        padding = [16,8,8,8]
+    }else{
+        columnWidths = [140]
+    }
+
+    const g = new Konva.Group({
+        x: ox,
+        y: oy,
+        width: config.width,
+        height: config.height,
+        onClick: options.onClick,
+        name:"inf_track primitive"
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.width,
+        height: config.height,
+        fill: bgColor,
+        name: withBackground ? "" : "background"
+    })
+    g.add(r)
+    let text = convertOrganizationFinancialData( primitive, primitive.metadata?.actions?.find(d=>d.key === "convert_financials")?.transform ?? {}, options.renderConfig?.section ?? "financial_highlights")
+    if( text ){
+        const index = text.indexOf('|');
+        if( index >-1 ){
+            text = text.substring(index)
+        }
+        const table = convertMarkupToTable(text, {
+            x: padding[3],
+            y: padding[0],
+            cellPadding: [7,6,7,0],
+            columnWidths,
+            textColor,
+            columnLines: false, 
+            borderColor: lineColor, 
+            width: config.width - padding[1] - padding[3]
+        })
+        if( table ){
+            g.add(table)
+            g.height(table.height() + padding[0] + padding[2])
+            r.height(table.height() + padding[0] + padding[2])
+        }
+    }
+
+    if( options.getConfig){
+        return {...config, height: g.height()}
+    }
+    return g
+})
+registerRenderer( {type: "categoryId", id: 109, configs: "export"}, function renderFunc(primitive, options = {}){
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 612, itemSize: 280, padding: [10,10,10,10], ...options}
+
+
+    let calloutColor = "#1C258C"
+    let secondaryColor = "#F5F5F5"
+
+    primitive= options.list[0]
+
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+    let innerPadding = [5,5,5,5]
+    let minorWidth = 156
+    let minHeight = 0
+
+    let majorSpacing = [12,12]
+    let majorPadding = [2,2,2,2]
+    let minorSpacing = [8,8]
+    let minorPadding = [16,2,16,2]
+
+    const id = parseInt(options.exportOptions?.section ?? "0")
+    let layout = options.exportOptions?.layout ?? "bullets_on_left_full"
+    let bulletColor = "black"
+    innerPadding = [32, 60, 20, 60]
+
+
+
+    if( layout === "bullets_on_left_full"){
+        minHeight = 525
+        layout = "bullets_on_left"
+    }else if( layout === "bullets_above_full"){
+        minHeight = 525
+        layout = "bullets_above"
+    }
+
+    if( layout === "bullets_on_left"){
+        bulletColor = "white"
+    }else if( layout === "bullets_on_right"){
+        bulletColor = "white"
+        minorWidth = 216
+        innerPadding = [32, 0, 20, 60]
+    }else if( layout === "plain" || layout === "text_table"){
+        minorWidth = undefined
+
+    }else if( layout === "bullets_above"){
+        minorWidth = undefined
+        majorSpacing = [12,170]
+    }
+    
+    const g = new Konva.Group({
+        x: ox,
+        y: oy,
+        width: config.width,
+        height: config.height,
+        onClick: options.onClick,
+        name:"inf_track primitive"
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.width,
+        height: config.height,
+        fill:"white",
+        name:"background"
+    })
+    g.add(r)
+
+    
+        
+        
+    let section
+    
+    if( primitive.referenceParameters?.structured_summary ){
+        section = primitive.referenceParameters.structured_summary[id]
+    //text = flattenStructuredResponse( struct, struct)
+    }
+    if( section ){
+        const heading = section.heading
+        const tables = section.subsections ? section.subsections.filter(d=>d.content.startsWith("|")) : []
+        const bullets = section.subsections ? section.subsections.filter(d=>d.content.startsWith("- ")) : []
+        const main = section.subsections ? section.subsections.filter(d=>!d.content.startsWith("- ") && !d.content.startsWith("|")) : [section]
+        let bulletGroup 
+        let mainGroup 
+        let majorWidth = (config.width - innerPadding[1] - innerPadding[3]) - (minorWidth ?? 0) - majorSpacing[1]
+        
+        const sectionTitle = new CustomText({
+                    fontSize: 20,
+                    text: heading.toUpperCase(),
+                    align:"left",
+                    wrap: false,
+                    ellipsis: true,
+                    lineHeight:1.3,
+                    verticalAlign:"top",
+                    fontFamily: "Poppins",
+                    fill: calloutColor,
+                    fontStyle: "bold",
+                    x: innerPadding[3],
+                    y: innerPadding[0],
+                    width: config.width - innerPadding[1] - innerPadding[3],
+                    refreshCallback: options.imageCallback
+                })
+
+        g.add(sectionTitle)
+
+        let y = innerPadding[0] + sectionTitle.height() + 44
+        let targetHeight
+
+
+        if( layout === "section_grid"){
+            const sections = section.subsections.slice(0,4)
+            const rows = Math.ceil(sections / 2)
+            const sectionHeight = rows === 1 ? 502 : (502 - 18)
+            let sectionWidth = 240
+            
+            sections.forEach((section, idx)=>{
+                let sg = new Konva.Group({
+                    x: innerPadding[3] + ((idx % 2) * 252),
+                    y: y + (Math.floor( idx / 2)  * (sectionWidth + 18)),
+                    width: sectionWidth,
+                    height: sectionHeight,
+                })
+                g.add(sg)
+                
+                let textIndent = 0
+
+                if( sections.length > 2){
+                    const r = new Konva.Rect({
+                        x: 0,
+                        y: 0,
+                        width: sectionWidth,
+                        height: sectionHeight,
+                        fill: secondaryColor
+                    })
+                    sg.add(r)
+                    textIndent = 16
+                }
+                const subHeader = new CustomText({
+                        fontSize: 16,
+                        text: (section.heading ?? ""),
+                        align:"left",
+                        wrap: false,
+                        ellipsis: true,
+                        lineHeight:1.3,
+                        verticalAlign:"top",
+                        fontFamily: "Poppins",
+                        fontStyle:"bold",
+                        withMarkdown: true,
+                        fill: bulletColor,
+                        x: textIndent,
+                        y: textIndent,
+                        width: sectionWidth - (textIndent * 2),
+                        refreshCallback: options.imageCallback
+                    })
+                const text = new CustomText({
+                        fontSize: 10,
+                        text: section.content ?? "",
+                        align:"left",
+                        wrap: false,
+                        ellipsis: true,
+                        lineHeight:1.6,
+                        verticalAlign:"top",
+                        fontFamily: "Poppins",
+                        withMarkdown: true,
+                        fill: bulletColor,
+                        x: textIndent,
+                        y: textIndent + subHeader.height() + 12,
+                        width: sectionWidth - (textIndent * 2),
+                        refreshCallback: options.imageCallback
+                    })
+                    sg.add(subHeader)
+                    sg.add(text)
+
+
+            })
+        }else{
+
+            const bulletText = new CustomText({
+                        fontSize: 10,
+                        text: bullets.map(d=>d.content).join("\n"),
+                        align:"left",
+                        wrap: false,
+                        ellipsis: true,
+                        lineHeight:1.3,
+                        verticalAlign:"top",
+                        fontFamily: "Poppins",
+                        withMarkdown: true,
+                        fill: bulletColor,
+                        x: minorPadding[1],
+                        y: minorPadding[0],
+                        width: (minorWidth ?? majorWidth)  - minorPadding[1] - minorPadding[3],
+                        refreshCallback: options.imageCallback
+                    })
+
+            const mainText = new CustomText({
+                        fontSize: 10,
+                        text: main.map(d=>d.content).join("\n"),
+                        align:"left",
+                        wrap: false,
+                        ellipsis: true,
+                        verticalAlign:"top",
+                        fontFamily: "Poppins",
+                        withMarkdown: true,
+                        lineHeight: 1.6,
+                        fill:"black",
+                        x: majorPadding[1],
+                        y: majorPadding[0],
+                        width: majorWidth - minorPadding[1] - minorPadding[3],
+                        refreshCallback: options.imageCallback
+                    })
+
+            
+            if( layout === "bullets_on_left"){
+                bulletGroup = new Konva.Group({
+                    x: innerPadding[3],
+                    y: y,
+                    width: minorWidth,
+                    height: config.height,
+                })
+                g.add(bulletGroup)
+                const br = new Konva.Rect({
+                    x: 0,
+                    y: 0,
+                    width: minorWidth,
+                    height: config.height,
+                    fill:calloutColor,
+                    name:"background_rect"
+                })
+                bulletGroup.add(br)
+
+                mainGroup = new Konva.Group({
+                    x: innerPadding[3] + minorWidth + majorSpacing[1],
+                    y: y,
+                    width: majorWidth,
+                    height: config.height,
+                })
+                g.add(mainGroup)
+
+
+                targetHeight = Math.max(minHeight, mainText.height(), bulletText.height()  )
+                mainGroup.height(targetHeight)
+                bulletGroup.height(targetHeight)
+                br.height(targetHeight)
+                r.height(targetHeight + bulletGroup.y()+ innerPadding[2])
+                g.height(targetHeight+ bulletGroup.y()+ innerPadding[2])
+
+            }else if( layout === "text_table"){
+                mainGroup = new Konva.Group({
+                    x: innerPadding[3],
+                    y: y,
+                    width: majorWidth,
+                    height: config.height,
+                })
+                g.add(mainGroup)
+
+                let tableY = mainGroup.y() + mainText.height() + 44
+
+                let tableHeaderText = tables.map(d=>d.heading ?? "").filter(d=>d).join("\n").toUpperCase()
+                if( tableHeaderText){
+
+                    let tableHeader  = new CustomText({
+                        fontSize: 10,
+                        text: tableHeaderText,
+                        align:"left",
+                        wrap: false,
+                        ellipsis: true,
+                        verticalAlign:"top",
+                        fontFamily: "Poppins",
+                        fontStyle:"bold",
+                        withMarkdown: true,
+                        lineHeight: 1.6,
+                        fill:"black",
+                        x: innerPadding[3],
+                        y: tableY,
+                        width: majorWidth - minorPadding[1] - minorPadding[3],
+                        refreshCallback: options.imageCallback
+                    })
+                    g.add(tableHeader)
+                    tableY += tableHeader.height() + 8
+                }
+
+                for(const d of tables){
+                    const table = convertMarkupToTable( d.content, {
+                        cellPadding: [7,6,7,0],
+                        columnLines: false,
+                        width: majorWidth, 
+                        refreshCallback: options.imageCallback
+                    } )
+                    if( table ){
+                        table.x(innerPadding[3])
+                        table.y(tableY)
+
+                        g.add(table)
+                        tableY += table.height() + 12
+                    }
+                }
+
+
+                targetHeight = Math.max(minHeight, mainText.height() )
+                mainGroup.height(targetHeight)
+
+                let overallHeight = tableY
+
+                r.height( overallHeight + innerPadding[2])
+                g.height( overallHeight + innerPadding[2])
+            }else if( layout === "plain"){
+                mainGroup = new Konva.Group({
+                    x: innerPadding[3],
+                    y: y,
+                    width: majorWidth,
+                    height: config.height,
+                })
+                g.add(mainGroup)
+
+                targetHeight = Math.max(minHeight, mainText.height() )
+                mainGroup.height(targetHeight)
+                r.height(targetHeight + mainGroup.y()+ innerPadding[2])
+                g.height(targetHeight + mainGroup.y()+ innerPadding[2])
+            }else if( layout === "bullets_on_right"){
+                bulletGroup = new Konva.Group({
+                    x: innerPadding[3] + majorWidth + majorSpacing[1],
+                    y: y,
+                    width: minorWidth,
+                    height: config.height,
+                })
+                g.add(bulletGroup)
+                const br = new Konva.Rect({
+                    x: 0,
+                    y: 0,
+                    width: minorWidth,
+                    height: config.height,
+                    fill:calloutColor,
+                    name:"background_rect"
+                })
+                bulletGroup.add(br)
+
+                mainGroup = new Konva.Group({
+                    x: innerPadding[3],
+                    y: y,
+                    width: majorWidth,
+                    height: config.height,
+                })
+                g.add(mainGroup)
+
+
+                targetHeight = Math.max(minHeight, mainText.height(), bulletText.height()  )
+                mainGroup.height(targetHeight)
+                bulletGroup.height(targetHeight)
+                br.height(targetHeight)
+                r.height(targetHeight + bulletGroup.y()+ innerPadding[2])
+                g.height(targetHeight+ bulletGroup.y()+ innerPadding[2])
+
+            }else if( layout === "bullets_image_full"){
+                let br
+                let offsetForBullet = 0
+                if( bullets.length > 0){
+                    offsetForBullet = minorWidth + majorSpacing[1]
+                    bulletGroup = new Konva.Group({
+                        x: innerPadding[3],
+                        y: y,
+                        width: minorWidth,
+                        height: config.height,
+                    })
+                    g.add(bulletGroup)
+                    br = new Konva.Rect({
+                        x: 0,
+                        y: 0,
+                        width: minorWidth,
+                        height: config.height,
+                        fill:secondaryColor,
+                        name:"background_rect"
+                    })
+                    bulletGroup.add(br)
+                }else{
+                    majorWidth = (config.width - innerPadding[1] - innerPadding[3])
+                    mainText.width(majorWidth)
+                }
+
+                mainGroup = new Konva.Group({
+                    x: innerPadding[3] + offsetForBullet,
+                    y: y,
+                    width: majorWidth ,
+                    height: config.height,
+                })
+                g.add(mainGroup)
+
+                
+                let totalHeight = 647
+                targetHeight = Math.max(minHeight, mainText.height(), bulletText.height()  )
+                let imagePos =  Math.max( 329, mainGroup.y() + targetHeight + 27)
+                let imageHeight = totalHeight - imagePos - 19 - 15
+
+                const placeHolderBg = new Konva.Rect({
+                    x: 0,
+                    y: imagePos + 60,
+                    width: config.width,
+                    height: totalHeight - (imagePos + 60),
+                    fill: calloutColor
+                })
+                g.add( placeHolderBg )
+                const placeHolder = new Konva.Rect({
+                    x: innerPadding[3],
+                    y: imagePos,
+                    width: config.width - innerPadding[3] - innerPadding[1],
+                    height: imageHeight,
+                    fill: "#dadada"
+                })
+                g.add( placeHolder )
+
+                const captionText = new CustomText({
+                        fontSize: 8,
+                        text: "CAPTION FOR IMAGE",
+                        align:"left",
+                        wrap: false,
+                        ellipsis: true,
+                        verticalAlign:"top",
+                        fontFamily: "Poppins",
+                        withMarkdown: true,
+                        lineHeight: 1.6,
+                        fill: "white",
+                        x: innerPadding[3],
+                        y: imagePos + imageHeight + 4,
+                        width: config.width - innerPadding[3] - innerPadding[1],
+                        refreshCallback: options.imageCallback
+                    })
+                g.add(captionText)
+
+
+                mainGroup.height(targetHeight)
+                if( br ){
+                    bulletGroup.height(targetHeight)
+                    br.height(targetHeight)
+                }
+                r.height( totalHeight )
+                g.height( totalHeight )
+            }else {
+                minorWidth = majorWidth
+                
+                bulletGroup = new Konva.Group({
+                    x: innerPadding[3] + majorSpacing[1],
+                    y: y,
+                    width: minorWidth,
+                    height: config.height,
+                })
+                g.add(bulletGroup)
+                const br = new Konva.Rect({
+                    x: 0,
+                    y: 0,
+                    width: minorWidth ,
+                    height: bulletText.height() + minorPadding[0] + minorPadding[2],
+                    fill: secondaryColor,
+                    name:"background_rect"
+                })
+                bulletText.fontStyle("500")
+                bulletGroup.add(br)
+                bulletGroup.height(br.height())
+
+                mainGroup = new Konva.Group({
+                    x: innerPadding[3] + majorSpacing[1],
+                    y: y + br.height() + 24,
+                    width: majorWidth,
+                    height: config.height,
+                })
+                g.add(mainGroup)
+                targetHeight = Math.max(minHeight , (mainText.height() + mainGroup.y())  ) + innerPadding[2]
+                r.height(targetHeight)
+                g.height(targetHeight)
+            }
+            if( bulletGroup && bulletText ){
+                bulletGroup.add(bulletText)
+            }
+            if( mainGroup && mainText ){
+                mainGroup.add(mainText)
+            }
+        }
+    }
+    
+    
+    g.height(r.height())
+    
+    if( options.getConfig ){
+        return {...config, height: g.height()}
+    }
+
+
+    return g
+})
+registerRenderer( {type: "default", configs: "set_export"}, (primitive, options = {})=>{
+    return RenderPrimitiveAsKonva(options.list[0], {...options, exportOptions: primitive.renderConfig})
+})
+
+
+function convertMarkupToTable( markup, options = {} ){
+    let config = {width: 612, fontSize: 12, cellPadding: [4,4,4,4], rowLines: true, columnLines: true, borderColor: '#D4D4D4', textColor: 'black',...options}
+    if( typeof(markup) !== "string"){
+        return
+    }
+    const textRows = markup.trim().split("\n")
+    if( textRows.length > 0){
+        let firstRow = textRows[0]
+        if( firstRow[0] === "|" && firstRow[firstRow.length - 1] === "|"){
+            
+            let rows = textRows.map(d=>d.slice(1, d.length - 1).split("|"))//.map(d=>d.trim()))
+            const columns = rows[0]
+            let columnWidths = options.columnWidths ?? []
+            const definedWidth = columnWidths.reduce((a,c)=>a + (c ?? 0), 0)
+            const calcCols = columns.length - columnWidths.filter(d=>d !== undefined).length
+            const calcWidth = (config.width - definedWidth) / calcCols
+            columnWidths = columns.map((_,i)=>columnWidths[i] == undefined ? calcWidth : columnWidths[i] )
+
+            let g = new Konva.Group({
+                x: options.x ?? 0,
+                y: options.y ?? 0,
+                name: "table"
+            })
+            let x = 0, y = 0, rIdx = 0
+
+            let headerRows = 0
+            rows = rows.filter((d,i)=>{
+                const isHeaderSeparator = d.every((col) => /^-+$/.test(col));
+                if( isHeaderSeparator ){
+                    headerRows = i
+                    return false
+                }
+                return true
+            })
+
+            let rowHeight = 0
+            let toUpdate = []
+            function updateRowHeight(){
+                for(const d of toUpdate){
+                    d.header( rowHeight)
+                }
+            }
+
+            for(const row of rows){
+                rowHeight = 0
+                for(let cIdx = 0; cIdx < columns.length; cIdx++){
+                    let gc = new Konva.Group({
+                        name: "cell",
+                        id: `${cIdx}-${rIdx}`,
+                        x,
+                        y
+                    })
+                    let cellText = row[cIdx]
+                    const t = new CustomText({
+                        fontSize: 8,
+                        text: cellText.trim(),
+                        align: cellText[0] === " " ? "right" : "left",
+                        wrap: true,
+                        fontStyle: rIdx < headerRows ? "bold" : undefined,
+                        verticalAlign:"top",
+                        fontFamily: "Poppins",
+                        withMarkdown: false,//rIdx >= headerRows,
+                        lineHeight: 1.6,
+                        fill: config.textColor,
+                        x: config.cellPadding[3],
+                        y: config.cellPadding[0],
+                        width: columnWidths[cIdx] - config.cellPadding[3] - config.cellPadding[1],
+                        refreshCallback: options.refreshCallback
+                    })
+                    gc.add(t)
+                    rowHeight = Math.max(rowHeight, t.height())
+
+                    g.add(gc)
+                    x += columnWidths[cIdx]
+                }
+                updateRowHeight()
+                x = 0
+                y += rowHeight + config.cellPadding[0] + config.cellPadding[2]
+                toUpdate = []
+                rowHeight = 0
+                rIdx++
+                if( config.rowLines ){
+                    g.add( new Konva.Line({
+                        points:[0,y,config.width,y],
+                        strokeWidth: rIdx === headerRows ? 2 : 1,
+                        stroke: rIdx === headerRows ? config.textColor : config.borderColor
+                    }))
+
+                }
+            }
+            if( config.columnLines ){
+                let x =0
+                for(let cIdx = 0; cIdx < (columns.length - 1); cIdx++){
+                    x += columnWidths[cIdx]
+                    g.add( new Konva.Line({
+                        points:[x,0,x,y],
+                        strokeWidth: 1,
+                        stroke: config.borderColor
+                    }))
+                }
+            }
+            g.width(config.width)
+            g.height(y)
+
+
+            return g
+        }
+    }
+}

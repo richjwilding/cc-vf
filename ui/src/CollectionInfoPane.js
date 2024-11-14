@@ -474,10 +474,10 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                     <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
                         <UIHelper.Panel title="View configuration" icon={<FontAwesomeIcon icon={["fal","tags"]} />}>
                             <div className="p-2 text-sm space-y-2">
-                                <UIHelper.OptionList title="View Mode" options={viewConfigs} onChange={(id)=>updateViewMode(viewConfigs.findIndex(d=>d.id === id))} value={viewConfigs[activeView]?.id}/>
+                                <UIHelper.OptionList title="View Mode" options={viewConfigs} onChange={(id)=>updateViewMode(viewConfigs.findIndex(d=>d.id === id))} value={viewConfigs[activeView]?.id}  zIndex={50}/>
                                 <div className='w-full text-lg overflow-y-scroll sapce-y-2 max-h-[50vh]'>
                                     {viewConfig && (!viewConfig.config || viewConfig.config.length === 0) && <p className='text-sm text-gray-500 text-center'>No settings</p>}
-                                    {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d=><UIHelper {...viewConfig.config[d]} value={frame.renderConfig?.[d]} onChange={async (v)=>{await frame.setField(`renderConfig.${d}`, v); updateFrame()}}/>)}
+                                    {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d=><UIHelper {...viewConfig.config[d]} value={frame.renderConfig?.[d]} zIndex={50} onChange={async (v)=>{await frame.setField(`renderConfig.${d}`, v); updateFrame()}}/>)}
                                 </div>
                             </div>
                         </UIHelper.Panel>

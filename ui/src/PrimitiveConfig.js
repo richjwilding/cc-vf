@@ -319,7 +319,28 @@ const PrimitiveConfig = {
                             {id:true, title: "Yes"}
                         ]
                     },
+                    "show_title":{
+                        type: "option_list",
+                        title: "Show Title",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_legend":{
+                        type: "option_list",
+                        title: "Show Legend",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
                 }},
+            field: {id: 5,title:"Field of item", renderType: "field",parameters: {},config:{}},
+            detail_grid: {id: 6, title:"Details", renderType: "overview",parameters: {},config:{}},
+
         },
     decodeParameter:(data, path)=>{
         if (!data || !path) return undefined;
@@ -624,6 +645,32 @@ const PrimitiveConfig = {
 }
 
 
+export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings = true, headerLevel = 0){
+    let out = ""
+
+    for(const d in nodeResult){
+        const nextR = nodeResult?.[d]
+        if( nextR?.heading){
+            if( allowHeadings ){
+                const h_level = Math.max((3 - headerLevel), 1)
+                out += `${"#".repeat(h_level)} ${nextR.heading}\n`
+            }else{
+                out += `- **${nextR.heading}:** `
+            }
+        }
+        if( nextR?.content ){
+            if( nextR?.type === "list" && typeof(nextR.content) === "string"){
+                out += `${nextR.content.split(",").map(d=>`- ${d}`).join("\n")}\n`
+            }else{
+                out += `${nextR.content}\n`
+            }
+        }
+        if( nextR?.subsections){
+            out += flattenStructuredResponse(nextR?.subsections, nextR?.subsections, allowHeadings, headerLevel + 1)
+        }
+    }
+    return out
+}
 
 
 export default PrimitiveConfig

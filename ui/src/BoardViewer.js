@@ -6,7 +6,7 @@ import { InputPopup } from './InputPopup';
 import DropdownButton from "./DropdownButton";
 import InfiniteCanvas from "./InfiniteCanvas";
 import CollectionUtils from "./CollectionHelper";
-import { RenderPrimitiveAsKonva, renderMatrix } from "./RenderHelpers";
+import { RenderPrimitiveAsKonva, RenderSetAsKonva, renderMatrix } from "./RenderHelpers";
 import HierarchyNavigator from "./HierarchyNavigator";
 import PrimitiveConfig from "./PrimitiveConfig";
 import FilterPane from "./FilterPane";
@@ -55,7 +55,7 @@ async function moveItemWithinFrame(primitiveId, startZone, endZone, frame){
 let mainstore = MainStore()
     function SharedRenderView(d, primitive, myState){
         const view = myState[d.id]
-        const renderOptions = {}
+        const renderOptions = view.renderConfigOverride ?? {}
         const configNames = ["width", "height"]
 
         const title = view.noTitle ? undefined : ()=>`${d.title} - #${d.plainId}`
@@ -102,7 +102,6 @@ let mainstore = MainStore()
                                 viewConfig: board.viewConfig,
                                 list: board.list
                         }})
-                        console.log("DID PARTIALS",partials)
                         return RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, partials})
                     }
                 }
@@ -119,6 +118,25 @@ let mainstore = MainStore()
         }else if( view.config === "widget"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, data: view.renderData})
             return {id: d.id, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
+        }else if( view.config === "report_set"){
+
+
+            return {id: d.id, 
+                    title, 
+                    canChangeSize: "width", 
+                    canvasMargin, 
+                    items: (stageOptions)=>RenderSetAsKonva(
+                                                            view.primitive, 
+                                                            view.list, 
+                                                            {
+                                                                referenceId: view.primitive.referenceId,
+                                                                ...stageOptions, 
+                                                                ...renderOptions,
+                                                                axis:view.axis,
+                                                                extents:{column: view.columns, row:view.rows}
+                                                            }
+                                                        )
+                    }
         }
         
         if( d.type === "query" && d.processing?.ai?.data_query){
@@ -131,23 +149,33 @@ let mainstore = MainStore()
 
     }
 
-    function SharedPrepareBoard(d, myState, stateId, forceViewConfig){
+    function SharedPrepareBoard(d, myState, element, forceViewConfig){
         let didChange = false
-        stateId = stateId ?? d.id
+        let stateId = element ? element.id : d.id
         const oldConfig = myState[stateId]?.config
         if( d.type === "view" || d.type === "query"){
             const items = d.itemsForProcessing
+            
+            const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
+            let activeView  = forceViewConfig ? viewConfigs.findIndex(d=>d.renderType === forceViewConfig.viewConfig || d.id === forceViewConfig.viewConfig)  : d?.referenceParameters?.explore?.view
+            const viewConfig = viewConfigs?.[activeView === -1 ? 0 : activeView] 
+
             const columnAxis = CollectionUtils.primitiveAxis(d, "column", items)
             const rowAxis = CollectionUtils.primitiveAxis(d, "row", items)
 
             
-            const activeView  = forceViewConfig ?? d?.referenceParameters?.explore?.view
-            const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
-            const viewConfig = viewConfigs?.[activeView] 
 
             if( viewConfig?.renderType === "cat_overview"){
 
-                const categoriesToMap = d.primitives.allUniqueCategory
+                let categoriesToMap
+                if( d.referenceParameters.explore.axis?.column?.type === "category" || d.referenceParameters.explore.axis?.row?.type === "category"){
+                    categoriesToMap = [
+                        d.referenceParameters.explore.axis?.column?.type === "category" ? d.primitives.axis.column.allItems : undefined,
+                        d.referenceParameters.explore.axis?.row?.type === "category" ? d.primitives.axis.row.allItems : undefined,
+                    ].flat().filter(d=>d)
+                }else{
+                    categoriesToMap = d.primitives.origin.allUniqueCategory
+                }             
                 console.log(`Got ${categoriesToMap.length} to map`)
                 let mappedCategories = categoriesToMap.map(category=>{
                     console.log(`Doing ${category.title} - ${category.primitives.allUniqueCategory.length} subcats`)
@@ -184,18 +212,8 @@ let mainstore = MainStore()
                         }
                 })
 
-                /*
-                console.log(mappedCategories)
-                mappedCategories = mappedCategories.filter(d=>{
-                    const total = d.details.map(d=>d.count).reduce((a,c)=>a+c,0)
-                    if( total < 100 ){
-                        console.log(`++ Removing ${d.title} ${total}`)
-                        return false
-                    }
-                    return true
-                })*/
-
                 myState[stateId].primitive = d
+                myState[stateId].stateId = stateId
                 myState[stateId].config = "cat_overview"
                 myState[stateId].renderData = {
                     mappedCategories
@@ -293,6 +311,13 @@ let mainstore = MainStore()
                 count: d.primitives.uniqueAllIds.length
             }
         }
+        if( myState[stateId] && forceViewConfig){
+            myState[stateId].renderConfigOverride = forceViewConfig.renderConfig
+        }
+        if( element ){
+            myState[stateId].element = element
+
+        }
         console.log(oldConfig, myState[stateId].config)
         if( oldConfig !== myState[stateId].config){
             didChange = true
@@ -319,7 +344,8 @@ export default function BoardViewer({primitive,...props}){
             myState.current.framesToUpdate = myState.current.framesToUpdate || []
             Object.keys(myState.current.watchList).forEach(frameId=>{
                 let checkIds = ids
-                if( myState.current.watchList[frameId].filter(d=>checkIds.includes(d)).length > 0 ){
+                if( myState[frameId] && myState.current.watchList[frameId].filter(d=>checkIds.includes(d)).length > 0 ){
+                    
                     const existing = myState.current.framesToUpdate.find(d=>d.frameId === frameId && d.event === event) 
                     if( !existing){
                         myState.current.framesToUpdate.push({frameId, event, info})
@@ -362,7 +388,7 @@ export default function BoardViewer({primitive,...props}){
                                 }
                             }
                             myState.current.framesToUpdate = []
-                        }, 820)
+                        }, 2820)
                     }
                 }
             })
@@ -525,21 +551,24 @@ export default function BoardViewer({primitive,...props}){
                                 if(segmentSummaries.map(d=>d.id).includes( right.id)){
                                     const out = []
                                     let added = false
-                                    myState[left.id].columns.forEach((column,cIdx)=>{
-                                        myState[left.id].rows.forEach((row,rIdx)=>{
-                                            if(!added){
-                                                const filter = [
-                                                    PrimitiveConfig.encodeExploreFilter( myState[left.id].axis.column, column ),
-                                                    PrimitiveConfig.encodeExploreFilter( myState[left.id].axis.row, row ),
-                                                ].filter(d=>d)
-                                                
-                                                if( right.origin.doesImport(left.id, filter)){
-                                                    out.push( {left: left.id, cell: `${cIdx}-${rIdx}`, right: right.id})
-                                                    added = true
+                                    if( myState[left.id].columns && myState[left.id].rows){
+
+                                        myState[left.id].columns.forEach((column,cIdx)=>{
+                                            myState[left.id].rows.forEach((row,rIdx)=>{
+                                                if(!added){
+                                                    const filter = [
+                                                        PrimitiveConfig.encodeExploreFilter( myState[left.id].axis.column, column ),
+                                                        PrimitiveConfig.encodeExploreFilter( myState[left.id].axis.row, row ),
+                                                    ].filter(d=>d)
+                                                    
+                                                    if( right.origin.doesImport(left.id, filter)){
+                                                        out.push( {left: left.id, cell: `${cIdx}-${rIdx}`, right: right.id})
+                                                        added = true
+                                                    }
                                                 }
-                                            }
+                                            })
                                         })
-                                    })
+                                    }
                                     if( !added ){
                                         out.push( {left: left.id, right: right.id})
                                     }
@@ -973,6 +1002,52 @@ export default function BoardViewer({primitive,...props}){
         }
         writePptx( pptx)
     }
+    async function exportReport(asTable = false){
+        if(myState.activeBoard){
+                const frames = canvas.current.getSelection("frame")
+                const pptx = createPptx({width: 8.5, height: 11})
+
+                const pxToInch = 612 / 8.5
+
+                let bounds = [
+                    11 / 811 * 72,
+                    8.5 / 612 * 552,
+                    11 / 811 * 739,
+                    8.5 / 612 * 60,
+                ]//.map(d=>d.toFixed(3))
+
+                pptx.defineSlideMaster({
+                    title: "MASTER_SLIDE",
+                    background: { color: "FFFFFF" },
+                    objects: [
+                     { line: { x: bounds[3], y: bounds[0], w: bounds[1] - bounds[3], h: 0, line: { color: "D4D4D4", width: 1 } } },
+                     { line: { x: bounds[3], y: bounds[2], w: bounds[1] - bounds[3], h: 0, line: { color: "D4D4D4", width: 1 } } },
+                     { text:  {
+                        text: 'COMPANY ANALYSIS - SENSE',
+                        options: { x: bounds[3], y: bounds[0], w:'100%', align:'left', color:'000000', fontSize:8, bold: true, valign: "bottom",margin:[0,0,0,0] }
+                    }},
+                     { text:  {
+                        text: "Note: This report includes content generated by artificial intelligence (AI). While accuracy is a priority, it is recommended to use this information as a supplement to, rather than a sole basis for, decision-making.",
+                        options: { x: bounds[3], y: bounds[2], w: bounds[1] - bounds[3], align:'left', color:'555555', fontSize:7, valign: "top",margin:[5,0,0,0] }
+                    }}
+                    // { line: { x: bounds[3], y: bounds[2], w: bounds[3] - bounds[1], line: { color: "0088CC", width: 5 } } },
+                    ],
+                    slideNumber: { x: 500 / pxToInch , w: 52 / pxToInch , y: 11 / 811 * 742, fontSize: 8, bold: true, align: 'right',margin:[0,0,0,0]} ,
+                   });
+
+                for(const d of frames){
+                    const root = canvas.current.frameData( d.attrs.id )
+                    const temp = root.node.children
+                    root.node.children = root.allNodes
+
+                    const padding = [bounds[0],0,bounds[0], 0]
+
+                    await exportKonvaToPptx( root.node, pptx, {offsetForFrame: [root.canvasMargin[3], root.canvasMargin[0]], master: "MASTER_SLIDE", removeNodes: ["frame_outline", "frame_bg", "frame_label", "background", "view"],  scale: 1 / pxToInch, padding} )
+                    root.node.children = temp
+                }
+                pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
+        }
+    }
     async function exportFrame(asTable = false){
         if(myState.activeBoard){
             if( asTable ){
@@ -980,7 +1055,7 @@ export default function BoardViewer({primitive,...props}){
                 const temp = root.node.children
                 root.node.children = root.allNodes
             
-                await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: ["frame_outline", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
+                await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: ["frame_outline", "frame_bg", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
                 root.node.children = temp
             }else{
                 const frames = canvas.current.getSelection("frame")
@@ -989,7 +1064,7 @@ export default function BoardViewer({primitive,...props}){
                     const root = canvas.current.frameData( d.attrs.id )
                     const temp = root.node.children
                     root.node.children = root.allNodes
-                    await exportKonvaToPptx( root.node, pptx, {removeNodes: ["frame_outline", "frame_label", "background", "view"],  padding: [3, 1, 0.25, 1]} )
+                    await exportKonvaToPptx( root.node, pptx, {removeNodes: ["frame_outline", "frame_bg",  "background", "view"],  padding: [3, 1, 0.25, 1]} )
                     root.node.children = temp
                 }
                 pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
@@ -1065,6 +1140,7 @@ export default function BoardViewer({primitive,...props}){
                     {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
                     {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(true)} flat placement='left-start' />}
                     {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false)} flat placement='left-start' />}
+                    {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportReport(false)} flat placement='left-start' />}
                     {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
             </div>
             {collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>

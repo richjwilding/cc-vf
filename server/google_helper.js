@@ -167,7 +167,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
 
     if( !forcePDF ){
         const text = await retrieveDocumentFromSearchCache( id )
-        if( text?.plain){
+        if( text){
             return {plain: text}
         }
     }
@@ -959,6 +959,22 @@ export async function replicateURLtoStorage(url, id, bucketName){
 }
 export async function googleKnowledgeForQuery(query, options , attempts = 3){
     try{
+        const response = await fetchSERPViaBrightData(query, {...options, knowledge: true})
+        return response
+        
+    }catch(error){
+        console.log(`Error in fetchLinksFromWebQuery`)
+        console.log(error)
+        if( attempts > 0){
+            await new Promise(r => setTimeout(r, 2000));                    
+            console.log(`retry....${attempts}`)
+            await fetchLinksFromWebQuery(query, options, attempts - 1)
+        }
+    }
+    
+}
+export async function googleKnowledgeForQueryScaleSERP(query, options , attempts = 3){
+    try{
         
         const page = options?.page ?? 1
 
@@ -1041,6 +1057,7 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
         }
         
         const url = `https://api.scaleserp.com/search?${new URLSearchParams(params).toString() }`
+        console.log("HERE")
         console.log(url)
         
         const response = await fetch(url,{

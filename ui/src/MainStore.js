@@ -1637,7 +1637,7 @@ function MainStore (prims){
                 if( type === "primitive"){
                     if( prop === "doesImport"){
                         return (id, filters)=>{
-                            console.log(`Check primitive `, id, receiver.id)
+                            //console.log(`Check primitive `, id, receiver.id)
                             return PrimitiveConfig.checkImports( receiver, id, filters)
                         }
                     }
@@ -1776,7 +1776,7 @@ function MainStore (prims){
                             if( !options.cache ){
                                 options.cache = {}
                             }
-                            const excludedTypes = new Set(["segment", "category", "query"]);
+                            const excludedTypes = new Set(["segment", "category", "query", "report", "reportinstance"]);
 
                             if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "summary"))){
                                 let fullList = []

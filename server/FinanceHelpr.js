@@ -13,10 +13,13 @@ export async function fetchFinancialData( symbol, attempts = 3 ){
     if( !symbol){
         return
     }
-    const queryOptions = { modules: ['summaryDetail','financialData', 'incomeStatementHistory'] }; // defaults
+    //const queryOptions = { modules: ['summaryDetail','financialData', 'incomeStatementHistory'] }; // defaults
     let result
     try{
-        result = await yahooFinance.quoteSummary(symbol, queryOptions, { validateResult: false });
+      //  result = await yahooFinance.quoteSummary(symbol, queryOptions, { validateResult: false });
+        let endDate = moment()
+        let startDate = moment().subtract(1, "Q")
+        result = await yahooFinance.chart( symbol, {period1: startDate.toDate(), period2: endDate.toDate()} )
     }catch(error){
         console.log(`Error on fetch - attempts remaining ${3}`)
         console.log(error)
@@ -90,8 +93,44 @@ export async function getFxRate(currency){
     }
     return fxRate.rate
 }
-
 export async function computeFinanceSignals( primitive ){
+    try{
+
+        let ticker = primitive.referenceParameters?.stock_symbol
+        
+        if( !ticker ){
+            ticker = await lookupTicker( primitive )
+            if( !ticker ){
+                return undefined
+            }
+        }
+
+        let data = await fetchFinancialData( ticker )
+        if( !data){
+            const newTicker = await lookupTicker( primitive )
+            if( newTicker && (newTicker !== ticker)){
+                data = await fetchFinancialData( newTicker )   
+            }
+
+        }
+        if( !data){return}
+
+        const toKeep = data.quotes.map(d=>({
+            date: d.date,
+            low: d.low,
+            high: d.high,
+            close: d.close
+        }))
+        dispatchControlUpdate(primitive.id, "financialData.quote_history", toKeep)
+
+    }catch(error){
+        console.log(`Error computeFinanceSignals`)
+        console.log(error)
+    }
+}
+
+
+export async function computeFinanceSignalsOLD( primitive ){
     try{
 
     let ticker = primitive.referenceParameters?.stock_symbol

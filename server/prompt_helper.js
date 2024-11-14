@@ -1,3 +1,5 @@
+import { processPromptOnText } from "./openai_helper"
+
 export function fieldListToPromptOutput( list ){
     function unpackList(list){
 
@@ -5,125 +7,148 @@ export function fieldListToPromptOutput( list ){
 
 }
 
-export function reviseUserRequest( request ){
+export async function reviseUserRequest( request ){
 
-    const prompt = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to define a json structure for the output based on this request honouring any format that is specified. 
-                    Each leaf in the proposed structure must have the following format {heading: a short heading that can be used when formatting the response, content: the description of what will be placed in the field by the AI, type: what format the content should be (one of list, string, number, boolean)} 
-                    Focus only on the core output requested by the tasks.
+    const prompt = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to define a json structure for the output based on this request honouring any format that is specified in the task.   Focus only on the core outputs requested by the task and factor in any requests for content length and formatting for a specific section or the overall response - for example, if a section needs to have both a summary and a list then your output structure for that section should have 2 subsections defined - one for the summary and one for the list.  
+
+Each section of the of the output should be an element of an array. If a section contain multiple parts then encapsulate these in a nested array. You do not need to decompose the rows or cells of tables into subsections - just use the description.  Use nested subsections where necessary to fulfil the requests
+
+                    Each section of the structure must have one of the following formats
+
+                    If the section has subsections:
+                    {
+                        heading: a short heading that can be used when formatting the response (if this element is top level section - otherwise omit this field), 
+                        subsections: an array containing any the subsections 
+                    } 
+
+                    If the section does not have any subsections:
+                    {
+                        heading: a short heading that can be used when formatting the response (if this element is top level section - otherwise omit this field), 
+                        content: the description of what will be placed in the field by the AI included specific length or formatting instructions aligned to requests in the task if present - or your view of best practice if requests are not present, 
+                        type: what format the content should be (one of markdown formatted bullet list, markdown formatted string, number, boolean, markdown formatted table),
+                    } 
+
                     
-                    Here is the task:`
 
+                   
 
-    let outputText = `{"structure":[
-    {
-      "heading": "Baked goods spoiler organisms",
-      "content": "A 300 word summary detailing the issues that spoiler organisms post in the baked goods sector and what measures are being taken to combat them.",
-        "type": "markdown formatted string - **bold** _underline is perimitted",
-      "ids": "List the numbers associated with the fragments of text used for this summary."
-    },
-    {
-      "heading": "Spoiler organisms by category",
-      "subsections": [
-        {
-          "heading": "Spoiler Organisms Impact Table",
-          "content": "A table showing subsegment names in one column and the full set of spoiler organisms as a comma-separated list in the second column. Mark cells with a ^ character where own knowledge was used.",
-          "type": "markdown formmated table",
-          "ids": "List the numbers associated with the fragments of text used for the table."
-        },
-        {
-          "content": "A 100 word summary following the table that encapsulates the data presented.",
-          "type": "markdown formatted string - **bold** _underline is perimitted",
-          "ids": "List the numbers associated with the fragments of text used for the summary."
-        }
-      ]
-    },
-    {
-      "heading": "Spoiler organisms by region",
-      "subsections": [
-        {
-          "heading": "Regional Spoiler Organisms Analysis Table",
-          "content": "A detailed analysis table with regions as columns and spoiler organisms as rows. Each cell contains a tick if the spoiler organism is prevalent in that region; blank if not. Include a column for climate/environmental drivers. Mark cells with a ^ character where own knowledge was used.",
-          "type": "markdown formmated table",
-          "ids": "List the numbers associated with the fragments of text used for the table."
-        },
-        {
-          "content": "A 100 word summary following the table that encapsulates the data presented.",
-          "type": "markdown formatted string - **bold** _underline is perimitted",
-          "ids": "List the numbers associated with the fragments of text used for the summary."
-        }
-      ]
+                    Here is the future task::`.replaceAll(/\s+/g," ")
+
+    const structureResult = await processPromptOnText( request, {
+        opener: prompt,
+        prompt: "End of future task",
+        wholeResponse: true,
+        debug:true,
+        output: "Return just the json structure in the following format: {structure: [array of section objects]}",
+        debug_content: true
+    })
+    let structure
+    if( structureResult?.output?.[0]){
+        structure = structureResult.output[0]
     }
-]}`
+    augmentEntries(structure, "content", "ids", "List the numbers associated with the fragments of text used for the table.")
+    console.log(structure)
 
-    const fStruct = JSON.parse(outputText)
-    const oStruct = JSON.parse(outputText)
-    removeEntries(oStruct, "heading")
-      let output = JSON.stringify(oStruct) + "\nYou must not include any fragemnt IDs in any of the content fields"
+    const prompt2 = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to update the task to remove any mention of the output format or sturcture - i will be appending an updated format myself.  
+                    The update task should include all aspects of the original task with the output format removed.                
+                   
+                    Here is the future task:`.replaceAll(/\s+/g," ")
 
-    console.log(output)
+    const taskResult = await processPromptOnText( request, {
+        opener: prompt2,
+        prompt: "End of future task",
+        wholeResponse: true,
+        output: "Provide your output in a json object with a field called 'task' containing the updated task as a string.",
+        debug:true,
+        debug_content: true
+    })
+    console.log(taskResult)
+    let task
+    if( taskResult?.output?.[0]){
+        task = taskResult.output[0].task
+    }
 
-    return {task: `
-            Act like an expert McKinsey market analysis and produce me a summary of the spoiler organisms in the Baking market. You must be detailed and specific, avoid filler and never use sales / marketing language.
+      let output = "Provide your output in a JSON object with this structure:\n" + JSON.stringify(structure) + "\nYou must not include any fragemnt IDs in any of the content fields"
 
-            I am interested in the following subsegments: Cakes, Bread, Flatbreads and Tortilla, Steamed buns, English Muffins / Crumpets.
 
-            And i have a specific interest in understanding facts, figures and trends at both regional levels covering APAC, North America, LATAM, Europe, MEA
 
-            The report is for an enzyme producer who is interesting selling to bakers and baked goods manufacturers. They have a potential new natural product which enhances the clean label status of items.
+console.log(`TASK:\n\n`, task)
+console.log(`STRUCTURE:\n\n`, structure.structure)
 
-            Analyze the text to identify all of the spoiler organisms which are relevant to the baked goos market. Be exhaustive and ensure you include all relevant spoiler organisms noted in the text i provided is taken into consideration.
-
-            You must mark any data points where you had to use your own knowledge rather than the information i gave you with a ^ character - at the sentence, table cell or table row level as appropriate`,
-            structure: fStruct.structure,
+    return {task: `### Task\n\n${task}`,
+            structure: structure.structure,
             output:JSON.stringify(output)
     }
 }
 
-    export function findEntries(obj, entry, out = []) {
-        // Check if the object has a 'heading' key and delete it
-        if (obj.hasOwnProperty(entry)) {
-            out.push(obj[entry]);
-        }
-      
-        // Loop through each key-value pair in the object
-        for (let key in obj) {
-          if (obj.hasOwnProperty(key)) {
-            if (Array.isArray(obj[key])) {
-              // If the value is an array, loop through its items
-              obj[key].forEach(item => {
-                if (typeof item === 'object') {
-                    findEntries(item, entry, out);
-                }
-              });
-            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-              // If the value is an object, recurse into it
-              findEntries(obj[key], entry, out);
+export function findEntries(obj, entry, out = []) {
+    // Check if the object has a 'heading' key and delete it
+    if (obj.hasOwnProperty(entry)) {
+        out.push(obj[entry]);
+    }
+    
+    // Loop through each key-value pair in the object
+    for (let key in obj) {
+        if (obj.hasOwnProperty(key)) {
+        if (Array.isArray(obj[key])) {
+            // If the value is an array, loop through its items
+            obj[key].forEach(item => {
+            if (typeof item === 'object') {
+                findEntries(item, entry, out);
             }
-          }
+            });
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+            // If the value is an object, recurse into it
+            findEntries(obj[key], entry, out);
         }
-        return out
-      }
+        }
+    }
+    return out
+}
 
-    export function removeEntries(obj, entry) {
-        // Check if the object has a 'heading' key and delete it
-        if (obj.hasOwnProperty(entry)) {
-          delete obj[entry];
-        }
-      
-        // Loop through each key-value pair in the object
-        for (let key in obj) {
-          if (obj.hasOwnProperty(key)) {
-            if (Array.isArray(obj[key])) {
-              // If the value is an array, loop through its items
-              obj[key].forEach(item => {
-                if (typeof item === 'object') {
-                    removeEntries(item, entry);
-                }
-              });
-            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-              // If the value is an object, recurse into it
-              removeEntries(obj[key], entry);
+export function removeEntries(obj, entry) {
+    // Check if the object has a 'heading' key and delete it
+    if (obj.hasOwnProperty(entry)) {
+        delete obj[entry];
+    }
+    
+    // Loop through each key-value pair in the object
+    for (let key in obj) {
+        if (obj.hasOwnProperty(key)) {
+        if (Array.isArray(obj[key])) {
+            // If the value is an array, loop through its items
+            obj[key].forEach(item => {
+            if (typeof item === 'object') {
+                removeEntries(item, entry);
             }
-          }
+            });
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+            // If the value is an object, recurse into it
+            removeEntries(obj[key], entry);
         }
-      }
+        }
+    }
+ }
+export function augmentEntries(obj, entry, newEntry, neewValue) {
+    // Check if the object has a 'heading' key and delete it
+    if (obj.hasOwnProperty(entry)) {
+        obj[newEntry] = neewValue
+    }
+    
+    // Loop through each key-value pair in the object
+    for (let key in obj) {
+        if (obj.hasOwnProperty(key)) {
+        if (Array.isArray(obj[key])) {
+            // If the value is an array, loop through its items
+            obj[key].forEach(item => {
+            if (typeof item === 'object') {
+                augmentEntries(item, entry, newEntry, neewValue);
+            }
+            });
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+            // If the value is an object, recurse into it
+            augmentEntries(obj[key], entry, newEntry, neewValue);
+        }
+        }
+    }
+ }

@@ -63,7 +63,7 @@ export default function EnrichPrimitive(){
     }
     instance.siteDiscovery = (primitive, options )=>{
         if( primitive.type === "entity"){
-            instance.addToQueue( primitive, "site_discovery", "Site discovery (short)", options )
+            instance.addToQueue( primitive, "site_discovery", "Site discovery", options )
         }
     }
     instance.generateJTBD = (primitive, options )=>{
@@ -73,7 +73,7 @@ export default function EnrichPrimitive(){
     }
     instance.siteDiscoveryShort = (primitive, options )=>{
         if( primitive.type === "entity"){
-            instance.addToQueue( primitive, "site_discovery_short", "Site discovery", options )
+            instance.addToQueue( primitive, "site_discovery_short", "Site discovery (short)", options )
         }
     }
     instance.siteSummarize = (primitive, options )=>{

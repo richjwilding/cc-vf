@@ -15,7 +15,7 @@ import { min } from "date-fns";
 import { VFImage } from "./VFImage";
 import PrimitivePicker from "./PrimitivePicker";
 import NewPrimitive from "./NewPrimitive";
-import { roundCurrency } from "./RenderHelpers";
+import { roundCurrency } from "./SharedTransforms";
   
 
 const ExpandArrow = function(props) {

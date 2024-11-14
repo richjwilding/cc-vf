@@ -2,33 +2,12 @@ import pptxgen from "pptxgenjs";
 import Konva from "konva";
 import CustomImage from "./CustomImage";
 
-/*
-export async function exportKonvaToPptx( konva ){
-
-    // 1. Create a Presentation
-    let pres = new pptxgen();
-    
-    // 2. Add a Slide to the presentation
-    let slide = pres.addSlide();
-    
-    // 3. Add 1+ objects (Tables, Shapes, etc.) to the Slide
-    slide.addText("Hello World from PptxGenJS...", {
-        x: 1.5,
-        y: 1.5,
-        color: "363636",
-        fill: { color: "F1F1F1" },
-        align: pres.AlignH.center,
-    });
-    
-    // 4. Save the Presentation
-    await pres.writeFile({ fileName: "Sample Presentation.pptx" });
-}*/
-const widthInInches = 10 * 4
-const heightInInches = 5.625 * 4
-export function createPptx(  options ){
+const defaultWidthInInches = 10 * 4
+const defaultHeightInInches = 5.625 * 4
+export function createPptx(  options = {} ){
     const pptx = new pptxgen();
     
-    pptx.defineLayout({ name:'VF_CUSTOM', width: widthInInches, height: heightInInches });
+    pptx.defineLayout({ name:'VF_CUSTOM', width: options.width ?? defaultWidthInInches, height: options.height ?? defaultHeightInInches });
     pptx.layout = 'VF_CUSTOM'
     return pptx
 }
@@ -40,12 +19,16 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
     let savePptx = false
     
     if( !pptx ){
-        pptx = createPptx()
+        pptx = createPptx(options.slideSettings)
         savePptx = true
     }
 
+    let slideOptions
+    if( options.master ){
+        slideOptions = {masterName: options.master}
+    }
 
-    let slide = pptx.addSlide();
+    let slide = pptx.addSlide(slideOptions);
     let startSlide = slide
 
     let minX = Infinity, minY = Infinity
@@ -80,6 +63,10 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
     }
 
     let slidePadding = options.padding ?? [0,0,0,0]
+    
+    let activeLayout = pptx.LAYOUTS[pptx.layout]
+    let widthInInches = activeLayout.width / 914400
+    let heightInInches = activeLayout.height / 914400
 
     let gScale = options.scale ?? Math.min( (widthInInches - slidePadding[1] - slidePadding[3]) / maxX, (heightInInches - slidePadding[0] - slidePadding[2])/ maxY )
     let pageOffset = 0, pageNum = 0
@@ -115,8 +102,8 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             return
         }
         
-        const x = first ? (slidePadding[3] / gScale) : ( ox + (konvaNode.x() * pScale))
-        const y = first ? (slidePadding[0] / gScale) : (oy + (konvaNode.y() * pScale))
+        const x = first ? ((slidePadding[3] / gScale) - (options.offsetForFrame?.[0] ?? 0)) : ( ox + (konvaNode.x() * pScale))
+        const y = first ? ((slidePadding[0] / gScale) - (options.offsetForFrame?.[1] ?? 0) ) : (oy + (konvaNode.y() * pScale))
 
         
         let thisScale = konvaNode.scale()?.x ?? 1
@@ -226,7 +213,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         flush = true
                     }
                     spacingBefore = 0
-                    spacingAfter = 0
+                    spacingAfter = largeFontSize * 0.2
                     if( lastEndList) {
                         spacingBefore = largeFontSize * 0.5
                     }
@@ -250,7 +237,8 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                                     breakLine: lastEndList ? true : false 
                                 }
                             if( bulletNeedsFlushing && lastIndent ){
-                                options.bullet = {indentLevel: lastIndent, indent: (fontScale * 10).toFixed(3)}
+                                options.bullet = {indent: (fontScale * 10).toFixed(3)}
+                                options.indentLevel = lastIndent 
                             }
                             stack.push({
                                 text: agg.join(" ").trim(),// + (!d.bullet && bulletNeedsFlushing && markEndList ? "\n" : ""),//(!d.bullet && lastIndent === 0 ? "\n" : ""),
@@ -272,14 +260,20 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     tIdx++
                 }
                 if( agg.length > 0){
+                    let options = {
+                            paraSpaceBefore: spacingBefore,
+                            paraSpaceAfter: spacingAfter,
+                            bold: lastBold || lastLarge,
+                            fontSize: (lastLarge ?  largeFontSize : fontSize).toFixed(3),
+                            breakLine: lastEndList ? true : false 
+                        }
+                    if( (lastBullet ?? bulletNeedsFlushing) && lastIndent ){
+                        options.bullet = {indent: (fontScale * 10).toFixed(3)}
+                        options.indentLevel = lastIndent 
+                    }
                     stack.push({
                         text: agg.join(" "),
-                        options:{
-                            bold: lastBold,
-                            paraSpaceBefore: spacingBefore,
-                            bullet: (lastBullet ?? bulletNeedsFlushing) && lastIndent ? {indentLevel: indentLevel, indent: ( fontScale * 10).toFixed(3)} : false,
-                            fontSize: (lastLarge ?  largeFontSize : fontSize).toFixed(3),
-                        }
+                        options
                     })
                 }
                 console.log(stack)
@@ -326,7 +320,6 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 });
             }
         } else if (konvaNode instanceof Konva.Circle ) {
-            // Handle rectangle
                 slide.addShape(pptx.shapes.OVAL, {
                     x: rx - (rw/2),
                     y: ry - (rh/2),
@@ -349,16 +342,15 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 h: wedgeHeight,
                 angleRange:[konvaNode.rotation(), konvaNode.rotation() + konvaNode.angle()],
                 fill: {color: toHex(konvaNode.fill())},
-                line: {
+                line:konvaNode.stroke() ? {
                     color: toHex(konvaNode.stroke()),
                     width: konvaNode.strokeWidth() / 2,
-                },
+                } : undefined,
             });
             
 
             //slide.addShape(pptx.shapes.ARC, { x: rx, y: ry, w: 1.5, h: 1.45, fill: { color: pptx.colors.ACCENT3 }, angleRange:[konvaNode.rotation(), konvaNode.rotation() + konvaNode.angle()] });
         } else if (konvaNode instanceof Konva.Arc ) {
-            // Handle rectangle
             const width = konvaNode.width() * scale * thisScale
             const height = konvaNode.height() * scale * thisScale
             if( false && konvaNode.innerRadius() > 0){
@@ -400,6 +392,10 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     w: rw,
                     h: rh,
                     rectRadius: konvaNode.cornerRadius() * scale * thisScale,
+                    line: konvaNode.stroke() ? {
+                        color: toHex(konvaNode.stroke()),
+                        width: konvaNode.strokeWidth() / 2,
+                    } : undefined,
                     fill: toHex(konvaNode.fill()),
                 });
             }else{
@@ -408,6 +404,10 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     y: ry,
                     w: rw,
                     h: rh,
+                    line: konvaNode.stroke() ? {
+                        color: toHex(konvaNode.stroke()),
+                        width: konvaNode.strokeWidth() / 2,
+                    } : undefined,
                     fill: toHex(konvaNode.fill()),
                 });
             }
@@ -432,7 +432,11 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             if( konvaNode.fillLinearGradientStartPoint && konvaNode.fillLinearGradientEndPoint){
                 const stops = konvaNode.fillLinearGradientColorStops()
                 if(stops ){
-                    gradientFill = {
+
+                    gradientFill = {type:'gradient', stops: [{ pos: 0, color:'C1F15E' }, { pos: 62, color:'90BA3F' }, { pos: 100, color:'7FA03E'}],
+                            linearAngle: 90, linearScaled: false}
+
+/*                    gradientFill = {
                         type: 'gradient',
                         stops: [
                             { pos: stops[0] * 100, color: stops[1].slice(1)},
@@ -450,7 +454,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         rotWithShape: false,
                         tileRect: { t: 0, r: 0.5, b: 0.25, l: 1 },
                         flip: 'xy',
-                    }
+                    }*/
                 }
             }
 

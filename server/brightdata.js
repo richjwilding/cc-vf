@@ -38,6 +38,8 @@ function instagramPostData(data){
             posts_count: data.posts_count,
             posted: data.date_posted,
             likes: data.likes,
+            coauthor_producers: data.coauthor_producers,
+            tagged_users: data.tagged_users,
             engagement_score_view: data.engagement_score_view,
             company: data.is_paid_partnership ? data.partnership_details?.username : undefined,
             video_view_count: data.video_view_count,
@@ -148,12 +150,12 @@ const bdExtractors = {
         datasetId: "gd_lk5ns7kz21pck8jpis",
         id: (data)=>data.post_id,
         queryParams: "&type=discover_new&discover_by=keyword",
-        excludeIds:async (primitive)=>{
+        /*excludeIds:async (primitive)=>{
             const q = {_id: {$exists: true}, workspaceId: primitive.workspaceId, [`parentPrimitives.${primitive.id}`]: {$exists: true},referenceId: 122}
             const existing = await fetchPrimitives([],q, {_id: 1, referenceParameters: 1})
             return existing.map(d=>d.referenceParameters.id)
-        },
-        filter: (data)=>data.filter(d=>d.referenceParameters.location),
+        },*/
+        //filter: (data)=>data.filter(d=>d.referenceParameters.location),
         data: instagramPostData
     },"tiktok":{
         datasetId: "gd_lu702nij2f790tmv9h",
@@ -543,6 +545,14 @@ export async function fetchSERPViaBrightData( query, options = {}){
             snippet: d.description,
             image: d.source_logo
         }))
+    }else if( options.knowledge){
+        let out = {
+            knowledge: response.knowledge
+        }
+        if( options.overview){
+            out.overview = response.overview
+        }
+        return out
     }else{
         mapped.links = response.organic?.map(d=>({
             title: d.title,

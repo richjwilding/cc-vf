@@ -21,16 +21,18 @@ import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
 import Embedding from './model/Embedding';
 import { buildPage } from './htmlexporter';
-import { aggregateItems, checkAndGenerateSegments, comapreToPeers, compareItems, extractor, getSegemntDefinitions, iterateItems, queryByAxis, replicateFlow, resourceLookupQuery, runProcess, summarizeWithQuery } from './task_processor';
+import { aggregateItems, checkAndGenerateSegments, comapreToPeers, compareItems, extractor, getSegemntDefinitions, iterateItems, lookupPerson, queryByAxis, replicateFlow, resourceLookupQuery, runProcess, summarizeWithQuery } from './task_processor';
 import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helper';
 import { enrichPrimitiveViaBrightData, fetchSERPViaBrightData, handleCollection, restartCollection } from './brightdata';
 import BrightDataQueue, { enrichmentDuplicationCheck } from './brightdata_queue';
+import { runAction } from './action_helper';
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
 
 const parser = PrimitiveParser()
 export const DONT_LOAD = {crunchbaseData: 0, linkedInData: 0, financialData: 0, action_tracker: 0, checkCache:0}
+export const DONT_LOAD_UI = {crunchbaseData: 0, linkedInData: 0, action_tracker: 0, checkCache:0}
 
 export function uniquePrimitives(list){
     let ids = {}
@@ -59,6 +61,7 @@ export async function queueReset(){
 
         return [
             await QueryQueue().purge(),
+            await BrightDataQueue().purge(),
             await EnrichPrimitive().purge()
         ]
     }catch(error){
@@ -1234,7 +1237,8 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             const check = [params.extract].flat()
             list = list.filter(d=>check.includes(d.referenceId))
         }
-        list = list.filter(d=>!["segment","category","query"].includes(d.type))
+        list = list.filter(d=>!["segment", "category", "query", "report", "reportinstance"].includes(d.type))
+        //list = list.filter(d=>!["segment","category","query"].includes(d.type))
         
         console.log(`Import from query = ${list.length} direct items`)
         return list
@@ -1264,6 +1268,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         let list = []
         if( Object.keys(imp.primitives).includes("imports")   ){
             if( cache.imports[imp.id]){
+                console.log(`-- Using cached list`)
                 list = cache.imports[imp.id]
             }else{
                 list = list.concat( await getDataForImport( imp, cache, undefined, false ))
@@ -1282,7 +1287,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             }else{
                 ids = node.allIds
                 list = await fetchPrimitives(ids, undefined, DONT_LOAD)
-                console.log(`loaded leaves`)
+                console.log(`loaded leaves ${ids.length}`)
             }
         }
         const params = await getConfig( source, undefined, cache) 
@@ -1301,7 +1306,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         }
         if( filterConfig && filterConfig.length > 0){
             let filterOut
-            console.log(`GOT ${filterConfig.length} configs to scan`)
+            console.log(`GOT ${filterConfig.length} configs to scan for ${list.length}`)
             for(const set of filterConfig ){
                 if( set.filters ){
                     let thisSet = await filterItems( list, set.filters)
@@ -1311,6 +1316,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             list = filterOut ?? list
             for(const set of filterConfig ){
                 if( set.referenceId ){
+                    console.log(`fetching to ${set.referenceId}`)
                     const prev = list.length
                     list = (await Promise.all(list.map(async (d)=>await primitiveDescendents(d, undefined, {allPaths: true, first: true, referenceId: set.referenceId, fullDocument:requiresFullDocument, deferFullDocument: true} ) ))).flat()
                 }
@@ -1914,6 +1920,10 @@ export async function createSegmentQuery(primitive, queryData, importData){
     return {primitiveId: newPrimitive.id, segment: interimSegment?.id}
 }
 export async function doPrimitiveAction(primitive, actionKey, options, req){
+    const frameworkResult = await runAction(primitive, actionKey, options, req)
+    if( frameworkResult.success ){
+        return frameworkResult.result
+    }
 
     if( primitive.type === "search" && actionKey !== "bdcollect"){
         return await QueryQueue().doQuery(primitive, options)
@@ -2085,6 +2095,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             if( actionKey === "bdcollect"){
                 await restartCollection( primitive, options )
                 return
+            }
+            if( actionKey === "test_person"){
+                await lookupPerson("Hey Kay Adams", await Category.find({id:44}))
             }
             if( actionKey === "zfat_test"){
                 console.log(`Testing ${options.url}`)
@@ -2274,7 +2287,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                                             focus: options.focus, 
                                                             batch: toProcess.length > 1000 ? 100 : undefined,
                                                             temperature: options.temperature ?? primitive.referenceParameters?.temperature,
-                                                            allow_infer: true,
+                                                            //allow_infer: true,
                                                             markdown: options.markdown, 
                                                             heading: options.heading,
                                                             scored: options.scored ?? primitive.referenceParameters.scored,
@@ -2806,20 +2819,28 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
 
                 setTimeout(async () => {
                     console.log(`**** SHOULD GO INTO QUEUE`)
-                    let result 
+                    let result
                     
                     if( thisCategory?.type === "comparator"){
                         const segment = (await primitiveParentsOfType(primitive, "segment"))?.[0]
                         if( segment ){
                             const parentForScope = (await primitiveParentsOfType(segment, ["working", "view", "segment", "query"]))?.[0] ?? segment
                             result = await comapreToPeers( parentForScope, segment, primitive, options)
+                            if( typeof(result) === "object"){
+                                dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
+                                result = result.plain
+                            }
                         }else{
                             console.log(`Couldnt get parent segment for ${primitive.id} / ${primitive.plainId} in compare_to_peers`)
                         }
                     }else{
-                        if( primitive.plainId === 700519){
+                        if( primitive.plainId === 700519 || config.verify || config.structure){
                             try{
                                 result = await summarizeWithQuery(primitive)
+                                if( result ){
+                                    dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
+                                    result = result.plain
+                                }
                             }catch(error){
                                 console.log(`error in summarizeWithQuery call`)
                                 console.log(error)
@@ -4549,7 +4570,7 @@ export function decodePath(node, path){
             return undefined
         }
     }
-    return node[last]
+    return node?.[last]
 }
 export async function recoverPrimitive( id, level = 0 ){
     const primitive = await Primitive.findOne({_id: id})    

@@ -4,7 +4,7 @@ import { BoltIcon } from "@heroicons/react/24/outline";
 import Panel from "./Panel";
 import useDataEvent from "./CustomHook";
 import CardGrid from "./CardGrid";
-import { roundCurrency } from "./RenderHelpers";
+import { roundCurrency } from "./SharedTransforms";
 import { ReactECharts } from "./React-ECharts";
 import { graphic } from "echarts";
 import MainStore from "./MainStore";

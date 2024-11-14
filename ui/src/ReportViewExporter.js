@@ -33,7 +33,7 @@ export default function ReportViewExporter({primitive, ...props}){
         //targetList = [699598, 699563,699564,699565].map(d=>MainStore().primitive(d))
         targetList = [700480, 700481,700482,700483].map(d=>MainStore().primitive(d))
     }else{
-        targetList = ["669f45c26e1bd45cc906346b", "666be85605ff1c2b42bc00d4", "669f455e6e1bd45cc90631be", "66a0c1e7abb4c2893f73d839", 
+        /*targetList = ["669f45c26e1bd45cc906346b", "666be85605ff1c2b42bc00d4", "669f455e6e1bd45cc90631be", "66a0c1e7abb4c2893f73d839", 
             "666be41e05ff1c2b42bbe25e", "669f43036e1bd45cc90621a5", "66a0b3ea2d1b19b3e90facdd", "669f42d46e1bd45cc9062064", 
             "669f42276e1bd45cc9061baf", "66a0be73abb4c2893f73d595", "66a0b0902d1b19b3e90fa96e", "66a2072662bffbbcac4fd165", 
             "669f41156e1bd45cc9061498", "669f40b76e1bd45cc9061209", "66a0acc52d1b19b3e90fa709", "669f407c6e1bd45cc9061068", 
@@ -53,8 +53,11 @@ export default function ReportViewExporter({primitive, ...props}){
             "668944ae14799b7511126443", "668944aa14799b751112642b", "6689449f14799b75111263f3", "6689449914799b75111263d6", "6689448c14799b751112638a", "6689448a14799b7511126374", "6689448614799b751112635c", "6689447814799b7511126310", "6689447014799b75111262f3", "6689446d14799b75111262de", "6689445514799b7511126214", "6689445014799b75111261e7", "666be82b05ff1c2b42bbf724", "666be81f05ff1c2b42bbf403", 
             "666be80f05ff1c2b42bbef32", "66881fd9069e82d65fb9b787", "66881fb3069e82d65fb9b72b", "66881f6a069e82d65fb9b694", "66881e10069e82d65fb9b547", "668819eb069e82d65fb9b32b", "66880c1b069e82d65fb9b268", "66880a8a069e82d65fb9b24e", "66880792069e82d65fb9b206", "66880773069e82d65fb9b1af", "66880736069e82d65fb9b134", "6687ffab069e82d65fb9ae0c", "6687ff85069e82d65fb9ada1", "6687ff62069e82d65fb9ad64", 
             "6687ff5f069e82d65fb9ad4e", "6687ff52069e82d65fb9ad16", "6687ff4c069e82d65fb9acfc", "6687ff46069e82d65fb9ace2", "6687ff3e069e82d65fb9acab", "6687ff3b069e82d65fb9ac92", "6687ff28069e82d65fb9ac46", "6687ff23069e82d65fb9ac2c", "6687ff1b069e82d65fb9abfc", "6687ff14069e82d65fb9abdf", "6687ff0c069e82d65fb9abbe", "6687ff03069e82d65fb9aba2", "6687fef9069e82d65fb9ab84", "6687dd2155abc3b1bd0fcbbb", 
-            "6687d751661c0068cb77f9cf", "6687dd1f55abc3b1bd0fcba6"].map(d=>mainstore.primitive(d)).filter(d=>d).sort((a,b)=>a.title.localeCompare(b.title))
-        }
+            "6687d751661c0068cb77f9cf", "6687dd1f55abc3b1bd0fcba6"].map(d=>mainstore.primitive(d)).filter(d=>d).sort((a,b)=>a.title.localeCompare(b.title))*/
+
+
+        targetList = primitive.primitives.imports.main.allItems
+    }
 
     const myState = useRef({})
     const canvas = useRef({})
@@ -70,7 +73,8 @@ export default function ReportViewExporter({primitive, ...props}){
         forceUpdate()
     }
 
-    const pptConfig = {removeNodes: ["frame_outline", "plainId", "background"], padding: [2, 0.2, 0.2, 0.2], scale: 0.03}
+    //const pptConfig = {removeNodes: ["frame_outline", "plainId", "background"], padding: [2, 0.2, 0.2, 0.2], scale: 0.03}
+    const pptConfig = {removeNodes: ["frame_outline", "plainId", "background", "bounds_frame"], padding: [0,0,0,0], scale: 0.03}
     
     useEffect(()=>{
         async function doCallback(){
@@ -106,24 +110,15 @@ export default function ReportViewExporter({primitive, ...props}){
         if( height ){
             primitive.setField(`frames.${fId}.height`, height)
         }
-        canvas.current.refreshFrame( board.id, renderView(board.primitive))
+        canvas.current.refreshFrame( board.stateId, renderView(board.element))
     }
 
     function renderView(d){
         if( myState[d.id]?.processing ){
             return
         }
-        if( myState[d.id]?.underlying){
-            myState[d.id].noTitle = true
-            return BoardViewer.renderBoardView(d, primitive, myState)
-        }
         const configNames = ["width", "height"]
-        const renderOptions = {
-            renderConfig:{
-                columns:1,
-                minColumns: 1
-            }
-        }
+        const renderOptions = myState[d.id].renderConfigOverride ?? {}
         if( primitive.frames?.[d.id]){
             for( const name of configNames){
                 if( primitive.frames[d.id][name] !== undefined){
@@ -131,9 +126,24 @@ export default function ReportViewExporter({primitive, ...props}){
                 }
             }
         }
-        if( d.field ){
-            return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(d.primitive, {...stageOptions, ...renderOptions, config: "field", field: d.field, part: d.part, format: d.format})}
+        
+        if( myState[d.id]?.underlying){
+            myState[d.id].noTitle = true
+
+
+            if( myState[d.id].viewConfig?.renderType === "field" ){
+                return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(myState[d.id]?.underlying, {...stageOptions, ...renderOptions, config: "field", field: d.referenceParameters?.field ?? "title", part: d.part})}
+            }
+            if( d.referenceParameters?.limit === "single"){
+                return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(myState[d.id]?.underlying, {...stageOptions, ...renderOptions})}
+            }
+
+            return BoardViewer.renderBoardView(d, primitive, myState)
         }
+        
+        return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(d, {...stageOptions, ...renderOptions, config: "field", field: d.field ?? "title", part: d.part, format: d.format})}
+        
+        /*
         const view = myState[d.id]
         const viewConfig = view.viewConfig
 
@@ -201,11 +211,36 @@ export default function ReportViewExporter({primitive, ...props}){
             }
         }else
         return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: render}
-
-
+        */
     }
     function prepareBoard(element, underlying){
+        const stateId = element.id
         const config = element.referenceParameters ?? {}
+        if( underlying && myState[stateId].descend ){
+            const sourceSet = mainstore.uniquePrimitives( [
+                underlying.origin.primitives.origin.allQuery.map(d=>d.primitives.allItems).flat(Infinity),
+                underlying.origin.primitives.origin.allSegment.map(d=>d.primitives.allQuery.map(d=>d.primitives.allItems)).flat(Infinity)
+            ].flat()).filter(d=>d.type === "entity")
+
+            const columnAxis = [{idx: "_N_", label: "None"}]
+            const rowAxis = [{idx: "_N_", label: "None"}]
+
+            myState[stateId].primitive = element
+            myState[stateId].config = "explore_0" 
+            myState[stateId].list = sourceSet.map(d=>({column: "_N_", row: "_N_", primitive: d}))
+            //myState[stateId].list = sourceSet.map(d=>({column: "_N_", row:"_N_", primitive: d}))
+            myState[stateId].internalWatchIds =  sourceSet.map(d=>d.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
+            myState[stateId].axis = {column: columnAxis, row: rowAxis}
+            myState[stateId].columns = columnAxis
+            myState[stateId].viewConfig = Object.values(PrimitiveConfig.renderConfigs).find(d=>d.renderType === "overview")
+            myState[stateId].renderConfigOverride = {hideColumnHeader: true, hideRowHeaders: true}
+
+            myState[stateId].rows = rowAxis
+            myState[stateId].extents = {column: columnAxis, row: rowAxis}
+            myState[stateId].toggles = {}
+
+            return
+        }
         if( config.transform){
             
             const items = underlying.itemsForProcessing
@@ -233,7 +268,6 @@ export default function ReportViewExporter({primitive, ...props}){
             console.log(extents)
 
             if( config.transform.mode === "summary"){
-                const stateId = element.id
                 myState[stateId].processing = true
                 const toExec = async ()=>{
                     const segmentList = element.primitives.allSegment
@@ -315,7 +349,8 @@ export default function ReportViewExporter({primitive, ...props}){
                 return
             }
         }
-        BoardViewer.prepareBoard(underlying, myState, element.id, config.viewConfig)
+
+        BoardViewer.prepareBoard(underlying, myState, element, {viewConfig: config.viewConfig, renderConfig: element.renderConfig})
     }
     function refreshTransforms(){
         const txList = primitive.primitives.allUniqueElement.filter(d=>d.referenceParameters.transform)
@@ -412,33 +447,60 @@ export default function ReportViewExporter({primitive, ...props}){
         resolveReport()
     }, [primitive?.id, activeTarget?.id])
 
+    function getElementConfig(d){
+                const config = d.referenceParameters ?? {}
+
+                let underlying
+                if( Object.keys(d.primitives).includes("report_import")){
+                    const base = d.primitives.report_import.allItems[0]
+                    if( base ){
+                        const baseConfig = getElementConfig(base)
+                        return {
+                            primitive: d,
+                            underlying: baseConfig.underlying,
+                            descend: true,
+                            forceRefresh: true
+                        }
+                        
+                    }
+                }else{
+                    if( config.sourceData === "active"){
+                        underlying = activeTarget 
+                    }else if(config.sourceData === "items"){
+                        underlying = activeTarget.itemsForProcessing
+                        if( true || config.limit === "single"){
+                            underlying = underlying[0]
+                        }
+                    }
+                }
+                return {
+                        primitive: d,
+                        underlying,
+                        forceRefresh: true
+                    }
+
+    }
+
     const [renderedSet] = useMemo(()=>{
 
         let fields = [], boards = []
         if( primitive.workspaceId ===  "66a3cbccb95d676c5b4db74b"){
             fields = ["summary/application/bold","summary/use case/bold", "summary/industry/bold", "summary/summary", "summary/key factors driving growth", "cagr//bold", "size//bold"]
             boards = [522857].map(d=>mainstore.primitive(d)).filter(d=>d)
-        }else if( primitive.workspaceId ===  "66fabc00984ea44ecdf7eda4"){
-            console.log(`Set to ${activeTarget.plainId}`)
-            const elements = primitive.primitives.allElement
-            boards =  elements.map(d=>{
-                const config = d.referenceParameters ?? {}
-                return {
-                        primitive: d,
-                        underlying: config.sourceData === "active" ? activeTarget : undefined,
-                        forceRefresh: true
-                    }
-                })
         }else{
+            //console.log(`Set to ${activeTarget.plainId}`)
+            const elements = primitive.primitives.allElement
+            boards =  elements.map(d=>getElementConfig(d))
+/*        }else{
             fields = ["location", "title", "url"]
-            boards = [411261, 411138, 435057, 434996, 435515, 435526, 435532, 435533, 435544, 436467].map(d=>mainstore.primitive(d)).filter(d=>d)
+            boards = [411261, 411138, 435057, 434996, 435515, 435526, 435532, 435533, 435544, 436467].map(d=>mainstore.primitive(d)).filter(d=>d)*/
         }
         
         const set = []
         for(const setting of boards){
             const d = setting.primitive
             if(!myState[d.id] || setting.forceRefresh){
-                myState[d.id] = {id: d.id, underlying: setting.underlying, primitive: d}
+                myState[d.id] = {id: d.id, primitive: d, ...setting}
                 if( setting.underlying){
                     prepareBoard(d, setting.underlying)
                 }else{
@@ -503,7 +565,8 @@ export default function ReportViewExporter({primitive, ...props}){
             <InfiniteCanvas
                             primitive={primitive}
                             board
-                            background="#fdfdfd"
+                            bounds="slide"
+                            background="#f9fbfd"
                             ref={canvas}
                             ignoreAfterDrag={false}
                             snapDistance={5}
@@ -531,8 +594,11 @@ export default function ReportViewExporter({primitive, ...props}){
                                         primitive.setField(`frames.${d.id}`, {x: d.x, y: d.y, s: d.s, width, expand })
                                 },
                                 onClick:{
-                                    frame: (id)=>setActiveBoard(id),
-                                    primitive:(id)=>mainstore.sidebarSelect(id),
+                                    frame: (id)=>{
+                                        setActiveBoard(id)
+                                        mainstore.sidebarSelect(id)
+                                    },
+                                    primitive:(id)=>mainstore.sidebarSelect(id)
                                     //canvas:(id)=>setCollectionPaneInfo(),
                                 }
                             }}

@@ -9,7 +9,7 @@ import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { buildEmbeddingsForPrimitives, getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
-import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive, recoverPrimitive, doPurge, fetchPrimitives, DONT_LOAD, executeConcurrently} from '../SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive, recoverPrimitive, doPurge, fetchPrimitives, DONT_LOAD, executeConcurrently, DONT_LOAD_UI} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
 import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
@@ -384,14 +384,14 @@ router.get('/primitives', async function(req, res, next) {
                             { type: { $in: ['activity','experiment','venture', 'board','working'] }},
                             { deleted: {$exists: false}}
                         ]}
-                        return await Primitive.find(query, DONT_LOAD)
+                        return await Primitive.find(query, DONT_LOAD_UI)
                     }
 //                    return await fetchPrimitives(undefined, { "_id": { "$regex": `[${hexChar}]$`}, "workspaceId": workspaceId }, DONT_LOAD)
                     const set = await Primitive.aggregate([
                         { "$match": { "workspaceId": workspaceId,  "deleted": {$exists: false}} },
                         { "$addFields": { "_idStr": { "$toString": "$_id" } } },
                         { "$match": { "_idStr": { "$regex": `${hexChar}$` } } },
-                        { "$project": DONT_LOAD }
+                        { "$project": DONT_LOAD_UI }
                     ])
                     return set
                 }
@@ -704,7 +704,12 @@ router.post('/primitive/:id/action/:action', async function(req, res, next) {
         const primitive = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
 
         if( primitive){
-            result = await doPrimitiveAction(primitive, action, options, req)
+            try{
+                result = await doPrimitiveAction(primitive, action, options, req)
+            }catch(e){
+                console.log(`Error in doPrimitiveAction ${primitiveId} ${action}`, options)
+                console.log(e)
+            }
         }
         if( result && result.error ){
             res.json({success: false, error: result.error})

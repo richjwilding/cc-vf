@@ -211,14 +211,14 @@ _setTextData() {
         }else if( wasIndented > startIndent){
           padding = 0.5
         }else{
-          padding = 0.2
+          padding = 0.6
         }
       }
       
       let indent = startIndent
       let large = line.trim().startsWith("#")
       if( large ){
-        line = line.replace(/^\s*#\s*/,"")
+        line = line.replace(/^\s*#+\s*/,"")
       }
 
       const fragments = line.split("**")
@@ -237,13 +237,14 @@ _setTextData() {
       }
       let idx = -1
       let segment = 0
-      let lineStartY = currentHeightPx
+
       for( let line of fragments ){
         idx++
         let thisBold = idx % 2 === 1
         if( bold!= thisBold || large != wasHeader){
           bold = thisBold
-          getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : this.standardFont
+          //getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : this.standardFont
+          getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : (large ? this.headlineFont : this.standardFont)
           if( bold ){
             indent = startIndent
             if( idx > 1){
@@ -406,6 +407,7 @@ checkCanvasCleared() {
     context.fillStyle = this.attrs.fill
 
     let alignCenter = this.attrs.align === "center"
+    let alignRight = this.attrs.align === "right"
     let py = []
     var lineTranslateX = padding;
     var lineTranslateY = padding;
@@ -422,7 +424,12 @@ checkCanvasCleared() {
           large = obj.large
           context.font = bold ? (obj.large ? this.headlineFont : this.boldFont) : (obj.large ? this.headlineFont : this.standardFont)
         }
-        let offset = (alignCenter ? (this.attrs.width - obj.width)/2 : 0) + (obj.indent ?? 0)
+        let offset = (obj.indent ?? 0)
+        if( alignCenter ){
+          offset += (this.attrs.width - obj.width) / 2
+        }else if(alignRight){
+          offset += (this.attrs.width - obj.width)
+        }
         
         context.fillText(text, lineTranslateX + offset, obj.y)
 
@@ -439,7 +446,12 @@ checkCanvasCleared() {
       for (n = 0; n < textArrLen; n++) {
         var obj = textArr[n],
         text = obj.text
-        let offset = (alignCenter ? (this.attrs.width - obj.width)/2 : 0)
+        let offset = 0
+        if( alignCenter ){
+          offset += (this.attrs.width - obj.width) / 2
+        }else if(alignRight){
+          offset += (this.attrs.width - obj.width)
+        }
         
         context.fillText(text, lineTranslateX + offset, translateY + lineTranslateY)
         
@@ -577,13 +589,20 @@ checkCanvasCleared() {
             ctx.fillStyle = this.attrs.lineFill ?? "#eaeaea"
             let y = 0, step = this.lineHeight() * fh 
             let alignCenter = this.attrs.align === "center"
+            let alignRight = this.attrs.align === "right"
             if( this.attrs.withMarkdown ){
               for(const d of this.textArr){
                 ctx.fillRect(d.indent, d.y, d.width - 1 , fh - 1)
               }
             }else{
               for(const d of this.textArr){
-                let offset = alignCenter ? (this.attrs.width - d.width)/2 : 0
+                //let offset = alignCenter ? (this.attrs.width - d.width)/2 : 0
+                let offset = 0
+                if( alignCenter ){
+                  offset += (this.attrs.width - d.width) / 2
+                }else if(alignRight){
+                  offset += (this.attrs.width - d.width)
+                }
                 ctx.fillRect(offset, y, d.width - 1 , fh - 1)
                 y += step
               }

@@ -2,8 +2,8 @@ import moment from "moment"
 import MainStore, { uniquePrimitives } from "./MainStore"
 import Panel from "./Panel"
 import PrimitiveConfig from "./PrimitiveConfig"
-import { roundCurrency } from "./RenderHelpers"
 import UIHelper from "./UIHelper"
+import { roundCurrency } from "./SharedTransforms"
 
 
 class CollectionUtils{
@@ -13,7 +13,13 @@ class CollectionUtils{
 
         let period = config.period ?? "month"
         let sourceData
-        sourceData = set.map(d=>(d.referenceParameters.allFundingRoundInfo ?? []).map(d=>({date: d.annouced, amount: d.amount}))).flat()
+        if( set?.length > 0 && set[0]?.type === "entity"){
+
+
+            sourceData = set.map(d=>((config.dataset ? d.financialData?.[config.dataset] : d.referenceParameters?.allFundingRoundInfo) ?? []).map(d=>({date: d[config.dateField ?? "annouced"], amount: d[config.field ?? "amount"]}))).flat()
+        }else{
+            sourceData = set.map(d=>({date: new Date(d.referenceParameters?.posted), amount: 1}))
+        }
         if( sourceData.length === 0){
             return []
         }
@@ -30,18 +36,27 @@ class CollectionUtils{
         let maxPeriod = config.endDate ?  moment(config.endDate).endOf(period).diff(earliestDate, period) : timeSeries.reduce((a,c)=>c.period > a.period ? c : a)?.period
         console.log(maxPeriod)
 
-        const values = new Array( maxPeriod + 1).fill(0)
-        for(const d of timeSeries){
-            values[d.period] += d.amount
-        }
-        return values.reduce((acc,d,i)=>{
-            if( i === 0){
-                acc.push(d)
-            }else{
-                acc.push( d + acc[i-1] )
+        let values
+        if( config.cumulative){
+            values = new Array( maxPeriod + 1).fill(0)
+            for(const d of timeSeries){
+                values[d.period] += d.amount
             }
-            return acc
-        }, [])
+            values = values.reduce((acc,d,i)=>{
+                if( i === 0){
+                    acc.push(d)
+                }else{
+                    acc.push( d + acc[i-1] )
+                }
+                return acc
+            }, [])
+        }else{
+            values = new Array( maxPeriod + 1).fill(undefined)
+            for(const d of timeSeries){
+                values[d.period] = (values[d.period] ?? 0) + d.amount
+            }
+        }
+        return values
     }
     static viewConfigs( category ){
         let metaConfigs = category?.renderConfig?.explore?.configs 

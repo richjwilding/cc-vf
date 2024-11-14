@@ -43,7 +43,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const colors = {
         hover:{
             background:{
-                //fill:'#a3f0c611'
                 fill:'#fafefb'
             },
             border:{
@@ -135,7 +134,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         return myState.current.selected?.[key] ?? []
     }
     function frameList(){
-        return myState.current?.frames.map(d=>d.id)
+        return myState.current?.frames?.map(d=>d.id) ?? []
     }
     function addFrame(d){
         if(!d){return}
@@ -448,13 +447,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         offsetY:18,
                         width:100,
                         height:18,
+                        name:"frame_label",
                     })
                     label.add(new Konva.Rect({
                         x:0,
                         y:0,
                         width:18,
                         height:18,
-                        name:"frame_label",
                         fill:"#fdfdfd"
                     }))
                     const titleText = new Konva.Text({
@@ -2241,6 +2240,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             leftNode(d, cls)
                             if( props.enableFrameSelection && cls === "frame" ){
                                 createFrameSelect( d )
+                                console.log(myState.current.selected.frame.map(d=>d.attrs.id))
                             }else{
                                 addOverlay(d, "select", props.highlights?.[cls] ?? "border", colors.select)
                             }
@@ -2434,6 +2434,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
 
         }
+
     
     const stage = <Stage
                 ref={stageRef}
@@ -2446,7 +2447,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         ref={layerRef}
                         perfectDrawEnabled={false}
                         listening={false}
-                    />
+                        >
+                        {props.bounds && <Rect name="bounds_frame" stroke="#aaa" strokeWidth={0.5} fill="white" strokeScaleEnabled={false} x="0" y="0" width={10 * 4 / 0.03} height={5.625 * 4 / 0.03}/>}
+                    </Layer>
                     <Layer
                         ref={lineLayerRef}
                         perfectDrawEnabled={false}

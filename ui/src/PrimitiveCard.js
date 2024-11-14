@@ -42,8 +42,8 @@ import CheckPill from './CheckPill';
 import SummaryCard from './SummaryCard';
 import UIHelper from './UIHelper';
 import CollectionUtils from './CollectionHelper';
-import { roundCurrency } from './RenderHelpers';
 import MarkdownEditor from './MarkdownEditor';
+import { roundCurrency } from './SharedTransforms';
 
 export const ExpandArrow = function(props) {
   return (
@@ -661,7 +661,7 @@ let mainstore = MainStore()
           return (
               <a className='flex space-x-2' href={item.value?.startsWith("http") ? item.value : `https://${item.value}`} target="_blank">
                 <LinkIcon className='w-3'/>
-                <p>{item.value}</p>
+                <p className='break-all'>{item.value}</p>
               </a>
             )
         }
@@ -1224,22 +1224,23 @@ const fieldsBeingProcessed = function(primitive){
 }
 
 const ImportList = function({primitive, ...props}){
+  const relationship = props.relationship ?? "imports"
   useDataEvent('relationship_update', primitive.id)
+  
+  let importList = primitive.primitives
+  for(const d of relationship.split(".")){
+    importList = importList[d]
+  }
+
   return <div className='flex flex-col mt-1 overflow-y-scroll max-h-[inherit] rounded-lg bg-gray-50 border-gray-200'>
-    {primitive.primitives.imports.map((d)=>{
+    {importList.map((d)=>{
       let items = primitive.itemsForProcessingFromImport(d, {pivot: false})
       let itemMetadata = items?.[0]?.metadata
       let filteredSource = d
       let filterForImport = primitive.referenceParameters.importConfig?.filter(d2=>d2.id === d.id) ?? []
       if( filterForImport.length === 0){
         if( Object.keys(d.primitives ).includes("imports") ){
-          if( d.type === "view"){
-            filterForImport = [{filters:[{type: d.metadata?.title ?? d.type}]}]
-          }else{
-            filterForImport = [{filters:[{type: d.metadata?.title ?? d.type}]}]
- //           filterForImport = d.referenceParameters.importConfig
-   //         filteredSource = d.primitives?.imports?.allItems[0]
-          }
+          filterForImport = [{filters:[{type: d.metadata?.title ?? d.type}]}]
         }else{
           filterForImport = [{filters:[{type: d.metadata?.title ?? d.type}]}]
           filteredSource = d
@@ -1277,7 +1278,7 @@ const ImportList = function({primitive, ...props}){
                   prompt: `Remove segment from view?`,
                   handleDelete: ()=>{
                     //mainstore.removePrimitive( d )
-                    primitive.removeRelationship(d, "imports")
+                    primitive.removeRelationship(d, relationship)
                     return true
                   }
                 })}

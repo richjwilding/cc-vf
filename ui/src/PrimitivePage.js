@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { PrimitivePopup } from './PrimitivePopup';
 import { MetricPopup } from './MetricPopup';
 import MainStore from './MainStore';
-import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon, GifIcon, ArrowPathIcon, ArrowsPointingInIcon } from '@heroicons/react/24/outline';
+import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon, GifIcon, ArrowPathIcon, ArrowsPointingInIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { formatDistance, subDays } from 'date-fns'
 import ContactPicker from './ContactPicker';
 import ResultViewer from './ResultViewer';
@@ -205,6 +205,26 @@ export function PrimitivePage({primitive, ...props}) {
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5 @lg:col-span-3">
                     <PrimitiveCard.Details allowEdit={true} primitive={primitive} title={`${primitive.displayType} details`} hideFooter={true}/>
                   </div>
+                  {(Object.keys(primitive.primitives || {}).includes("imports") || primitive.type==="report") &&
+                    <div className='px-4 py-5 sm:px-6 col-span-5'>
+                      <Panel title="Inputs" collapsable={true} open={false} major titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200 w-full justify-between'>
+                          <PrimitiveCard.ImportList primitive={primitive} relationship={primitive.type==="report" ? "imports.main" : undefined}/>
+                            <div type="button"
+                              className="flex my-2 font-medium grow-0 bg-white hover:bg-gray-100 hover:shadow-sm hover:text-gray-600 justify-center ml-2 p-1 rounded-full shrink-0 text-xs text-gray-400 "
+                              onClick={()=>{
+                                MainStore().globalPicker({
+                                  target: primitive,
+                                  exclude: primitive.type==="report" ? primitive.primitives.imports.main : primitive.primitives.imports,
+                                  callback:(pick)=>{
+                                    primitive.addRelationship(pick, primitive.type==="report" ? "imports.main" : undefined)
+                                  },
+                                })
+                              }}> 
+                                      <PlusIcon className="w-5 h-5"/>
+                            </div>
+                      </Panel>
+                    </div>
+                  }
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5 @lg:col-span-2">
                     { primitive.isTask && <PrimitiveCard.Users primitive={primitive} title={`Team members`} asTable={true}/>}
                     { primitive.origin && 
@@ -440,7 +460,7 @@ export function PrimitivePage({primitive, ...props}) {
                     leaveFrom="transform opacity-100 scale-100"
                     leaveTo="transform opacity-0 scale-95"
                   >
-                <div className="space-y-6 lg:col-span-2 lg:col-start-1 absolute min-w-[30em] h-fit max-h-[80vh] top-[4em] left-[3.5em] overflow-y-scroll rounded-b-lg p-4 z-50 shadow-2xl shadow-gray-300 bg-white border border-t-0 ">
+                <div className="space-y-6 lg:col-span-2 lg:col-start-1 fixed min-w-[30em] h-fit max-h-[80vh] top-[4em] left-[3.5em] overflow-y-scroll rounded-b-lg p-4 z-50 shadow-2xl shadow-gray-300 bg-white border border-t-0 ">
                       {leftHandSection()}
                   </div>
                   </Transition>
