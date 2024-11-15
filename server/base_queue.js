@@ -134,7 +134,7 @@ class QueueManager {
                     let result
                     if( this.processCallback ){
                         result = await this.processCallback( job, ()=>this.checkIfJobCancelled(job.name) )
-                        if( result.reschedule ){
+                        if( result?.reschedule ){
                             console.log(`Job asked to be rescheduled`)
                             const state = await job.getState();
                             console.log(state)
