@@ -434,8 +434,11 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
 
         if( options.useAxios ){
 
-            
-            const response = await axios.get(url, { 
+
+            const axiosOptions = { 
+                method:'get',
+                responseType: options.responseType ?? "arrayBuffer",
+                timeout: 30000,
                 proxy:{
                     host: parsedProxy.hostname,
                     port: parsedProxy.port,
@@ -445,9 +448,10 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
                     },
                     protocol: parsedProxy.protocol,
                 }
-            });
+            }
+            const response = await axios.get(url, axiosOptions);
 
-            return response.data
+            return response
         }
             
         let agent;
@@ -468,6 +472,7 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
         const timeout = options.timeout || 30000; // Default timeout of 5 seconds
         const controller = new AbortController(); // Create an AbortController
         const timeoutId = setTimeout(() => {
+            console.log('timeout called')
             controller.abort(); // Abort the fetch request after timeout
         }, timeout);
 
@@ -476,6 +481,7 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
                                             signal: controller.signal
                                         });
         clearTimeout(timeoutId);
+            console.log('back')
         return response
     }
     catch(error){
@@ -524,7 +530,8 @@ export async function fetchSERPViaBrightData( query, options = {}){
 
     const bdUrl = `https://www.google.com/search?${new URLSearchParams(bdParams).toString() }`
 
-    const response = await fetchViaBrightDataProxy( bdUrl, {proxy: process.env.BRIGHTDATA_SERP, useAxios: true})
+    const aResponse = await fetchViaBrightDataProxy( bdUrl, {proxy: process.env.BRIGHTDATA_SERP, useAxios: true})
+    const response = aResponse.data
 
     const general = response.general
     const pagination = response.pagination

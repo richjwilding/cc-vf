@@ -24,7 +24,8 @@ export function formatNumber(number){
     const suffixIndex = Math.floor(Math.log10(Math.abs(number)) / 3);
 
     const scaledNumber = number / Math.pow(10, suffixIndex * 3);
-    const formattedNumber = scaledNumber.toFixed( suffixIndex > 1 ? 0 : 2);
+    let formattedNumber = scaledNumber.toFixed( suffixIndex > 1 ? 1 : 2);
+    formattedNumber = formattedNumber.replace(/\.0+$/, '');
 
     return formattedNumber.replace(/\.00$/, '') + (suffixes[suffixIndex] ?? "");
 }
@@ -58,7 +59,15 @@ export function convertOrganizationFinancialData( primitive, analysisTables, sec
                     return a
                 }, {})
             }
-            const rows = Object.keys(data)
+            let rows = Object.keys(data)
+            if(sectionInfo.skipMissing && sectionInfo.rows){
+                rows = rows.filter(d=>sectionInfo.rows[d])  
+            }
+            if( sectionInfo.rows){
+                const order = Object.keys(sectionInfo.rows)
+                rows = rows.sort((a,b)=>order.indexOf(a) - order.indexOf(b))
+            }
+            
             let cols
             let showHeader = true
             for(const rowName of rows){
@@ -74,6 +83,13 @@ export function convertOrganizationFinancialData( primitive, analysisTables, sec
                     }
                     if(!cols){
                         cols = row.map(d=>d.column_name)
+                        if( sectionInfo.columns?.order){
+                            if( sectionInfo.columns?.order === "TTM_QTRS"){
+                                let qtrs = cols.filter(d=>d !== "TTM")
+                                let sorted = qtrs.sort((a,b)=>new Date(b) - new Date(a))
+                                cols = ["TTM", ...sorted]
+                            }
+                        }
                         out = (showHeader ? "||" : "|") + cols.join("|") + "|\n"
                     }
 
@@ -84,8 +100,13 @@ export function convertOrganizationFinancialData( primitive, analysisTables, sec
                     out += cols.map(c=>{
                         let v = row.find(d=>d.column_name === c)?.value ?? "" 
                         if( rowConfig.format === "currency"){
-                            const asFloat = parseFloat(v)
+                            let asFloat = parseFloat(v)
                             if( !isNaN(asFloat) ){
+                                if( sectionInfo.columns?.order === "TTM_QTRS"){
+                                    if( c !== "TTM"){
+                                        asFloat *= 1000
+                                    }
+                                }
                                 v = " " + roundCurrency( asFloat)
                             }
                         }else if( rowConfig.format === "number"){

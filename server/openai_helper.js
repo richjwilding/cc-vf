@@ -1,4 +1,4 @@
-import {Configuration, OpenAIApi} from "openai"
+import OpenAI from "openai"
 import {encode, decode} from 'gpt-3-encoder'
 import { executeConcurrently } from "./SharedFunctions"
 import { recordUsage } from "./usage_tracker"
@@ -930,11 +930,10 @@ async function processInChunk( list, pre, post, options = {} ){
 
 }
 
-async function executeAI(messages, options = {}){
-    const configuration = new Configuration({
-        apiKey: process.env.OPEN_API_KEY,
-      });
-    const openai = new OpenAIApi(configuration)
+async function __executeAI(messages, options = {}){
+    const openai = new OpenAI({
+        apiKey: process.env.OPEN_API_KEY
+    })
     let response
     let err
     let sleepBase = 20000
@@ -972,7 +971,7 @@ async function executeAI(messages, options = {}){
     console.log(`Executing ${model}`)
     const request = async ()=>{
         try{
-            response = await openai.createChatCompletion({
+            response = await openai.chat.completions.create({
                 //model: options.engine === "gpt4" ?  : "gpt4" ? "gpt-4-1106-preview" "gpt-3.5-turbo-16k",                
                 model: model,
                 response_format,
@@ -1044,6 +1043,97 @@ async function executeAI(messages, options = {}){
         return {success: false, status: 400, error: "UNKNOWN", instructions: messages}
     }
     return {success: false, status: 400, error: "UNKNOWN", instructions: messages}
+
+}
+async function executeAI(messages, options = {}){
+    const openai = new OpenAI({
+        apiKey: process.env.OPEN_API_KEY
+    })
+    let response
+    let err
+    let sleepBase = 20000
+    
+    
+
+    let model = "gpt-4o-2024-08-06"
+    let output = 16384
+    let response_format = options.schema ? { "type": "json_schema", "json_schema": options.schema } : { type: "json_object" }
+
+    if( options.engine === "gpt4o-mini" ){
+        model = "gpt-4o-mini"
+        sleepBase = 20000
+        output = 16384
+    }
+    if( options.engine === "gpt4" ){
+        model = "gpt-4-0613"
+        sleepBase = 20000
+        output = 4096
+    }
+    if( options.engine === "gpt4t" ){
+        model = "gpt-4-turbo-2024-04-09"
+        output = 4096
+        sleepBase = 20000
+        response_format = { type: "json_object" }
+    }
+    if( options.engine === "gpt3" || options.engine === "gpt3t"){
+        model = "gpt-3.5-turbo"
+        sleepBase = 2000
+        response_format = undefined
+        output = 1536
+    }
+    console.log(`Executing ${model}`)
+
+    try {
+        // Directly call the OpenAI API method with built-in retry logic
+        response = await openai.chat.completions.create({
+            model: model,
+            response_format,
+            temperature: options.temperature || 0.7,
+            messages: messages,
+            max_tokens: output,
+        });
+    } catch (thisErr) {
+        err = thisErr; // Capture the error for returning meaningful information
+    }
+    
+    // Handle the final response or error
+    if (!response) {
+        return {
+            success: false,
+            status: err?.response?.status || 500,
+            error: err?.response?.data?.error?.message || "UNKNOWN",
+            instructions: messages,
+        };
+    }
+    
+    // Handle successful responses
+    if (response.choices?.[0]?.finish_reason === "length") {
+        return { error: true, token_limit: true };
+    }
+
+    const answers = response.choices?.[0]?.message?.content;
+    
+    // Extract the content from the response
+    try {
+        const parsedContent = JSON.parse(answers);
+    
+        return {
+            success: true,
+            response: parsedContent,
+            instructions: messages[2],
+            raw: answers,
+        };
+    } catch (error) {
+        console.error("Failed to parse JSON:", error.message);
+        console.error("Answers:", answers);
+    
+        return {
+            success: false,
+            error: "Couldn't parse JSON",
+            raw: answers,
+            instructions: messages,
+        };
+    }
 
 }
 
@@ -1350,10 +1440,9 @@ export async function generateImage(prompt, options = {}, tries = 3){
         return {success: false}
     }
 
-    const configuration = new Configuration({
-        apiKey: process.env.OPEN_API_KEY,
-      });
-    const openai = new OpenAIApi(configuration)
+    const openai = new OpenAI({
+        apiKey: process.env.OPEN_API_KEY
+    })
 
     const sizes = {
     }
@@ -1364,7 +1453,7 @@ export async function generateImage(prompt, options = {}, tries = 3){
         let fullprompt = "I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS:" + prompt
         console.log(`Build image `, fullprompt)
 
-        const response = await openai.createImage({
+        const response = await openai.images.generate({
             model: "dall-e-3",
             prompt: fullprompt,
             size: size,
@@ -1374,11 +1463,11 @@ export async function generateImage(prompt, options = {}, tries = 3){
 
         if( response && response.data){
 
-            const parsedJson = response.data.data[0].b64_json
+            const parsedJson = response.data[0].b64_json
             const base64Image = parsedJson.split(';base64,').pop();
             const imageBuffer = Buffer.from(base64Image, 'base64');
 
-            const newPrompt = response.data.data[0].revised_prompt ?? fullprompt
+            const newPrompt = response.data[0].revised_prompt ?? fullprompt
 
             return {success: true, data: imageBuffer, prompt:  newPrompt, updatedPrompt: newPrompt !== fullprompt}
         }
@@ -1464,100 +1553,6 @@ export async function analyzeText(text, options = {}){
     }
     return {success: true, response: interim}
 }
-export default async function analyzeDocument(options = {}){
-    let text = options.text
-
-    text = text.replace('Hi, I’m [NAME] and I am an entrepreneur in residence with a venture studio called Co-Created.  We explore new ideas and we’re currently looking into climate goals among businesses. We’re  excited to learn more about your company', "")
-
-    const prompts = options.prompts
-    const opener = options.opener || 'here is a transcript of an interview:'
-    const descriptor = options.descriptor || 'You must extract a series of problems which are explicitly stated by the interviewee.  Assume any sentence ending in a question mark is from the interviewer and should be ignored when extracting problems'
-    const responseInstructions = options.responseInstructions || 'Your response must be a json object only and should include each task with the key set to the task number and with an array of results. Each entry in the array must have a "quote" field containing the original text, a "problem" field containing the problem you identify in the form "It sucks that...", and a "scale" field which describes the severity of the problem based on the transcript on a scale of 0-9 where 0 is low and 9 is high. If there is no result for a specific question set the "quote" field to "none" and exclude the "problem" field.'
-    if( text === undefined || text.length === 0 || prompts === undefined || prompts.length === 0){
-        return undefined
-    }    
-    const configuration = new Configuration({
-        apiKey: process.env.OPEN_API_KEY,
-      });
-    const openai = new OpenAIApi(configuration)
-    
-    const promptsToSend = prompts.map((p,idx)=>{
-        if( p instanceof Object ){
-            let lead = `T${idx}. `
-            if( p.type === "question"){
-                lead = `Q${idx}. `
-            }else if(p.type === "instruction"){
-                lead = ''
-            }
-            return `${lead}${p.prompt || p.text}`
-        }
-        return `T${idx}. ${p}`
-    }).join("\n")
-    const messages = [
-            {"role": "system", "content": "You are analysing interview transcripts for a computer program to process.  Responses must be in json format"},
-            {"role": "user", "content": opener + text},
-            {"role": "user", "content": descriptor + '\n' + promptsToSend + '\n' + responseInstructions},
-
-    ]
-    console.log('open_ai_helper: prompts:')
-    console.log(promptsToSend)
-
-    let response
-    let err
-    console.log(`open_ai_helper: Sending OpenAi request`)
-    const request = async ()=>{
-        try{
-            response = await openai.createChatCompletion({
-                model:"gpt-3.5-turbo",
-                temperature: 0.7,
-                messages: messages
-            });
-        }catch(error){
-            throw error
-        }
-    }
-    let count = 3
-    let done = false
-    while( count >0 && !done){
-
-        try{
-            await request();
-            console.log('open_ai_helper: back')
-            done = true
-        }catch(thisErr){
-            err = thisErr
-            count--
-            if( count > 0){
-                console.log(`open_ai_helper: got error - sleep and will retry`)
-                await new Promise(r => setTimeout(r, 2000));                    
-            }
-        }
-    }
-    if( response == undefined){
-        return {success: false, status: err?.response?.status, error: "UNKNOWN", instructions: messages[2]}
-    }
-
-    if( response.status === 200){                
-        const answers = response.data?.choices[0]?.message?.content
-        try{
-
-            const p1 = answers.replace(/,([\s\n\r]*[}\]])/g, '$1')
-            const regex = /\{[\s\S]*\}/;
-            const match = p1.match(regex);
-            if( match ){
-                const unpack = JSON.parse(match[0])
-                return {response: unpack, success: true, instructions: messages[2], raw: answers}
-            }
-                return {success: false, instructions: messages[2], raw: answers}
-        }catch(error){
-            return {error: "Couldnt parse JSON", success: false, raw: answers, instructions: messages[2]}
-        }
-    }
-    if( this.response.status === 400 ){
-        return {success: false, status: 400, error: "UNKNOWN", instructions: messages[2]}
-    }
-    return {success: false, status: 400, error: "UNKNOWN", instructions: messages[2]}
-}
 export async function buildEmbeddings( text, attempt = 3 ){
     if( !text ){
         return {success: true, embeddings: undefined}
@@ -1568,27 +1563,27 @@ export async function buildEmbeddings( text, attempt = 3 ){
     }
 
     try{
-
-        const configuration = new Configuration({
+        
+        const openai = new OpenAI({
             apiKey: process.env.OPEN_API_KEY,
-            timeout: 5000
-        });
-        const openai = new OpenAIApi(configuration);
-        const response = await openai.createEmbedding({
-            model: "text-embedding-ada-002",
             timeout: 5000,
+            maxRetries: 3
+        })
+
+        const response = await openai.embeddings.create({
+            model: "text-embedding-ada-002",
             input: text,
         });
-        if( response.data?.data?.[0]?.object === "embedding"){
-            return {success: true, embeddings: response.data.data[0].embedding}
+        if( response.data?.[0]?.object === "embedding"){
+            return {success: true, embeddings: response.data[0].embedding}
         }
-        return {success: false, raw: response.data}
+        return {success: false, raw: response}
     }catch(error){
         console.log('Error in buildEmbeddings')
         console.log(error)
         if( attempt > 0){
-            console.log("Retry")
-            return await  buildEmbeddings( attempt - 1)
+            console.log(`Retry ${attempt}`)
+            return await  buildEmbeddings( text, attempt - 1)
 
         }
     }

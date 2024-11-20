@@ -1042,7 +1042,7 @@ export default function BoardViewer({primitive,...props}){
 
                     const padding = [bounds[0],0,bounds[0], 0]
 
-                    await exportKonvaToPptx( root.node, pptx, {offsetForFrame: [root.canvasMargin[3], root.canvasMargin[0]], master: "MASTER_SLIDE", removeNodes: ["frame_outline", "frame_bg", "frame_label", "background", "view"],  scale: 1 / pxToInch, padding} )
+                    await exportKonvaToPptx( root.node, pptx, {offsetForFrame: [root.canvasMargin[3], root.canvasMargin[0]], master: "MASTER_SLIDE", removeNodes: ["frame_outline", "frame_bg", "frame_label", "background", "view"],  scale: 1 / pxToInch / root.node.attrs.scaleX, padding} )
                     root.node.children = temp
                 }
                 pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });

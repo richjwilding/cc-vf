@@ -473,6 +473,8 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
     const renderHeight = config.height - config.padding[0] - config.padding[2]
     let period = "day"
 
+    let showPercChange = true
+
     if( options.getConfig){
         const years = parseInt(primitive.renderConfig?.range ?? "1") 
         const endDate = primitive.renderConfig?.end ? new Date(primitive.renderConfig?.end) : new Date()
@@ -624,6 +626,26 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
                 refreshCallback: options.imageCallback
             })
             t.x( px - t.width())
+            g.add(t)
+
+        }
+        if( showPercChange ){
+            const withValues = series.filter(d=>d)
+            const first = withValues[0]
+            const last = withValues[withValues.length - 1]
+            const perc = (first && last) ? ((last - first) / first * 100).toFixed(2) : "-"
+
+            const t = new CustomText({
+                x: 0,
+                y: config.padding[1],
+                fontSize: 8,
+                lineHeight: 1,
+                text: `${perc}%`,
+                verticalAlign:"top",
+                fill: color,
+                refreshCallback: options.imageCallback
+            })
+            t.x( renderWidth - t.width())
             g.add(t)
 
         }
@@ -4200,7 +4222,7 @@ registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, functio
     return g
 })
 registerRenderer( {type: "categoryId", id: 29, configs: "export_finances"}, function renderFunc(primitive, options = {}){
-    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 612, itemSize: 280, padding: [10,10,10,10], ...options}
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 492, itemSize: 280, padding: [10,10,10,10], ...options}
 
     let lineColor
     let withBackground = false
@@ -4221,6 +4243,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "export_finances"}, func
         padding = [16,8,8,8]
     }else{
         columnWidths = [140]
+        config.width = 492
     }
 
     const g = new Konva.Group({
@@ -4347,9 +4370,15 @@ registerRenderer( {type: "categoryId", id: 109, configs: "export"}, function ren
     }
     if( section ){
         const heading = section.heading
-        const tables = section.subsections ? section.subsections.filter(d=>d.content.startsWith("|")) : []
-        const bullets = section.subsections ? section.subsections.filter(d=>d.content.startsWith("- ")) : []
-        const main = section.subsections ? section.subsections.filter(d=>!d.content.startsWith("- ") && !d.content.startsWith("|")) : [section]
+
+        let subsections = section.subsections
+        if( subsections?.length === 1 && !subsections[0].content){
+            subsections = subsections[0].subsections
+        }
+
+        const tables = subsections ? subsections.filter(d=>d.content?.startsWith("|")) : []
+        const bullets = subsections ? subsections.filter(d=>d.content?.startsWith("- ")) : []
+        const main = subsections ? subsections.filter(d=>!d.content?.startsWith("- ") && !d.content?.startsWith("|")) : [section]
         let bulletGroup 
         let mainGroup 
         let majorWidth = (config.width - innerPadding[1] - innerPadding[3]) - (minorWidth ?? 0) - majorSpacing[1]
@@ -4812,11 +4841,12 @@ function convertMarkupToTable( markup, options = {} ){
                         x,
                         y
                     })
-                    let cellText = row[cIdx]
+                    let cellText = row[cIdx] ?? ""
+                    let align = ((cellText[0] === " ") && (cellText.match(/^\s-?\$?\d+(\.\d+)?[KMB]?$/))) ? "right" : "left"
                     const t = new CustomText({
                         fontSize: 8,
                         text: cellText.trim(),
-                        align: cellText[0] === " " ? "right" : "left",
+                        align: align,
                         wrap: true,
                         fontStyle: rIdx < headerRows ? "bold" : undefined,
                         verticalAlign:"top",

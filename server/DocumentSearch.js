@@ -85,7 +85,7 @@ export async function buildDocumentTextEmbeddings( text, limit ){
         if( segment.length > 0 ){
             const response = await buildEmbeddings( segment)
             console.log(`-- part ${part} back`)
-            if( response.success){
+            if( response?.success){
                 return { part: part, segment: segment, embeddings: response.embeddings}
             }  
             return undefined

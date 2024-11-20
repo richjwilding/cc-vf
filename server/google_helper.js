@@ -2087,25 +2087,24 @@ export async function fetchViaProxy(url, options = {}) {
 }
 export async function fetchAsTextViaProxy(url, options = {}) {
   try {
-    const response = await fetchViaProxy( url, options)
+    const response = await fetchViaProxy( url, {...options, useAxios: true, responseType: "stream"})
 
-    if (!response.ok) {
+    if (response.status !== 200) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const reader = response.body.getReader();
-    let decoder = new TextDecoder();
-    let chunks = '';
+    const stream = response.data; // This is a readable stream
+    const decoder = new TextDecoder();
+    let results = '';
 
-    let done = false;
-    while (!done) {
-      const { value, done: readerDone } = await reader.read();
-      done = readerDone;
-      if (value) {
-        chunks += decoder.decode(value, { stream: true });
-      }
+    // Read the stream in chunks
+    for await (const chunk of stream) {
+        results += decoder.decode(chunk, { stream: true });
     }
-    return chunks;  
+
+    results += decoder.decode(); // Finalize decoding
+
+    return results;  
   } catch (error) {
     console.error('Fetch error:', error);
     throw error;  
@@ -2237,6 +2236,7 @@ export async function processPDFDownloadBuffer( data, filename ){
     if( isPdf ){
         console.log('Processing pdf')
         text = await extractTextFromPDFData( dataBuffer )
+        //text = await extractTextFromPDFData( data )
     }
     return{
         title: filename ?? "Download",
@@ -2259,7 +2259,7 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
             /*const response = await fetch(cUrl,{
                 method: 'GET'
             })*/
-           const response = await fetchViaProxy( url, {proxy: options.proxy } )
+           const response = await fetchViaProxy( url, {proxy: options.proxy, useAxios: true } )
             if(response.status !== 200){
                 if( response.status === 413 || response.status === 413){
                     // too large or unprocessable
@@ -2280,27 +2280,10 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                 }            
 
 
-                const data = await response.arrayBuffer();
+                const data = await response.data;
                 return await processPDFDownloadBuffer( data, filename )
             }else if( contentType.startsWith('text/html')){
-                //const results = await response.text();
-
-
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let results = '';
-                let done = false;
-    
-                // Read the stream in chunks
-                while (!done) {
-                    const { value, done: readerDone } = await reader.read();
-                    done = readerDone;
-    
-                    if (value) {
-                        results += decoder.decode(value, { stream: true });
-                    }
-                }
+                const results = response.data.toString('utf-8')
     
 
                 if( results){

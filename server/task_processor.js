@@ -391,16 +391,18 @@ export async function comapreToPeers( parent, activeSegment, primitive, options 
                 }
             })
         }
+        
         const {results:otherItems} = await executeConcurrently( others, async (segment)=>{
             const items = await getItemsForQuery( segment)
-            return translateItem(items).filter(d=>d)
+            return {title: await getFilterName(segment), content: translateItem(items).filter(d=>d)}
         })
 
         const activePrimitives = await getItemsForQuery( thisOne[0] )
-        const activeText = translateItem(activePrimitives).filter(d=>d)[0]
-        const otherText = otherItems.map((d,i)=>`Item ${i+1}\n=============\n${d}`)
+        const activeItem = translateItem(activePrimitives).filter(d=>d)[0]
+        const activeText = `Covering - ${await getFilterName(thisOne[0])}:\n${activeItem}`
+        const otherText = otherItems.map((d,i)=>`\n\nItem ${i+1}:${d.title}\n=============\n${d.content}`)
 
-        const fullText = `The data is a set of summaries for different segements - i need your help to compare and contrast these segments with one i am particularly interested in. Here are the peer segments for context:\n ${otherText}\n\nAnd here is the segement i am interested in:\n ${activeText}\n---END OF SEGMENT\n\n`
+        const fullText = `The data is a set of summaries for different segements - i need your help to compare and contrast these segments with one i am particularly interested in. Here are the peer segments for context:\n ${otherText}\n\nAnd here is the target segement to update:\n ${activeText}\n---END OF SEGMENT\n\n`
 
         let result
         let prompt = (config.summary_type === "custom" ? config.prompt : undefined) ?? "Compare all of the segments and then highlight what is unique about the one i am interested in"
@@ -1215,7 +1217,7 @@ export async function summarizeWithQuery( primitive ){
             
             const toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
             if( false ){
-                const primitive = await fetchPrimitive("672c8286b63ecd0483f342fd")
+                const primitive = await fetchPrimitive("673710caa842fdc733a86777")
                 const finances = await doPrimitiveAction(primitive, "convert_financials", {})
                 if( finances){
                     toProcess.push(`Finance information (values in thousands USD)\n${finances}`)
