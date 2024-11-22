@@ -1,12 +1,12 @@
-import { fetchFragmentsForTerm } from "./DocumentSearch";
+import { combineGroupsToChunks, extractSentencesAndKeywords, fetchFragmentsForTerm, groupNeighboringSentences } from "./DocumentSearch";
 import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
-import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
+import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
-import { analyzeListAgainstTopics, processPromptOnText, summarizeMultiple } from "./openai_helper";
+import { analyzeListAgainstTopics, buildEmbeddings, processPromptOnText, summarizeMultiple } from "./openai_helper";
 import { findEntries, removeEntries, reviseUserRequest } from "./prompt_helper";
 
 const parser = PrimitiveParser()
@@ -297,6 +297,7 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
         throw `Couldnt find aggregator ${config.aggregate}`
     }
     
+    const out = []
     
     console.log(config)
     console.log(`Got ${segments.length} target segments and ${currentAggregators.length} aggregators`)
@@ -336,14 +337,358 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
         }
         if( existing ){
             console.log(`Aggregation ${existing.plainId}`)
-            await doPrimitiveAction( existing, execOptions.action ?? "rebuild_summary")
+            if( execOptions.primitivesOnly ){
+                out.push( existing)
+            }else{
+                await doPrimitiveAction( existing, execOptions.action ?? "rebuild_summary")
+            }
         }
         
     }
+    if( execOptions.primitivesOnly ){
+        return out
+    }
 }
 export async function compareItems( parent, primitive, options = {}){
-    return await baselineItemProcess( parent, primitive, options, {lookup: {by_axis: true}})
+    return await streamlineWithPeers( parent, primitive, options)
 }
+export async function streamlineWithPeers( parent, primitive, options = {}){
+    try{
+        const targetPrimitives = await baselineItemProcess( parent, primitive, options, {primitivesOnly: true})
+        const config = await getConfig( primitive )
+
+        /*
+        const allSegments = await primitiveChildren( parent, "segment")
+        let targetSegmentConfig
+        if( (primitive.referenceParameters?.by_axis === false) && (!options.by_axis)){
+            targetSegmentConfig = [
+                {
+                    id: parent.id
+                }
+                
+            ]
+        }else{
+            targetSegmentConfig = await getSegemntDefinitions(parent)
+        }
+
+        const others = []
+        
+        for(const importConfig of targetSegmentConfig){
+            let existing = allSegments.find(d=>PrimitiveConfig.checkImports( d, importConfig.id, importConfig.filters))
+            if(existing){
+                others.push( existing )
+            }
+        }*/
+
+        const others = await primitiveListOrigin( targetPrimitives, 1, "segment")
+
+        console.log(`Got ${others.length} segments`)
+
+        const param = config.field?.slice(6)
+        let structured = false
+
+        function translateItem(title, items){
+            return items.map(d=>{
+                let content, root
+                if(config.field === "title"){
+                    content = d.title
+                }else{
+                    if( param === "summary" && d.referenceParameters.structured_summary){
+                        structured = true
+                        root = d.referenceParameters.structured_summary
+                        const mapped = extractFlatNodes(d.referenceParameters.structured_summary  )
+                        content = mapped                 
+                    }else{
+                        content = d.referenceParameters[param]
+                    }
+                }
+                return {
+                    title,
+                    content,
+                    root
+                }
+            })[0]
+        }
+        
+        const {results:allItems} = await executeConcurrently( others, async (segment)=>{
+            const items = await getItemsForQuery( segment)
+            return translateItem(await getFilterName(segment), items)
+        })
+        const partials = []
+        let idx = 0
+
+        for(const d of allItems){
+            let final
+            if( structured ){
+                final = d.content.map(d=>d.content)
+            }else{
+                const keywords = extractSentencesAndKeywords(d.content.replace(/[\s\t\n]+/g, ' '));
+                const groupedSentences = groupNeighboringSentences(keywords);
+                final = combineGroupsToChunks(groupedSentences).filter(d=>d && d.length > 0)
+            }
+            
+            console.log(`For ${d.title} have ${final.length} groups (${structured ? "Structured" : "Text"})`)
+            let {results:embeddings, _} = await executeConcurrently( final, async (segment, part)=>{
+                const response = await buildEmbeddings( segment)
+                console.log(`-- part ${part} back`)
+                if( response?.success){
+                    return { part: part, segment: segment, embeddings: response.embeddings}
+                }  
+                return undefined
+            }, undefined, undefined, 10)
+            
+            partials.push({
+                idx,
+                title: d.title,
+                groups: final,
+                embeddings
+            })
+            idx++
+        }
+
+        console.log("Comparing fragments")
+        const forScoring = partials.map(d=>d.embeddings.map(d2=>({
+            id: `${d.idx}-${d2.part}`,
+            itemIdx: d.idx,
+            ...d2
+        }))).flat()
+        let checked = new Set()
+        let scores = []
+        for( const left of forScoring){
+            for( const right of forScoring){
+                if( left.itemIdx === right.itemIdx ){
+                    continue
+                }
+                const sId = [left.id, right.id].sort().join("-")
+                if( checked.has(sId)){
+                    continue
+                }
+                checked.add( sId )
+                let score = cosineSimilarity(left.embeddings, right.embeddings)
+                if( score > 0.9 ){
+                    scores.push( {
+                        leftId: left.id,
+                        rightId: right.id,
+                        score
+                    })
+                }
+            }
+        }
+        
+        const topicGroups = groupItems( scores )
+
+        let repetitions
+        const updateInstructions = {}
+
+        for(const topic of topicGroups ){
+            console.log(`Doing topic group`)
+            const fragments = topic.map(d=>[d.leftId,d.rightId]).flat().filter((d,i,a)=>a.indexOf(d)===i).map(d=>{let [idx,part]=d.split("-");return partials[idx].groups[part] })
+
+            console.log("Looking for repetition")
+            const results = await processPromptOnText( fragments,{
+                opener:  "Here is a list of numbered text fragments to analyze",
+                prompt: `Identify an exhaustive list of repetitive detail which do not add any value to the reader - repetition which provides context for the proceeding text should be listed.   Do not group repetitive items together - i want specifics.  Be thoughtful to ensure you identify each occurrence of repetition and ensure you consider each and every text fragment. Review your work and correct any mistakes.`,
+                output: `Provide your answer in a json object with the following structure:
+                            {
+                                items:[
+                                {
+                                    class: type of repetition identified (ie repetition of facts, quotes, narrative etc),
+                                    description: 20 word summary of the repetition,
+                                    ids: list the fragment number of each and every items this repetition occurs in
+                                },
+                                ....
+                                ]
+                            }`,
+                no_num: false,
+                temperature: 0.7,
+                workspaceId: primitive.workspaceId,
+                usageId: primitive.id,
+                functionName: "compare_repetition",
+                debug: false,
+                debug_content: false,
+                //wholeResponse: true
+                field: "items"
+            })
+            repetitions = results.output
+
+            
+            const getInstructions = async (repetition, n)=>{
+                console.log(`Getting update instructions ${n}`)
+                
+                let fragmentList, fragments
+                if( structured ){
+                    fragmentList = topic.map(d=>[d.leftId,d.rightId]).flat().filter((d,i,a)=>a.indexOf(d)===i).filter((d,i)=>repetition.ids.includes(i)).filter((d,i,a)=>a.indexOf(d)===i)
+                    fragments = fragmentList.map((d,i)=>{
+                            let [idx,part]=d.split("-")
+                            const item = allItems[idx]
+                            return `{idx: ${i},section_title: ${item.title},content: ${partials[idx].groups[part]}`
+                        })
+                }else{
+                    fragmentList = topic.map(d=>[d.leftId,d.rightId]).flat().filter((d,i,a)=>a.indexOf(d)===i).filter((d,i)=>repetition.ids.includes(i)).map((d,i)=>{
+                        let [idx,part]=d.split("-")
+                        return idx}).filter((d,i,a)=>a.indexOf(d)===i)
+                    fragments = fragmentList.map((idx,i)=>{
+                            return `{idx: ${i},section_title: ${partials[idx].title},content: ${partials[idx].groups.join("\n")}}`
+                        })
+                }
+                const results = await processPromptOnText( fragments,{
+                    opener:  `Here is data about sections in a report. These sections have found to have duplication about the following topic: ${repetition.description}\n`,
+                    prompt: `Your task is to remove repetitive text about that topic that does not add any value to the reader. The content about the topic should be kept in at least one segment - more if it adds value to several.  Carefully review each item including the section title that has been provided to identify which fargment(s) should remain as is, and which should be updated to remove repetition.`,
+                    output: `Provide your answer in a json object with the following structure:
+                                {
+                                    items:[
+                                    {
+                                        idx: the idx field of the section,
+                                        rationale: a 20 word summary on why this is the approproate treatment of this section,
+                                        retain: if the section should retain the content about the topic,
+                                        revise: if the section should be revised to remove repetition about the topic,
+                                        instructions: if revised, 30 word instruction i can give to an LLM on what to revised in this section . Assume the LLM does not have the full set of fragments and will therefore not know what is repetitive / redundant - you must there be explicit about what to do and must not refer to duplicated / repetitive / redudnant text (or similar)
+                                    },
+                                    ....
+                                    ]
+                                }`,
+                    temperature: 0.7,
+                    workspaceId: primitive.workspaceId,
+                    usageId: primitive.id,
+                    functionName: "compare_instructions",
+                    debug: false,
+                    debug_content: false,
+                    //wholeResponse: true
+                    field: "items"
+                })
+                if( results.output ){
+                    for(const d of results.output){
+                        if( d.revise ){
+                            const mapped = fragmentList[d.idx]
+                            console.log(`- ${d.idx} -> ${mapped}`)
+                            updateInstructions[mapped] ||= []
+                            updateInstructions[mapped].push( d.instructions)
+                        }
+                    }
+                }
+            }
+            
+            if( repetitions ){
+                await executeConcurrently(repetitions, getInstructions)
+            }
+
+            console.log( updateInstructions)
+            const updateSection = async({key, instructions}, n)=>{
+                const [idx, part] = key.split("-")
+                let item, node
+                if( structured ){
+                    node = allItems[idx]?.content?.[part]?.node
+                    item = JSON.stringify(node?.content)
+                }else{
+                    item = partials[idx].groups.join("\n")
+
+                }
+                let mappedInstructions = instructions.map((d,i)=>`${i}. ${d}`).join("\n")
+                if( item ){
+                    console.log(`Doing update ${n}`, mappedInstructions)
+                    const results = await processPromptOnText( item,{
+                        opener:  `Here is a section from a report. Your task is to update it.\n`,
+                        prompt: `Revise the section based upon these editorial comments:\n${mappedInstructions}\n---\n\n`,
+                        output: `Provide your answer in a json object with the following structure:
+                                    {
+                                        updated: Updated content, keeping everything the same except for the changes needed in the editorial comments,
+                                        cleared: a boolean indicating id the updated content is now empty / redundant
+                                    }`,
+                        temperature: 0.7,
+                        workspaceId: primitive.workspaceId,
+                        usageId: primitive.id,
+                        functionName: "compare_rewrite",
+                        debug: false,
+                        debug_content: false,
+                        wholeResponse: true
+                    })
+                    if( results.success){
+                        let update = results.output[0]
+                        if( structured ){
+                            if( update.cleared){
+                                node.omit = true
+                            }else{
+                                node.oldContent = node.content
+                                node.content = update.updated
+                            }
+                        }
+                    }
+                }
+            }
+
+            const updateList = Object.keys(updateInstructions).map(d=>({key: d, instructions:updateInstructions[d]}))
+            await executeConcurrently(updateList, updateSection)
+
+            console.log(`Storing results`)
+            let idx = 0
+            for(const item of allItems){
+                if( structured ){
+                    const segment = removeOmittedItemsFromStructure( item.root )
+                    const flat = flattenStructuredResponse( segment, segment)
+                    const target = targetPrimitives[idx]
+                    console.log(`Updating ${target.plainId} / ${target.id}`)
+                    dispatchControlUpdate(target.id, "referenceParameters.summary", flat)
+                    dispatchControlUpdate(target.id, "referenceParameters.structured_summary", segment)
+                }
+                idx++
+            }
+        }
+
+        
+
+    }catch(e){
+                console.log(`Error in comparePeers`)
+                console.log(e)
+
+    }
+}
+
+
+class UnionFind {
+    constructor() {
+        this.parent = new Map();
+    }
+
+    find(x) {
+        if (!this.parent.has(x)) this.parent.set(x, x);
+        if (this.parent.get(x) !== x) {
+            this.parent.set(x, this.find(this.parent.get(x)));
+        }
+        return this.parent.get(x);
+    }
+
+    union(x, y) {
+        const rootX = this.find(x);
+        const rootY = this.find(y);
+        if (rootX !== rootY) {
+            this.parent.set(rootX, rootY);
+        }
+    }
+}
+
+function groupItems(items) {
+    const uf = new UnionFind();
+
+    // Step 1: Union connected IDs
+    items.forEach(item => {
+        uf.union(item.leftId, item.rightId);
+    });
+
+    // Step 2: Group items based on root
+    const groups = new Map();
+    items.forEach(item => {
+        const root = uf.find(item.leftId);
+        if (!groups.has(root)) {
+            groups.set(root, []);
+        }
+        groups.get(root).push(item);
+    });
+
+    // Convert groups map to array of groups
+    return Array.from(groups.values());
+}
+
+
 export async function comapreToPeers( parent, activeSegment, primitive, options = {}){
     try{
         const allSegments = await primitiveChildren( parent, "segment")
@@ -1284,6 +1629,21 @@ function removeOmittedItemsFromStructure(nodeResult){
             out.push( data )
         }else{
             console.log(`Skipping ${d.heading}`)
+        }
+    }
+    return out
+}
+function extractFlatNodes(nodeResult, types = ["markdown formatted string"], out){
+    out ||= []
+    for(const d of nodeResult){
+        if( types.includes(d.type) ){
+            out.push({
+                content: d.content,
+                node: d
+            })
+        }
+        if( d.subsections){
+            extractFlatNodes(d.subsections, types, out)
         }
     }
     return out

@@ -1,5 +1,8 @@
 import { createClient } from 'redis';
 import { Queue, Worker } from 'bullmq';
+import { Worker as WorkerThread } from 'worker_threads';
+import path from 'path';
+import { SIO } from './socket';
 
 class QueueManager {
     constructor(
@@ -126,26 +129,61 @@ class QueueManager {
 
             this.workers[queueName] = [];
             for (let i = 0; i < this.numWorkersPerQueue; i++) {
-                this.workers[queueName].push(new Worker(queueName, async job => {
-                    await this.setQueueActivity(queueName, true);
-
-                    // Process job here
-                    console.log(`Processing job ${job.name}`);
-                    let result
-                    if( this.processCallback ){
-                        result = await this.processCallback( job, ()=>this.checkIfJobCancelled(job.name) )
-                        if( result?.reschedule ){
-                            console.log(`Job asked to be rescheduled`)
-                            const state = await job.getState();
-                            console.log(state)
-                            await result.reschedule()
+                if( this.processCallback ){
+                    console.log(`Creating queue worker in main thread for ${queueName}`)
+                    
+                    this.workers[queueName].push(new Worker(queueName, async job => {
+                        await this.setQueueActivity(queueName, true);
+                        
+                        // Process job here
+                        console.log(`Processing job ${job.name}`);
+                        let result
+                        if( this.processCallback ){
+                            result = await this.processCallback( job, ()=>this.checkIfJobCancelled(job.name) )
+                            if( result?.reschedule ){
+                                console.log(`Job asked to be rescheduled`)
+                                const state = await job.getState();
+                                console.log(state)
+                                await result.reschedule()
+                                }
+                                }
+                                await this.resetCancelJob(job.name)
+                                
+                                await this.setQueueActivity(queueName, false);
+                                return true
+                                }, { connection: this.connection, ...this.settings }));
+                }else{
+                    console.log(`Creating thread worker for ${queueName}`)
+                    const worker = new WorkerThread(path.resolve(__dirname, './job-worker.js'), {
+                        workerData: {
+                            queueName: queueName,
+                            type: this.type,             // Pass the queue type to workerData
+                            redisOptions: this.connection
                         }
-                    }
-                    await this.resetCancelJob(job.name)
+                    });
+                    worker.on('message', (message) => {
+                        if (message.type === 'notifyPrimitiveEvent') {
+                            const { workspaceId, message: data } = message.data;
+                            console.log(`[QueueManager] Forwarding event to socket.io:`, workspaceId, data);
+            
+                            // Use SIO to emit the event to the browser
+                            SIO.notifyPrimitiveEvent(workspaceId, JSON.parse(data));
+                        }
+                    });
+                    worker.on('message', (message) => {
+                        console.log(`Job result from worker for queue ${queueName}:`, message.result);
+                    });
+                    worker.on('error', (error) => {
+                        console.error(`Error in worker for queue ${queueName}:`, error);
+                    });
+                    worker.on('exit', (code) => {
+                        if (code !== 0) {
+                            console.log(`Worker for queue ${queueName} exited with code ${code}`);
+                        }
+                    });
+                    this.workers[queueName].push(worker);
+                }
 
-                    await this.setQueueActivity(queueName, false);
-                    return true
-                }, { connection: this.connection, ...this.settings }));
             }
         }
         return this.queues[queueName];
@@ -188,7 +226,8 @@ class QueueManager {
             await this.purgeQueue(undefined, queueName)
         }
     }
-    async purgeQueue(workspaceId, qn) {
+    
+    async purgeQueueLegacy(workspaceId, qn) {
         const queueName = qn ?? `${workspaceId}-${this.type}`;
         if( queueName && !workspaceId ){
             workspaceId = queueName.split('-')[0]
@@ -214,6 +253,55 @@ class QueueManager {
             console.error(`Error purging queue: ${error}`);
         }
     }
+    async purgeQueue(workspaceId, qn) {
+        if( this.processCallback ){
+            return this.purgeQueueLegacy( workspaceId, qn)
+        }
+        const queueName = qn ?? `${workspaceId}-${this.type}`;
+        if( queueName && !workspaceId ){
+            workspaceId = queueName.split('-')[0]
+        }
+    
+        if (this.queues[queueName]) {
+            console.log(`Purging queue: ${queueName}`);
+    
+            // Terminate all worker threads for this queue
+            if (this.workers[queueName]) {
+                for (const worker of this.workers[queueName]) {
+                    try {
+                        worker.postMessage('terminate');
+                        await new Promise((resolve) => setTimeout(resolve, 3000)); // Allow worker to close Mongoose
+
+                        console.log(`Worker thread terminated for queue: ${queueName}`);
+                    } catch (err) {
+                        console.error(`Error terminating worker thread for queue: ${queueName}`, err);
+                    }
+                }
+                delete this.workers[queueName];
+            }
+    
+            // Pause and obliterate the BullMQ queue
+            try {
+                await this.queues[queueName].pause(); // Pause the queue
+                await this.queues[queueName].obliterate({ force: true }); // Remove all jobs from the queue
+                console.log(`Queue obliterated: ${queueName}`);
+            } catch (err) {
+                console.error(`Error obliterating queue: ${queueName}`, err);
+            }
+    
+            // Remove Redis metadata for the queue
+            await this.redis.del(`${queueName}-activeCount`);
+            await this.redis.del(`${queueName}-lastActivity`);
+    
+            // Mark the queue as inactive
+            await this.markQueueInactive(workspaceId);
+    
+            // Clean up queue reference
+            delete this.queues[queueName];
+        } else {
+            console.log(`Queue ${queueName} does not exist, skipping purge.`);
+        }
+    }
 
     async status() {
         let aggregateList = [];
@@ -222,15 +310,24 @@ class QueueManager {
             try {
                 const queue = this.queues[queueName];
                 const jobs = await queue.getJobs(['waiting', 'active', 'completed', 'failed', 'delayed']);
+                const workerStatuses = this.workers[queueName]?.map((worker, index) => ({
+                    workerId: index + 1,
+                    threadId: worker.threadId,
+                    isTerminated: worker.threadId === null,
+                })) || [];
+
                 for(const job of jobs) {
                     aggregateList.push({
-                        queue: queueName,
-                        id: job.id,
-                        name: job.name,
-                        status: await job.getState(),
-                        data: job.data,
-                        attemptsMade: job.attemptsMade,
-                        failedReason: job.failedReason
+                        jobs:{
+                            queue: queueName,
+                            id: job.id,
+                            name: job.name,
+                            status: await job.getState(),
+                            data: job.data,
+                            attemptsMade: job.attemptsMade,
+                            failedReason: job.failedReason
+                        },
+                        workers: workerStatuses,
                     });
                 }
             } catch (error) {

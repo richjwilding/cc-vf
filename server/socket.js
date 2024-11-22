@@ -1,4 +1,6 @@
+import mongoose from "mongoose";
 import { Server } from "socket.io";
+import { parentPort, isMainThread } from "worker_threads";
 const redisAdapter = require('socket.io-redis');
 
 
@@ -6,6 +8,10 @@ let io;
 let authentication
 export const SIO = {
    init: function(server) {
+    if (!isMainThread) {
+        throw new Error("Cannot initialize socket.io in a worker thread.");
+      }
+
        io = new Server(server,{
         cors: {
             origin: "http://localhost:3000",
@@ -51,16 +57,77 @@ export const SIO = {
         });
     });
    },
-   notifyPrimitiveEvent: function(primitive_or_workspace, data){
-    let workspaceId
-    if( primitive_or_workspace?.workspaceId ){
-        workspaceId = primitive_or_workspace.workspaceId
-    }else{
-        workspaceId = primitive_or_workspace
-    }
-    io.to(workspaceId).emit("message", data)
+   notifyPrimitiveEvent: function (primitive_or_workspace, data) {
+      let workspaceId;
+      if (primitive_or_workspace?.workspaceId) {
+        workspaceId = primitive_or_workspace.workspaceId;
+      } else {
+        workspaceId = primitive_or_workspace;
+      }
 
-   },
+    const serializeIfNeeded = (obj) => {
+        if (!obj || typeof obj !== 'object') {
+          return obj; // Return non-object values as is
+        }
+      
+        if (obj instanceof mongoose.Types.ObjectId) {
+          return obj.toString();
+        }
+      
+        if (typeof obj.toObject === 'function') {
+          const plainObject = obj.toObject();
+          return serializeIfNeeded(plainObject); // Recursively process the plain object
+        }
+      
+        if (Array.isArray(obj)) {
+          return obj.map((item) => serializeIfNeeded(item));
+        }
+      
+        const serializedObject = {};
+        for (const [key, value] of Object.entries(obj)) {
+          serializedObject[key] = serializeIfNeeded(value);
+        }
+      
+        return serializedObject;
+      };
+    if( Array.isArray(data) ){
+        data = data.map(d=>serializeIfNeeded(d))
+    }else{
+        data = serializeIfNeeded(data)
+    }
+
+    if (isMainThread) {
+      io.to(workspaceId).emit("message", data);
+    } else {
+      if (!parentPort) {
+        console.error(
+          "[SIO] Cannot forward notifyPrimitiveEvent: parentPort is not available."
+        );
+        return;
+      }
+      
+        console.log(`will send via mainthread`)
+
+      try{
+
+          parentPort.postMessage({
+              type: "notifyPrimitiveEvent",
+              data: {
+                  workspaceId,
+                  message: JSON.stringify(data),
+                },
+            });
+        }catch(e){
+            console.log(e)
+            console.log(data.data)
+            if(Array.isArray(data.data)){
+                for(const d of data.data){
+                    console.log(d)
+                }
+            }
+        }
+    }
+  },
    getIO: function() {
        if (!io || !authentication) {
           throw new Error("Can't get io instance before calling .init()");

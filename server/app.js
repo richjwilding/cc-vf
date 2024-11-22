@@ -14,14 +14,11 @@ import mongoose from 'mongoose';
 import User from './model/User';
 import moment from 'moment';
 import * as refresh from 'passport-oauth2-refresh';
-import {Miro} from '@mirohq/miro-api'
 import { setRefreshTokenHandler } from './google_helper';
 import { google } from "googleapis";
 import { SIO } from './socket';
 
 dotenv.config()
-
-const miro = new Miro()
 
 mongoose.set('strictQuery', false);
 mongoose.connect(process.env.MONGOOSE_URL)
@@ -137,21 +134,6 @@ console.log("done - redirect")
     res.redirect('/');
   });
 })
-app.get('/miro/callback', async (req, res) => {
-    let code
-    try{
-        const id = req?.session?.passport?.user?.email
-        console.log(req.session)
-        console.log(id)
-        await miro.exchangeCodeForAccessToken(id, req.query.code)
-        code = await miro.getAccessToken(id )
-        console.log(code)
-
-    }catch(error){
-        console.log(error)
-    }
-    res.redirect("/miro/catch/?code=" + encodeURIComponent(code))
-  })
 
 
 var checkToken = async (req, res, next) => {
@@ -280,27 +262,6 @@ app.get("/google/failed", (req, res) => {
   res.send("Failed")
 })
 
-app.get('/miro/catch', async (req, res) => {
-    console.log( req.query.code )
-    if( req.user ){
-        req.user.miro = req.query.code
-    }
-    res.redirect('/')
-    
-})
-
-app.get('/miro/login', async (req, res) => {
-    const id = req?.session?.passport?.user?.email
-    console.log(id)
-    if( !id){
-        res.redirect('/')
-        return
-    }
-    if (!(await miro.isAuthorized(id))) {
-        res.redirect(miro.getAuthUrl())
-        return
-      }
-})
 
 
 app.get('/api/refresh', async (req, res) => {

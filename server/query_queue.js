@@ -16,13 +16,7 @@ import { queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, quer
 
 let instance
 let _queue
-
-export default function QueryQueue(){    
-    if( instance ){
-        return instance
-    }
-    
-    const processQueue = async (job, cancelCheck) => {
+export async function processQueue(job, cancelCheck){
         try{
 
             const primitive = await Primitive.findOne({_id: job.data.id})
@@ -460,6 +454,12 @@ export default function QueryQueue(){
         
     }
 
+export default function QueryQueue(){    
+    if( instance ){
+        return instance
+    }
+    
+
     instance = {} 
     instance.doQuery = (primitive, options )=>{
         const primitiveId = primitive.id
@@ -482,7 +482,7 @@ export default function QueryQueue(){
         }
     }
     
-    _queue = new QueueManager("query", processQueue, 2 );
+    _queue = new QueueManager("query", /*processQueue*/ undefined, 2 );
     
     instance.myInit = async ()=>{
         console.log("Query Queue")

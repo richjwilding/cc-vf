@@ -100,7 +100,7 @@ export async function buildDocumentTextEmbeddings( text, limit ){
     }
     return results
 }
-function combineGroupsToChunks(groups, maxWords = 120) {
+export function combineGroupsToChunks(groups, maxWords = 120) {
     let chunks = [];
     let currentChunk = [];
     let currentWordCount = 0;
@@ -148,7 +148,7 @@ function __extractSentencesAndKeywords(text) {
     return keywords;
 }
 
-function extractSentencesAndKeywords(text) {
+export function extractSentencesAndKeywords(text) {
     const processChunk = (chunk) => {
         //console.log(`doing chunk ${chunk.length} / ${chunk.slice(0,50)}..`)
         let doc = nlp(chunk);
@@ -188,7 +188,7 @@ function extractSentencesAndKeywords(text) {
     });
     return results;
   }
-function groupNeighboringSentences(keywords) {
+export function groupNeighboringSentences(keywords) {
     let groups = [];
     let currentGroup = [keywords[0]];
 

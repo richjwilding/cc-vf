@@ -2822,16 +2822,22 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     let result
                     
                     if( thisCategory?.type === "comparator"){
-                        const segment = (await primitiveParentsOfType(primitive, "segment"))?.[0]
-                        if( segment ){
-                            const parentForScope = (await primitiveParentsOfType(segment, ["working", "view", "segment", "query"]))?.[0] ?? segment
-                            result = await comapreToPeers( parentForScope, segment, primitive, options)
-                            if( typeof(result) === "object"){
-                                dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
-                                result = result.plain
-                            }
+                        if( config.compare_type == "streamline"){
+                            console.log(`Need to re-run parent`)
+                            await doPrimitiveAction(parent, "custom_query", {force: true})
+                            done = true
                         }else{
-                            console.log(`Couldnt get parent segment for ${primitive.id} / ${primitive.plainId} in compare_to_peers`)
+                            const segment = (await primitiveParentsOfType(primitive, "segment"))?.[0]
+                            if( segment ){
+                                const parentForScope = (await primitiveParentsOfType(segment, ["working", "view", "segment", "query"]))?.[0] ?? segment
+                                result = await comapreToPeers( parentForScope, segment, primitive, options)
+                                if( typeof(result) === "object"){
+                                    dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
+                                    result = result.plain
+                                }
+                            }else{
+                                console.log(`Couldnt get parent segment for ${primitive.id} / ${primitive.plainId} in compare_to_peers`)
+                            }
                         }
                     }else{
                         if( primitive.plainId === 700519 || config.verify || config.structure){
