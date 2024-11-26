@@ -10,13 +10,15 @@ class CollectionUtils{
 
     static convertToTimesSeries(set, config = {}){
        // if(!config.field){return []}
+       let cumulative = config.cumulative
 
         let period = config.period ?? "month"
         let sourceData
         if( set?.length > 0 && set[0]?.type === "entity"){
-
-
             sourceData = set.map(d=>((config.dataset ? d.financialData?.[config.dataset] : d.referenceParameters?.allFundingRoundInfo) ?? []).map(d=>({date: d[config.dateField ?? "annouced"], amount: d[config.field ?? "amount"]}))).flat()
+            if( !config.dataset && !config.dateField ){
+                cumulative = true
+            }
         }else{
             sourceData = set.map(d=>({date: new Date(d.referenceParameters?.posted), amount: 1}))
         }
@@ -37,7 +39,7 @@ class CollectionUtils{
         console.log(maxPeriod)
 
         let values
-        if( config.cumulative){
+        if( cumulative){
             values = new Array( maxPeriod + 1).fill(0)
             for(const d of timeSeries){
                 values[d.period] += d.amount

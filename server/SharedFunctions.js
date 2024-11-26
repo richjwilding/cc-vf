@@ -59,11 +59,13 @@ export async function queueReset(){
 
     try{
 
-        return [
+        return await executeConcurrently( [
             await QueryQueue().purge(),
             await BrightDataQueue().purge(),
+            await QueueDocument().purge(),
+            await QueueAI().purge(),
             await EnrichPrimitive().purge()
-        ]
+        ])
     }catch(error){
         console.log(`Error resetting queue`)
     }
@@ -75,6 +77,8 @@ export async function queueStatus(){
         return [
             ...(await QueryQueue().pending()),
             ...(await BrightDataQueue().pending()),
+            ...(await QueueDocument().pending()),
+            ...(await QueueAI().pending()),
             ...(await EnrichPrimitive().pending())
         ]
     }catch(error){
@@ -2809,56 +2813,8 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
 
 
             if( command === "rebuild_summary"){
-                //let options =  {source: primitive.id, ...primitive.referenceParameters}
-
-                const config = await getConfig(primitive)
-                console.log(config)
-
-                const parent = await fetchPrimitive( primitiveOrigin( primitive ) )
-                const thisCategory = await Category.findOne({id: parent.referenceId})
-
-                setTimeout(async () => {
-                    console.log(`**** SHOULD GO INTO QUEUE`)
-                    let result
-                    
-                    if( thisCategory?.type === "comparator"){
-                        if( config.compare_type == "streamline"){
-                            console.log(`Need to re-run parent`)
-                            await doPrimitiveAction(parent, "custom_query", {force: true})
-                            done = true
-                        }else{
-                            const segment = (await primitiveParentsOfType(primitive, "segment"))?.[0]
-                            if( segment ){
-                                const parentForScope = (await primitiveParentsOfType(segment, ["working", "view", "segment", "query"]))?.[0] ?? segment
-                                result = await comapreToPeers( parentForScope, segment, primitive, options)
-                                if( typeof(result) === "object"){
-                                    dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
-                                    result = result.plain
-                                }
-                            }else{
-                                console.log(`Couldnt get parent segment for ${primitive.id} / ${primitive.plainId} in compare_to_peers`)
-                            }
-                        }
-                    }else{
-                        if( primitive.plainId === 700519 || config.verify || config.structure){
-                            try{
-                                result = await summarizeWithQuery(primitive)
-                                if( result ){
-                                    dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
-                                    result = result.plain
-                                }
-                            }catch(error){
-                                console.log(`error in summarizeWithQuery call`)
-                                console.log(error)
-                            }
-                        }else{
-                            result = await doPrimitiveAction(primitive, "auto_summarize", {...config, action_override: true})
-                        }
-                    }
-                    dispatchControlUpdate( primitive.id, "referenceParameters.summary", result)
-                }, 100);
+                QueueAI().rebuildSummary( primitive, action )
                 done = true
-
             }
             if( command === "normalize_paper_authors" ){
                 const [papers, authors] = await getDataForProcessing(primitive, {...action})

@@ -1,5 +1,5 @@
 import { createClient } from 'redis';
-import { Queue, Worker } from 'bullmq';
+import { Queue, QueueEvents, Worker } from 'bullmq';
 import { Worker as WorkerThread } from 'worker_threads';
 import path from 'path';
 import { SIO } from './socket';
@@ -24,6 +24,7 @@ class QueueManager {
         this.numWorkersPerQueue = numWorkersPerQueue;
         this.idleTimeBeforePurge = idleTimeBeforePurge;
         this.queues = {};
+//        this.queueEvents = {};
         this.workers = {};
         this.connection = redisOptions
         this.settings = settings
@@ -145,13 +146,14 @@ class QueueManager {
                                 const state = await job.getState();
                                 console.log(state)
                                 await result.reschedule()
-                                }
-                                }
-                                await this.resetCancelJob(job.name)
-                                
-                                await this.setQueueActivity(queueName, false);
-                                return true
-                                }, { connection: this.connection, ...this.settings }));
+                            }
+                        }
+                        await this.resetCancelJob(job.name)
+                        
+                        await this.setQueueActivity(queueName, false);
+                        return true
+                        
+                    }, { connection: this.connection, ...this.settings }));
                 }else{
                     console.log(`Creating thread worker for ${queueName}`)
                     const worker = new WorkerThread(path.resolve(__dirname, './job-worker.js'), {
@@ -161,17 +163,18 @@ class QueueManager {
                             redisOptions: this.connection
                         }
                     });
-                    worker.on('message', (message) => {
-                        if (message.type === 'notifyPrimitiveEvent') {
+                    worker.on('message', async (message) => {
+                        if (message.type === 'startJob') {
+                            console.log(`Job has started in worker ${worker.threadId} - ${message.jobId}`)
+                            this.setQueueActivity(queueName, true);
+                        }else if (message.type === 'endJob') {
+                            console.log(`Job has ended in worker ${worker.threadId} - ${message.jobId}`)
+                            this.setQueueActivity(queueName, false);
+                            await this.redis.del(`job:${message.jobId}:cancel`);
+                        }else if (message.type === 'notifyPrimitiveEvent') {
                             const { workspaceId, message: data } = message.data;
-                            console.log(`[QueueManager] Forwarding event to socket.io:`, workspaceId, data);
-            
-                            // Use SIO to emit the event to the browser
                             SIO.notifyPrimitiveEvent(workspaceId, JSON.parse(data));
                         }
-                    });
-                    worker.on('message', (message) => {
-                        console.log(`Job result from worker for queue ${queueName}:`, message.result);
                     });
                     worker.on('error', (error) => {
                         console.error(`Error in worker for queue ${queueName}:`, error);
@@ -185,6 +188,12 @@ class QueueManager {
                 }
 
             }
+            /*
+            this.queueEvents[queueName] = new QueueEvents(queueName);
+            this.queueEvents[queueName].on('progress', ({ jobId, progress }) => {
+                console.log(`[${queueName}]: Job ${jobId} progress:`, progress);
+            });
+            */
         }
         return this.queues[queueName];
     }
@@ -195,12 +204,28 @@ class QueueManager {
             const queue = await this.getQueue(workspaceId);
             const existing = await queue.getJob(jobId)
             if(  existing ){
-                console.log(`Job already present - skipping `)
-                return
+                const status = await existing.getState()
+                if( status === "completed"){
+                    await existing.remove()
+                }else{
+                    console.log(`Job already present - skipping `)
+                    return
+                }
             }
             console.log(`Starting job ${jobId} on ${workspaceId}`)
-            await queue.add(jobId, jobData, { removeOnComplete: true, removeOnFail: true, jobId: jobId, ...options });
+            await queue.add(jobId, jobData, {
+                removeOnComplete: { age: 180}, 
+                removeOnFail: true, 
+                jobId: jobId, 
+                attempts: 2, // Retry up to 3 times
+                backoff: {
+                    type: 'exponential', // Use exponential backoff
+                    delay: 60 * 1000 * 20, // Initial delay: 5 minutes
+                },
+                ...options 
+            });
             await this.updateQueueActivity(`${workspaceId}-${this.type}`);
+            return true
         } catch (error) {
             console.error(`Error adding job to queue: ${error}`);
         }
@@ -247,6 +272,8 @@ class QueueManager {
                 await this.redis.del(`${queueName}-activeCount`);
                 await this.redis.del(`${queueName}-lastActivity`);
                 delete this.queues[queueName]
+                //this.queueEvents[queueName].close()
+                //delete this.queueEvents[queueName]
                 await this.markQueueInactive(workspaceId);
             }
         } catch (error) {
@@ -318,8 +345,8 @@ class QueueManager {
 
                 for(const job of jobs) {
                     aggregateList.push({
+                        queue: queueName,
                         jobs:{
-                            queue: queueName,
                             id: job.id,
                             name: job.name,
                             status: await job.getState(),

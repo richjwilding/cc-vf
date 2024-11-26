@@ -277,7 +277,7 @@ export default function ReportViewExporter({primitive, ...props}){
                     function updateSet(){
                         myState[stateId].processing = remappedData.length === 0 
                         myState[stateId].primitive = element
-                        myState[stateId].config = "explore_0" 
+                        myState[stateId].config = "report_set" 
                         myState[stateId].list = remappedData
                         myState[stateId].internalWatchIds =  remappedData.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
                         myState[stateId].axis = {column: columnAxis, row: rowAxis}

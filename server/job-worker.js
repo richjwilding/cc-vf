@@ -20,11 +20,11 @@ parentPort.on('message', (message) => {
 // Dynamically load the appropriate processing function based on queue type
 async function getProcessFunction(type) {
     switch (type) {
-        case 'document_queue':
+        case 'document':
             return (await import('./document_queue')).processQueue;
-        case 'ai_queue':
+        case 'ai':
             return (await import('./ai_queue')).processQueue
-        case 'enrich_queue':
+        case 'enrich':
             return (await import('./enrich_queue')).processQueue;
         case 'query':
             return (await import('./query_queue')).processQueue;
@@ -58,16 +58,46 @@ async function getProcessFunction(type) {
         }
         try {
             console.log(`Thread running for ${workerData.queueName}`)
-            console.log(processQueue)
-            const result = await processQueue(job, () => redisClient.get(`job:${job.id}:cancel`) === 'true');
-            parentPort.postMessage({ result, jobId: job.id });
+            parentPort.postMessage({ type: "startJob", jobId: job.id });
+
+            const extendLockInterval = 50000; 
+            const lockExtension = setInterval(() => {
+                try{
+                    job.updateProgress(1); 
+                    console.log(`Lock extended for job ${job.id}`);
+                }catch(e){
+                    console.log(`ERROR EXTENDING LOCK FOR JOB ${job.id}`)
+                }
+            }, extendLockInterval)
+
+
+            let result
+            try {
+                result = await processQueue(job, () => redisClient.get(`job:${job.id}:cancel`) === 'true');
+                console.log("PROCESSING DONE")
+            }catch(e){
+                console.log(`Error in ${workerData.type} queue`)            
+                console.log(e)
+            }finally{
+                console.log(`Clearing lock renewal`)
+                clearInterval(lockExtension); // Clear the lock extension interval
+            }
+            
+            console.log(`===> Sending endJob messaged ${job.id}`)
+            parentPort.postMessage({ result, type: "endJob", jobId: job.id });
         } catch (error) {
             parentPort.postMessage({ error: error.message, jobId: job.id });
         }
     }
     console.log(`New worker thread for ${workerData.queueName}`)
     const worker = new Worker(workerData.queueName, async job => await processJob(job), {
-        connection: workerData.redisOptions
+        connection: workerData.redisOptions,
+        //settings: {
+            maxStalledCount: 0,
+            removeOnFail: true,
+            stalledInterval:300000,
+            lockDuration: 10 * 60 * 1000, // Set lock duration to 10 minutes
+        //}
     });
     worker.on('completed', job => parentPort.postMessage({ result: job.returnvalue, jobId: job?.id }));
     worker.on('failed', (job, error) => parentPort.postMessage({ error: error.message, jobId: job?.id }));

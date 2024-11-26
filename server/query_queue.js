@@ -12,6 +12,7 @@ import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleSchola
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
 import { queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, queryTiktokWithBrightData } from './brightdata';
+import { queryInstagramPostsByRapidAPI } from './rapid_helper';
 
 
 let instance
@@ -369,7 +370,8 @@ export async function processQueue(job, cancelCheck){
                             await queryRedditWithBrightData( primitive, terms, callopts) 
                         }
                         if( source.platform === "instagram" ){
-                            await queryInstagramWithBrightData( primitive, terms, callopts) 
+                            //await queryInstagramWithBrightData( primitive, terms, callopts) 
+                            await queryInstagramPostsByRapidAPI( primitive, terms, callopts)
                         }
                         if( source.platform === "youtube" ){
                             await queryYoutube( terms, callopts) 
@@ -485,9 +487,9 @@ export default function QueryQueue(){
     _queue = new QueueManager("query", /*processQueue*/ undefined, 2 );
     
     instance.myInit = async ()=>{
-        console.log("Query Queue")
-        const jobCount = await _queue.status();
-        console.log( jobCount, " jobs in queue (query)")
+        console.log("Query Queue v2")
+        const jobCount = (await _queue.status()).length;
+        console.log( jobCount, " jobs in queue (query 2)")
     }
     
     return instance

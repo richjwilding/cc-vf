@@ -157,16 +157,23 @@ let mainstore = MainStore()
             const items = d.itemsForProcessing
             
             const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
-            let activeView  = forceViewConfig ? viewConfigs.findIndex(d=>d.renderType === forceViewConfig.viewConfig || d.id === forceViewConfig.viewConfig)  : d?.referenceParameters?.explore?.view
-            const viewConfig = viewConfigs?.[activeView === -1 ? 0 : activeView] 
+            let activeView = d?.referenceParameters?.explore?.view 
+            let viewConfig = viewConfigs[activeView] ?? viewConfigs[0] 
+            if( forceViewConfig ){
+                activeView = viewConfigs.findIndex(d=>d.renderType === forceViewConfig.viewConfig || d.id === forceViewConfig.viewConfig) 
+                if( activeView == -1){
+                    viewConfig = {
+                        renderType: forceViewConfig.viewConfig
+                    }
+                }else{
+                    viewConfig = viewConfigs[activeView] 
+                }
+            }
 
             const columnAxis = CollectionUtils.primitiveAxis(d, "column", items)
             const rowAxis = CollectionUtils.primitiveAxis(d, "row", items)
 
-            
-
             if( viewConfig?.renderType === "cat_overview"){
-
                 let categoriesToMap
                 if( d.referenceParameters.explore.axis?.column?.type === "category" || d.referenceParameters.explore.axis?.row?.type === "category"){
                     categoriesToMap = [

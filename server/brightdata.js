@@ -146,6 +146,11 @@ const bdExtractors = {
         },
         queryParams: "&type=discover_new&discover_by=url",
     },
+    "instagram_posts":{
+        datasetId: "gd_lk5ns7kz21pck8jpis",
+        id: (data)=>data.post_id,
+        data: instagramPostData
+    },
     "instagram":{
         datasetId: "gd_lk5ns7kz21pck8jpis",
         id: (data)=>data.post_id,
@@ -245,6 +250,16 @@ export async function queryTiktokWithBrightData( primitive, terms, callopts){
     await triggerBrightDataCollection(input, "tiktok", primitive, terms,callopts)
 }
 
+export async function fetchInstagramPosts( primitive, urls ){
+    const input = urls.map(d=>({
+        url: d
+    }))
+
+    const config = bdExtractors["instagram_posts"]
+
+    await triggerBrightDataCollection(input, "instagram_posts", primitive, undefined, {})
+
+}
 export async function queryInstagramWithBrightData( primitive, terms, callopts){
     const individualTerms = terms.split(",").map(d=>d.trim())
     console.log(`-- ${individualTerms.join(", ")}`)
@@ -287,7 +302,7 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
     console.log(`Will trigger collection from BD for API: ${api}`)
     const config = bdExtractors[api]
 
-    let url = `https://api.brightdata.com/datasets/v3/trigger?dataset_id=${config.datasetId}${config.queryParams}`
+    let url = `https://api.brightdata.com/datasets/v3/trigger?dataset_id=${config.datasetId}${config.queryParams ?? ""}`
     if( config.limit ){
         url += `&limit_per_input=${config.limit}`
     }else if( callopts.limit_count ){

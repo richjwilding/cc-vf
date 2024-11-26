@@ -876,7 +876,11 @@ async function processInChunk( list, pre, post, options = {} ){
                         values = [values]
                     }
                     if( options.markPass ){
-                        values.forEach((d)=>d._pass = options.inBatch ? options.batchStartOffset + "-" + pass : pass)
+                        values.forEach((d)=>{
+                            if( typeof(d) === "object" ){
+                                d._pass = options.inBatch ? options.batchStartOffset + "-" + pass : pass
+                            }
+                        })
                     }
                     if( options.idField){
                         console.log(`Check ID field ${options.idField} bounds`)

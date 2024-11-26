@@ -350,7 +350,12 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
     }
 }
 export async function compareItems( parent, primitive, options = {}){
-    return await streamlineWithPeers( parent, primitive, options)
+    const config = await getConfig( primitive )
+    if( config.compare_type == "streamline"){
+        return await streamlineWithPeers( parent, primitive, options)
+    }else{
+        return await baselineItemProcess( parent, primitive, options, {action: "rebuild_summary"})
+    }
 }
 export async function streamlineWithPeers( parent, primitive, options = {}){
     try{

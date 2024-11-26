@@ -106,8 +106,6 @@ export const SIO = {
         return;
       }
       
-        console.log(`will send via mainthread`)
-
       try{
 
           parentPort.postMessage({
@@ -119,12 +117,6 @@ export const SIO = {
             });
         }catch(e){
             console.log(e)
-            console.log(data.data)
-            if(Array.isArray(data.data)){
-                for(const d of data.data){
-                    console.log(d)
-                }
-            }
         }
     }
   },

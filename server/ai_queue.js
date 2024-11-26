@@ -1,22 +1,19 @@
-import { Queue } from "bullmq";
-import { Worker } from 'bullmq'
-import { SIO } from './socket';
-import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitives, findPrimitiveOriginParent, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
+import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findPrimitiveOriginParent, getConfig, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
-import { Cluster, agnes } from "ml-hclust";
 import DBSCAN from "@cdxoo/dbscan";
 import Category from "./model/Category";
 import PrimitiveParser from "./PrimitivesParser";
 import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 import agglo from "agglo";
-import { distance } from "agglo/lib/metrics";
-import debug from "debug";
+import QueueManager from "./base_queue";
+import { comapreToPeers, summarizeWithQuery } from "./task_processor";
 
 
 const parser = PrimitiveParser()
 let instance
+let _queue
 
 function calculateCentroid(vectors) {
     if (!vectors || vectors.length === 0) {
@@ -846,60 +843,77 @@ async function rollup( primitive, target, action ){
 }
 
 export default function QueueAI(){
-    let active = false
-
     if( instance ){
         return instance
     }
     
-    instance = new Queue("aiQueue", {
-        connection: { 
-            host: process.env.QUEUES_REDIS_HOST, 
-            port: process.env.QUEUES_REDIS_PORT,
-        },
-    });
+    instance = {}
+    instance.pending = async ()=>{
+        return (await _queue.status()) ?? [];
+    }
+    instance.purge = async (workspaceId)=>{
+        if( workspaceId ){
+            return await _queue.purgeQueue(workspaceId);
+        }else{
+            return await _queue.purgeAllQueues();
+
+        }
+    }
+    _queue = new QueueManager("ai", undefined, 2 );
+
     instance.myInit = async ()=>{
-        console.log("AI Queue")
-        const jobCount = await instance.count();
-        console.log( jobCount + " jobs in queue (AI)")
-        await instance.obliterate({ force: true });
-        const newJobCount = await instance.count();
-        console.log( newJobCount + " jobs in queue (AI)")
-        active = true
+        console.log("AI Queue (v2)")
+        const jobCount = (await _queue.status()).length
+        console.log( jobCount + " jobs in queue (ai)")        
+    }
+
+    instance.rebuildSummary = (primitive, action, req)=>{
+        const workspaceId = primitive.workspaceId
+        const field = `processing.ai.rebuild_summary`
+        
+        const data = {id: primitive.id, action: action, mode: "rebuild_summary", field}
+
+        dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, { track: primitive.id, text:"Rebuilding summary"})
+        //instance.add(`axis_${primitive.id}` , {id: primitive.id, field: field})
+        _queue.addJob(workspaceId, data)
     }
     instance.defineAxis = (primitive, action, req)=>{
-        //if( primitive.type === "segment" || primitive.type === "activity"){
-            const field = `processing.ai.define_axis`
-            if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
-                console.log(`Already active - exiting`)
-                return false
-            }
-            dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Analyzing for axis"})
-            instance.add(`axis_${primitive.id}` , {id: primitive.id, action: action, mode: "define_axis", field: field})
-        //}
+        const workspaceId = primitive.workspaceId
+        const field = `processing.ai.define_axis`
+        if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
+            console.log(`Already active - exiting`)
+            return false
+        }
+        const data = {id: primitive.id, action: action, mode: "define_axis", field}
+        dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Analyzing for axis"})
+        //instance.add(`axis_${primitive.id}` , {id: primitive.id, field: field})
+        _queue.addJob(workspaceId, data)
     }
     instance.rollUp = (primitive, target, action, req)=>{
             const field = `processing.ai.rollup`
+            const workspaceId = primitive.workspaceId
             if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
                 return false
             }
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Building clusters"})
             dispatchControlUpdate(target.id, field , {status: "pending"})
-            instance.add(`rollup_${primitive.id}` , {id: primitive.id, action: action, targetId: target.id, mode: action.alternate ? "rollup2" : "rollup", field: field})
+            _queue.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: action.alternate ? "rollup2" : "rollup", field: field})
     }
     instance.aggregateDuplicatedInSegment = (primitive, action, req)=>{
             const field = `processing.ai.aggregate_duplicated_in_segment`
+            const workspaceId = primitive.workspaceId
             if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
                 return false
             }
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Looking for duplicates"})
-            instance.add(`aggregate_duplicated_in_segment${primitive.id}` , {id: primitive.id, action: action, mode: "aggregate_duplicated_in_segment", field: field})
+            _queue.addJob(workspaceId,  {id: primitive.id, action: action, mode: "aggregate_duplicated_in_segment", field: field})
     }
 
     instance.markCategories = (primitive, target, action, req)=>{
         if( primitive.type === "category"){
+            const workspaceId = primitive.workspaceId
             const field = `processing.ai.mark_categories`
             if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
@@ -907,11 +921,12 @@ export default function QueueAI(){
             }
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Assign to categories"})
             dispatchControlUpdate(target.id, field , {status: "pending"})
-            instance.add(`mark_${primitive.id}` , {id: primitive.id, action: action, targetId: target.id, mode: "mark_categories", field: field})
+            _queue.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: "mark_categories", field: field})
         }
     }
     instance.categorize = (primitive, target, action, req)=>{
         if( primitive.type === "category"){
+            const workspaceId = primitive.workspaceId
             const field = `processing.ai.categorize`
             if(primitive.processing?.ai?.categorize && (new Date() - new Date(primitive.processing.ai.categorize.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
@@ -919,21 +934,334 @@ export default function QueueAI(){
             }
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Looking for categories"})
             dispatchControlUpdate(target.id, field , {status: "pending"})
-            instance.add(`mark_${primitive.id}` , {id: primitive.id, action: action, targetId: target.id, mode: "categorize", field: field})
+            _queue.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: "categorize", field: field})
         }
         return true
     }
     
-    new Worker('aiQueue', async job => {
-//"gpt4"
-        console.log('AI QUEUE GOT JOB')
-        if( !active ){
-            console.log(`! QUEUE NOT ACTIVE - ignoring`)
-            return
+    return instance
+    
+}
+
+async function treeToCluster( tree, primitive){
+    let id = 0
+    let nodeCount = 0
+    const lookup = {}
+    const labelTree = (node, parent )=>{
+        node.id = id
+        if( parent){
+            node.parent = parent            
         }
+        lookup[node.id] = node
+        id++
+        if( node.isLeaf){
+            nodeCount++
+        }else{
+            for(const c of node.children){
+                labelTree(c, node)
+            }
+        }
+    }
+    const run = (targetH) => {
+        let latch = false
+        const nodes = {}
+        const flattenTree = (node, parent, unpack)=>{
+
+            if( unpack ){
+                if(!nodes[parent]){
+                    nodes[parent] = {primitives: [], id: parent}
+                }
+                if( node.isLeaf ){
+                    //nodes[parent].primitives.push( node.primitiveId)
+                    nodes[parent].primitives = nodes[parent].primitives.concat( node.primitiveIds)
+                }else{
+                    for(const c of node.children){
+                        flattenTree(c, parent, true)
+                    }
+                }
+            }else{
+                if( node.height > targetH ){
+                    for(const c of node.children){
+                        flattenTree(c, undefined, false)
+                    }
+                }else{
+                    if( node.isLeaf){
+                        nodes[node.id] = {primitives: node.primitiveIds, id: node.id, wasLeaf: true}
+                    }else{
+                        for(const c of node.children){
+                            flattenTree(c, node.id, true)
+                        }
+                    }
+                }
+            }
+        }
+        flattenTree(tree)
+        return nodes
+    }
+
+    labelTree( tree )
+
+    const alignTree = (minClusters)=>{
+
+        let nodes
+        let clusterCount
+        let singletonClusters
+        let nodeCount
+        let layer1Heights = [...tree.children.map((d)=>d.height)].filter((d)=>d)
+        let targetH
+        if( layer1Heights.length > 0){
+            targetH = layer1Heights.reduce((a,c)=>a+c,0) / layer1Heights.length
+            let maxIter = 20
+            do{
+                nodes = run(targetH)
+                clusterCount = Object.keys(nodes).length
+                nodeCount = Object.values(nodes).map((d)=>d.length).reduce((a,c)=>a+c,0)
+
+                singletonClusters = Object.values(nodes).filter((d)=>d.primitives && d.primitives.length === 1).length
+                targetH *= 0.95
+            }while( (maxIter-- > 0) && (clusterCount < minClusters ) && singletonClusters === 0 )
+            if( singletonClusters > 0){
+                console.log(`backing up`)
+                targetH /= 0.95
+                nodes = run(targetH)
+                clusterCount = Object.keys(nodes).length
+
+            }
+        }
+        console.log( `For target ${minClusters} got ${clusterCount} clusters at height ${targetH}`)
+        return nodes
+    }
+    console.log(`Got ${nodeCount} total`)
+    let targetCount = (nodeCount > 500 ? [0.02, 0.015, 0.01,0.0025, 0.0012] : [0.7, 0.3,  0.02]).map((d)=>Math.round(d * nodeCount))
+    targetCount = targetCount.map((d)=>d < 3 ? 3 : d).filter((d,idx,a)=>a.indexOf(d)===idx)
+    console.log(targetCount)
+
+    const findRoutes = (node, targets, found = [], depth = 0)=>{
+        if( targets.includes(node.id) ){
+            found.push( node.id )
+            return found
+        }
+        if( !node.isLeaf ){
+            for( const c of node.children){
+                found = findRoutes( c, targets, found, depth + 1)
+            }                        
+        }
+        return found
+    }
+
+    //const leaves = Object.values(lookup).filter((d)=>d.isLeaf).reduce((a,c)=>{a[c.id]=c;return a},{})
+    const leaves = Object.values(lookup).filter((d)=>d.isLeaf && d.primitiveIds.length > 1).map((d)=>d.id)
+
+    let nodes = {}
+    let lastNodes = nodeCount > 200 ? undefined : leaves
+    if( lastNodes ){
+        for(const k of lastNodes){
+            const starting = lookup[k]
+            nodes[k] = {primitives: starting.primitiveIds, id: k, wasLeaf: true}
+        }
+    }
+    
+    targetCount.forEach((target)=>{
+        const newNodes = alignTree( target )
+        if( newNodes ){
+            if( lastNodes ){
+                let targets = lastNodes
+                for(const cid of Object.keys(newNodes)){
+                    const node = lookup[cid]
+                    if( node ){
+                        const found = findRoutes(node, targets)
+                        if( found.length > 0){
+                            for(const tid of found){
+                                if( tid !== newNodes[cid].id ){
+                                    newNodes[cid].children = newNodes[cid].children || []
+                                    newNodes[cid].children.push(tid)
+                                    nodes[tid].parent = node.id
+                                    if( newNodes[cid].primitives){
+                                        const source = newNodes[cid].sparsePrimitives ? newNodes[cid].sparsePrimitives : newNodes[cid].primitives
+                                        newNodes[cid].sparsePrimitives = source.filter((d)=>!nodes[tid].primitives.includes(d))
+                                    }
+                                }
+                            }
+                            targets = targets.filter((d)=>!found.includes(d))
+                        }
+                    }
+                }
+            }
+            lastNodes = Object.keys(newNodes).map((d)=>parseInt(d))
+            for(const k of Object.keys(newNodes)){
+                nodes[k] = {...(nodes[k] || {}), ...newNodes[k]}
+            }
+        }
+    })
+    Object.values(nodes).forEach((node)=>{
+        if( node.sparsePrimitives){
+            node.primitives = node.sparsePrimitives
+            delete node["sparsePrimitives"]
+        }
+    })
+    
+    nodes[0] = {
+        id: 0,
+        primitives:[],
+        children: Object.values(nodes).filter((d)=>d.parent === undefined).map((d)=>d.id)
+    }
+
+    console.log(Object.values(nodes).map((d)=>d.sparsePrimitives ? d.sparsePrimitives.length : (d.primitives?.length  || 0)).reduce((a,c)=>a+c,0))
+    console.log(nodeCount)
+
+    return nodes
+
+}
+async function summarizeClusters( nodes, primitive ){
+    let needSummary, lastNeed
+    console.log(`Do summary...`)
+    
+
+    let mapP = (d)=>d.title
+    if( primitive && primitive.referenceParameters?.field ){
+        const field = primitive.referenceParameters?.field
+        if( field.slice(0,6) === "param." ){
+            const param = field.slice(6)
+            mapP = (d)=>{
+                let temp = d?.referenceParameters?.[param]
+                    if( Array.isArray(temp) ){
+                        temp = temp.join(", ")
+                    }
+                    return temp
+            }
+        }else{
+            mapP = (d)=>d?.[field]
+        }
+
+    }
+
+    do{
+        lastNeed = needSummary?.length
+        needSummary = Object.values(nodes).filter((d)=>!d.summary)
+        if( needSummary.length > 0 && needSummary.length !== lastNeed){
+            console.log(`${needSummary.length} nodes need a summary (${lastNeed})`)
+            const toProcess = needSummary.filter((d)=>(d.primitives && !d.children) || (d.children && d.children.reduce((a, d)=>a && (d.summary ? true : false), true)))
+            let idx = 0
+            for(const node of toProcess){
+                console.log(node.parent, node.primitives?.length)
+                
+                const items = node.primitives
+                console.log(`Cluster ${idx} / ${toProcess.length} = ${node.id} : ${items?.length} items`)
+                if( items && items.length > 0){
+                    
+                    const list = (await Primitive.find({_id: {$in: items}}))
+                    
+                    let titles = list.map((d)=>mapP(d))
+                    
+                    let summary = await summarizeMultiple( titles, {types: primitive.referenceParameters?.types ||  "problem statements", prompt: primitive.referenceParameters?.prompt ||  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4p"})
+                    if( summary.success ){
+                        node.summary = summary.summary
+                    }
+                }
+                if( node.children && node.children.length > 0){
+                    console.log(`Need to combine with others`)
+                    const summaries = node.children.map((d)=>d.summary)
+                    if( node.summary ){
+                        summaries.push( node.summary )
+                    }
+                    const overall = await summarizeMultiple( summaries, {types: primitive.referenceParameters?.types ||   "problem statements", prompt: primitive.referenceParameters?.combinePrompt ?? primitive.referenceParameters?.prompt ??  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4p"})
+                    if( overall.success ){
+                        console.log(`GOT BACK SUMMARY OF SUMMARY`)
+                        node.summary = overall.summary
+                        
+
+                    }
+
+
+                }
+                console.log(node.summary)
+                idx++    
+            }
+        }
+    }while(needSummary.length > 0 && needSummary.length !== lastNeed)
+    
+    // traverse back down
+    const rewriteLabels = async ( node, path = [])=>{
+        if( node.children && node.children.length > 1){
+            const childLabels = node.children.map((d)=>d.summary )
+            const currentLabel = node.short || node.summary
+            const thisPath = [...path, currentLabel]
+
+            console.log(`----- depth = ${thisPath.length}`)
+            console.log( thisPath )
+            console.log(childLabels)
+            const rewrites = await simplifyHierarchy( thisPath, childLabels, {engine: "gpt4p"})
+            console.log(rewrites)
+            if( rewrites.success){
+                for(const r of rewrites.summaries){
+                    const childNode = node.children[ r.id ]
+                    if( childNode ){
+                            childNode.label = r.label
+                            childNode.short = r.description
+                        await rewriteLabels( childNode, thisPath )
+                    }
+                }
+            }
+            
+        }
+    }
+
+    await rewriteLabels( nodes["0"])
+
+
+    return nodes
+}
+export async function processQueue(job){
+        console.log('AI QUEUE GOT JOB')
         const action = job.data.action
+        console.log(action)
         const primitive = await Primitive.findOne({_id: job.data.id})
+        console.log(action, primitive.id)
         if( primitive){
+            if( job.data.mode === "rebuild_summary"){
+                console.log(`--> Rebuilding sumamry in queue`)
+                    const config = await getConfig(primitive)
+
+                    const parent = await fetchPrimitive( primitiveOrigin( primitive ) )
+                    const thisCategory = await Category.findOne({id: parent.referenceId})
+                    let result
+                    
+                    if( thisCategory?.type === "comparator"){
+                        if( config.compare_type == "streamline"){
+                            console.log(`Need to re-run parent`)
+                            await doPrimitiveAction(parent, "custom_query", {force: true})
+                            done = true
+                        }else{
+                            const segment = (await primitiveParentsOfType(primitive, "segment"))?.[0]
+                            if( segment ){
+                                const parentForScope = (await primitiveParentsOfType(segment, ["working", "view", "segment", "query"]))?.[0] ?? segment
+                                result = await comapreToPeers( parentForScope, segment, primitive, config)
+                                if( typeof(result) === "object"){
+                                    dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
+                                    result = result.plain
+                                }
+                            }else{
+                                console.log(`Couldnt get parent segment for ${primitive.id} / ${primitive.plainId} in compare_to_peers`)
+                            }
+                        }
+                    }else{
+                        if( config.verify || config.structure){
+                            try{
+                                result = await summarizeWithQuery(primitive)
+                                if( result ){
+                                    dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
+                                    result = result.plain
+                                }
+                            }catch(error){
+                                console.log(`error in summarizeWithQuery call`)
+                                console.log(error)
+                            }
+                        }else{
+                            result = await doPrimitiveAction(primitive, "auto_summarize", {...config, action_override: true})
+                        }
+                    }
+                    dispatchControlUpdate( primitive.id, "referenceParameters.summary", result)
+            }
             if( job.data.mode === "define_axis" ){
                 try{
                     await defineAxis( primitive, action )
@@ -1645,288 +1973,6 @@ export default function QueueAI(){
                 dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
                 dispatchControlUpdate(job.data.targetId, job.data.field , null)
             }
-        }
+    }
         
-    },
-    {
-        connection: { 
-            host: process.env.QUEUES_REDIS_HOST, 
-            port: process.env.QUEUES_REDIS_PORT,
-        },
-        skipStalledCheck: true,
-        maxStalledCount: 0,
-        removeOnFail: true,
-        stalledInterval:300000
-    });
-    return instance
-    
-}
-
-async function treeToCluster( tree, primitive){
-    let id = 0
-    let nodeCount = 0
-    const lookup = {}
-    const labelTree = (node, parent )=>{
-        node.id = id
-        if( parent){
-            node.parent = parent            
-        }
-        lookup[node.id] = node
-        id++
-        if( node.isLeaf){
-            nodeCount++
-        }else{
-            for(const c of node.children){
-                labelTree(c, node)
-            }
-        }
-    }
-    const run = (targetH) => {
-        let latch = false
-        const nodes = {}
-        const flattenTree = (node, parent, unpack)=>{
-
-            if( unpack ){
-                if(!nodes[parent]){
-                    nodes[parent] = {primitives: [], id: parent}
-                }
-                if( node.isLeaf ){
-                    //nodes[parent].primitives.push( node.primitiveId)
-                    nodes[parent].primitives = nodes[parent].primitives.concat( node.primitiveIds)
-                }else{
-                    for(const c of node.children){
-                        flattenTree(c, parent, true)
-                    }
-                }
-            }else{
-                if( node.height > targetH ){
-                    for(const c of node.children){
-                        flattenTree(c, undefined, false)
-                    }
-                }else{
-                    if( node.isLeaf){
-                        nodes[node.id] = {primitives: node.primitiveIds, id: node.id, wasLeaf: true}
-                    }else{
-                        for(const c of node.children){
-                            flattenTree(c, node.id, true)
-                        }
-                    }
-                }
-            }
-        }
-        flattenTree(tree)
-        return nodes
-    }
-
-    labelTree( tree )
-
-    const alignTree = (minClusters)=>{
-
-        let nodes
-        let clusterCount
-        let singletonClusters
-        let nodeCount
-        let layer1Heights = [...tree.children.map((d)=>d.height)].filter((d)=>d)
-        let targetH
-        if( layer1Heights.length > 0){
-            targetH = layer1Heights.reduce((a,c)=>a+c,0) / layer1Heights.length
-            let maxIter = 20
-            do{
-                nodes = run(targetH)
-                clusterCount = Object.keys(nodes).length
-                nodeCount = Object.values(nodes).map((d)=>d.length).reduce((a,c)=>a+c,0)
-
-                singletonClusters = Object.values(nodes).filter((d)=>d.primitives && d.primitives.length === 1).length
-                targetH *= 0.95
-            }while( (maxIter-- > 0) && (clusterCount < minClusters ) && singletonClusters === 0 )
-            if( singletonClusters > 0){
-                console.log(`backing up`)
-                targetH /= 0.95
-                nodes = run(targetH)
-                clusterCount = Object.keys(nodes).length
-
-            }
-        }
-        console.log( `For target ${minClusters} got ${clusterCount} clusters at height ${targetH}`)
-        return nodes
-    }
-    console.log(`Got ${nodeCount} total`)
-    let targetCount = (nodeCount > 500 ? [0.02, 0.015, 0.01,0.0025, 0.0012] : [0.7, 0.3,  0.02]).map((d)=>Math.round(d * nodeCount))
-    targetCount = targetCount.map((d)=>d < 3 ? 3 : d).filter((d,idx,a)=>a.indexOf(d)===idx)
-    console.log(targetCount)
-
-    const findRoutes = (node, targets, found = [], depth = 0)=>{
-        if( targets.includes(node.id) ){
-            found.push( node.id )
-            return found
-        }
-        if( !node.isLeaf ){
-            for( const c of node.children){
-                found = findRoutes( c, targets, found, depth + 1)
-            }                        
-        }
-        return found
-    }
-
-    //const leaves = Object.values(lookup).filter((d)=>d.isLeaf).reduce((a,c)=>{a[c.id]=c;return a},{})
-    const leaves = Object.values(lookup).filter((d)=>d.isLeaf && d.primitiveIds.length > 1).map((d)=>d.id)
-
-    let nodes = {}
-    let lastNodes = nodeCount > 200 ? undefined : leaves
-    if( lastNodes ){
-        for(const k of lastNodes){
-            const starting = lookup[k]
-            nodes[k] = {primitives: starting.primitiveIds, id: k, wasLeaf: true}
-        }
-    }
-    
-    targetCount.forEach((target)=>{
-        const newNodes = alignTree( target )
-        if( newNodes ){
-            if( lastNodes ){
-                let targets = lastNodes
-                for(const cid of Object.keys(newNodes)){
-                    const node = lookup[cid]
-                    if( node ){
-                        const found = findRoutes(node, targets)
-                        if( found.length > 0){
-                            for(const tid of found){
-                                if( tid !== newNodes[cid].id ){
-                                    newNodes[cid].children = newNodes[cid].children || []
-                                    newNodes[cid].children.push(tid)
-                                    nodes[tid].parent = node.id
-                                    if( newNodes[cid].primitives){
-                                        const source = newNodes[cid].sparsePrimitives ? newNodes[cid].sparsePrimitives : newNodes[cid].primitives
-                                        newNodes[cid].sparsePrimitives = source.filter((d)=>!nodes[tid].primitives.includes(d))
-                                    }
-                                }
-                            }
-                            targets = targets.filter((d)=>!found.includes(d))
-                        }
-                    }
-                }
-            }
-            lastNodes = Object.keys(newNodes).map((d)=>parseInt(d))
-            for(const k of Object.keys(newNodes)){
-                nodes[k] = {...(nodes[k] || {}), ...newNodes[k]}
-            }
-        }
-    })
-    Object.values(nodes).forEach((node)=>{
-        if( node.sparsePrimitives){
-            node.primitives = node.sparsePrimitives
-            delete node["sparsePrimitives"]
-        }
-    })
-    
-    nodes[0] = {
-        id: 0,
-        primitives:[],
-        children: Object.values(nodes).filter((d)=>d.parent === undefined).map((d)=>d.id)
-    }
-
-    console.log(Object.values(nodes).map((d)=>d.sparsePrimitives ? d.sparsePrimitives.length : (d.primitives?.length  || 0)).reduce((a,c)=>a+c,0))
-    console.log(nodeCount)
-
-    return nodes
-
-}
-async function summarizeClusters( nodes, primitive ){
-    let needSummary, lastNeed
-    console.log(`Do summary...`)
-    
-
-    let mapP = (d)=>d.title
-    if( primitive && primitive.referenceParameters?.field ){
-        const field = primitive.referenceParameters?.field
-        if( field.slice(0,6) === "param." ){
-            const param = field.slice(6)
-            mapP = (d)=>{
-                let temp = d?.referenceParameters?.[param]
-                    if( Array.isArray(temp) ){
-                        temp = temp.join(", ")
-                    }
-                    return temp
-            }
-        }else{
-            mapP = (d)=>d?.[field]
-        }
-
-    }
-
-    do{
-        lastNeed = needSummary?.length
-        needSummary = Object.values(nodes).filter((d)=>!d.summary)
-        if( needSummary.length > 0 && needSummary.length !== lastNeed){
-            console.log(`${needSummary.length} nodes need a summary (${lastNeed})`)
-            const toProcess = needSummary.filter((d)=>(d.primitives && !d.children) || (d.children && d.children.reduce((a, d)=>a && (d.summary ? true : false), true)))
-            let idx = 0
-            for(const node of toProcess){
-                console.log(node.parent, node.primitives?.length)
-                
-                const items = node.primitives
-                console.log(`Cluster ${idx} / ${toProcess.length} = ${node.id} : ${items?.length} items`)
-                if( items && items.length > 0){
-                    
-                    const list = (await Primitive.find({_id: {$in: items}}))
-                    
-                    let titles = list.map((d)=>mapP(d))
-                    
-                    let summary = await summarizeMultiple( titles, {types: primitive.referenceParameters?.types ||  "problem statements", prompt: primitive.referenceParameters?.prompt ||  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4p"})
-                    if( summary.success ){
-                        node.summary = summary.summary
-                    }
-                }
-                if( node.children && node.children.length > 0){
-                    console.log(`Need to combine with others`)
-                    const summaries = node.children.map((d)=>d.summary)
-                    if( node.summary ){
-                        summaries.push( node.summary )
-                    }
-                    const overall = await summarizeMultiple( summaries, {types: primitive.referenceParameters?.types ||   "problem statements", prompt: primitive.referenceParameters?.combinePrompt ?? primitive.referenceParameters?.prompt ??  "State the underlying problem that the problem statements have in common in more more than 30 words in the form 'Problems related to...'", engine: "gpt4p"})
-                    if( overall.success ){
-                        console.log(`GOT BACK SUMMARY OF SUMMARY`)
-                        node.summary = overall.summary
-                        
-
-                    }
-
-
-                }
-                console.log(node.summary)
-                idx++    
-            }
-        }
-    }while(needSummary.length > 0 && needSummary.length !== lastNeed)
-    
-    // traverse back down
-    const rewriteLabels = async ( node, path = [])=>{
-        if( node.children && node.children.length > 1){
-            const childLabels = node.children.map((d)=>d.summary )
-            const currentLabel = node.short || node.summary
-            const thisPath = [...path, currentLabel]
-
-            console.log(`----- depth = ${thisPath.length}`)
-            console.log( thisPath )
-            console.log(childLabels)
-            const rewrites = await simplifyHierarchy( thisPath, childLabels, {engine: "gpt4p"})
-            console.log(rewrites)
-            if( rewrites.success){
-                for(const r of rewrites.summaries){
-                    const childNode = node.children[ r.id ]
-                    if( childNode ){
-                            childNode.label = r.label
-                            childNode.short = r.description
-                        await rewriteLabels( childNode, thisPath )
-                    }
-                }
-            }
-            
-        }
-    }
-
-    await rewriteLabels( nodes["0"])
-
-
-    return nodes
 }

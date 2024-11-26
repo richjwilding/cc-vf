@@ -471,17 +471,15 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
     const renderWidth = (config.width - config.padding[3] - config.padding[1]) * (doBoth ? 0.45 : 1)
     const renderHeight = config.height - config.padding[0] - config.padding[2]
-    let period = "day"
+    let period = "month"
 
     let showPercChange = true
 
     if( options.getConfig){
         const years = parseInt(primitive.renderConfig?.range ?? "1") 
         const endDate = primitive.renderConfig?.end ? new Date(primitive.renderConfig?.end) : new Date()
-        //const startDate = moment(endDate).subtract(years, "year")
-        const startDate = moment(endDate).subtract(1, "Q").toDate()
-        //const endDate = new Date('Wed Oct 10 2024 23:59:59 GMT+0100 (British Summer Time)')
-        //const startDate = moment(endDate).subtract(2, "months")
+        const startDate = moment(endDate).subtract(years, "year")
+        //const startDate = moment(endDate).subtract(1, "Q").toDate()
         config.data = CollectionUtils.convertToTimesSeries( 
                                         options.list, 
                                         {
