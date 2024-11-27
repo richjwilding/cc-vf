@@ -120,7 +120,7 @@ export default function EnrichPrimitive(){
         }
     }
     
-    _queue = new QueueManager("enrich", undefined, 3 );
+    _queue = new QueueManager("enrich", undefined, 1 );
     
     instance.myInit = async ()=>{
         console.log("Enrich Queue")

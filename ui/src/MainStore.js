@@ -1749,6 +1749,36 @@ function MainStore (prims){
                             }
                         }
                     }
+                    if( prop === "filterTargets"){
+                        if( receiver.referenceParameters?.importConfig ){
+                            const idsToLookup = []
+                            let relationships = []
+                            let doImport
+                            receiver.referenceParameters.importConfig.forEach(d=>{
+                                return d.filters.forEach( d=>{
+                                    if( d.type === "parent"){
+                                        idsToLookup.push(d.value)
+                                    }else if( d.type === "title" || d.type === "parameter"){
+                                        doImport = true
+                                        relationships.push(d.relationship)
+                                    }
+                                })
+                            })
+                            if( doImport && relationships.length > 0){
+                                let items = receiver.itemsForProcessing
+                                let mapped = []
+                                for(const rel of relationships){
+                                    mapped.push(items.flatMap(d=>d.relationshipAtLevel(rel, rel.length)))
+                                }
+                                mapped = uniquePrimitives(mapped.flat(Infinity))
+                                return mapped
+                            }
+                            if( idsToLookup.length > 0){
+                                return uniquePrimitives(idsToLookup.flatMap(d=>obj.primitive(d).filterTargets))
+                            }
+                            return []
+                        }
+                    }
                     if( prop === "filterDescription"){
                         if( receiver.referenceParameters?.importConfig ){
                             const idsToLookup = [], frags = []
@@ -1762,7 +1792,8 @@ function MainStore (prims){
                                 })
                             })
                             if( idsToLookup.length > 0){
-                                const segmentName = idsToLookup.map(d=>obj.primitive(d)?.title).filter(d=>d).join(", ")
+                                //const segmentName = idsToLookup.map(d=>obj.primitive(d)?.title).filter(d=>d).join(", ")
+                                const segmentName = idsToLookup.map(d=>obj.primitive(d)?.filterDescription).filter(d=>d).join(", ")
                                 return segmentName
                             }
                             return frags.join(", ")

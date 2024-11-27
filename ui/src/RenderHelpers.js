@@ -1822,7 +1822,7 @@ registerRenderer( {type: "default",  configs: "overview"}, (primitive, options =
             y: config.padding[0] + oy + 16,
             fontSize: config.fontSize,
             lineHeight: 1.5,
-            text: primitive.referenceParameters.description.slice(0,150),
+            text: primitive.referenceParameters?.description?.slice(0,150) ?? "",
             fill: '#334155',
             wrap: true,
             refreshCallback: options.imageCallback,

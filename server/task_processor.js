@@ -755,7 +755,7 @@ export async function comapreToPeers( parent, activeSegment, primitive, options 
         const fullText = `The data is a set of summaries for different segements - i need your help to compare and contrast these segments with one i am particularly interested in. Here are the peer segments for context:\n ${otherText}\n\nAnd here is the target segement to update:\n ${activeText}\n---END OF SEGMENT\n\n`
 
         let result
-        let prompt = (config.summary_type === "custom" ? config.prompt : undefined) ?? "Compare all of the segments and then highlight what is unique about the one i am interested in"
+        let prompt = (config.prompt ? config.prompt : undefined) ?? "Compare all of the segments and then highlight what is unique about the one i am interested in"
         const streamline = await summarizeMultiple([fullText],{
             prompt,
             output: structured ? "Generate a n new output for the segment im interested in in a json object with a field called 'new_segment'. The field must be in the same structure as the input for this segment - including nested subsections - but with the relevant content fields updated where necessary - add a 'omit' field to any subsections which should be removed from this segment. Ensure you consider and include every entry in the input array - and every nested subsection of this segment."

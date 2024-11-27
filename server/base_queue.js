@@ -43,9 +43,15 @@ class QueueManager {
     async initializeActiveQueues() {
         // Retrieve active queues from Redis
         const activeQueues = await this.redis.sMembers('activeQueues');
-        activeQueues.forEach(queueName => {
-            this.getQueue(queueName.split('-')[0]);
-        });
+        for(const queueName of activeQueues ){
+            const { activeCount, lastActivity } = await this.getQueueActivity(queueName);
+            if (activeCount > 0 ) {
+                console.log(`Have ${activeCount} items in queue ${queueName}- starting`)
+                this.getQueue(queueName.split('-')[0]);
+            }else{
+                console.log(`No active items in queue  ${queueName}`)
+            }
+        }
     }
 
     async markQueueActive(workspaceId) {
@@ -178,6 +184,8 @@ class QueueManager {
                     });
                     worker.on('error', (error) => {
                         console.error(`Error in worker for queue ${queueName}:`, error);
+                        console.log(error?.reason)
+                        console.log(Object.values(error?.reason?.servers ?? {}))
                     });
                     worker.on('exit', (code) => {
                         if (code !== 0) {

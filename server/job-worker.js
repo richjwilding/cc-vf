@@ -36,9 +36,21 @@ async function getProcessFunction(type) {
 }
 (async () => {
 
-    mongoose.set('strictQuery', false);
-    mongoose.connect(process.env.MONGOOSE_URL)
-    console.log(`[Worker] Connected to MongoDB`);
+    let connection
+    try{
+
+        mongoose.set('strictQuery', false);
+        connection = mongoose.connect(process.env.MONGOOSE_URL,{
+            maxPoolSize: 2
+        })
+        console.log(`[Worker] Connected to MongoDB`);
+    }catch(e){
+        console.log(`Couldnt connection mongo`)
+        console.log(e)
+        console.log(e?.reason)
+        console.log(e?.reason?.servers)
+        console.log(Object.values(e?.reason?.servers ?? {}))
+    }
     
     const redisClient = createClient({ socket: { host: workerData.redisOptions.host, port: workerData.redisOptions.port } });
     await redisClient.connect();

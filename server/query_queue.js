@@ -484,7 +484,7 @@ export default function QueryQueue(){
         }
     }
     
-    _queue = new QueueManager("query", /*processQueue*/ undefined, 2 );
+    _queue = new QueueManager("query", /*processQueue*/ undefined, 1);
     
     instance.myInit = async ()=>{
         console.log("Query Queue v2")

@@ -140,7 +140,7 @@ export default function BrightDataQueue(){
         }
     }
     
-    _queue = new QueueManager("brightdata", processQueue, 2 );
+    _queue = new QueueManager("brightdata", processQueue, 1 );
     
     instance.myInit = async ()=>{
         console.log("Brightdata")
