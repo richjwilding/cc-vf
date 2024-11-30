@@ -2029,6 +2029,18 @@ function MainStore (prims){
                         d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports")) : []
                         return d._ppIdCache
                     }
+                    if( prop === "parentPrimitiveIdsAsSource"){
+                        let out = []
+                        if( d.parentPrimitives ){
+                            out = Object.keys(d.parentPrimitives).filter(k=>{
+                                return d.parentPrimitives[k].some(d => d.startsWith("primitives.source"))
+                            })
+                        }
+                        return out
+                    }
+                    if( prop === "parentPrimitivesAsSource"){
+                        return receiver.parentPrimitiveIdsAsSource.map(d=>obj.primitive(d))
+                    }
                     if( prop === "parentPrimitiveWithRelationship"){
                         return (relationship)=>{
                             let out

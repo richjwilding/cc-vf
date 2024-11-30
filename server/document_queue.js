@@ -1048,7 +1048,7 @@ export default function QueueDocument(){
 
         }
     }
-    _queue = new QueueManager("document", /*processQueue*/ undefined, 1 );
+    _queue = new QueueManager("document", /*processQueue*/ undefined, 2 );
     
     instance.doDataQuery = async ( primitive, options )=>{
         const workspaceId = primitive.workspaceId

@@ -602,6 +602,7 @@ export default function ReportViewExporter({primitive, ...props}){
                                     //canvas:(id)=>setCollectionPaneInfo(),
                                 }
                             }}
+                            framePositions={primitive.frames}
                             selectable={{
                                 "frame":{
                                     multiple: false

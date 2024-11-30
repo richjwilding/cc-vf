@@ -58,6 +58,7 @@ let mainstore = MainStore()
         const renderOptions = view.renderConfigOverride ?? {}
         const configNames = ["width", "height"]
 
+
         const title = view.noTitle ? undefined : ()=>`${d.title} - #${d.plainId}`
         const canvasMargin = view.noTitle ? [0,0,0,0] : [20,20,20,20]
 
@@ -106,18 +107,22 @@ let mainstore = MainStore()
                     }
                 }
             }
-            return {id: d.id, title, canChangeSize: "width", canvasMargin, items: render}
+            return {id: d.id, parentRender: view.parentRender, title, canChangeSize: "width", canvasMargin, items: render}
         }else if( view.config === "cat_overview"){
             return {
                 id: d.id, 
+                parentRender: view.parentRender, 
                 title, 
                 canChangeSize: "width", 
                 canvasMargin, 
                 items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, config: "cat_overview", data: view.renderData})
             }
+        }else if( view.config === "flow"){
+            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, data: view.renderData})
+            return {id: d.id, parentRender: view.parentRender, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render}
         }else if( view.config === "widget"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
+            return {id: d.id, parentRender: view.parentRender, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
         }else if( view.config === "report_set"){
 
 
@@ -125,6 +130,7 @@ let mainstore = MainStore()
                     title, 
                     canChangeSize: "width", 
                     canvasMargin, 
+                    parentRender: view.parentRender, 
                     items: (stageOptions)=>RenderSetAsKonva(
                                                             view.primitive, 
                                                             view.list, 
@@ -140,18 +146,22 @@ let mainstore = MainStore()
         }
         
         if( d.type === "query" && d.processing?.ai?.data_query){
-            return {id: d.id, title, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions, ...renderOptions})}
+            return {id: d.id, parentRender: view.parentRender, title, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions, ...renderOptions})}
         }
 
         const canChangeSize = view?.viewConfig?.resizable 
 
-        return {id: d.id, title, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
+        return {id: d.id ,parentRender: view.parentRender, title, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
 
     }
 
     function SharedPrepareBoard(d, myState, element, forceViewConfig){
         let didChange = false
         let stateId = element ? element.id : d.id
+        if( !myState[stateId]){
+                myState[stateId] = {id: stateId}
+        }
+        myState[stateId].isBoard = true
         const oldConfig = myState[stateId]?.config
         if( d.type === "view" || d.type === "query"){
             const items = d.itemsForProcessing
@@ -305,6 +315,16 @@ let mainstore = MainStore()
                 row:[{idx: undefined, label: ''}]
             }
             myState[stateId].toggles = {}
+        }else if( d.type === "actionrunner" ){
+
+
+            myState[stateId].primitive = d
+            myState[stateId].config = "widget"
+            myState[stateId].renderData = {
+                //icon: HeroIcon({icon: d.metadata.icon, asString: true, stroke: "#ff0000", width: 12, height: 12}),
+                icon: <HeroIcon icon='FARun'/>,
+                count: d.primitives.uniqueAllIds.length
+            }
         }else if( d.type === "search" ){
 
             const resultCategory = mainstore.category( d.metadata.parameters.sources.options[0].resultCategoryId )
@@ -317,6 +337,26 @@ let mainstore = MainStore()
                 items: resultCategory.plural ?? resultCategory.title + "s",
                 count: d.primitives.uniqueAllIds.length
             }
+        }else if( d.type === "flow" ){
+            myState[stateId].primitive = d
+            myState[stateId].config = "flow"
+            myState[stateId].renderData = {
+                //icon: HeroIcon({icon: d.metadata.icon, asString: true, stroke: "#ff0000", width: 12, height: 12}),
+                icon: <HeroIcon icon='CogIcon'/>,
+                count: d.primitives.uniqueAllIds.length
+            }
+
+            const childNodes = d.primitives.origin.uniqueAllItems
+
+            for(const child of childNodes){
+                if( child.type === "flowinstance"){
+                    continue
+                }
+                console.log(`- preparing child of flow ${child.plainId} ${child.type}`)
+                SharedPrepareBoard(child, myState)
+                myState[child.id].parentRender = d.id
+            }
+            console.log(`Flow children done`)
         }
         if( myState[stateId] && forceViewConfig){
             myState[stateId].renderConfigOverride = forceViewConfig.renderConfig
@@ -488,7 +528,7 @@ export default function BoardViewer({primitive,...props}){
 
     const [boards,  renderedSet] = useMemo(()=>{
         console.log(`--- REDO BOARD RENDER ${primitive?.id}, ${update}`)
-        const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery,...primitive.primitives.allUniqueSearch]
+        const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery,...primitive.primitives.allUniqueSearch,...primitive.primitives.allUniqueFlow]
         
         for(const d of boards){
             if(!myState[d.id] ){
@@ -496,27 +536,52 @@ export default function BoardViewer({primitive,...props}){
                 prepareBoard(d)
             }
         }
-        const renderedSet = boards.map(d=>renderView(d))
-        return [boards, renderedSet]
+        //const renderedSet = boards.map(d=>renderView(d))
+        //const renderedSet = boards.map(d=>renderView(d))
+        //return [boards, renderedSet]
+        const allBoards = Object.values(myState).filter(d=>d && d.isBoard).map(d=>d.primitive)
+        const renderedSet = allBoards.map(d=>renderView(d))
+        return [allBoards, renderedSet]
     }, [primitive?.id, update])
         
 
     const linkList = useMemo(()=>{
-                        let p1 = performance.now()
+        let p1 = performance.now()
+        let itemCache = {}
+        function getItemList( item ){
+            let list = itemCache[item.id]
+            if( !list){
+                itemCache[item.id] = item.itemsForProcessing
+                list = itemCache[item.id]
+            }
+            return list ?? []
+        }
         let links = boards.map(left=>{
             let segmentSummaries
             return boards.map(right=>{
-                                if( right.referenceId === 118){
-                                    return
-                                }
+                if( right.referenceId === 118){
+                    return
+                }
                 if( left.id !== right.id){
                     let segment
                     if( right.parentPrimitiveIds.includes(left.id) ){
-                        return {left: left.id, right: right.id}
+                        const sources = right.parentPrimitiveIdsAsSource
+                        if( sources.length > 0){
+                            let ids = getItemList(left).map(d=>d.id)
+                            if( sources.some(d=>ids.includes(d))){
+                                return {left: left.id, right: right.id}
+                            }
+                        }
+                        if( left.type === "flow" ){
+                            if(right.primitives.imports.allIds.includes(left.id)){
+                                return {left: left.id, right: right.id, leftPin: "input"}
+                            }
+                        }else{
+                            return {left: left.id, right: right.id}
+                        }
                     }else{
                         const route = right.findImportRoute(left.id)
                         if( route.length > 0){
-
                             //console.log(`Checking view import ${left.plainId} -> ${right.plainId} ()`)
                             for(const axis of ["row","column"]){
                                 if( left.referenceParameters?.explore?.axis?.[axis]?.type === "category" ){
@@ -634,9 +699,11 @@ export default function BoardViewer({primitive,...props}){
         const board = myState[fId]
         if( width ){
             primitive.setField(`frames.${fId}.width`, width)
+            canvas.current.updateFramePosition( fId, {width: width})
         }
         if( height ){
             primitive.setField(`frames.${fId}.height`, height)
+            canvas.current.updateFramePosition( fId, {height: height})
         }
         canvas.current.refreshFrame( board.id, renderView(board.primitive))
     }
@@ -741,6 +808,7 @@ export default function BoardViewer({primitive,...props}){
 
         if( position ){
             primitive.setField(`frames.${d.id}`, {x: position.x, y: position.y, s: position.s})
+            canvas.current.updateFramePosition( d.id,  {x: position.x, y: position.y, s: position.s})
         }
 
         canvas.current.addFrame( renderView(d))
@@ -964,20 +1032,107 @@ export default function BoardViewer({primitive,...props}){
         }
         return position
     }
+    async function getOrCreateSuitableView(item){
+        const manual = primitive.primitives.manual.allUniqueSegment[0]
+        if(!manual){
+            console.log(`Can't find maual`)
+            return
+        }
+        const views = primitive.primitives.origin.allUniqueView.filter(d=>{
+            if(d.doesImport(manual)){
+                if( d.referenceParameters?.referenceId === item.referenceId){
+                    return true
+                }
+                if( Array.isArray(d.referenceParameters?.referenceId) && d.referenceParameters.referenceId.includes(item.referenceId)){
+                    return true
+                }
+            } 
+            return false
+        })
+        if( views.length > 0){
+            console.log(`Got view`)
+            return views[0]
+        }
+        console.log(`Need to create vew`)
+        const result = await MainStore().createPrimitive({
+            title: item.metadata?.plural ?? item.metadata?.title ?? "View",
+            type: "view",
+            parent: primitive,
+            parentPath: "origin",
+            workspaceId: primitive.workspaceId
+        })
+        let view = await mainstore.waitForPrimitive( result.id )
+        if( view ){
+            await primitive.addRelationshipAndWait(view, "ref")
+            await view.addRelationshipAndWait(manual, "imports")
+            addBoardToCanvas( view, findSpace())
+        }
+
+    }
+    window.getTest = getOrCreateSuitableView
     function pickNewItem(){
        // addBlankView()
 
 
-       const categoryList = mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id)
+
+        const addToFlow = (myState.activeBoard && myState.activeBoard.primitive?.type === "flow") ? myState.activeBoard.primitive : undefined
+
+       const categoryList = [
+        mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
+        addToFlow ? [] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id),
+       ].flat()
 
         mainstore.globalNewPrimitive({
-            title: "Add to board",
+            title: addToFlow ? `Add to ${addToFlow.title} flow` : "Add to board",
             //categoryId: [38, 117, 81, 118],
-            categoryId: [38, 118, ...categoryList],
+            categoryId: [38, 130, 131, 118, ...categoryList],
             parent: primitive,
-            callback:(d)=>{
-                addBoardToCanvas( d, findSpace())
-                return true
+            beforeCreate:async (data)=>{
+                if( addToFlow ){
+                    return {
+                        ...data,
+                        parent: addToFlow
+                    }
+
+                }else{
+                    if( data.type === "entity"){
+                        console.log(`Entity selected - need to add to manual segment`)
+                        let segment = primitive.primitives.manual.allUniqueSegment[0]
+                        if( !segment ){
+                            console.log(`Manual doesnt exist - creating`)
+                            const result = await MainStore().createPrimitive({
+                                title: `Manual segment for Board ${primitive.plainId}`,
+                                type: "segment",
+                                parent: primitive,
+                                parentPath: "manual",
+                                workspaceId: primitive.workspaceId
+                            })
+                            segment = await mainstore.waitForPrimitive( result.id )
+                        }
+                        if( segment ){
+                            console.log(`Got manual segment`)
+                            return {
+                                ...data,
+                                parent: segment
+                            }
+                        }
+                        throw "Cant add to board - couldnt find manual segment"
+                    }
+                }
+                return data
+            },
+            callback:async (d)=>{
+                if( d ){
+                    if( addToFlow ){
+                        console.log(`Added to flow`)
+                    }else{
+                        if(d.type === "entity"){
+                            await getOrCreateSuitableView(d)
+                        }
+                        addBoardToCanvas( d, findSpace())
+                    }
+                    return true
+                }
             }
         })
     }
@@ -1137,6 +1292,13 @@ export default function BoardViewer({primitive,...props}){
         }
     }
 
+    const flowChildPositions = Object.values(myState).filter(d=>d && d.isBoard && d.primitive?.type === "flow").reduce((a,d)=>({...a,...d.primitive.frames}),{})
+    
+    let framePositions = {
+        ...primitive.frames,
+        ...flowChildPositions
+    }
+
     return <>
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
@@ -1216,9 +1378,17 @@ export default function BoardViewer({primitive,...props}){
                                 frameMove: (d)=>{
                                     const prim = MainStore().primitive(d.id)
                                     if(prim){
-                                        const expand = primitive.frames?.[d.id]?.expand ?? {}
-                                        const width = primitive.frames?.[d.id]?.width
-                                        primitive.setField(`frames.${d.id}`, {x: d.x, y: d.y, s: d.s, width, expand })
+
+                                        let target = primitive
+                                        if( myState[d.id].parentRender ){
+                                            target = myState[myState[d.id].parentRender].primitive
+                                            console.log(`Will update position in flow parent`)
+                                        }
+
+                                        const expand = target.frames?.[d.id]?.expand ?? {}
+                                        const width = target.frames?.[d.id]?.width
+                                        target.setField(`frames.${d.id}`, {x: d.x, y: d.y, s: d.s, width, expand })
+                                        canvas.current.updateFramePosition( d.id, {x: d.x, y: d.y, s: d.s})
                                     }
                                 },
                                 onClick:{
@@ -1257,6 +1427,7 @@ export default function BoardViewer({primitive,...props}){
                                             }
                                             console.log(key, current)
                                             primitive.setField(`frames.${frameId}.expand`, current)
+                                            canvas.current.updateFramePosition( frameId, {expand: current})
                                             canvas.current.refreshFrame( frameId)
                                         }
                                     }
@@ -1292,6 +1463,7 @@ export default function BoardViewer({primitive,...props}){
                                 },
                             }}
                             frameLinks={linkList}
+                            framePositions={framePositions}
                             selectable={{
                                 "frame":{
                                     multiple: true

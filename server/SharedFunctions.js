@@ -26,6 +26,7 @@ import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helpe
 import { enrichPrimitiveViaBrightData, fetchSERPViaBrightData, handleCollection, restartCollection } from './brightdata';
 import BrightDataQueue, { enrichmentDuplicationCheck } from './brightdata_queue';
 import { runAction } from './action_helper';
+import "./workflow.js"
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -51,7 +52,7 @@ export async function findResultSetForType(primitive, type){
 }
 export async function findResultSetForCategoryId(primitive, id){
     const category = await Category.findOne({id: primitive.referenceId})
-    if( category ){
+    if( category && category.resultCategorie){
         return category.resultCategories.find((d)=>d.resultCategoryId == id)?.id
     }
 }
@@ -670,7 +671,6 @@ export async function primitiveDescendents(primitive, types, options={}){
     }
 
     do{
-        console.log(`ids at`, ids.length)
          list = await Primitive.find({
             $and:[
                 {_id: {$in: ids}},
@@ -1506,6 +1506,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
         type = "evidence"
         console.log(`GOT for evidence ${list.length}`)
     }else if(target === "level2" ){
+        throw "DEPRECATED"
         list = startList || await primitiveChildren(source)
         list = (await Promise.all(list.map(async (d)=>await primitiveChildren(d)))).flat()
     }else if( target.slice(0,8) === "results."){
@@ -1515,6 +1516,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
         list = await primitivePrimitives(source, 'ref')
         console.log(`GOT for ref ${list.length}`)
     }else if( target === "instance_peer"){
+        throw "DEPRECATED"
         list = await primitivePrimitives(primitive, "ref" )
         const instance = await fetchPrimitive( options.instance )
         if( instance ){
@@ -1527,12 +1529,15 @@ export async function getDataForProcessing(primitive, action, source, options = 
         list = await getDataForImport( source )
         console.log(`TOTAL IMPORT = ${list.length}`)
     }else if( target === "parents"){
+        throw "DEPRECATED"
         list = await primitiveListOrigin( [source], 1)
         console.log(`TOTAL parents = ${list.length}`)
     }else if( target === "hierarchy"){
+        throw "DEPRECATED"
         list = await primitiveListOrigin( [source], "hierarchy", undefined, "ALL", referenceId)
         console.log(`TOTAL parents = ${list.length}`)
     }else if( target === "items_parent_descend"){
+        throw "DEPRECATED"
         list = await getDataForImport( source )
         console.log(`TOTAL Stage 1 = ${list.length}`)
         
@@ -2988,31 +2993,55 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     
                     const origin = await primitiveTask( primitive )
                     if( origin ){
-                        const resultSet = await findResultSetForCategoryId( origin, primitive.referenceId )
-                        const originCategory = await Category.findOne({id: origin.referenceId})
-                        const searchCategoryIds = originCategory.resultCategories.find(d=>d.id === resultSet)?.searchCategoryIds
-                        if( searchCategoryIds ){
-                            const selectedSearchCategoryId = searchCategoryIds[0]
-                            if( searchCategoryIds.length > 0){
-                                console.log(`WARNING - Selecting first search category by default`)
-                            }
-                            const searchCategory = await Category.findOne({id: selectedSearchCategoryId})
-                            console.log(`WILL CREATE NEW SERACH ITEM AT `, resultSet, searchCategory)
+                        if( origin.type === "board"){
+                            console.log(`Creating search for board (${action.searchCategoryId})`)
+                            if( action.searchCategoryId){
 
-                            const newData = {
-                                workspaceId: origin.workspaceId,
-                                paths: ['origin', `search.${resultSet}`],
-                                parent: origin.id,
-                                data:{
-                                    type: "search",
-                                    referenceId: selectedSearchCategoryId,
-                                    referenceParameters:{
-                                        terms: result.keywords?.join(", ")
+                                const newData = {
+                                    workspaceId: origin.workspaceId,
+                                    paths: ['origin', `ref`],
+                                    parent: origin.id,
+                                    data:{
+                                        type: "search",
+                                        referenceId: action.searchCategoryId,
+                                        referenceParameters:{
+                                            terms: result.keywords?.join(", ")
+                                        }
                                     }
                                 }
+                                const newPrim = await createPrimitive( newData )
+                                if( newPrim ){
+                                    await addRelationship(primitive.id, newPrim.id, "source.terms")
+                                }
                             }
-                            const newPrim = await createPrimitive( newData )
-                            result.searchPrimitive = newPrim?.id
+
+                        }else{
+                            const resultSet = await findResultSetForCategoryId( origin, primitive.referenceId )
+                            const originCategory = await Category.findOne({id: origin.referenceId})
+                            const searchCategoryIds = originCategory.resultCategories.find(d=>d.id === resultSet)?.searchCategoryIds
+                            if( searchCategoryIds ){
+                                const selectedSearchCategoryId = searchCategoryIds[0]
+                                if( searchCategoryIds.length > 0){
+                                    console.log(`WARNING - Selecting first search category by default`)
+                                }
+                                const searchCategory = await Category.findOne({id: selectedSearchCategoryId})
+                                console.log(`WILL CREATE NEW SERACH ITEM AT `, resultSet, searchCategory)
+                                
+                                const newData = {
+                                    workspaceId: origin.workspaceId,
+                                    paths: ['origin', `search.${resultSet}`],
+                                    parent: origin.id,
+                                    data:{
+                                        type: "search",
+                                        referenceId: selectedSearchCategoryId,
+                                        referenceParameters:{
+                                            terms: result.keywords?.join(", ")
+                                        }
+                                    }
+                                }
+                                const newPrim = await createPrimitive( newData )
+                                result.searchPrimitive = newPrim?.id
+                            }
                         }
                     }
                     

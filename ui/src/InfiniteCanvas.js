@@ -170,6 +170,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         return {
             exportToPptx,
             addFrame,
+            updateFramePosition,
             removeFrame,
             framePosition,
             frameList,
@@ -701,7 +702,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             0,
             true,
             0,
-            Avoid.ConnDirTop // All directions
+            Avoid.ConnDirTop 
         );
         const bottomPin = new Avoid.ShapeConnectionPin(
             shapeRef,
@@ -710,30 +711,40 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             1,
             true,
             0,
-            Avoid.ConnDirBottom // All directions
+            Avoid.ConnDirBottom 
         );
-        const inputPin = new Avoid.ShapeConnectionPin(
+        const leftPin = new Avoid.ShapeConnectionPin(
             shapeRef,
             1,
             0,
             0.5,
             true,
             0,
-            Avoid.ConnDirLeft // All directions
+            Avoid.ConnDirLeft 
         );
-        const outputPin = new Avoid.ShapeConnectionPin(
+        const rightPin = new Avoid.ShapeConnectionPin(
             shapeRef,
-            1, // one central pin for each shape
+            1, 
             1,
             0.5,
             true,
             0,
-            Avoid.ConnDirRight // All directions
+            Avoid.ConnDirRight 
         );
-        inputPin.setExclusive(false);
-        outputPin.setExclusive(false);
+        leftPin.setExclusive(false);
+        rightPin.setExclusive(false);
         topPin.setExclusive(false);
         bottomPin.setExclusive(false);
+        const inputPin = new Avoid.ShapeConnectionPin(
+            shapeRef,
+            2,
+            0,
+            0.5,
+            true,
+            0,
+            Avoid.ConnDirRight 
+        );
+        inputPin.setExclusive(false);
         
         return shapeRef
     }
@@ -779,6 +790,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
     function getLinks( links ){
         return myState.current.baseLinks
+    }
+    function updateFramePosition( frameId, details){
+        myState.current.framePositions ||= {}
+        myState.current.framePositions[frameId] = {
+            ...myState.current.framePositions[frameId],
+            ...details
+        }
+
+
     }
     function updateLinks( links ){
         console.log(`UPDATING LINKS IN IC`)
@@ -850,9 +870,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 
                 if( left && right){
                     const id = `${leftName}~${target.right}` 
+                    let leftPin = 1
+                    let rightPin = 1
+                    if( target.leftPin === "input"){
+                        leftPin = 2
+                    }
                     if( !myState.current.routing.routerLinks.find(d=>d.id===id)){
-                        const leftConnEnd = new Avoid.ConnEnd(left,1)
-                        const rightConnEnd = new Avoid.ConnEnd(right,1)
+                        const leftConnEnd = new Avoid.ConnEnd(left, leftPin)
+                        const rightConnEnd = new Avoid.ConnEnd(right, rightPin)
                         const connRef = new Avoid.ConnRef(myState.current.routing.router);
                         connRef.setSourceEndpoint(leftConnEnd);
                         connRef.setDestEndpoint(rightConnEnd);
@@ -874,36 +899,41 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             })
             if( override ){
                 for(const d of override){
-                    let position = framePosition(d.id)?.scene
-                    position.r = position.r - position.l + d.x
-                    position.b = position.b - position.t + d.y
-                    position.l = d.x
-                    position.t = d.y
-                    
-                    const ovrFrame = myState.current.frames.find(d2=>d2.id === d.id)
-                    
-                    for( const ri in ovrFrame.routing){
-                        const r = ovrFrame.routing[ri]
-                        if( r.cell ){
-                            const shapeRect = new Avoid.Rectangle(
-                                new Avoid.Point((r.cell.l * position.s) + position.l, (r.cell.t * position.s) + position.t),
-                                new Avoid.Point((r.cell.r * position.s) + position.l, (r.cell.b * position.s) + position.t)
-                            );
-                            router.moveShape(r.shape, shapeRect);
-                        }else{
-                            const shapeRect = new Avoid.Rectangle(
-                                new Avoid.Point(position.l, position.t),
-                                new Avoid.Point(position.r, position.b)
-                            );
-                            router.moveShape(r.shape, shapeRect);
-                        }
-                    }
+                    updateFrameInRouter(d)
                 }
             }
 
 
             router.processTransaction()
             lineLayerRef.current.batchDraw()
+        }
+    }
+    function updateFrameInRouter(d){
+        const Avoid = myState.current.routing.avoid
+        const router = myState.current.routing.router
+        let position = framePosition(d.id)?.scene
+        position.r = position.r - position.l + d.x
+        position.b = position.b - position.t + d.y
+        position.l = d.x
+        position.t = d.y
+        
+        const ovrFrame = myState.current.frames.find(d2=>d2.id === d.id)
+        
+        for( const ri in ovrFrame.routing){
+            const r = ovrFrame.routing[ri]
+            if( r.cell ){
+                const shapeRect = new Avoid.Rectangle(
+                    new Avoid.Point((r.cell.l * position.s) + position.l, (r.cell.t * position.s) + position.t),
+                    new Avoid.Point((r.cell.r * position.s) + position.l, (r.cell.b * position.s) + position.t)
+                );
+                router.moveShape(r.shape, shapeRect);
+            }else{
+                const shapeRect = new Avoid.Rectangle(
+                    new Avoid.Point(position.l, position.t),
+                    new Avoid.Point(position.r, position.b)
+                );
+                router.moveShape(r.shape, shapeRect);
+            }
         }
     }
     function renderLink( avRoute ){
@@ -941,6 +971,70 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             lineLayerRef.current.add( link )
         }
     }
+    function getRelativeFramePosition(id){
+        return myState.current.framePositions?.[id] ?? {x:0,y:0,s:1}
+    }
+    function getFramePosition(id, defaults = true){
+        const hasAbsolute = myState.current.frames?.[id]?.x !== undefined
+        let x = myState.current.framePositions?.[id]?.x ?? myState.current.frames?.[id]?.x ?? (defaults ? 0 : undefined)
+        let y = myState.current.framePositions?.[id]?.y ?? myState.current.frames?.[id]?.y ?? (defaults ? 0 : undefined)
+        let s = myState.current.framePositions?.[id]?.s ?? myState.current.frames?.[id]?.s ?? (defaults ? 1 : undefined)
+        
+        if( !hasAbsolute ){
+
+            const item = myState.current.renderList.find(d=>d?.id === id)
+            if( item.parentRender ){
+                console.log(`Aligning to parent`)
+                let {x:px, y:py, s:ps} = getFramePosition(item.parentRender)
+                x = ((x ?? 0) * ps) + px
+                y = ((y ?? 1) * ps) + py
+                s = (s ?? 1) * ps
+            }
+        }
+
+        return {x,y,s}
+    }
+    function updateNestedFramePosition( node ){
+        const children = myState.current.renderList.filter(d=>d.parentRender === node.attrs.id)
+        if( children.length > 0){
+            let {x:px, y:py, s:ps} = getFramePosition(node.attrs.id)
+            for(const d of children){
+                const frame = myState.current.frames.find(d2=>d.id === d2.id)
+                const node = frame.node
+                
+                let {x, y, s} = getRelativeFramePosition( d.id)
+                x = (x * ps) + px
+                y = (y * ps) + py
+                s *= ps
+                
+                node.setPosition({x, y})
+                node.scale({x:s, y:s})
+                frame.x = x
+                frame.y = y
+                
+                updateFrameInRouter({
+                    id: d.id,
+                    x: x,
+                    y: y
+                })
+                
+                
+            }
+        }
+    }
+
+    function orderNestedFrames(node, startZ){
+        const children = myState.current.renderList.filter(d=>d.parentRender === node.attrs.id)
+        //let nextZ = startZ ?? node.zIndex() + 1
+        if( children.length > 0){
+            for(const d of children){
+                console.log(`Setting to top`)
+                const node = myState.current.frames.find(d2=>d.id === d2.id)?.node
+                node.moveToTop()
+                orderNestedFrames(node)
+            }
+        }
+    }
 
     function refreshFrame(id, newItems ){
         const force = newItems !== undefined
@@ -949,10 +1043,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             if( force ){            
                 item.items = newItems.items            
             }
-            const x = props.primitive.frames?.[id]?.x ?? myState.current.frames?.[id]?.x ?? 0
-            const y = props.primitive.frames?.[id]?.y ?? myState.current.frames?.[id]?.y ?? 0
-            const s = props.primitive.frames?.[id]?.s ?? myState.current.frames?.[id]?.s ?? 1
 
+            const {x, y, s} = getFramePosition(id)
             const {items, title, ...options} = item
 
             const frame = setupFrameForItems(id, title, items, x, y, s, {...options, forceRender: force})
@@ -967,6 +1059,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
             }
             refreshLinks()
+            orderNestedFrames(frame.node)
             stageRef.current.batchDraw()
         }else{
             addFrame(newItems)
@@ -976,6 +1069,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     useLayoutEffect(()=>{
         myState.current.renderList = props.render
         myState.current.baseLinks = props.frameLinks
+        myState.current.framePositions = props.framePositions
         var ctx = layerRef.current.getContext()._context;
         ctx.textRendering = "optimizeSpeed";
         
@@ -988,10 +1082,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             let x = 0, y = 0, s = 1
             for( const set of myState.current.renderList){
-                if( props.primitive?.frames?.[set.id] ){
-                    x = props.primitive.frames[set.id].x
-                    y = props.primitive.frames[set.id].y
-                    s = props.primitive.frames[set.id].s
+                let {x:tx, y:ty, s:ts} = getFramePosition(set.id, false)
+                if( tx !== undefined ){
+                    x = tx
+                    y = ty
+                    s = ts
                 }
                 const frame = setupFrameForItems(set.id, set.title, set.items, x, y, s, set)
                 y += (frame.node.attrs.height * frame.node.attrs.scaleY) + 200
@@ -1559,8 +1654,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
                 [x, y] = convertStageCoordToScene(px, py )
-                let found = findTrackedNodesAtPosition( x, y, ["primitive", "frame"], true)
-                //console.log(`started drag`, found?.[0], state)
+                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame"], true))
                 const item = found[0]
                 if( !item ){
                     myState.current.panForDrag = true
@@ -1795,12 +1889,23 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 frame.node.setPosition({x:fx, y:fy})
                                 
                                 if( props.callbacks?.frameMove ){
+                                    let fs = frame.scale
+
+                                    const item = myState.current.renderList.find(d=>d?.id === frame.id)
+                                    if( item.parentRender ){
+                                        let {x:px, y:py, s:ps} = getFramePosition(item.parentRender)
+                                        fx = (fx - px) / ps
+                                        fy = (fy - py) / ps
+                                        fs /= ps
+                                    }
+                                    
                                     props.callbacks.frameMove({
                                         id: frameId,
                                         x: fx,
                                         y: fy,
-                                        s: frame.scale
+                                        s: fs
                                     })
+                                    updateNestedFramePosition( frame.node )
                                 }
                             }
                         }
@@ -1917,7 +2022,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     },
                     //scaleBounds: { min: 0.03, max: 8 },
                     scaleBounds: ()=>{
-                        const max = props.board ? 5 / Math.min(1, ...Object.values(props.primitive.frames ?? {}).map(d=>d.s ?? 1)) : 8
+                        const max = props.board ? 5 / Math.min(1, ...Object.values(props.framePositions ?? {}).map(d=>d.s ?? 1)) : 8
                         return { min: 0.03, max: max }
                     }
                 },
@@ -1986,6 +2091,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
         function addOverlay( node, label, operation, colors){
             if( node.attrs?.name.includes("widget")){
+                console.log("Add overlay")
                 for(const d of node.find('.hover_target')){
                     if( d.attrs.hoverFill){
                         d.attrs._originalFill = d.attrs.fill
@@ -2024,6 +2130,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         function removeOverlay( node, label, operation){
             if( node.attrs?.name.includes("widget")){
+                console.log("Rem overlay")
                 for(const d of node.find('.hover_target')){
                     if( d.attrs._originalFill){
                         d.fill( d.attrs._originalFill)
@@ -2196,6 +2303,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             return anythingFound
         }
+        function orderInteractiveNodes(found){
+            const nodesWithZIndex = found.map(node => ({
+                node,
+                zIndex: node.zIndex(), // Cache zIndex
+              }));
+            return nodesWithZIndex.sort((a, b) => b.zIndex - a.zIndex).map(d=>d.node)
+
+        }
         async function processClick(e){
             if( myState.current.ignoreClick ){
                 myState.current.ignoreClick = false
@@ -2206,8 +2321,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             if( clickable_names.length === 0 ){
                 return
             }
-            let found = findTrackedNodesAtPosition( x, y, clickable_names, undefined, true)
+            let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, clickable_names, undefined, true))
             console.log(found)
+
+              
+
             let doneClick = false
             for( const d of found){
                 if( d.attrs.onClick ){
@@ -2293,6 +2411,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             doneClick = true
                         }
                     }
+                }
+                if(doneClick){
+                    break
                 }
             }
             if(!doneClick){
@@ -2435,6 +2556,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
         }
 
+        window.mainStage = stageRef
     
     const stage = <Stage
                 ref={stageRef}

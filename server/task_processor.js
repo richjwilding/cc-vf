@@ -4,6 +4,7 @@ import PrimitiveParser from "./PrimitivesParser";
 import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
+import { getLogger } from "./logger";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
 import { analyzeListAgainstTopics, buildEmbeddings, processPromptOnText, summarizeMultiple } from "./openai_helper";
@@ -11,7 +12,9 @@ import { findEntries, removeEntries, reviseUserRequest } from "./prompt_helper";
 
 const parser = PrimitiveParser()
 
-async function getItemsForQuery(primitive){
+const logger = getLogger('task_processor'); // Debug level for moduleA
+
+export async function getItemsForQuery(primitive){
     let items
     if( primitive.type === "view"){
         items = (await getDataForProcessing( primitive, {} ))[0]
@@ -181,13 +184,13 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
     if( primitive.referenceParameters?.segments ){
         const targetSegments = primitive.referenceParameters?.segments
         if( targetSegments && Array.isArray(targetSegments)){
-            console.log(`Checking segments at ${parent.id} / ${parent.plainId}`)
-            console.log( `Got ${targetSegments.length} segments to create / check - currently have ${currentSegments.length}`)
+            logger.debug(`Checking segments at ${parent.id} / ${parent.plainId}`)
+            logger.debug( `Got ${targetSegments.length} segments to create / check - currently have ${currentSegments.length}`)
 
             for(const d of targetSegments){
                 let existing = currentSegments.filter(d2=>d2.title === d)
                 if(existing.length > 1 ){
-                    console.warn(`Got multiple segments for ${d} = ${existing.map(d=>d.plainId).join(", ")}`)
+                    logger.warn(`Got multiple segments for ${d} = ${existing.map(d=>d.plainId).join(", ")}`)
                     existing = existing[0]
                     checked[ existing.id ] = true
                 }else if( existing.length === 1){
@@ -197,7 +200,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                     existing = undefined
                 }
                 if( existing ){
-                    console.warn(`++ Got segments for ${d} = ${existing.plainId}`)
+                    logger.debug(`++ Got segments for ${d} = ${existing.plainId}`)
                 }else{
                     existing = await createPrimitive({
                         workspaceId: primitive.workspaceId,
@@ -211,7 +214,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                         throw "Couldnt create segment"
                     }
                     await addRelationship(existing.id, parent.id, "imports")
-                    console.log(`Created new segment ${existing.id} ${existing.plainId} for ${d}`)
+                    logger.debug(`Created new segment ${existing.id} ${existing.plainId} for ${d}`)
                 }
                 out.push(existing)
 
@@ -235,13 +238,13 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
             targetSegmentConfig = await getSegemntDefinitions(parent, customAxis)
         }
         
-        console.log(`Checking segments at ${parent.id} / ${parent.plainId}`)
-        console.log( `Got ${targetSegmentConfig.length} segments to create / check - currently have ${currentSegments.length}`)
+        logger.debug(`Checking segments at ${parent.id} / ${parent.plainId}`)
+        logger.debug( `Got ${targetSegmentConfig.length} segments to create / check - currently have ${currentSegments.length}`)
         
         for(const importConfig of targetSegmentConfig){
             let existing = currentSegments.filter(d=>PrimitiveConfig.checkImports( d, importConfig.id, importConfig.filters))
             if(existing.length > 1 ){
-                console.warn(`Got multiple segments for ${JSON.stringify(importConfig)} = ${existing.map(d=>d.plainId).join(", ")}`)
+                logger.warn(`Got multiple segments for ${JSON.stringify(importConfig)} = ${existing.map(d=>d.plainId).join(", ")}`)
                 existing = existing[0]
                 checked[ existing.id ] = true
             }else if( existing.length === 1){
@@ -251,7 +254,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                 existing = undefined
             }
             if( existing ){
-                console.warn(`++ Got segments for ${JSON.stringify(importConfig)} = ${existing.plainId}`)
+                logger.debug(`++ Got segments for ${JSON.stringify(importConfig)} = ${existing.plainId}`)
             }
             if( !existing ){
                 existing = await createPrimitive({
@@ -270,7 +273,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                     throw "Couldnt create segment"
                 }
                 await addRelationship(existing.id, parent.id, "imports")
-                console.log(`Created new segment ${existing.id} ${existing.plainId} for ${JSON.stringify(importConfig)}`)
+                logger.debug(`Created new segment ${existing.id} ${existing.plainId} for ${JSON.stringify(importConfig)}`)
             }
             out.push(existing)
         }
@@ -278,9 +281,9 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
     if( options.clear){//} || primitive.referenceParameters?.segments ){
         const toClear = Object.keys(checked).filter(d=>!checked[d])
         if( toClear.length > 0){
-            console.log(`${toClear.length} of ${currentSegments.length} to be cleared`)
+            logger.debug(`${toClear.length} of ${currentSegments.length} to be cleared`)
             for(const d of toClear){await removePrimitiveById( d )}
-            console.log("Cleared")
+            logger.debug("Cleared")
         }
     }
     return out
@@ -299,8 +302,8 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
     
     const out = []
     
-    console.log(config)
-    console.log(`Got ${segments.length} target segments and ${currentAggregators.length} aggregators`)
+    logger.debug(config)
+    logger.info(`Got ${segments.length} target segments and ${currentAggregators.length} aggregators`)
     
     for( const segment of segments){
         let existing = currentAggregators.find(d=>Object.keys(d.parentPrimitives).includes(segment.id))
@@ -308,7 +311,7 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
         if( existing ){
             if( !options.force ){
                 if( existing.referenceParameters?.summary){
-                    console.log(`Skipping existing item`)
+                    logger.debug(`Skipping existing item`)
                 }
                 continue
             }
@@ -332,11 +335,11 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
             await addRelationship(existing.id, segment.id, "imports")
             existing = await fetchPrimitive(existing.id)
             await addRelationship(segment.id, existing.id, "auto")
-            console.log(`Created new aggregate ${existing.id} ${existing.plainId} for ${primitive.id} / ${primitive.plainId}`)
+            logger.debug(`Created new aggregate ${existing.id} ${existing.plainId} for ${primitive.id} / ${primitive.plainId}`)
             
         }
         if( existing ){
-            console.log(`Aggregation ${existing.plainId}`)
+            logger.debug(`Aggregation ${existing.plainId}`)
             if( execOptions.primitivesOnly ){
                 out.push( existing)
             }else{
@@ -387,7 +390,7 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
 
         const others = await primitiveListOrigin( targetPrimitives, 1, "segment")
 
-        console.log(`Got ${others.length} segments`)
+        logger.debug(`Got ${others.length} segments`)
 
         const param = config.field?.slice(6)
         let structured = false
@@ -432,10 +435,10 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
                 final = combineGroupsToChunks(groupedSentences).filter(d=>d && d.length > 0)
             }
             
-            console.log(`For ${d.title} have ${final.length} groups (${structured ? "Structured" : "Text"})`)
+            logger.debug(`For ${d.title} have ${final.length} groups (${structured ? "Structured" : "Text"})`)
             let {results:embeddings, _} = await executeConcurrently( final, async (segment, part)=>{
                 const response = await buildEmbeddings( segment)
-                console.log(`-- part ${part} back`)
+                logger.silly(`-- part ${part} back`)
                 if( response?.success){
                     return { part: part, segment: segment, embeddings: response.embeddings}
                 }  
@@ -451,7 +454,7 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
             idx++
         }
 
-        console.log("Comparing fragments")
+        logger.debug("Comparing fragments")
         const forScoring = partials.map(d=>d.embeddings.map(d2=>({
             id: `${d.idx}-${d2.part}`,
             itemIdx: d.idx,
@@ -486,10 +489,10 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
         const updateInstructions = {}
 
         for(const topic of topicGroups ){
-            console.log(`Doing topic group`)
+            logger.debug(`Doing topic group`)
             const fragments = topic.map(d=>[d.leftId,d.rightId]).flat().filter((d,i,a)=>a.indexOf(d)===i).map(d=>{let [idx,part]=d.split("-");return partials[idx].groups[part] })
 
-            console.log("Looking for repetition")
+            logger.debug("Looking for repetition")
             const results = await processPromptOnText( fragments,{
                 opener:  "Here is a list of numbered text fragments to analyze",
                 prompt: `Identify an exhaustive list of repetitive detail which do not add any value to the reader - repetition which provides context for the proceeding text should be listed.   Do not group repetitive items together - i want specifics.  Be thoughtful to ensure you identify each occurrence of repetition and ensure you consider each and every text fragment. Review your work and correct any mistakes.`,
@@ -518,7 +521,7 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
 
             
             const getInstructions = async (repetition, n)=>{
-                console.log(`Getting update instructions ${n}`)
+                logger.debug(`Getting update instructions ${n}`)
                 
                 let fragmentList, fragments
                 if( structured ){
@@ -565,7 +568,7 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
                     for(const d of results.output){
                         if( d.revise ){
                             const mapped = fragmentList[d.idx]
-                            console.log(`- ${d.idx} -> ${mapped}`)
+                            logger.debug(`- ${d.idx} -> ${mapped}`)
                             updateInstructions[mapped] ||= []
                             updateInstructions[mapped].push( d.instructions)
                         }
@@ -577,7 +580,7 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
                 await executeConcurrently(repetitions, getInstructions)
             }
 
-            console.log( updateInstructions)
+            logger.debug( updateInstructions)
             const updateSection = async({key, instructions}, n)=>{
                 const [idx, part] = key.split("-")
                 let item, node
@@ -590,7 +593,7 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
                 }
                 let mappedInstructions = instructions.map((d,i)=>`${i}. ${d}`).join("\n")
                 if( item ){
-                    console.log(`Doing update ${n}`, mappedInstructions)
+                    logger.debug(`Doing update ${n}`, mappedInstructions)
                     const results = await processPromptOnText( item,{
                         opener:  `Here is a section from a report. Your task is to update it.\n`,
                         prompt: `Revise the section based upon these editorial comments:\n${mappedInstructions}\n---\n\n`,
@@ -624,14 +627,14 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
             const updateList = Object.keys(updateInstructions).map(d=>({key: d, instructions:updateInstructions[d]}))
             await executeConcurrently(updateList, updateSection)
 
-            console.log(`Storing results`)
+            logger.debug(`Storing results`)
             let idx = 0
             for(const item of allItems){
                 if( structured ){
                     const segment = removeOmittedItemsFromStructure( item.root )
                     const flat = flattenStructuredResponse( segment, segment)
                     const target = targetPrimitives[idx]
-                    console.log(`Updating ${target.plainId} / ${target.id}`)
+                    logger.debug(`Updating ${target.plainId} / ${target.id}`)
                     dispatchControlUpdate(target.id, "referenceParameters.summary", flat)
                     dispatchControlUpdate(target.id, "referenceParameters.structured_summary", segment)
                 }
@@ -642,7 +645,7 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
         
 
     }catch(e){
-                console.log(`Error in comparePeers`)
+                logger.debug(`Error in comparePeers`)
                 console.log(e)
 
     }

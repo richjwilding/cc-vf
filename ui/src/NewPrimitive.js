@@ -162,7 +162,7 @@ export default function NewPrimitive({...props}) {
 
         console.log(fullParameters)
 
-        const primitive = await MainStore().createPrimitive({
+        let data = {
             title: value,
             type: type,
             categoryId: selectedCategory?.categoryId,
@@ -170,7 +170,12 @@ export default function NewPrimitive({...props}) {
             parentPath: props.parentPath,
             referenceParameters: fullParameters,
             workspaceId: selectedWorkspace
-        })
+        }
+        if( props.beforeCreate ){
+            data = await props.beforeCreate(data)
+        }
+
+        const primitive = await MainStore().createPrimitive(data)
         if( primitive && props.originTask ){
             await primitive.addRelationshipAndWait( props.originTask, "imports")
         }
@@ -214,7 +219,7 @@ export default function NewPrimitive({...props}) {
     }
 
     return (
-        <Popup width='max-w-xl' setOpen={closeModal} title={`Create new ${props.title || "item"}`}>
+        <Popup width='max-w-xl' setOpen={closeModal} title={props.title ?? "Create new item"}>
             {({ activeOption }) => (
                 <>
                 {selectedCategory === undefined && items.length > 0 && <div role='button' tabIndex='0' onKeyDown={(e)=>{if(e.key=='Enter' || e.key==" " || e.key === "ArrowDown"){setPickCategory(true)}}} onClick={()=>setPickCategory(true)} className='border outline-none focus:ring-2 focus:ring-indigo-600 rounded-md shadow-md mb-4 p-1'>

@@ -36,6 +36,7 @@ window.utils = CollectionUtils
 window.pc = PrimitiveConfig
 window.mainstore_tests = test// MainStoreTests
 
+window.p = (d)=>mainstore.primitive(d)
 
 function App() {
   

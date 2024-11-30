@@ -26,6 +26,7 @@ class QueueManager {
         this.queues = {};
 //        this.queueEvents = {};
         this.workers = {};
+        this.workerThreads = []
         this.connection = redisOptions
         this.settings = settings
 
@@ -34,22 +35,80 @@ class QueueManager {
 
         this.redis.connect().catch(console.error);
 
-        this.initializeActiveQueues();
-        this.startIdleCheck();
-        console.log(`QUEUE MANAGER INIIT`)
+        console.log(`QUEUE MANAGER INIIT ${this.type}`)
         console.log(this.connection)
+        if( !this.processCallback ){
+            let readyCount = 0
+            for (let i = 0; i < this.numWorkersPerQueue; i++) {
+                console.log(`-- ${this.type} Thread ${i}`)
+                let worker = new WorkerThread(path.resolve(__dirname, './job-worker.js'), {
+                    workerData: {
+                        queueName: type,
+                        type: this.type,             // Pass the queue type to workerData
+                        redisOptions: this.connection
+                    }
+                });
+                worker.on('message', async (message) => {
+                    if (message.type === 'startJob') {
+                        console.log(`Job has started in worker ${message.queueName} / ${worker.threadId} - ${message.jobId}`)
+                        this.setQueueActivity(message.queueName, true);
+                    }else if (message.type === 'endJob') {
+                        console.log(`Job has ended in worker ${message.queueName} - ${message.jobId}`)
+                        this.setQueueActivity(message.queueName, false);
+                        await this.redis.del(`job:${message.jobId}:cancel`);
+                    }else if (message.type === 'notifyPrimitiveEvent') {
+                        const { workspaceId, message: data } = message.data;
+                        SIO.notifyPrimitiveEvent(workspaceId, JSON.parse(data));
+                    }else if(message.type === "ready"){
+                        readyCount++
+                        console.log(`${readyCount} worker(s) ready for ${type}`)
+                        if(readyCount === this.numWorkersPerQueue ){
+                            console.log(`starting ${type} queues`)
+                            this.initializeActiveQueues();
+                            this.startIdleCheck();
+                        }
+                    }
+                });
+                worker.on('error', (error) => {
+                    console.error(`Error in worker for queue ${this.type}:`, error);
+                });
+                worker.on('exit', (code) => {
+                    if (code !== 0) {
+                        console.log(`Worker for queue ${this.type} exited with code ${code}`);
+                    }
+                });
+                this.workerThreads.push(worker)
+
+            }
+
+        }else{
+            this.initializeActiveQueues();
+            this.startIdleCheck();
+        }
     }
 
     async initializeActiveQueues() {
         // Retrieve active queues from Redis
         const activeQueues = await this.redis.sMembers('activeQueues');
         for(const queueName of activeQueues ){
+            const [workspaceId, type] = queueName.split('-')
+            if( type !== this.type){
+                continue
+            }
             const { activeCount, lastActivity } = await this.getQueueActivity(queueName);
             if (activeCount > 0 ) {
                 console.log(`Have ${activeCount} items in queue ${queueName}- starting`)
-                this.getQueue(queueName.split('-')[0]);
+                this.getQueue(workspaceId);
             }else{
-                console.log(`No active items in queue  ${queueName}`)
+                if( lastActivity === null ){
+                    console.log(`No active items in queue  ${queueName} - removing`)
+                    await this.redis.del(`${queueName}-activeCount`);
+                    await this.redis.del(`${queueName}-lastActivity`);
+                    await this.redis.sRem('activeQueues', queueName);
+                }else{
+                    console.log(`Have ${activeCount} items waiting in queue ${queueName} - starting`)
+                    this.getQueue(workspaceId);
+                }
             }
         }
     }
@@ -134,9 +193,10 @@ class QueueManager {
             this.queues[queueName] = new Queue(queueName, { connection: this.connection });
             await this.markQueueActive(workspaceId);
 
-            this.workers[queueName] = [];
-            for (let i = 0; i < this.numWorkersPerQueue; i++) {
-                if( this.processCallback ){
+            if( this.processCallback ){
+                this.workers[queueName] = [];
+                for (let i = 0; i < this.numWorkersPerQueue; i++) {
+                
                     console.log(`Creating queue worker in main thread for ${queueName}`)
                     
                     this.workers[queueName].push(new Worker(queueName, async job => {
@@ -145,63 +205,33 @@ class QueueManager {
                         // Process job here
                         console.log(`Processing job ${job.name}`);
                         let result
+                        let rescheduled = false
                         if( this.processCallback ){
                             result = await this.processCallback( job, ()=>this.checkIfJobCancelled(job.name) )
                             if( result?.reschedule ){
                                 console.log(`Job asked to be rescheduled`)
+                                rescheduled = true
                                 const state = await job.getState();
                                 console.log(state)
                                 await result.reschedule()
                             }
                         }
                         await this.resetCancelJob(job.name)
-                        
-                        await this.setQueueActivity(queueName, false);
+                        if( !rescheduled ){
+                            await this.setQueueActivity(queueName, false);
+                        }
                         return true
                         
                     }, { connection: this.connection, ...this.settings }));
-                }else{
-                    console.log(`Creating thread worker for ${queueName}`)
-                    const worker = new WorkerThread(path.resolve(__dirname, './job-worker.js'), {
-                        workerData: {
-                            queueName: queueName,
-                            type: this.type,             // Pass the queue type to workerData
-                            redisOptions: this.connection
-                        }
-                    });
-                    worker.on('message', async (message) => {
-                        if (message.type === 'startJob') {
-                            console.log(`Job has started in worker ${worker.threadId} - ${message.jobId}`)
-                            this.setQueueActivity(queueName, true);
-                        }else if (message.type === 'endJob') {
-                            console.log(`Job has ended in worker ${worker.threadId} - ${message.jobId}`)
-                            this.setQueueActivity(queueName, false);
-                            await this.redis.del(`job:${message.jobId}:cancel`);
-                        }else if (message.type === 'notifyPrimitiveEvent') {
-                            const { workspaceId, message: data } = message.data;
-                            SIO.notifyPrimitiveEvent(workspaceId, JSON.parse(data));
-                        }
-                    });
-                    worker.on('error', (error) => {
-                        console.error(`Error in worker for queue ${queueName}:`, error);
-                        console.log(error?.reason)
-                        console.log(Object.values(error?.reason?.servers ?? {}))
-                    });
-                    worker.on('exit', (code) => {
-                        if (code !== 0) {
-                            console.log(`Worker for queue ${queueName} exited with code ${code}`);
-                        }
-                    });
-                    this.workers[queueName].push(worker);
+                }
+            }else{
+                console.log(`Notifying ${this.workerThreads?.length} ${this.type} worker threads for ${queueName}`)
+                for(const worker of this.workerThreads){
+                    console.log(`-`)
+                    worker.postMessage({type:"watch", queueName})
                 }
 
             }
-            /*
-            this.queueEvents[queueName] = new QueueEvents(queueName);
-            this.queueEvents[queueName].on('progress', ({ jobId, progress }) => {
-                console.log(`[${queueName}]: Job ${jobId} progress:`, progress);
-            });
-            */
         }
         return this.queues[queueName];
     }
@@ -300,19 +330,12 @@ class QueueManager {
         if (this.queues[queueName]) {
             console.log(`Purging queue: ${queueName}`);
     
-            // Terminate all worker threads for this queue
-            if (this.workers[queueName]) {
-                for (const worker of this.workers[queueName]) {
-                    try {
-                        worker.postMessage('terminate');
-                        await new Promise((resolve) => setTimeout(resolve, 3000)); // Allow worker to close Mongoose
-
-                        console.log(`Worker thread terminated for queue: ${queueName}`);
-                    } catch (err) {
-                        console.error(`Error terminating worker thread for queue: ${queueName}`, err);
-                    }
+            for (const worker of this.workerThreads) {
+                try {
+                    worker.postMessage({type: 'stop',queueName});
+                } catch (err) {
+                    console.error(`Error terminating worker thread for queue: ${queueName}`, err);
                 }
-                delete this.workers[queueName];
             }
     
             // Pause and obliterate the BullMQ queue

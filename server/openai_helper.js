@@ -486,10 +486,10 @@ export async function analyzeTextAgainstTopics( text, topics, options = {}){
     if( options.stopAtOrAbove ){
         let chunkCount = 0
         options.chunkCallback = (chunk)=>{
-            console.log(`Got`, chunk)
+            //console.log(`Got`, chunk)
             chunkCount++
             if( options.stopChunk ){
-                console.log(`Check count ${chunkCount} vs ${options.stopChunk}`)
+                //console.log(`Check count ${chunkCount} vs ${options.stopChunk}`)
                 if(chunkCount > options.stopChunk){
                     return false
                 }

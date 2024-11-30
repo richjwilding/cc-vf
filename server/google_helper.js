@@ -2086,11 +2086,28 @@ export async function fetchViaProxy(url, options = {}) {
 
 }
 export async function fetchAsTextViaProxy(url, options = {}) {
+    console.log(`Try DC`)
+    let result = await tryFetchAsTextViaProxy(url, options) 
+    if( !result ){
+        console.log(`Try Unlock`)
+        result = await tryFetchAsTextViaProxy(url, {...options, proxy: process.env.BRIGHTDATA_UNLOCK_PROXY}) 
+    }
+    if( !result ){
+        console.log(`Try Res`)
+        result = await tryFetchAsTextViaProxy(url, {...options, proxy: process.env.BRIGHTDATA_RES_PROXY}) 
+    }
+    if( !result ){
+        throw new Error(`Couldnt fetch from BD Proxies`);
+    }
+    return result
+}
+async function tryFetchAsTextViaProxy(url, options = {}) {
   try {
     const response = await fetchViaProxy( url, {...options, useAxios: true, responseType: "stream"})
 
     if (response.status !== 200) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+        console.log(`Failed - ${response.status}`)
+        return undefined
     }
 
     const stream = response.data; // This is a readable stream
@@ -2114,7 +2131,7 @@ export async function fetchAsTextViaProxy(url, options = {}) {
 
 export async function extractURLsFromPageAlternative( baseUrl, options = {}, fetch_options = {},  ){
 
-        const params = 
+        /*const params = 
             {
                 'url': baseUrl,
                 'apikey': process.env.ZENROWS_KEY,
@@ -2124,18 +2141,22 @@ export async function extractURLsFromPageAlternative( baseUrl, options = {}, fet
         const cUrl = `https://api.zenrows.com/v1/?${new URLSearchParams(params).toString() }`
         const response = await fetch(cUrl,{
             method: 'GET'
-        })
+        })*/
+        const finalUrl = baseUrl.match(/:\/\//) ? baseUrl : "https://" + baseUrl
         try{
-            if(response.status !== 200){
+            const response = await fetchAsTextViaProxy(finalUrl);
+            /*if(response.status !== 200){
                 return undefined
             }
             const html = await response.text();
             if(!html || html.length === 0){
                 return undefined
-            }
+            }*/
 
-            const $ = cheerio.load(html);
+            const $ = cheerio.load(response);
             let links = []
+
+            console.log(`loaded - scraping links`)
 
             $('a').each((index, element) => {
                 const href = $(element).attr('href');

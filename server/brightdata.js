@@ -86,6 +86,24 @@ const bdExtractors = {
             }
         }
     },
+    "glassdoor_review":{
+        datasetId: "gd_l7j1po0921hbu0ri1z",
+        id: (data)=>data.review_id,
+        data:  (data)=>{
+            const date = moment(data.rating_date)
+            const {review_url, review_id, url, ...remainder} = data
+            return {
+                title: data.summary,
+                referenceId: 129,
+                referenceParameters:{
+                    ...remainder,
+                    id: review_id,
+                    rating_date: date,
+                    url: review_url
+                }
+            }
+        }
+    },
     "reddit_post":{
         datasetId: "gd_lvz8ah06191smkebj4",
         id: (data)=>data.post_id,
@@ -218,6 +236,15 @@ export async function queryLinkedInCompanyPostsBrightData( primitive, company_ur
     }
 
     await triggerBrightDataCollection(input, "linkedin_post", primitive, terms,callopts)
+}
+export async function queryGlassdoorReviewWithBrightData( primitive, terms, callopts){
+    const individualTerms = terms.split(",").map(d=>d.trim())
+    
+    const input = individualTerms.map(d=>({
+        url: d,
+        days: 365
+    }))
+    await triggerBrightDataCollection(input, "glassdoor_review", primitive, terms, {...callopts, limit_count: callopts.count})
 }
 export async function queryRedditWithBrightData( primitive, terms, callopts){
     const individualTerms = terms.split(",").map(d=>d.trim())
@@ -496,7 +523,6 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
                                             signal: controller.signal
                                         });
         clearTimeout(timeoutId);
-            console.log('back')
         return response
     }
     catch(error){
@@ -504,9 +530,8 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
             console.error(`Fetch request timed out after ${options.timeout || 30000}ms`);
         } else {
             console.log(`Error in fetchViaBrightDataProxy`)
-            console.log(error)
         }
-        return {status: 500} 
+        return {status: 500, error} 
     }
 }
 //BRIGHTDATA_SERP

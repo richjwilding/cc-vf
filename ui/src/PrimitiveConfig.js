@@ -138,6 +138,10 @@ const PrimitiveConfig = {
             needCategory:false,
             defaultReferenceId: 39
         },
+        "flow": {
+            needCategory:true,
+            defaultReferenceId: 130
+        },
         "view": {
             needParent:true,
             needCategory:false,
@@ -171,8 +175,40 @@ const PrimitiveConfig = {
             needCategory:true,
             defaultReferenceId: 102
         },
+        "actionrunner": {
+            needCategory:true,
+            defaultReferenceId: 131
+        },
     },
-    types: ["hypothesis", "learning","activity","result","experiment","question", "evidence", "prompt","venture","assessment", "entity", "category", "segment", "view", "search","detail","query", "report", "element", "reportinstance", "concept", "board", "marketsegment", "working", "summary"],
+    types: ["hypothesis", 
+        "learning",
+        "activity",
+        "result",
+        "experiment",
+        "question", 
+        "evidence", 
+        "prompt",
+        "venture",
+        "assessment", 
+        "entity", 
+        "category", 
+        "segment", 
+        "view", 
+        "search",
+        "detail",
+        "query", 
+        "report", 
+        "element", 
+        "reportinstance", 
+        "concept", 
+        "board", 
+        "marketsegment", 
+        "working", 
+        "summary",
+        "actionrunner",
+        "flow",
+        "flowinstance"
+    ],
     pageview:{
         "board":{
             defaultWide: "board" 

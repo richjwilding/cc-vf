@@ -11,7 +11,7 @@ import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
 import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleScholar, queryYoutube } from "./google_helper";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
-import { queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, queryTiktokWithBrightData } from './brightdata';
+import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, queryTiktokWithBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI } from './rapid_helper';
 
 
@@ -368,6 +368,10 @@ export async function processQueue(job, cancelCheck){
                         }
                         if( source.platform === "reddit" ){
                             await queryRedditWithBrightData( primitive, terms, callopts) 
+                        }
+                        if( source.platform === "glassdoor" ){
+                            //await queryInstagramWithBrightData( primitive, terms, callopts) 
+                            await queryGlassdoorReviewWithBrightData( primitive, terms, callopts)
                         }
                         if( source.platform === "instagram" ){
                             //await queryInstagramWithBrightData( primitive, terms, callopts) 
