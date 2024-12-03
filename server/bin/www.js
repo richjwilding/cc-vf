@@ -15,6 +15,7 @@ import QueryQueue from '../query_queue';
 import BrightDataQueue from '../brightdata_queue';
 
 import "../actions/finance_actions"
+import FlowQueue from '../flow_queue';
 
 const debug = debugLib('your-project-name:server');
 
@@ -42,6 +43,7 @@ QueueAI().myInit()
 EnrichPrimitive().myInit()
 QueryQueue().myInit()
 BrightDataQueue().myInit()
+FlowQueue().myInit()
 
 server.listen(port);
 server.on('error', onError);

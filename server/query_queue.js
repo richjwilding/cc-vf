@@ -1,6 +1,4 @@
 import QueueManager from './base_queue'; 
-import { Queue } from "bullmq";
-import { Worker } from 'bullmq'
 import Primitive from "./model/Primitive";
 import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, fetchPrimitive, findResultSetForCategoryId, getDataForProcessing, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { findCompanyLIPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
@@ -492,8 +490,6 @@ export default function QueryQueue(){
     
     instance.myInit = async ()=>{
         console.log("Query Queue v2")
-        const jobCount = (await _queue.status()).length;
-        console.log( jobCount, " jobs in queue (query 2)")
     }
     
     return instance

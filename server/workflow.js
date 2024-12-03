@@ -1,16 +1,21 @@
-import { registerAction } from "./action_helper";
+import { markActionComplete, registerAction } from "./action_helper";
 import { getLogger } from "./logger";
-import { addRelationship, createPrimitive, fetchPrimitive, fetchPrimitives, getFilterName, primitiveChildren, primitiveDescendents } from "./SharedFunctions";
+import { addRelationship, createPrimitive, fetchPrimitive, fetchPrimitives, getFilterName, primitiveChildren, primitiveDescendents, removeRelationship } from "./SharedFunctions";
 import { checkAndGenerateSegments, getItemsForQuery, getSegemntDefinitions } from "./task_processor";
 import PrimitiveParser from './PrimitivesParser';
+import FlowQueue from "./flow_queue";
 
 
-registerAction("workflow_info", {id: "flow"}, (p,a,o)=>scaffoldWorkflow(p,a,{...(o ?? {}), create: false}))
-registerAction("workflow_scaffold", {id: "flow"}, scaffoldWorkflow)
+registerAction("workflow_info", {id: "flow"}, (p,a,o)=>scaffoldWorkflow(p,{...(o ?? {}), create: false}))
+registerAction("workflow_scaffold", {id: "flow"}, async (p,a,o)=>{
+    const result = await scaffoldWorkflow(p, o)
+    markActionComplete(p, o)
+    return result
+})
 
 const logger = getLogger('workflow'); // Debug level for moduleA
 
-export async function scaffoldWorkflow( flow, action, options = {} ){
+export async function scaffoldWorkflow( flow, options = {} ){
     const parser = PrimitiveParser()
     const pp = new Proxy(flow.primitives, parser)
     let customAxis 
@@ -70,53 +75,157 @@ export async function scaffoldWorkflow( flow, action, options = {} ){
             })
         }
     }
-    
-    if (logger.isLevelEnabled('info')) {
-        logger.info( "Flow instances:")
-        for(const instanceInfo of instanceList){
-            if( instanceInfo.instance.missing){
-                logger.info( "Missing flow instance for", {segment: instanceInfo.for, name: instanceInfo.forName})
-            }else{
-                logger.info( "Flow instance ", {id: instanceInfo.instance.id, segment: instanceInfo.for, name: instanceInfo.forName})
-                const instanceStepsForFlow = await primitiveChildren( instanceInfo.instance )
-                for(const step of steps){
-                    let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
-                    if( stepInstance ){
-                        logger.info(` - Step instance ${stepInstance.id} for ${step.id}`)
+
+    logger.info( "Flow instances:")
+    for(const instanceInfo of instanceList){
+        instanceInfo.steps = []
+        if( instanceInfo.instance.missing){
+            logger.info( "Missing flow instance for", {segment: instanceInfo.for, name: instanceInfo.forName})
+            instanceInfo.steps = steps.map(step=>({
+                instance:{
+                    missing: true,
+                },
+                stepId: step.id,
+                title: `Instance of ${step.plainId}`
+            }))
+        }else{
+            logger.info( "Flow instance ", {id: instanceInfo.instance.id, segment: instanceInfo.for, name: instanceInfo.forName})
+            const instanceStepsForFlow = await primitiveChildren( instanceInfo.instance )
+            for(const step of steps){
+                let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
+                if( stepInstance ){
+                    logger.info(` - Step instance ${stepInstance.id} for ${step.id}`)
+                }else{
+                    logger.info(` - Missing step instance for ${step.id}`)
+                    if( options.create !== false ){
+                        try{
+                            stepInstance = await duplicateStep( step, instanceInfo.instance)
+                        }catch(error){
+                            console.log(error)
+                            throw `Couldnt create step instance for ${step.id}`
+                        }
+                        if( stepInstance ){
+                            logger.info(` - Created step instance ${stepInstance.id} for ${step.id}`)
+                        }
+                        
+                        if( Object.keys(step.primitives ?? {}).includes("axis")){
+                            logger.warn(`Should replicate axis in flow instance ${step.id} / ${stepInstance.id}`)
+                        }
                     }else{
-                        logger.info(` - Missing step instance for ${step.id}`)
-                        if( true /*options.create !== false */){
-
-                            try{
-
-                                stepInstance = await createPrimitive({
-                                    workspaceId: step.workspaceId,
-                                    parent: instanceInfo.instance.id,
-                                    data:{
-                                        type: step.type,
-                                        referenceId: step.referenceId,
-                                        title: `Instance of ${step.plainId} for ${flow.plainId}`
-                                    }
-                                })
-                            }catch(error){
-                                console.log(error)
-                                throw `Couldnt create step instance for ${step.id}`
+                        stepInstance = {
+                            missing: true,
+                        }
+                    }
+                }
+                instanceInfo.steps.push( {
+                    instance: stepInstance,
+                    stepId: step.id,
+                    title: `Instance of ${step.plainId} for ${instanceInfo.instance.plainId}`,
+                    ...(await stepInstanceStatus(step, instanceInfo.instance))
+                } )
+            }
+            logger.info(`Checking import mapping`)
+            for(const step of steps){
+                const mappedStep = instanceInfo.steps.find(d=>d.stepId === step.id)
+                if( mappedStep){
+                    const importIds = Object.values(step.primitives.imports ?? {})
+                    const targetImports = []
+                    for(const importId of importIds){
+                        if(importId === flow.id){
+                            logger.info(`Step ${step.id} / ${step.plainId} imports from flow ${flow.id} - mapping to flow instance ${instanceInfo.instance.id}`)
+                        }else{
+                            const originalImportStep = steps.find(d=>d.id === importId)
+                            if( originalImportStep ){
+                                const mappedImportStep = instanceInfo.steps.find(d=>d.stepId === originalImportStep.id)
+                                logger.info(`Step ${step.id} / ${step.plainId} imports from flow step ${originalImportStep.id} / ${originalImportStep.plainId} - mapping to flow instance ${mappedImportStep.instance.id} / ${mappedImportStep.instance.plainId}`)
+                                targetImports.push(mappedImportStep.instance.id )
+                            }else{
+                                throw "Importing from something other than flow or step - possibly nested segemnt??"
                             }
-                            if( stepInstance ){
-                                logger.info(` - Created step instance ${stepInstance.id} for ${step.id}`)
-                            }
-
-                            await addRelationship(step.id, stepInstance.id, "auto")
-                            await addRelationship(step.id, stepInstance.id, "config")
-                            stepInstance = await fetchPrimitive(stepInstance.id)
-                            
-                            if( Object.keys(step.primitives ?? {}).includes("axis")){
-                                logger.warn(`Should replicate axis in flow instance ${step.id} / ${stepInstance.id}`)
-                            }
+                        }
+                    }
+                    const currentImports = Object.values(mappedStep.instance.primitives?.imports ?? {})
+                    const toAdd = targetImports.filter(d=>!currentImports.includes(d))
+                    const toRemove = currentImports.filter(d=>!targetImports.includes(d))
+                    logger.debug(`${toAdd.length} imports to add, ${toRemove.length} imports to remove`)
+                    if( options.create !== false ){
+                        for(const importId of toAdd){
+                            await addRelationship(mappedStep.instance.id, importId, "imports")
+                        }
+                        for(const importId of toRemove){
+                            await removeRelationship(mappedStep.instance.id, importId, "imports")
                         }
                     }
                 }
             }
         }
+
     }
+    return instanceList
+}
+async function duplicateStep( step, parent){
+    let stepInstance = await createPrimitive({
+        workspaceId: step.workspaceId,
+        parent: parent.id,
+        data:{
+            type: step.type,
+            referenceId: step.referenceId,
+            title: `Instance of ${step.plainId} for ${parent.plainId}`
+        }
+    })
+    
+    await addRelationship(step.id, stepInstance.id, "auto")
+    await addRelationship(step.id, stepInstance.id, "config")
+    stepInstance = await fetchPrimitive(stepInstance.id)
+
+    return stepInstance
+}
+
+async function runFlow( flow ){
+    const flowInstances = await scaffoldWorkflow(flow)
+    for( const flowInstance of flowInstances ){
+        if( !flowInstance.instance.missing ){
+            logger.info(`Scheduling run for ${flowInstance.instance.id} / ${flowInstance.instance.plainId} (of flow ${flow.id} / ${flow.plainId})`)
+        }
+    }
+}
+async function runFlowInstance( flowInstance ){
+}
+async function flowInstanceStepsStatus( flowInstance ){
+    const instanceSteps = await getFlowInstanceSteps(flowInstance)
+    const stepStatus = []
+    for(const step of instanceSteps){
+        const status = await stepInstanceStatus(step, flowInstance)
+        stepStatus.push({
+            step,
+            ...status
+        })
+    }
+    return stepStatus
+}
+async function stepInstanceStatus( step, flowInstance ){
+    const {can, need} = await shouldStepRun( step, flowInstance)
+    const running = await stepIsRunning( step, flowInstance )
+    return {
+        can,
+        running,
+        need
+    }
+}
+async function getFlowInstanceSteps( flowInstance ){
+    return await primitiveChildren( flowInstance )
+}
+
+async function shouldStepRun( step, flowInstance){
+    let canReason, nedReason
+
+
+
+    return {can: true, need: true, canReason, nedReason}
+}
+async function stepIsRunning( step ){
+    const status = await FlowQueue().stepStatus(step)
+    return status.running || status.waiting
+}
+async function runStep( step, flowInstance){
 }

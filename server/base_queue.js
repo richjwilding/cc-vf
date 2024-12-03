@@ -235,6 +235,13 @@ class QueueManager {
         }
         return this.queues[queueName];
     }
+    async getJobStatus(workspaceId, jobData) {
+        const jobId = jobData.id + "-" + jobData.mode 
+        const queue = await this.getQueue(workspaceId);
+        const jobs = await queue.getJobs(['waiting', 'active', 'delayed', 'completed', 'failed']);
+        const filteredJobs = jobs.filter(job => job.id.startsWith(jobId));
+        return filteredJobs
+    }
 
     async addJob(workspaceId, jobData, options = {}) {
         try {

@@ -1,4 +1,5 @@
 import Category from "./model/Category"
+import { dispatchControlUpdate } from "./SharedFunctions"
 
 const actionMap = {}
 
@@ -24,7 +25,6 @@ export function registerAction( action, mappings, callback){
             console.log(`Overwriting action ${action} for ${id} / ${d.type}`)
         }
         obj[ id ] = callback
-        console.log(`Registering ${action} for ${id} ${type}`)
     }
 }
 export async function runAction(primitive, actionKey, options, req){
@@ -42,6 +42,11 @@ export async function runAction(primitive, actionKey, options, req){
         console.warn(`Cant find action definition for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${actionKey}`)
         return {success: false}
     }
-    return {success: true, result: actionCall(primitive, action, options, req)}
+    dispatchControlUpdate(primitive.id, `aLog.${actionKey}`, {status: "invoked", user: req.user?.email, date_invoked: new Date()})
+    return {success: true, result: await actionCall(primitive, action ?? actionKey, options, req)}
 
+}
+export async function markActionComplete(primitive, action){
+    const actionKey = typeof(action) === "string" ? action : action?.key
+    dispatchControlUpdate(primitive.id, `aLog.${actionKey}`, {...(primitive.aLog?.[actionKey] ?? {}), status: "complete", date_complete: new Date()})
 }

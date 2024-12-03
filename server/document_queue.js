@@ -1121,8 +1121,6 @@ export default function QueueDocument(){
 
     instance.myInit = async ()=>{
         console.log("Document Queue (v2)")
-        const jobCount = (await _queue.status()).length
-        console.log( jobCount + " jobs in queue (document)")        
     }
 
 

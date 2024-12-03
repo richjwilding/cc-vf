@@ -1085,7 +1085,7 @@ export default function BoardViewer({primitive,...props}){
         mainstore.globalNewPrimitive({
             title: addToFlow ? `Add to ${addToFlow.title} flow` : "Add to board",
             //categoryId: [38, 117, 81, 118],
-            categoryId: [38, 130, 131, 118, ...categoryList],
+            categoryId: [38, 130, 131, 118, 109, ...categoryList],
             parent: primitive,
             beforeCreate:async (data)=>{
                 if( addToFlow ){

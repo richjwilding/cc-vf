@@ -27,6 +27,7 @@ import { enrichPrimitiveViaBrightData, fetchSERPViaBrightData, handleCollection,
 import BrightDataQueue, { enrichmentDuplicationCheck } from './brightdata_queue';
 import { runAction } from './action_helper';
 import "./workflow.js"
+import FlowQueue from './flow_queue.js';
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -52,7 +53,7 @@ export async function findResultSetForType(primitive, type){
 }
 export async function findResultSetForCategoryId(primitive, id){
     const category = await Category.findOne({id: primitive.referenceId})
-    if( category && category.resultCategorie){
+    if( category && category.resultCategories){
         return category.resultCategories.find((d)=>d.resultCategoryId == id)?.id
     }
 }
@@ -65,7 +66,8 @@ export async function queueReset(){
             await BrightDataQueue().purge(),
             await QueueDocument().purge(),
             await QueueAI().purge(),
-            await EnrichPrimitive().purge()
+            await EnrichPrimitive().purge(),
+            await FlowQueue().purge()
         ])
     }catch(error){
         console.log(`Error resetting queue`)
@@ -80,10 +82,12 @@ export async function queueStatus(){
             ...(await BrightDataQueue().pending()),
             ...(await QueueDocument().pending()),
             ...(await QueueAI().pending()),
-            ...(await EnrichPrimitive().pending())
+            ...(await EnrichPrimitive().pending()),
+            ...(await FlowQueue().pending())
         ]
     }catch(error){
         console.log(`Error fetching queue status`)
+        console.log(error)
     }
 }
 export async function getNextSequenceValue(sequenceName) {

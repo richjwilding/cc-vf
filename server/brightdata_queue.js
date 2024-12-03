@@ -144,8 +144,6 @@ export default function BrightDataQueue(){
     
     instance.myInit = async ()=>{
         console.log("Brightdata")
-        const jobCount = await _queue.status();
-        console.log( jobCount, " jobs in queue (Brightdata)")
     }
     
     return instance

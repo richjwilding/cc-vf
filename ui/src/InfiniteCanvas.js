@@ -2243,27 +2243,21 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
                     
-                    if( cleared ){
-                        const x1 = cleared.attrs.x, y1 = cleared.attrs.y
-                        const x2 = x1 + cleared.attrs.width, y2 = y1 + cleared.attrs.height
+                    for(const d of [cleared, found]){
+                        if(!d){continue}
+                        const frame = d.findAncestor('.frame')
+                        const x1 = d.attrs.x + frame.attrs.x, y1 = d.attrs.y + frame.attrs.y
+                        const x2 = x1 + d.attrs.width, y2 = y1 + d.attrs.height
                         if( x1 < minX){minX = x1}
                         if( y1 < minY){minY = y1}
                         if( x2 > maxX){maxX = x2}
                         if( y2 > maxY){maxY = y2}
                         
                     }
-                    if( found ){
-                        const x1 = found.attrs.x, y1 = found.attrs.y
-                        const x2 = x1 + found.attrs.width, y2 = y1 + found.attrs.height
-                        if( x1 < minX){minX = x1}
-                        if( y1 < minY){minY = y1}
-                        if( x2 > maxX){maxX = x2}
-                        if( y2 > maxY){maxY = y2}
-                    }
                     let count = 0
                     for(const frame of myState.current.frames){
                         for(const d of frame.lastNodes){
-                            let x1 = d.attrs.x, y1 = d.attrs.y
+                            let x1 = d.attrs.x + frame.x, y1 = d.attrs.y + frame.y
                             let x2 = x1 + d.attrs.width, y2 = y1 + d.attrs.height  
                             if(x2 >= minX &&  x1 <= maxX && y2 >= minY && y1 <= maxY){
                                 if(d.attrs.name === "frame" || d.attrs.name === "view"){

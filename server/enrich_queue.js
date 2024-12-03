@@ -124,8 +124,6 @@ export default function EnrichPrimitive(){
     
     instance.myInit = async ()=>{
         console.log("Enrich Queue")
-        const jobCount = await _queue.status();
-        console.log( jobCount, " jobs in queue (enrich)")
     }
     return instance
     

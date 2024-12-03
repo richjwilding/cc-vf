@@ -55,6 +55,8 @@ async function getProcessFunction(type) {
             return (await import('./query_queue')).processQueue;
         case 'brightdata_queue':
             return (await import('./brightdata_queue')).processQueue;
+        case 'flow':
+            return (await import('./flow_queue')).processQueue;
         default:
             throw new Error(`Unknown queue type: ${type}`);
     }

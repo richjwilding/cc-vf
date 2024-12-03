@@ -181,8 +181,55 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
             props.updateFrameExtents( frame )
         }
     }
+    const addImport = (target)=>{
+        MainStore().globalPicker({
+        root: board,// target.referenceId === 118 ? board : undefined,
+        target: target,
+        exclude: target.primitives.imports,
+        callback:(pick)=>{
+            target.addRelationship(pick, `imports`)
+        },
+        })
+    }
     let content
-    if( frame?.type === "search" ){
+    if( frame?.type === "actionrunner" ){
+        const inputCategories = frame.itemsForProcessing.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d))
+
+        const actions = inputCategories.map(d=>d.actions).flat()
+        const actionOptions = actions.filter(d=>d.actionRunner).map(d=>({
+            id: d.key,
+            icon: d.icon,
+            title: d.title
+        }))
+
+        content = <div className="flex flex-col pb-2 px-3">
+                    <span className="text-gray-400 text-xs mt-0.5 mb-2">#{frame.plainId}  {frame.metadata.title ?? "Search"}</span>
+                    <div className="p-2 ">
+                        <UIHelper.OptionList 
+                            name="action" 
+                            title="Action" 
+                            options={actionOptions} 
+                            value={frame.referenceParameters.action}
+                            zIndex="50" 
+                            onChange={(d)=>{
+                                frame.setParameter("action", d, false, true)
+                            }}
+                        />
+                    </div>
+                    <div className="px-3 py-2 text-gray-500 text-sm">
+                        <UIHelper.Panel title="Show inputs" narrow>
+                            <div className="border p-2 rounded-md">
+                                <PrimitiveCard.ImportList primitive={frame}/>
+                                <div type="button"
+                                className="flex my-2 font-medium grow-0 bg-white hover:bg-gray-100 hover:shadow-sm hover:text-gray-600 justify-center ml-2 p-1 rounded-full shrink-0 text-xs text-gray-400 "
+                                onClick={()=>addImport(frame)}> 
+                                        <PlusIcon className="w-5 h-5"/>
+                                </div>
+                            </div>
+                        </UIHelper.Panel>
+                    </div>
+                </div>
+    }else  if( frame?.type === "search" ){
         const searchResultCategory = mainstore.category( frame.metadata.resultCategoryId ?? frame.metadata.parameters?.sources?.options?.[0]?.resultCategoryId )
         const searchResults = frame.primitives.uniqueAllItems
 
@@ -310,17 +357,6 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                     }
                 })
             }
-        }
-        const addImport = (target)=>{
-          MainStore().globalPicker({
-            root: board,// target.referenceId === 118 ? board : undefined,
-            target: target,
-            exclude: target.primitives.imports,
-            callback:(pick)=>{
-                target.addRelationship(pick, `imports`)
-            },
-            //type: ["view", "query"]
-          })
         }
 
         const updateViewMode = (value)=>{

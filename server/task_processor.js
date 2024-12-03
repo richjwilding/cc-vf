@@ -1552,7 +1552,7 @@ export async function summarizeWithQuery( primitive ){
         if( items.length > 0){
             
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
-            let config = evidenceCategory?.ai?.summarize?.[ config.summary_type ?? "summary"] ?? {}
+            let config = evidenceCategory?.ai?.summarize?.[ config?.summary_type ?? "summary"] ?? {}
             if( primitiveConfig.prompt?.trim && primitiveConfig.prompt.trim().length > 0){
                 config.prompt = primitiveConfig.prompt
                 
