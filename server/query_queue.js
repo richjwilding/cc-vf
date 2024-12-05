@@ -491,6 +491,23 @@ export default function QueryQueue(){
     instance.myInit = async ()=>{
         console.log("Query Queue v2")
     }
+    instance.getJob = async function (...args) {
+        return await _queue.getJob.apply(_queue, args);
+    };
+    
+    instance.addJob = async function (...args) {
+        return await _queue.addJob.apply(_queue, args);
+    };
+    instance.addJobResponse = async function (...args) {
+        return await _queue.addJobResponse.apply(_queue, args);
+    };
+    instance.getChildWaiting = async function (...args) {
+        return await _queue.getChildWaiting.apply(_queue, args);
+    };
+    instance.resetChildWaiting = async function (...args) {
+        return await _queue.resetChildWaiting.apply(_queue, args);
+    };
+
     
     return instance
 }

@@ -866,6 +866,23 @@ export default function QueueAI(){
         const jobCount = (await _queue.status()).length
         console.log( jobCount + " jobs in queue (ai)")        
     }
+    instance.getJob = async function (...args) {
+        return await _queue.getJob.apply(_queue, args);
+    };
+    
+    instance.addJob = async function (...args) {
+        return await _queue.addJob.apply(_queue, args);
+    };
+    instance.addJobResponse = async function (...args) {
+        return await _queue.addJobResponse.apply(_queue, args);
+    };
+    instance.getChildWaiting = async function (...args) {
+        return await _queue.getChildWaiting.apply(_queue, args);
+    };
+    instance.resetChildWaiting = async function (...args) {
+        return await _queue.resetChildWaiting.apply(_queue, args);
+    };
+
 
     instance.rebuildSummary = (primitive, action, req)=>{
         const workspaceId = primitive.workspaceId

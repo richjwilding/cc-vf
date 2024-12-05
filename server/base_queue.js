@@ -3,6 +3,19 @@ import { Queue, QueueEvents, Worker } from 'bullmq';
 import { Worker as WorkerThread } from 'worker_threads';
 import path from 'path';
 import { SIO } from './socket';
+import { parentPort, workerData, isMainThread} from 'worker_threads';
+import { getLogger } from './logger';
+import FlowQueue from './flow_queue';
+import QueueAI from './ai_queue';
+import QueueDocument from './document_queue';
+import EnrichPrimitive from './enrich_queue';
+import QueryQueue from './query_queue';
+import EventEmitter from 'events';
+import BrightDataQueue from './brightdata_queue';
+const asyncLocalStorage = require('./asyncLocalStorage');
+
+const logger = getLogger('queue-manager'); // Debug level for moduleA
+
 
 class QueueManager {
     constructor(
@@ -29,62 +42,287 @@ class QueueManager {
         this.workerThreads = []
         this.connection = redisOptions
         this.settings = settings
-
         this.processCallback = callback
+        this.isWorkerThread = !isMainThread
+        this.eventEmitter = new EventEmitter();
+
         this.redis = createClient({socket: {host: redisOptions.host, port: redisOptions.port}});
 
         this.redis.connect().catch(console.error);
 
         console.log(`QUEUE MANAGER INIIT ${this.type}`)
-        console.log(this.connection)
-        if( !this.processCallback ){
-            let readyCount = 0
-            for (let i = 0; i < this.numWorkersPerQueue; i++) {
-                console.log(`-- ${this.type} Thread ${i}`)
-                let worker = new WorkerThread(path.resolve(__dirname, './job-worker.js'), {
-                    workerData: {
-                        queueName: type,
-                        type: this.type,             // Pass the queue type to workerData
-                        redisOptions: this.connection
-                    }
-                });
-                worker.on('message', async (message) => {
-                    if (message.type === 'startJob') {
-                        console.log(`Job has started in worker ${message.queueName} / ${worker.threadId} - ${message.jobId}`)
-                        this.setQueueActivity(message.queueName, true);
-                    }else if (message.type === 'endJob') {
-                        console.log(`Job has ended in worker ${message.queueName} - ${message.jobId}`)
-                        this.setQueueActivity(message.queueName, false);
-                        await this.redis.del(`job:${message.jobId}:cancel`);
-                    }else if (message.type === 'notifyPrimitiveEvent') {
-                        const { workspaceId, message: data } = message.data;
-                        SIO.notifyPrimitiveEvent(workspaceId, JSON.parse(data));
-                    }else if(message.type === "ready"){
-                        readyCount++
-                        console.log(`${readyCount} worker(s) ready for ${type}`)
-                        if(readyCount === this.numWorkersPerQueue ){
-                            console.log(`starting ${type} queues`)
-                            this.initializeActiveQueues();
-                            this.startIdleCheck();
-                        }
-                    }
-                });
-                worker.on('error', (error) => {
-                    console.error(`Error in worker for queue ${this.type}:`, error);
-                });
-                worker.on('exit', (code) => {
-                    if (code !== 0) {
-                        console.log(`Worker for queue ${this.type} exited with code ${code}`);
-                    }
-                });
-                this.workerThreads.push(worker)
+        
+        if (this.isWorkerThread) {
+            // In worker thread
+            console.log(`QueueManager instantiated in worker thread for ${this.type}`);
+            this.overrideMethodsForWorkerThread();
+        } else {
+            // In main thread
+            console.log(`QueueManager instantiated in main thread for ${this.type}`);
+            if( !this.processCallback ){
+                let readyCount = 0
+                for (let i = 0; i < this.numWorkersPerQueue; i++) {
+                    console.log(`-- ${this.type} Thread ${i}`)
 
+                    const createThisWorker = (isReplacement)=>{
+                        let worker = new WorkerThread(path.resolve(__dirname, './job-worker.js'), {
+                            workerData: {
+                                queueName: type,
+                                type: this.type,             // Pass the queue type to workerData
+                                redisOptions: this.connection
+                            }
+                        });
+                        
+                        worker.on('message', async (message) => {
+                            if (message.type === 'startJob') {
+                                console.log(`Job has started in worker ${message.queueName} / ${worker.threadId} - ${message.jobId}`)
+                                workerState.running.add(`${message.queueName}/${message.jobId}/${message.token}`)
+                                this.setQueueActivity(message.queueName, true);
+                                
+                                let parentJob
+                                const store = asyncLocalStorage.getStore();
+                                if (store && store.has('parentJob')) {
+                                    parentJob = store.get('parentJob');
+                                }
+                                if( parentJob ){
+                                    logger.info("Updating parent queue")
+                                    
+                                    const [qId, qType] = parentJob.queueName.split("-")
+                                    const qo = getQueueObject(qType)
+                                    
+                                    const q = qo.getQueue(qId)
+                                    if( q ){
+                                        const parentJobObject = await q.getJob(parentJob.id);
+                                        if( parentJobObject ){
+                                            logger.info("================\n================\n================\nExtended parent job lock\n================\n================\n================")
+                                            parentJobObject.updateProgress(1); 
+                                        }else{
+                                            logger.error("Couldnt find parent job")
+                                        }
+                                    }else{
+                                        logger.error("Couldnt find parent queue", {qId, qType})
+                                    }
+                                }
+                                
+                            }else if (message.type === 'endJob') {
+                                
+                                logger.info(`Job has ended in worker ${message.queueName} - ${message.jobId}`)
+                                workerState.running.delete(`${message.queueName}/${message.jobId}/${message.token}`)
+                                
+                                await this.resetChildWaiting(message.queueName, message.jobId)
+                                
+                                this.setQueueActivity(message.queueName, false);
+                                await this.redis.del(`job:${message.jobId}:cancel`);
+                                
+                                
+                                
+                            }else if (message.type === 'notifyPrimitiveEvent') {
+                                const { workspaceId, message: data } = message.data;
+                                SIO.notifyPrimitiveEvent(workspaceId, JSON.parse(data));
+                            }else if(message.type === "ready"){
+                                readyCount++
+                                logger.debug(`${readyCount} worker(s) ready for ${type}`)
+                                if( isReplacement ){
+                                    logger.info(`Notifying replacement worker about existing queues`)
+                                    for(const qn of Object.keys(this.queues)){
+                                        worker.postMessage({type:"watch", queueName: qn})
+                                    }
+                                }
+                                
+                                if(readyCount === this.numWorkersPerQueue ){
+                                    this.initializeActiveQueues();
+                                    this.startIdleCheck();
+                                }
+                            }else if (message.type === 'addJob') {
+                                // Handle addJob requests from worker threads
+                                const {requestId, workspaceId, jobData, options, parentJob, queueType} = message
+                                logger.debug(`Got addJob request from child`)
+                                logger.debug(`Queus ${this.type} got request for ${queueType}`)
+
+                                let queue = this.getQueueObject(queueType)
+                                if( !queue ){
+                                    console.log(message)
+                                    throw `Dont have queue ${queue} to forward message to`
+                                }
+                                const jobOptions = {
+                                    ...options,
+                                    removeOnComplete: { age: 180},
+                                    attempts:0,
+                                    waitChildren: true,
+                                    removeOnFail: true, 
+                                    parent: {id: parentJob.id, queue: `bull:${parentJob.queueName}`}
+                                }
+                                {
+                                    (async()=>{
+                                        await queue.addJob( message.workspaceId, jobData, jobOptions)
+                                    })()
+                                }
+                                this.markChildWaiting( parentJob.queueName, parentJob.id)
+                                
+                                
+                                worker.postMessage({
+                                    type: 'addJobResponse',
+                                    requestId,
+                                    status: 'success',
+                                    queueType,
+                                    jobId: jobData.id
+                                });
+                            }else if( message.type === "error"){
+                                logger.error(`Error in worker for queue ${this.type}:\n${message.error.message}\n${message.error.stack}`)                  
+                            }
+                        });
+                        worker.on('error', async (error) => {
+                            console.error(`Error in worker for queue ${this.type}:`, error);                        
+                        });
+                        worker.on('exit', async (code) => {
+                            if (code !== 0) {
+                                logger.error(`Worker for queue ${this.type} exited with code ${code}`);
+                                readyCount--
+                                
+                                logger.debug(workerState.running)
+                                for(const d of workerState.running){
+                                    try{
+                                        
+                                        const [qn, jid, token] = d.split("/")
+                                        logger.debug(`Cancelling active jobs`, {qn, jid, token})
+                                        const job = await this.queues[qn]?.getJob(jid)
+                                        if( job ){
+                                            const state = await job.getState()
+                                            if( state === "active"){
+                                                await job.moveToFailed({message: "Recover from crashed worker"}, token)
+                                            }
+                                        }
+                                    }catch(error){
+                                        logger.error("Error trying to reset worker after crash")
+                                        logger.error(error)
+                                    }
+                                }
+                                
+                                workerState.running = new Set()
+                                const newWorker = createThisWorker(true)
+                                this.workerThreads[i] = newWorker
+                                logger.debug(`Replaced worker ${i}`)
+                                
+                                workerState = {running: new Set()}
+                                
+                                
+                            }
+                        });
+                        return worker
+                    }
+                    let workerState = {running: new Set()}
+                    let worker = createThisWorker()
+                    this.workerThreads.push(worker)
+
+                }
+
+            }else{
+                this.initializeActiveQueues();
+                this.startIdleCheck();
             }
-
-        }else{
-            this.initializeActiveQueues();
-            this.startIdleCheck();
         }
+    }
+    getQueueObject(queueType){
+        switch( queueType){
+            case "flow": return FlowQueue()
+            case "ai": return  QueueAI()
+            case "document": return  QueueDocument()
+            case "enrich": return  EnrichPrimitive()
+            case "brightdata": return  BrightDataQueue()
+            case "query": return  QueryQueue()
+        }
+    }
+    overrideMethodsForWorkerThread() {
+        this.requestIdCounter = 0;
+        this.pendingRequests = new Map();
+
+        this.addJobResponse = async (message) => {
+            console.log(`Handling addJob response `)
+            const { requestId, status, jobId, error } = message;
+            const { resolve, reject } = this.pendingRequests.get(requestId) || {};
+            if (resolve) {
+                if (status === 'success') {
+                    resolve(jobId);
+                } else {
+                    reject(new Error(error));
+                }
+                this.pendingRequests.delete(requestId);
+            }else{
+                logger.error(`Couldnt find job to resolve in addJobResponse handler ${this.type}`)
+            }
+        }
+
+
+        this.addJob = async (workspaceId, jobData, options = {}) => {
+            const requestId = ++this.requestIdCounter;
+
+            
+        
+
+            return new Promise((resolve, reject) => {
+                // Store the resolve and reject functions
+                this.pendingRequests.set(requestId, { resolve, reject });
+        
+                let parentJob
+                const store = asyncLocalStorage.getStore();
+                if (store && store.has('parentJob')) {
+                    parentJob = store.get('parentJob');
+                }
+
+                const jobOptions = {
+                    type: 'addJob',
+                    requestId,
+                    workspaceId,
+                    jobData,
+                    options,
+                    queueType: this.type
+                    
+                }
+
+                if( parentJob){
+                    jobOptions.parentJob = {
+                        id: parentJob.id,
+                        queueName: parentJob.queueName
+                    }
+                }
+    
+                logger.debug(`Parent job ${parentJob.id} in ${parentJob.queueName} asked for addjob on ${this.type}`)
+    
+                try{
+                    parentPort.postMessage(jobOptions);
+                }catch(e){
+                    logger.error(`Couldnt send addJob data to parent thread - likey not serializable`, jobOptions)
+                    logger.error( jobOptions )
+                }
+                // Optionally, set a timeout to reject the promise if no response is received
+                setTimeout(() => {
+                    if (this.pendingRequests.has(requestId)) {
+                        reject(new Error('addJob timed out'));
+                        this.pendingRequests.delete(requestId);
+                    }
+                }, 5000); // Timeout after 5 seconds
+            });
+        };
+
+
+        // Adjust getQueue to avoid unnecessary actions
+        this.getQueue = async (workspaceId) => {
+            const queueName = `${workspaceId}-${this.type}`;
+            if (!this.queues[queueName]) {
+                this.queues[queueName] = new Queue(queueName, { connection: this.connection });
+            }
+            return this.queues[queueName];
+        };
+
+        this.initializeActiveQueues = async () => { /* Do nothing */ };
+        this.startIdleCheck = () => { /* Do nothing */ };
+        this.setQueueActivity = async () => { /* Do nothing */ };
+        this.updateQueueActivity = async () => { /* Do nothing */ };
+        this.teminateJobsInQueue = async () => { /* Do nothing */ };
+        this.removeJob = async () => { /* Do nothing */ };
+        this.purgeAllQueues = async () => { /* Do nothing */ };
+        this.purgeQueue = async () => { /* Do nothing */ };
+        this.status = async () => { return {}; }; // Return empty status or minimal information
     }
 
     async initializeActiveQueues() {
@@ -97,19 +335,44 @@ class QueueManager {
             }
             const { activeCount, lastActivity } = await this.getQueueActivity(queueName);
             if (activeCount > 0 ) {
-                console.log(`Have ${activeCount} items in queue ${queueName}- starting`)
+                logger.info(`Have ${activeCount} items in queue ${queueName}- starting`)
                 this.getQueue(workspaceId);
             }else{
                 if( lastActivity === null ){
-                    console.log(`No active items in queue  ${queueName} - removing`)
+                    logger.info(`No active items in queue  ${queueName} - removing`)
                     await this.redis.del(`${queueName}-activeCount`);
                     await this.redis.del(`${queueName}-lastActivity`);
                     await this.redis.sRem('activeQueues', queueName);
                 }else{
-                    console.log(`Have ${activeCount} items waiting in queue ${queueName} - starting`)
+                    logger.info(`Have ${activeCount} items waiting in queue ${queueName} - starting`)
                     this.getQueue(workspaceId);
                 }
             }
+        }
+    }
+    async resetChildWaiting(queueName, jobId) {
+        const key = `${queueName}-${jobId}-childrenCount`
+        return await this.redis.del(key);
+    }
+    async getChildWaiting(queueName, jobId) {
+        const key = `${queueName}-${jobId}-childrenCount`
+        return await this.redis.get(key);
+    }
+    async removeChildTracker(queueName, jobId) {
+        const key = `${queueName}-${jobId}-childrenCount`
+        await this.redis.del(key);
+    }
+    async markChildWaiting(queueName, jobId) {
+        const key = `${queueName}-${jobId}-childrenCount`
+        await this.redis.incr(key);
+    }
+
+    async markChildComplete(queueName, jobId) {
+        const key = `${queueName}-${jobId}-childrenCount`
+        const count = await this.redis.decr(key)
+        if (count < 0) {
+            // Ensure the count does not go below zero
+            await this.redis.set(key, '0');
         }
     }
 
@@ -165,6 +428,7 @@ class QueueManager {
 
     startIdleCheck() {
         setInterval(async () => {
+            await this.initializeActiveQueues(); 
             const now = Date.now();
             for (const queueName in this.queues) {
                 const { activeCount, lastActivity } = await this.getQueueActivity(queueName);
@@ -187,6 +451,8 @@ class QueueManager {
 
     async getQueue(workspaceId) {
         const queueName = `${workspaceId}-${this.type}`;
+        
+
         if (!this.queues[queueName]) {
             console.log(`Creating queue ${queueName}`)
             console.log(this.connection)
@@ -238,14 +504,14 @@ class QueueManager {
     async getJobStatus(workspaceId, jobData) {
         const jobId = jobData.id + "-" + jobData.mode 
         const queue = await this.getQueue(workspaceId);
-        const jobs = await queue.getJobs(['waiting', 'active', 'delayed', 'completed', 'failed']);
+        const jobs = await queue.getJobs(['waiting', 'waiting-children', 'active', 'delayed', 'completed', 'failed']);
         const filteredJobs = jobs.filter(job => job.id.startsWith(jobId));
         return filteredJobs
     }
 
     async addJob(workspaceId, jobData, options = {}) {
         try {
-            const jobId = jobData.id + "-" + jobData.mode + (options.reschedule ? Date.now() : "")
+            const jobId = jobData.id + "-" + jobData.mode + (jobData.scope ? "-" + jobData.scope : "") + (options.reschedule ? Date.now() : "")
             const queue = await this.getQueue(workspaceId);
             const existing = await queue.getJob(jobId)
             if(  existing ){
@@ -253,16 +519,17 @@ class QueueManager {
                 if( status === "completed"){
                     await existing.remove()
                 }else{
-                    console.log(`Job already present - skipping `)
+                    console.log(`Job already present - skipping ${jobId}`)
                     return
                 }
             }
-            console.log(`Starting job ${jobId} on ${workspaceId}`)
+            console.log(`Adding job ${jobId} on ${workspaceId}`)
             await queue.add(jobId, jobData, {
-                removeOnComplete: { age: 180}, 
                 removeOnFail: true, 
+                removeOnComplete: { age: 180},
+                waitChildren: true,
                 jobId: jobId, 
-                attempts: 2, // Retry up to 3 times
+                attempts: 0, // Retry up to 3 times
                 backoff: {
                     type: 'exponential', // Use exponential backoff
                     delay: 60 * 1000 * 20, // Initial delay: 5 minutes
@@ -374,7 +641,7 @@ class QueueManager {
         for (const queueName in this.queues) {
             try {
                 const queue = this.queues[queueName];
-                const jobs = await queue.getJobs(['waiting', 'active', 'completed', 'failed', 'delayed']);
+                const jobs = await queue.getJobs(['waiting', 'waiting-children', 'active', 'completed', 'failed', 'delayed']);
                 const workerStatuses = this.workers[queueName]?.map((worker, index) => ({
                     workerId: index + 1,
                     threadId: worker.threadId,
@@ -388,6 +655,7 @@ class QueueManager {
                             id: job.id,
                             name: job.name,
                             status: await job.getState(),
+                            children: await job.getChildrenValues(),
                             data: job.data,
                             attemptsMade: job.attemptsMade,
                             failedReason: job.failedReason

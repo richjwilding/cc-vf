@@ -98,6 +98,7 @@ export default function BrightDataQueue(){
                             }
                         }
                         await executeConcurrently( result, addItem, undefined, undefined, 10)
+                        dispatchControlUpdate(primitiveId, field , {status: "Collected", date: new Date()}, {...data, track: primitiveId})
                     }
                 }
             }
@@ -145,6 +146,22 @@ export default function BrightDataQueue(){
     instance.myInit = async ()=>{
         console.log("Brightdata")
     }
+    instance.getJob = async function (...args) {
+        return await _queue.getJob.apply(_queue, args);
+    };
+    
+    instance.addJob = async function (...args) {
+        return await _queue.addJob.apply(_queue, args);
+    };
+    instance.addJobResponse = async function (...args) {
+        return await _queue.addJobResponse.apply(_queue, args);
+    };
+    instance.getChildWaiting = async function (...args) {
+        return await _queue.getChildWaiting.apply(_queue, args);
+    };
+    instance.resetChildWaiting = async function (...args) {
+        return await _queue.resetChildWaiting.apply(_queue, args);
+    };
     
     return instance
 }

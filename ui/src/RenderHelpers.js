@@ -3057,6 +3057,7 @@ registerRenderer( {type: "type", id: "actionrunner", configs: "default"}, (primi
 registerRenderer( {type: "type", id: "search", configs: "default"}, renderDefaultActionPrimitive)
 
 function renderDefaultActionPrimitive(primitive, options){
+        options.data ||= {}
         const config = {width: 500, height: 100, ...options}
         const g = new Konva.Group({
             id: primitive.id,

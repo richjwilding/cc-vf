@@ -6,14 +6,25 @@ import PrimitiveParser from './PrimitivesParser';
 import FlowQueue from "./flow_queue";
 
 
-registerAction("workflow_info", {id: "flow"}, (p,a,o)=>scaffoldWorkflow(p,{...(o ?? {}), create: false}))
+registerAction("run_flow", {id: "flow"}, async (p,a,o)=>FlowQueue().runFlow(p,o))
+registerAction("run_flow_instance", {id: "flowinstance"}, async (p,a,o)=>FlowQueue().runFlowInstance(p,o))
+registerAction("workflow_info", {id: "flow"}, async (p,a,o)=>scheduleScaffoldWorkflow(p,{...(o ?? {}), create: false}))
 registerAction("workflow_scaffold", {id: "flow"}, async (p,a,o)=>{
-    const result = await scaffoldWorkflow(p, o)
+    const result = await scheduleScaffoldWorkflow(p, o)
     markActionComplete(p, o)
     return result
 })
 
 const logger = getLogger('workflow'); // Debug level for moduleA
+
+export async function scheduleScaffoldWorkflow( flow, options = {} ){
+    try{
+        await FlowQueue().scaffoldWorkflow(flow,options)
+    }catch(e){
+        logger.error("Error scheduleScaffoldWorkflow ")
+        logger.error(e)
+    }
+}
 
 export async function scaffoldWorkflow( flow, options = {} ){
     const parser = PrimitiveParser()
@@ -181,15 +192,18 @@ async function duplicateStep( step, parent){
     return stepInstance
 }
 
-async function runFlow( flow ){
+export async function runFlow( flow ){
     const flowInstances = await scaffoldWorkflow(flow)
     for( const flowInstance of flowInstances ){
         if( !flowInstance.instance.missing ){
             logger.info(`Scheduling run for ${flowInstance.instance.id} / ${flowInstance.instance.plainId} (of flow ${flow.id} / ${flow.plainId})`)
+            await FlowQueue().runFlowInstance( flowInstance.instance )
+            logger.info("Scheduled")
         }
     }
 }
-async function runFlowInstance( flowInstance ){
+export async function runFlowInstance( flowInstance, options ){
+
 }
 async function flowInstanceStepsStatus( flowInstance ){
     const instanceSteps = await getFlowInstanceSteps(flowInstance)
@@ -218,7 +232,6 @@ async function getFlowInstanceSteps( flowInstance ){
 
 async function shouldStepRun( step, flowInstance){
     let canReason, nedReason
-
 
 
     return {can: true, need: true, canReason, nedReason}

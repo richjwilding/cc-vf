@@ -762,11 +762,12 @@ export async function comapreToPeers( parent, activeSegment, primitive, options 
         const streamline = await summarizeMultiple([fullText],{
             prompt,
             output: structured ? "Generate a n new output for the segment im interested in in a json object with a field called 'new_segment'. The field must be in the same structure as the input for this segment - including nested subsections - but with the relevant content fields updated where necessary - add a 'omit' field to any subsections which should be removed from this segment. Ensure you consider and include every entry in the input array - and every nested subsection of this segment."
-            : "Provide the output as a json object with a field called 'summary' containing the new summary as a string with suitable linebreaks to deliniate sections",
+                    : "Provide the output as a json object with a field called 'summary' containing the new summary as a string with suitable linebreaks to deliniate sections",
+//            output: "Provide the output as a json object with a field called 'summary' containing the new summary as a markdown string in the format specified",
             engine: "gpt4p",
-            markdown: config.markdown, 
+            markdown: true,//config.markdown, 
             temperature: config.temperature ?? primitive.referenceParameters?.temperature,
-            heading: config.heading,
+            heading: true,//config.heading,
             keepLineBreaks: true,
             wholeResponse: structured,
             debug: true,

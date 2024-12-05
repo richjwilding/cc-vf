@@ -2290,7 +2290,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             myState.current.hover ||= {}
             let anythingFound = false
             for(const type of Object.keys(props.highlights ?? {})){
-                let found = findTrackedNodesAtPosition( x, y, type)?.[0]
+                //let found = findTrackedNodesAtPosition( x, y, type)?.[0]
+                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, type))?.[0]
                 anythingFound ||= found
                 doHighlight( found, type)
 

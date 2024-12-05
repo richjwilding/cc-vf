@@ -352,23 +352,23 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
         console.log('Data collection triggered successfully:', data);
         dispatchControlUpdate(primitive.id, `processing.bd.${api}.collectionId` , data?.snapshot_id)
 
-        BrightDataQueue().scheduleCollection( primitive, {input, api, terms, callopts: {enrich: config.enrich, ...callopts}})
+        BrightDataQueue().scheduleCollection( primitive, {api})
         
     } catch (error) {
         console.error('Error triggering data collection:', error.response ? error.response.data : error.message);
     }
 }
 
-export async function restartCollection( primitive, {api, callopts} = {} ){
+export async function restartCollection( primitive, {api} = {} ){
     if( !api ){
         throw "No API defined for collection"
     }
     const config = bdExtractors[api]
-    BrightDataQueue().scheduleCollection( primitive, {api, callopts: {enrich: config.enrich, ...callopts}})
+    BrightDataQueue().scheduleCollection( primitive, {api, callopts: {enrich: config.enrich}})
 
 }
 
-export async function handleCollection(primitive, {input, api, terms, callopts} = {}, doCreation = true){
+export async function handleCollection(primitive, {api} = {}, doCreation = true){
     if( !api ){
         throw "No API defined for collection"
     }
@@ -392,7 +392,7 @@ export async function handleCollection(primitive, {input, api, terms, callopts} 
             if( response.data.status === "running" || response.data.status === "building"){
                 console.log(`still running - retry`)
                 return {
-                    reschedule: ()=>BrightDataQueue().scheduleCollection( primitive, {input, api, terms, callopts}, true )
+                    reschedule: ()=>BrightDataQueue().scheduleCollection( primitive, {api}, true )
                 }
             }
             console.log(response.data)
@@ -412,7 +412,6 @@ export async function handleCollection(primitive, {input, api, terms, callopts} 
         for(const d of response.data){
             const id = config.id( d )
             const data = config.data( d )
-            console.log(id)
             toProcess.push( data )
         }
 
@@ -428,8 +427,7 @@ export async function handleCollection(primitive, {input, api, terms, callopts} 
         console.log(linkData)
         
         if( doCreation ){
-            let idx = 0
-            const addItem = async (data)=>{
+            const addItem = async (data, idx)=>{
                 console.log(idx, data.referenceParameters.id)
                 const newData = {
                     workspaceId: primitive.workspaceId,
@@ -452,7 +450,6 @@ export async function handleCollection(primitive, {input, api, terms, callopts} 
                     console.log(newData)
                     console.log(error)
                 }
-                idx++
             }
             await executeConcurrently( toProcess, addItem, undefined, undefined, 10)
             return out
@@ -571,7 +568,7 @@ export async function fetchSERPViaBrightData( query, options = {}){
     const bdUrl = `https://www.google.com/search?${new URLSearchParams(bdParams).toString() }`
 
     const aResponse = await fetchViaBrightDataProxy( bdUrl, {proxy: process.env.BRIGHTDATA_SERP, useAxios: true})
-    const response = aResponse.data
+    const response = JSON.parse(aResponse.data)
 
     const general = response.general
     const pagination = response.pagination

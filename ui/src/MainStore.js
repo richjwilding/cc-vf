@@ -1565,6 +1565,7 @@ function MainStore (prims){
                 if( prop === "removeChildren"){
                     return async function(allItems = false){
                         let directs = allItems ? receiver.primitives.uniqueAllItems : [receiver.primitives.origin.uniqueAllItems, receiver.primitives.auto.uniqueAllItems].flat()
+                        directs = uniquePrimitives(directs)
                         directs = directs.filter((d)=>!d.lock)
                         let nested = [] 
                         for( d of directs ){
@@ -1797,7 +1798,9 @@ function MainStore (prims){
                                 return segmentName
                             }
                             return frags.join(", ")
-                        }
+                        }else{
+                            return receiver.title
+                        }                        
                     }
                     if( prop === "itemsForProcessingFromImport"){
                         return (p, o)=>receiver.itemsForProcessingWithOptions(p.id, o)

@@ -30,7 +30,7 @@ export function registerAction( action, mappings, callback){
 export async function runAction(primitive, actionKey, options, req){
     const category = await Category.findOne({id: primitive.referenceId})
     
-    let action = category.actions.find((d)=>d.key === actionKey)
+    let action = category?.actions?.find((d)=>d.key === actionKey)
     const command = action?.command || actionKey
 
     let actionCall = actionMap[command]?.categories[primitive.referenceId] ?? actionMap[command]?.types[primitive.type] 

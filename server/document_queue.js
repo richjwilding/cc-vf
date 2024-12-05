@@ -600,15 +600,21 @@ async function doDataQuery( options ) {
                 let results
                 if( query && query.trim().length > 0 ){
 
-                    results = await processPromptOnText( query,{
-                        opener: `You have access to a database of many thousands of text fragments and must answer questions or complete tasks using information in the database.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases. Here is a task or question:`,
-                        prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
-                        output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
-                        engine: "gpt4p",
-                        debug: true,
-                        debug_content: true,
-                        field: "result"
-                    })
+                    if( primitive.referenceParameters.fullText ){
+                        console.log(`Will use full text`)
+                        results = {success: true, allItems: true }
+
+                    }else{
+                        results = await processPromptOnText( query,{
+                            opener: `You have access to a database of many thousands of text fragments and must answer questions or complete tasks using information in the database.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases. Here is a task or question:`,
+                            prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
+                            output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
+                            engine: "gpt4p",
+                            debug: true,
+                            debug_content: true,
+                            field: "result"
+                        })
+                    }
                 }else{
                     if( doingExtracts ){
                         query = extractTargetCategory.ai?.extract?.prompt ?? `Analyze each numbered item i have provided to generate an assessment of the messaging content, structure and style.  You must produce an assessment for each and every item and return each as a seperate part of your answer.`
@@ -660,8 +666,9 @@ async function doDataQuery( options ) {
                             fragmentList = Object.values( fragments )
 
                         }else{
+                            console.log(`Fetching all fragments`)
                             fragmentList = await ContentEmbedding.find({$and: serachScope},{foreignId:1, part:1, text: 1})
-                            fragmentList = fragmentList.map(d=>({...d.toJSON(), id: d.foreignId}))
+                            fragmentList = fragmentList.sort((a,b)=>a.part - b.part).map(d=>({...d.toJSON(), id: d.foreignId}))
                         }
 
 
@@ -1122,6 +1129,23 @@ export default function QueueDocument(){
     instance.myInit = async ()=>{
         console.log("Document Queue (v2)")
     }
+    instance.getJob = async function (...args) {
+        return await _queue.getJob.apply(_queue, args);
+    };
+    
+    instance.addJob = async function (...args) {
+        return await _queue.addJob.apply(_queue, args);
+    };
+    instance.addJobResponse = async function (...args) {
+        return await _queue.addJobResponse.apply(_queue, args);
+    };
+    instance.getChildWaiting = async function (...args) {
+        return await _queue.getChildWaiting.apply(_queue, args);
+    };
+    instance.resetChildWaiting = async function (...args) {
+        return await _queue.resetChildWaiting.apply(_queue, args);
+    };
+
 
 
     return instance

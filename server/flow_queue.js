@@ -1,6 +1,8 @@
 import QueueManager from './base_queue'; 
 import { getLogger } from './logger';
 import Primitive from "./model/Primitive";
+import { dispatchControlUpdate, fetchPrimitive } from './SharedFunctions';
+import { runFlow, runFlowInstance, scaffoldWorkflow } from './workflow';
 
 const logger = getLogger('workflow-queue'); // Debug level for moduleA
 
@@ -8,6 +10,23 @@ let instance
 let _queue
 
 export async function processQueue( job, cancelCheck ){
+    const primitive = await fetchPrimitive( job.data.id )
+    const options = job.data.options
+    const workspaceId = primitive.workspaceId
+    const mode = job.data.mode
+
+    console.log(`Flow queue executing `, job.id, mode)
+    switch(mode){
+        case "scaffold_workflow":
+            await scaffoldWorkflow(primitive, options)
+            break
+        case "run_flow":
+            await runFlow(primitive, options)
+            break
+        case "run_flow_instance":
+            await runFlowInstance(primitive, options)
+            break
+    }
 
 }
 
@@ -32,25 +51,43 @@ export default function FlowQueue(){
             }
             return {running, waiting}
         },
-        runStep: (primitive)=>{
+        scaffoldWorkflow:async (primitive, options)=>{
+            const primitiveId = primitive.id
+            const workspaceId = primitive.workspaceId
+            const field = "processing.scaffold_workflow"
+            
+            await  _queue.addJob(workspaceId, {id: primitiveId,  mode: "scaffold_workflow", field, options})
+            
+            dispatchControlUpdate(primitiveId, field , {status: "pending"}, {track: primitiveId})
+        },
+        runFlow: async (primitive)=>{
+            const primitiveId = primitive.id
+            const workspaceId = primitive.workspaceId
+            const field = "processing.run_flow_instance"
+            
+            await _queue.addJob(workspaceId, {id: primitiveId,  mode: "run_flow", field})
+            
+            dispatchControlUpdate(primitiveId, field , {status: "pending"}, {track: primitiveId})
+        },
+        runFlowInstance: async (primitive)=>{
+            const primitiveId = primitive.id
+            const workspaceId = primitive.workspaceId
+            const field = "processing.run_flow_instance"
+            
+            await _queue.addJob(workspaceId, {id: primitiveId,  mode: "run_flow_instance", field})
+            
+            dispatchControlUpdate(primitiveId, field , {status: "pending"}, {track: primitiveId})
+        },
+        runStep: async (primitive)=>{
             const primitiveId = primitive.id
             const workspaceId = primitive.workspaceId
             const field = "processing.run_step"
             
-            _queue.addJob(workspaceId, {id: primitiveId,  mode: "run_step", field})
+            await _queue.addJob(workspaceId, {id: primitiveId,  mode: "run_step", field})
             
-            dispatchControlUpdate(primitiveId, field , {status: "pending"}, {...data, track: primitiveId})
+            dispatchControlUpdate(primitiveId, field , {status: "pending"}, {track: primitiveId})
         }
 
-    }
-    instance.doQuery = (primitive, options )=>{
-        const primitiveId = primitive.id
-        const workspaceId = primitive.workspaceId
-        const field = "processing.ai.flow"
-        const data = {mode: "", text:"Running query", ...options}
-
-        _queue.addJob(workspaceId, {id: primitiveId, ...data, field})
-        dispatchControlUpdate(primitiveId, field , {status: "pending"}, {...data, track: primitiveId})
     }
     instance.pending = async ()=>{
         return await _queue.status();
@@ -65,7 +102,23 @@ export default function FlowQueue(){
     }
     
     _queue = new QueueManager("flow", /*processQueue*/ undefined, 3);
+    instance.getJob = async function (...args) {
+        return await _queue.getJob.apply(_queue, args);
+    };
     
+    instance.addJob = async function (...args) {
+        return await _queue.addJob.apply(_queue, args);
+    };
+    instance.addJobResponse = async function (...args) {
+        return await _queue.addJobResponse.apply(_queue, args);
+    };
+    instance.getChildWaiting = async function (...args) {
+        return await _queue.getChildWaiting.apply(_queue, args);
+    };
+    instance.resetChildWaiting = async function (...args) {
+        return await _queue.resetChildWaiting.apply(_queue, args);
+    };
+
     instance.myInit = async ()=>{
         console.log("Flow Queue")
     }

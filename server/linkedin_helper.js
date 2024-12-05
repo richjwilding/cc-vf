@@ -597,7 +597,7 @@ export async function findCompanyLIPage( primitive ){
 export async function findCompanyLIPageWithGoogle( title, url ){
     const result = await fetchLinksFromWebQuery(`site:linkedin.com/company ${url}`, {count:5, timeFrame: ""})
     if( result.links ){
-        const parts = title.toLowerCase().split(" ")  
+        const parts = (title ?? "").toLowerCase().split(" ")  
         const matchOrder = new Array(parts.length).fill(0).map((d,i)=>parts.slice(0, i + 1).join(" ")).reverse()
         for(const pass of matchOrder ){
             console.log(`Checking ${pass}`)
