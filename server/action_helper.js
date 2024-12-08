@@ -1,9 +1,16 @@
 import Category from "./model/Category"
 import { dispatchControlUpdate } from "./SharedFunctions"
 
-const actionMap = {}
+let _actionMap
+function getActionMap(){
+    if(!_actionMap){
+        _actionMap = {}
+    }
+    return _actionMap
+}
 
 export function registerAction( action, mappings, callback){
+    const actionMap = getActionMap()
     if( !action){
         return false
     }
@@ -28,6 +35,7 @@ export function registerAction( action, mappings, callback){
     }
 }
 export async function runAction(primitive, actionKey, options, req){
+    const actionMap = getActionMap()
     const category = await Category.findOne({id: primitive.referenceId})
     
     let action = category?.actions?.find((d)=>d.key === actionKey)
@@ -42,7 +50,7 @@ export async function runAction(primitive, actionKey, options, req){
         console.warn(`Cant find action definition for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${actionKey}`)
         return {success: false}
     }
-    dispatchControlUpdate(primitive.id, `aLog.${actionKey}`, {status: "invoked", user: req.user?.email, date_invoked: new Date()})
+    dispatchControlUpdate(primitive.id, `aLog.${actionKey}`, {status: "invoked", user: req?.user?.email, date_invoked: new Date()})
     return {success: true, result: await actionCall(primitive, action ?? actionKey, options, req)}
 
 }

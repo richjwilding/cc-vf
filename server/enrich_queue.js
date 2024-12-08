@@ -11,7 +11,7 @@ import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import Parser from "@postlight/parser";
 import { extractURLsFromPage, extractURLsFromPageAlternative, fetchURLPlainText, getMetaDescriptionFromURL } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
-import QueueManager from "./base_queue";
+import QueueManager from "./queue_manager";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
 import { findCompanyURLByName } from "./task_processor";
 import { enrichEntityFromOwler } from "./owler_helper";
@@ -846,7 +846,7 @@ export async function processQueue(job, cancelCheck){
                                         field: "name"
                                     }
                                 )
-                                if( response ){
+                                if( response && response.output?.[0] && response.output?.[0] !== "Unknown"){
                                     console.log(response)
                                     await dispatchControlUpdate( primitive.id, "title", response.output?.[0] )
                                 }

@@ -1,11 +1,12 @@
 import { markActionComplete, registerAction } from "./action_helper";
 import { getLogger } from "./logger";
-import { addRelationship, createPrimitive, fetchPrimitive, fetchPrimitives, getFilterName, primitiveChildren, primitiveDescendents, removeRelationship } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, getConfig, getFilterName, primitiveChildren, primitiveDescendents, primitiveParentsOfType, removeRelationship } from "./SharedFunctions";
 import { checkAndGenerateSegments, getItemsForQuery, getSegemntDefinitions } from "./task_processor";
 import PrimitiveParser from './PrimitivesParser';
 import FlowQueue from "./flow_queue";
 
 
+registerAction("run_step", undefined, async (p,a,o)=>FlowQueue().runStep(p,o))
 registerAction("run_flow", {id: "flow"}, async (p,a,o)=>FlowQueue().runFlow(p,o))
 registerAction("run_flow_instance", {id: "flowinstance"}, async (p,a,o)=>FlowQueue().runFlowInstance(p,o))
 registerAction("workflow_info", {id: "flow"}, async (p,a,o)=>scheduleScaffoldWorkflow(p,{...(o ?? {}), create: false}))
@@ -144,20 +145,44 @@ export async function scaffoldWorkflow( flow, options = {} ){
                     for(const importId of importIds){
                         if(importId === flow.id){
                             logger.info(`Step ${step.id} / ${step.plainId} imports from flow ${flow.id} - mapping to flow instance ${instanceInfo.instance.id}`)
+                            targetImports.push( {id: instanceInfo.instance.id} )
                         }else{
                             const originalImportStep = steps.find(d=>d.id === importId)
                             if( originalImportStep ){
                                 const mappedImportStep = instanceInfo.steps.find(d=>d.stepId === originalImportStep.id)
                                 logger.info(`Step ${step.id} / ${step.plainId} imports from flow step ${originalImportStep.id} / ${originalImportStep.plainId} - mapping to flow instance ${mappedImportStep.instance.id} / ${mappedImportStep.instance.plainId}`)
-                                targetImports.push(mappedImportStep.instance.id )
+                                
+                                let filtersForOriginal = step.referenceParameters.importConfig?.filter(d=>d.id === importId) ?? []
+                                logger.debug(`-- ${filtersForOriginal} filters to remap for import`)
+                                let mappedFilters = filtersForOriginal.map(d=>{
+                                    return {
+                                        id: mappedImportStep.instance.id,
+                                        filters: d.filters.map(d=>{
+                                            if( d.type === "parent" && d.value === originalImportStep.id){
+                                                logger.debug(`--- remapped done / fail filter : ${d.value} => ${mappedImportStep.instance.id}`)
+                                                return {
+                                                    ...d,
+                                                    value: mappedImportStep.instance.id
+                                                }
+                                            }
+                                            return d
+                                        })
+                                    }
+                                })
+                                
+                                
+                                targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters} )
                             }else{
                                 throw "Importing from something other than flow or step - possibly nested segemnt??"
                             }
                         }
                     }
                     const currentImports = Object.values(mappedStep.instance.primitives?.imports ?? {})
-                    const toAdd = targetImports.filter(d=>!currentImports.includes(d))
-                    const toRemove = currentImports.filter(d=>!targetImports.includes(d))
+                    const targetImportIds = targetImports.map(d=>d.id)
+                    const toAdd = targetImportIds.filter(d=>!currentImports.includes(d))
+                    const toRemove = currentImports.filter(d=>!targetImportIds.includes(d))
+                    
+                    
                     logger.debug(`${toAdd.length} imports to add, ${toRemove.length} imports to remove`)
                     if( options.create !== false ){
                         for(const importId of toAdd){
@@ -167,6 +192,11 @@ export async function scaffoldWorkflow( flow, options = {} ){
                             await removeRelationship(mappedStep.instance.id, importId, "imports")
                         }
                     }
+                    const allFilters = targetImports.map(d=>d.filters).flat().filter(d=>d)
+                    let importConfig = allFilters?.length > 0 ? allFilters : null
+                    
+
+                    dispatchControlUpdate(mappedStep.instance.id, "referenceParameters.importConfig", importConfig)
                 }
             }
         }
@@ -193,16 +223,38 @@ async function duplicateStep( step, parent){
 }
 
 export async function runFlow( flow ){
+    const flowStarted = new Date().toISOString()
+    dispatchControlUpdate(flow, "processing.flow", {status: "running", started: flowStarted})
     const flowInstances = await scaffoldWorkflow(flow)
     for( const flowInstance of flowInstances ){
         if( !flowInstance.instance.missing ){
             logger.info(`Scheduling run for ${flowInstance.instance.id} / ${flowInstance.instance.plainId} (of flow ${flow.id} / ${flow.plainId})`)
-            await FlowQueue().runFlowInstance( flowInstance.instance )
+            await FlowQueue().runFlowInstance( flowInstance.instance, {flow, flowStarted} )
             logger.info("Scheduled")
         }
     }
 }
-export async function runFlowInstance( flowInstance, options ){
+export async function runFlowInstance( flowInstance, options = {}){
+    let flow = options.flow ?? (await primitiveParentsOfType(flowInstance, "flow"))?.[0]
+    if( !flow ){
+        logger.error(`Cant find parent flow for instance`, {flowInstance})
+    }
+    let newIteration = true
+    let flowStarted = options.flowStarted ?? flow.processing.flow.started
+    if( flowInstance.processing?.flow?.started === flowStarted ){
+        logger.info(`Flow instance already started for this iteration`)
+        newIteration = false
+    }else{
+        dispatchControlUpdate(flowInstance, "processing.flow", {status: "running", started: flowStarted})
+    }
+    logger.info(`Looking for next steps to run`)
+    const stepStatus = await flowInstanceStepsStatus( flowInstance )
+
+    logger.debug(stepStatus.map(d=>`${d.step.id} / ${d.step.plainId} / ${d.step.type} - N ${d.need} (${d.needReason}) C ${d.can} (${d.canReason})` ).join("\n"))
+
+    const stepsToRun = stepStatus.filter(d=>d.can && d.need)
+
+    logger.info(`${stepsToRun.length} steps able to run`)
 
 }
 async function flowInstanceStepsStatus( flowInstance ){
@@ -217,28 +269,84 @@ async function flowInstanceStepsStatus( flowInstance ){
     }
     return stepStatus
 }
-async function stepInstanceStatus( step, flowInstance ){
-    const {can, need} = await shouldStepRun( step, flowInstance)
-    const running = await stepIsRunning( step, flowInstance )
+async function stepInstanceStatus( step, flowInstance){
+    const should = await shouldStepRun( step, flowInstance)
+    const running = should.need ? await stepIsRunning( step, flowInstance ) : undefined
     return {
-        can,
+        ...should,
         running,
-        need
     }
 }
 async function getFlowInstanceSteps( flowInstance ){
     return await primitiveChildren( flowInstance )
 }
 
-async function shouldStepRun( step, flowInstance){
-    let canReason, nedReason
+async function shouldStepRun( step, flowInstance ){
+    let flowStarted = flowInstance.processing?.flow?.started
+    let canReason, needReason
+    let can = undefined, need = false
+
+    if( step.processing?.flow?.started === flowStarted){
+        if(step.processing?.flow?.status === "complete"){
+            needReason = "complete"
+        }else{
+            need = true
+            needReason = "not_complete"
+        }
+    }else{
+        need = true
+        needReason = "not_executed"
+    }
+
+    if( need ){
+        can = true
+        canReason = "all_ready"
+        const importIds = Object.values(step.primitives?.imports ?? {})
+        if( importIds.length > 0){
+            const importPrimitives = await fetchPrimitives( importIds )
+            for(const imp of importPrimitives){
+                if( imp.type === "segment"){
+                    throw "Need to move to segment origin to get flow step?"
+                }
+                if( imp.id !== flowInstance.id){
+                    if( !Object.keys(imp.parentPrimitives ?? {}).includes(flowInstance.id) ){
+                        throw `${imp.id} / ${imp.plainId} is not linked to flow instance ${flowInstance.id} / ${flowInstance.plainId}`
+                    }
+                }
+                const importPrimValid = (imp.id === flowInstance.id) || (imp.processing?.flow?.started === flowStarted && imp.processing?.flow?.status === "complete")
+                logger.debug(`Checking status of import step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
+                can = can && importPrimValid
+            }
+            if( !can ){
+                canReason = "data_not_ready"
+            }
+        }
+    }
 
 
-    return {can: true, need: true, canReason, nedReason}
+    return {can, need, canReason, needReason}
 }
 async function stepIsRunning( step ){
     const status = await FlowQueue().stepStatus(step)
     return status.running || status.waiting
 }
-async function runStep( step, flowInstance){
+export async function runStep( step, options = {}){
+    let flowInstance = options.flowInstance ?? (await primitiveParentsOfType(step, "flowinstance"))?.[0]
+    let flowStarted = flowInstance.processing?.flow?.started
+    let newIteration = step.processing?.flow?.started !== flowStarted
+
+    if( newIteration ){
+        dispatchControlUpdate(step, "processing.flow", {status: "running", started: flowStarted})
+    }
+    if( step.type === "actionrunner"){
+        const config = await getConfig( step )
+        if( config?.action ){
+            await doPrimitiveAction(step, "run_runner", {action: config.action, flowStarted, newIteration})
+        }else{
+            logger.error(`No acton defined for ${step.id} / ${step.plainId} action runner`)
+        }
+    }else{
+        logger.error(`${step.type} unhandles in runStep`)
+    }
+
 }

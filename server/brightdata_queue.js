@@ -1,4 +1,4 @@
-import QueueManager from './base_queue'; 
+import QueueManager from './queue_manager'; 
 import { Queue } from "bullmq";
 import { Worker } from 'bullmq'
 import Primitive from "./model/Primitive";

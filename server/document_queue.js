@@ -11,7 +11,7 @@ import { searchPosts } from "./linkedin_helper";
 import { fetchFragmentsForTerm } from "./DocumentSearch";
 import { aggregateItems, checkAndGenerateSegments } from "./task_processor";
 import { reviseUserRequest } from "./prompt_helper";
-import QueueManager from "./base_queue";
+import QueueManager from "./queue_manager";
 
 const parser = PrimitiveParser()
 
@@ -519,18 +519,18 @@ async function doDataQuery( options ) {
                 }
                 
                 if( referenceCategoryFilter ){
-                    const asNum = parseInt( referenceCategoryFilter)
-                    if( !isNaN(asNum) ){
-                        if(!items ){
-                            items = await Primitive.find({
-                                workspaceId: primitive.workspaceId,
-                                referenceId: asNum,
-                                deleted: {$exists: false}
-                            })
-                            console.log(`Looked up ${items.length}`)
-                        }else{
-                            items = items?.filter(d=>d.referenceId === asNum)
+                    const asArray = [referenceCategoryFilter].flat().map(d=>parseInt(d)).filter(d=>!isNaN(d))
+                    if(!items ){
+                        const query = {
+                            workspaceId: primitive.workspaceId,
+                            referenceId: {$in: asArray},
+                            deleted: {$exists: false}
                         }
+
+                        items = await Primitive.find(query)
+                        console.log(`Looked up ${items.length}`)
+                    }else{
+                        items = items?.filter(d=>asArray.includes(d.referenceId))
                     }
                 }
                 if( primitive.referenceParameters.onlyNew ){

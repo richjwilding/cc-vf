@@ -207,8 +207,8 @@ export async function getConfig(primitive, category, cache){
         }
         if( configParent ){
             out = {
-                ...out,
-                ...((await getConfig(configParent)) ?? {})
+                ...((await getConfig(configParent)) ?? {}),
+                ...out
             }
         }
         console.log(`Config import from parent`)
@@ -1261,7 +1261,8 @@ export async function getDataForImport( source, cache = {imports: {}, categories
     }*/
     async function doImport(imp, idx){
         let requiresFullDocument = false
-        const filterConfig = source.referenceParameters?.importConfig?.filter(d=>d.id === imp.id)
+        const params = await getConfig( source, undefined, cache) 
+        const filterConfig = params?.importConfig?.filter(d=>d.id === imp.id)
         if( filterConfig && filterConfig.length > 0){
             for(const set of filterConfig ){
                 if( set.filters ){
@@ -1298,7 +1299,6 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 console.log(`loaded leaves ${ids.length}`)
             }
         }
-        const params = await getConfig( source, undefined, cache) 
         if( params.descend ){
             list = uniquePrimitives([list, await primitiveDescendents( list, undefined, {fullDocument:requiresFullDocument, deferFullDocument: true, fields: "parentPrimitives"} )].flat())
         }

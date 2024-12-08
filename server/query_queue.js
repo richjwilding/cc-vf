@@ -1,4 +1,4 @@
-import QueueManager from './base_queue'; 
+import QueueManager from './queue_manager'; 
 import Primitive from "./model/Primitive";
 import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, fetchPrimitive, findResultSetForCategoryId, getDataForProcessing, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { findCompanyLIPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";

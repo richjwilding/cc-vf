@@ -7,7 +7,7 @@ import Category from "./model/Category";
 import PrimitiveParser from "./PrimitivesParser";
 import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 import agglo from "agglo";
-import QueueManager from "./base_queue";
+import QueueManager from "./queue_manager";
 import { comapreToPeers, summarizeWithQuery } from "./task_processor";
 
 

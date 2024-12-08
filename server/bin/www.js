@@ -14,8 +14,8 @@ import EnrichPrimitive from '../enrich_queue';
 import QueryQueue from '../query_queue';
 import BrightDataQueue from '../brightdata_queue';
 
-import "../actions/finance_actions"
 import FlowQueue from '../flow_queue';
+import "../action_register"
 
 const debug = debugLib('your-project-name:server');
 
