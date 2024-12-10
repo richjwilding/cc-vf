@@ -166,7 +166,7 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
 
 }
 
-export default function CollectionInfoPane({board, frame, primitive, filters, ...props}){
+export default function CollectionInfoPane({board, frame, underlying, primitive, filters, ...props}){
     const [activeTab, setActiveTab] = useState(mainstore.category(tabs.find(d=>d.initial)))
     const [showDetails, setShowDetails] = useState(false)
     const [hideNull, setHideNull] = useState(frame?.referenceParameters?.explore?.hideNull)
@@ -192,8 +192,21 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
         })
     }
     let content
+
+    let primitiveForContent = underlying ?? frame
+    const activeInfo = !underlying ? <></> : <div className="bg-yellow-100 border border-yellow-100 my-2 px-2 py-2 rounded-md">{(()=>{
+                    return <div className="text-sm text-yellow-800">Configuration for flow item</div>
+                })()}
+            </div>
+    const underlyingInfo = !underlying ? <></> : <div className="px-2 py-2 mt-4 bg-ccgreen-50 border-ccgreen-200 border rounded-md">{(()=>{
+                    let flowinstance = underlying.findParentPrimitives({type:"flowinstance"})?.[0]
+                    let title = flowinstance.primitives.imports.allItems[0]?.filterDescription
+                    return <div className="text-sm text-ccgreen-800">Items for flow instance {title} (#{flowinstance?.plainId}) </div>
+                })()}
+            </div>
+
     if( frame?.type === "actionrunner" ){
-        const inputCategories = frame.itemsForProcessing.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d))
+        const inputCategories = primitiveForContent.itemsForProcessing.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d))
 
         const actions = inputCategories.map(d=>d.actions).flat()
         const actionOptions = actions.filter(d=>d.actionRunner).map(d=>({
@@ -230,10 +243,12 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                     </div>
                 </div>
     }else  if( frame?.type === "search" ){
-        const searchResultCategory = mainstore.category( frame.metadata.resultCategoryId ?? frame.metadata.parameters?.sources?.options?.[0]?.resultCategoryId )
-        const searchResults = frame.primitives.uniqueAllItems
+        const searchCategoryIds = frame.metadata.resultCategoryId ?? frame.metadata.parameters?.sources?.options?.map(d=>d.resultCategoryId ) ?? []
+        const searchResultCategory = mainstore.category( searchCategoryIds[0] )
+        const searchResults = primitiveForContent.primitives.descendants.filter(d=>searchCategoryIds.includes(d.referenceId))
 
         content = <div className="flex flex-col pb-2 px-3">
+                    {activeInfo}
                     <span className="text-gray-400 text-xs mt-0.5 mb-2">#{frame.plainId}  {frame.metadata.title ?? "Search"}</span>
                     <div className="flex w-full space-x-3 place-items-center">
                         <MagnifyingGlassIcon className="h-6"/>
@@ -256,6 +271,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                     <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 px-2 py-1.5">
                         <QueryPane primitive={frame} terms={false}/>
                     </div>
+                    {underlyingInfo}
                     <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 p-2">
                         <CategoryHeader itemCategory={searchResultCategory} items={searchResults}/>
                     </div>
@@ -281,7 +297,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
     }else if( frame ){
 
 
-        const list = filters ? frame.itemsForProcessingWithFilter(filters) : frame.itemsForProcessing
+        const list = filters ? primitiveForContent.itemsForProcessingWithFilter(filters) : primitiveForContent.itemsForProcessing
         const viewConfigs = CollectionUtils.viewConfigs(list?.[0]?.metadata)
         const viewConfig = viewConfigs?.[activeView] 
 
@@ -384,7 +400,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
 
         }
         function filterPane(){
-            const fullList = frame.itemsForProcessingWithFilter(filters, {ignoreFinalViewFilter: true}) 
+            const fullList = primitiveForContent.itemsForProcessingWithFilter(filters, {ignoreFinalViewFilter: true}) 
 
             const columnAxis = CollectionUtils.primitiveAxis(frame, "column", fullList)
             const rowAxis = CollectionUtils.primitiveAxis(frame, "row", fullList)
@@ -502,8 +518,12 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
         }
 
 
+
+
+
         content = <>
         <div className="p-3 space-y-4">
+            {activeInfo}
             {frame.type === "summary" && <SummaryCard primitive={frame}/>}
             
                 <div className="space-y-2">
@@ -598,6 +618,7 @@ export default function CollectionInfoPane({board, frame, primitive, filters, ..
                     </div>
                 </div>
             }
+            {underlyingInfo}
             {itemCategory && <div className="px-3 py-2 bg-gray-50 border rounded-md">
                 <CategoryHeader newPrimitiveCallback={newPrimitiveCallback} itemCategory={itemCategory} items={list}  newItemParent={newItemParent} createNewView={props.createNewView} panelConfig={frame?.referenceParameters?.table} actionAnchor={frame} filters={filters}/>
             </div>}

@@ -146,9 +146,11 @@ async function getQueueObject(type) {
 
 
             await asyncLocalStorage.run(new Map(), async () => {
+                console.log(`RESET CHILD WAITING`)
                 if(queueObject.default().resetChildWaiting){
                     children = await queueObject.default().resetChildWaiting(queueName, job.id)
                 }
+                console.log(`RESET CHILD WAITING - DONE`)
                 const store = asyncLocalStorage.getStore();
                 store.set('parentJob', job);
                 console.log(`---- ${queueName} set parentJob to ${job.id}`)
@@ -159,6 +161,7 @@ async function getQueueObject(type) {
                     success = true
                 } catch (e) {
                     logger.debug(`Error in ${workerData.type} queue during job processing: ${e.stack}`, { type: workerData.type });
+                    logger.debug(e.stack)
                     parentPort.postMessage({ result, success: false, error: e, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
                     throw e;
                 } finally {
@@ -167,12 +170,22 @@ async function getQueueObject(type) {
                 let children
                 if(queueObject.default().getChildWaiting){
                     children = await queueObject.default().getChildWaiting(queueName, job.id)
-                    console.log(`Got children count`, children)
-                }
-                if( children && children > 0){
-                    await job.moveToWaitingChildren(token);
-                    console.log(`Move to waiting for children`)
-                    throw new WaitingChildrenError();
+                    logger.debug(`Got children count ${children} for ${queueName} / ${job.id}`)
+
+                    if( children && children > 0){
+                        let shouldWait = false
+                        let count = 5
+                        do{
+                            shouldWait = await job.moveToWaitingChildren(token);
+                            if( !shouldWait ){
+                                count--
+                                logger.debug( `Job ${job.id} has children but could not move to wait state - ${count} tries remaining`)
+                                await new Promise((resolve)=>setTimeout(()=>resolve(), 500))
+                            }
+                        }while( !shouldWait && (count > 0))
+                        logger.debug(`Move ${job.id} to waiting for children (${shouldWait})`)
+                        throw new WaitingChildrenError();
+                    }
                 }
                 logger.info(`===> Sending endJob message ${job.id}`, { type: workerData.type });
                 parentPort.postMessage({ result, success: true, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
@@ -182,7 +195,8 @@ async function getQueueObject(type) {
             if (error instanceof WaitingChildrenError) {
                 throw error
             } else {
-                console.error(`Job ${job.id} failed with error: ${error.message}`);
+                logger.error(`Job ${job.id} failed with error: ${error.message}`);
+                logger.error(error.stack)
                 throw error; // Let BullMQ retry or fail the job
             }
         }

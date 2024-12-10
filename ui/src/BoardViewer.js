@@ -58,13 +58,14 @@ let mainstore = MainStore()
         const renderOptions = view.renderConfigOverride ?? {}
         const configNames = ["width", "height"]
 
+        const primitiveToRender = view.underlying ?? view.primitive
 
-        const title = view.noTitle ? undefined : ()=>`${d.title} - #${d.plainId}`
+        const title = view.noTitle ? undefined : ()=>`${d.title} - #${d.plainId}${view.underlying ? ` (${primitiveToRender.plainId})` : ""}`
         const canvasMargin = view.noTitle ? [0,0,0,0] : [20,20,20,20]
 
 
         const mapMatrix = (stageOptions, d, view)=>renderMatrix(
-            d, 
+            primitiveToRender, 
             view.list, {
                 axis: view.axis,
                 columnExtents: view.columns,
@@ -84,7 +85,7 @@ let mainstore = MainStore()
             }
         }
         if( view.config === "full"){
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions})
+            let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions})
             if( d.referenceId === 118){
                 let boardToCombine = d.primitives.imports.allItems
                 if(d.order){
@@ -103,7 +104,7 @@ let mainstore = MainStore()
                                 viewConfig: board.viewConfig,
                                 list: board.list
                         }})
-                        return RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, partials})
+                        return RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, partials})
                     }
                 }
             }
@@ -115,13 +116,13 @@ let mainstore = MainStore()
                 title, 
                 canChangeSize: "width", 
                 canvasMargin, 
-                items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, config: "cat_overview", data: view.renderData})
+                items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: "cat_overview", data: view.renderData})
             }
         }else if( view.config === "flow"){
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, data: view.renderData})
+            let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
             return {id: d.id, parentRender: view.parentRender, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render}
         }else if( view.config === "widget"){
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, data: view.renderData})
+            let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
             return {id: d.id, parentRender: view.parentRender, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
         }else if( view.config === "report_set"){
 
@@ -132,10 +133,10 @@ let mainstore = MainStore()
                     canvasMargin, 
                     parentRender: view.parentRender, 
                     items: (stageOptions)=>RenderSetAsKonva(
-                                                            view.primitive, 
+                                                            primitiveToRender, 
                                                             view.list, 
                                                             {
-                                                                referenceId: view.primitive.referenceId,
+                                                                referenceId: primitiveToRender.referenceId,
                                                                 ...stageOptions, 
                                                                 ...renderOptions,
                                                                 axis:view.axis,
@@ -146,7 +147,7 @@ let mainstore = MainStore()
         }
         
         if( d.type === "query" && d.processing?.ai?.data_query){
-            return {id: d.id, parentRender: view.parentRender, title, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(view.primitive, {config: "ai_processing",...stageOptions, ...renderOptions})}
+            return {id: d.id, parentRender: view.parentRender, title, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {config: "ai_processing",...stageOptions, ...renderOptions})}
         }
 
         const canChangeSize = view?.viewConfig?.resizable 
@@ -161,13 +162,15 @@ let mainstore = MainStore()
         if( !myState[stateId]){
                 myState[stateId] = {id: stateId}
         }
+        const basePrimitive = d
+        const primitiveToPrepare = myState[stateId].underlying ?? d
         myState[stateId].isBoard = true
         const oldConfig = myState[stateId]?.config
-        if( d.type === "view" || d.type === "query"){
-            const items = d.itemsForProcessing
+        if( primitiveToPrepare.type === "view" || primitiveToPrepare.type === "query"){
+            const items = primitiveToPrepare.itemsForProcessing
             
             const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
-            let activeView = d?.referenceParameters?.explore?.view 
+            let activeView = primitiveToPrepare?.referenceParameters?.explore?.view 
             let viewConfig = viewConfigs[activeView] ?? viewConfigs[0] 
             if( forceViewConfig ){
                 activeView = viewConfigs.findIndex(d=>d.renderType === forceViewConfig.viewConfig || d.id === forceViewConfig.viewConfig) 
@@ -185,13 +188,13 @@ let mainstore = MainStore()
 
             if( viewConfig?.renderType === "cat_overview"){
                 let categoriesToMap
-                if( d.referenceParameters.explore.axis?.column?.type === "category" || d.referenceParameters.explore.axis?.row?.type === "category"){
+                if( primitiveToPrepare.referenceParameters.explore.axis?.column?.type === "category" || primitiveToPrepare.referenceParameters.explore.axis?.row?.type === "category"){
                     categoriesToMap = [
-                        d.referenceParameters.explore.axis?.column?.type === "category" ? d.primitives.axis.column.allItems : undefined,
-                        d.referenceParameters.explore.axis?.row?.type === "category" ? d.primitives.axis.row.allItems : undefined,
+                        primitiveToPrepare.referenceParameters.explore.axis?.column?.type === "category" ? primitiveToPrepare.primitives.axis.column.allItems : undefined,
+                        primitiveToPrepare.referenceParameters.explore.axis?.row?.type === "category" ? primitiveToPrepare.primitives.axis.row.allItems : undefined,
                     ].flat().filter(d=>d)
                 }else{
-                    categoriesToMap = d.primitives.origin.allUniqueCategory
+                    categoriesToMap = primitiveToPrepare.primitives.origin.allUniqueCategory
                 }             
                 console.log(`Got ${categoriesToMap.length} to map`)
                 let mappedCategories = categoriesToMap.map(category=>{
@@ -206,7 +209,7 @@ let mainstore = MainStore()
                     let {data, extents} = CollectionUtils.mapCollectionByAxis( items, axis, undefined, [], [], undefined )
                     //console.log(data, extents)
                     let columnsToInclude, totalCount = data.length
-                    if( d.renderConfig?.show_none ){
+                    if( primitiveToPrepare.renderConfig?.show_none ){
                         const none = extents.column.find(d=>d.idx === "_N_")
                         columnsToInclude =  [none, ...extents.column.filter(d=>d.idx !== "_N_")]
                     }else{
@@ -229,7 +232,7 @@ let mainstore = MainStore()
                         }
                 })
 
-                myState[stateId].primitive = d
+                myState[stateId].primitive = basePrimitive
                 myState[stateId].stateId = stateId
                 myState[stateId].config = "cat_overview"
                 myState[stateId].renderData = {
@@ -240,12 +243,12 @@ let mainstore = MainStore()
                 rowAxis.allowMove = rowAxis.access === 0 && !rowAxis.relationship
 
                 let viewFilters = []//d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
-                let filterApplyColumns = d.referenceParameters?.explore?.axis?.column?.filter ?? []
-                let filterApplyRows = d.referenceParameters?.explore?.axis?.row?.filter ?? []
-                let hideNull = d.referenceParameters?.explore?.hideNull
-                let viewPivot = d.referenceParameters?.explore?.viewPivot
+                let filterApplyColumns = primitiveToPrepare.referenceParameters?.explore?.axis?.column?.filter ?? []
+                let filterApplyRows = primitiveToPrepare.referenceParameters?.explore?.axis?.row?.filter ?? []
+                let hideNull = primitiveToPrepare.referenceParameters?.explore?.hideNull
+                let viewPivot = primitiveToPrepare.referenceParameters?.explore?.viewPivot
 
-                let liveFilters = d.primitives.allUniqueCategory.filter(d=>d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
+                let liveFilters = primitiveToPrepare.primitives.allUniqueCategory.filter(d=>primitiveToPrepare.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
                     return {
                         type: "category",
                         primitiveId: d.id,
@@ -289,7 +292,7 @@ let mainstore = MainStore()
                     }
                 }
                             
-                myState[stateId].primitive = d
+                myState[stateId].primitive = basePrimitive
                 myState[stateId].config = "explore_" + activeView
                 myState[stateId].list = filtered.data
                 myState[stateId].internalWatchIds = filtered.data.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
@@ -304,9 +307,9 @@ let mainstore = MainStore()
                                                                         }
                                                                         return a}, {})
             }
-        }else if( d.type === "summary" || d.type === "element"){
-            myState[stateId].primitive = d
-            myState[stateId].list = [{column: undefined, row: undefined, primitive: d}]
+        }else if( primitiveToPrepare.type === "summary" || primitiveToPrepare.type === "element"){
+            myState[stateId].primitive = basePrimitive
+            myState[stateId].list = [{column: undefined, row: undefined, primitive: primitiveToPrepare}]
             myState[stateId].columns = [{idx: undefined, label: ''}]
             myState[stateId].rows = [{idx: undefined, label: ''}]
             myState[stateId].config = "full"
@@ -315,46 +318,54 @@ let mainstore = MainStore()
                 row:[{idx: undefined, label: ''}]
             }
             myState[stateId].toggles = {}
-        }else if( d.type === "actionrunner" ){
-
-
-            myState[stateId].primitive = d
+        }else if( primitiveToPrepare.type === "actionrunner" ){
+            myState[stateId].primitive = basePrimitive
             myState[stateId].config = "widget"
             myState[stateId].renderData = {
-                //icon: HeroIcon({icon: d.metadata.icon, asString: true, stroke: "#ff0000", width: 12, height: 12}),
                 icon: <HeroIcon icon='FARun'/>,
-                count: d.primitives.uniqueAllIds.length
+                count: primitiveToPrepare.primitives.uniqueAllIds.length
             }
-        }else if( d.type === "search" ){
+        }else if( primitiveToPrepare.type === "search" ){
 
             const resultCategory = mainstore.category( d.metadata.parameters.sources.options[0].resultCategoryId )
 
-            myState[stateId].primitive = d
+            myState[stateId].primitive = basePrimitive
             myState[stateId].config = "widget"
             myState[stateId].renderData = {
-                //icon: HeroIcon({icon: d.metadata.icon, asString: true, stroke: "#ff0000", width: 12, height: 12}),
                 icon: <HeroIcon icon={resultCategory?.icon}/>,
                 items: resultCategory.plural ?? resultCategory.title + "s",
-                count: d.primitives.uniqueAllIds.length
+                count: primitiveToPrepare.primitives.strictDescendants.filter(d=>d.referenceId === resultCategory.id).length
             }
-        }else if( d.type === "flow" ){
-            myState[stateId].primitive = d
+        }else if( primitiveToPrepare.type === "flow" ){
+            let childNodes = d.primitives.origin.uniqueAllItems
+            const flowInstances = childNodes.filter(d=>d.type === "flowinstance")
+            const flowInstanceToShow = flowInstances[1] ??  flowInstances[0]
+            childNodes = childNodes.filter(d=>d.type !== "flowinstance")
+
+            myState[stateId].primitive = basePrimitive
             myState[stateId].config = "flow"
             myState[stateId].renderData = {
-                //icon: HeroIcon({icon: d.metadata.icon, asString: true, stroke: "#ff0000", width: 12, height: 12}),
                 icon: <HeroIcon icon='CogIcon'/>,
-                count: d.primitives.uniqueAllIds.length
+                count: primitiveToPrepare.primitives.uniqueAllIds.length
             }
 
-            const childNodes = d.primitives.origin.uniqueAllItems
 
-            for(const child of childNodes){
+            for(let child of childNodes){
                 if( child.type === "flowinstance"){
                     continue
                 }
                 console.log(`- preparing child of flow ${child.plainId} ${child.type}`)
+                myState[child.id] = {id: child.id}
+                if( flowInstanceToShow ){
+                    const instanceChild = flowInstanceToShow.primitives.uniqueAllItems.find(d=>d.parentPrimitiveIds.includes(child.id))
+                    if( instanceChild ){
+                        myState[child.id].underlying = instanceChild
+                    }else{
+                        console.log(`-- couldnt find instance for flowinstance ${flowInstanceToShow.id}`)
+                    }
+                }
                 SharedPrepareBoard(child, myState)
-                myState[child.id].parentRender = d.id
+                myState[child.id].parentRender = stateId
             }
             console.log(`Flow children done`)
         }
@@ -719,7 +730,7 @@ export default function BoardViewer({primitive,...props}){
             }
             handleViewChange(true)
             //mainstore.sidebarSelect(id)
-            setCollectionPaneInfo({frame: myState.activeBoard.primitive, board: primitive})
+            setCollectionPaneInfo({frame: myState.activeBoard.primitive, underlying: myState.activeBoard.underlying, board: primitive})
         }else{
             myState.activeBoard = undefined
             hideMenu()
@@ -983,44 +994,20 @@ export default function BoardViewer({primitive,...props}){
 
         await mainstore.doPrimitiveAction( parent, "new_query", {queryData, importData},async (result)=>{
             if( result ){
-                const newPrimitive = await MainStore().waitForPrimitive( result.primitiveId )
-                let position = canvas.current.framePosition(parent.id)?.scene
-                await primitive.addRelationshipAndWait(newPrimitive, "ref")
-                addBoardToCanvas( newPrimitive, {x:position.r +50, y: position.t, s: position.s})
+                if( result.flow ){
+                    console.log(`Need to refresh flow for new query`)
+                    const flow = MainStore().primitive(result.flow)
+                    prepareBoard( myState[flow.id].primitive )
+                    canvas.current.refreshFrame( flow.id, renderView(flow))
+
+                }else{
+                    const newPrimitive = await MainStore().waitForPrimitive( result.primitiveId )
+                    let position = canvas.current.framePosition(parent.id)?.scene
+                    await primitive.addRelationshipAndWait(newPrimitive, "ref")
+                    addBoardToCanvas( newPrimitive, {x:position.r +50, y: position.t, s: position.s})
+                }
             }
         })
-
-
-        /*
-        if( importData ){
-            const segmentData = {
-                type: "segment",
-                parent: parent,
-                referenceParameters: {
-                    importConfig: importData
-                },
-                workspaceId: parent.workspaceId
-            }
-            interimSegment = await MainStore().createPrimitive(segmentData)
-            await interimSegment.addRelationshipAndWait( parent, "imports")
-        }
-
-        const newPrimitiveData = {
-            ...queryData,
-            parent: interimSegment ?? parent,
-            workspaceId: primitive.workspaceId,
-            referenceParameters: interimSegment ? {"target":"items"} : undefined
-        }
-
-        const newPrimitive = await MainStore().createPrimitive(newPrimitiveData)
-        if( newPrimitive ){
-            let position = canvas.current.framePosition(parent.id)?.scene
-            await primitive.addRelationshipAndWait(newPrimitive, "ref")
-            if( interimSegment ){
-                await newPrimitive.addRelationshipAndWait(interimSegment, "imports")
-            }
-            addBoardToCanvas( newPrimitive, {x:position.r +50, y: position.t, s: position.s})
-        }*/
     }
     function findSpace(){
         let position = {x:0, y:0, s:1}
@@ -1059,7 +1046,10 @@ export default function BoardViewer({primitive,...props}){
             type: "view",
             parent: primitive,
             parentPath: "origin",
-            workspaceId: primitive.workspaceId
+            workspaceId: primitive.workspaceId,
+            "referenceParameters": {
+                "referenceId": item.referenceId
+            }
         })
         let view = await mainstore.waitForPrimitive( result.id )
         if( view ){
@@ -1085,7 +1075,7 @@ export default function BoardViewer({primitive,...props}){
         mainstore.globalNewPrimitive({
             title: addToFlow ? `Add to ${addToFlow.title} flow` : "Add to board",
             //categoryId: [38, 117, 81, 118],
-            categoryId: [38, 130, 131, 118, 109, ...categoryList],
+            categoryId: [38, 130, 131, 118, 109, 81, 113, ...categoryList],
             parent: primitive,
             beforeCreate:async (data)=>{
                 if( addToFlow ){

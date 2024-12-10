@@ -1,7 +1,7 @@
 import { SIO } from './socket';
 import { getDocumentAsPlainText, importDocument, locateQuote, removeDocument } from "./google_helper";
 import Primitive from "./model/Primitive";
-import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getDataForImport, getDataForProcessing, getFilterName, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
+import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getConfig, getDataForImport, getDataForProcessing, getFilterName, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
 import Category from "./model/Category";
 import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
 import Contact from "./model/Contact";
@@ -559,7 +559,8 @@ async function doDataQuery( options ) {
                         await removePrimitiveById( old.id )
                     }
                 }
-                let query = primitive.referenceParameters?.query //|| primitive.title
+                let query = (await getConfig(primitive))?.query //|| primitive.title
+                console.log(`GOT QUERY ${query}`)
                 if( scope ){
                     if( scopeNode?.type === "segment"){
                         console.log(`WILL GET FROM SEGMENT ${scopeNode.plainId}`)

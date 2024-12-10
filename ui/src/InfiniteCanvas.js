@@ -1023,16 +1023,24 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
     }
 
-    function orderNestedFrames(node, startZ){
+    function orderNestedFrames(node, start = true){
+        console.log(`Check reorder frame ${node.attrs.id}`)
         const children = myState.current.renderList.filter(d=>d.parentRender === node.attrs.id)
         //let nextZ = startZ ?? node.zIndex() + 1
         if( children.length > 0){
             for(const d of children){
-                console.log(`Setting to top`)
-                const node = myState.current.frames.find(d2=>d.id === d2.id)?.node
+                const frame = myState.current.frames.find(d2=>d.id === d2.id)
+                const node = frame.node
+                console.log(`Setting ${node.attrs.id} to top`)
                 node.moveToTop()
-                orderNestedFrames(node)
+                orderNestedFrames(node, false)
             }
+        }
+        if( start ){
+
+            myState.current.frames.forEach(frame=>frame.order = frame.node.zIndex())
+            console.log(myState.current.frames.map(d=>d.order))
+            myState.current.frames = myState.current.frames.sort((a,b)=>a.order - b.order)
         }
     }
 
@@ -2091,7 +2099,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
         function addOverlay( node, label, operation, colors){
             if( node.attrs?.name.includes("widget")){
-                console.log("Add overlay")
                 for(const d of node.find('.hover_target')){
                     if( d.attrs.hoverFill){
                         d.attrs._originalFill = d.attrs.fill
@@ -2130,7 +2137,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         function removeOverlay( node, label, operation){
             if( node.attrs?.name.includes("widget")){
-                console.log("Rem overlay")
                 for(const d of node.find('.hover_target')){
                     if( d.attrs._originalFill){
                         d.fill( d.attrs._originalFill)

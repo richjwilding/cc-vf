@@ -36,35 +36,39 @@ class FlowQueueClass extends BaseQueue {
         this.registerNotification("run_flow_instance", async (primitive, result)=>{
             if( result.success === true){
                 console.log(`Flow instance ${primitive.plainId} finished`)
+                dispatchControlUpdate(primitive, "processing.flow", {status: "complete", started: primitive.processing?.flow?.started})
             }
         })
         this.registerNotification("run_step", async (primitive, result)=>{
             if( result.success === true){
                 console.log(`Step ${primitive.id} ${primitive.plainId} finished --`)
+                dispatchControlUpdate(primitive, "processing.flow", {status: "complete", started: primitive.processing?.flow?.started})
             }else{
 
             }
         })
-        this.registerChildNotification("run_step", async (primitive, child, result)=>{
+        this.registerChildNotification("run_step", async (primitive, child, result, childMode)=>{
             if( primitive && child){
-                console.log(`Step ${primitive.id} / ${primitive.plainId} finished for child ${child.id} / ${child.plainId}`)
+                if( primitive.id !== child.id ){
+                    console.log(`Step ${primitive.id} / ${primitive.plainId} finished for child ${child.id} / ${child.plainId} (${childMode})`)
 
-                let existingRels = child.parentPrimitives?.[primitive.id] ?? []
-                let targetRel
-
-                logger.debug("Exitsing relationship to remove", existingRels)
-                for(const d of existingRels){
-                    await removeRelationship(primitive.id, child.id, d)
-                }
-
-                if( result.success === true){
-                    targetRel = "done"
-                }else{
-                    targetRel = "fail"
-                }
-                if( targetRel ){
-                    await addRelationship(primitive.id, child.id, targetRel)
-                    logger.debug(`-- ${primitive.id} => ${child.id} : ${targetRel}`)
+                    let existingRels = (child.parentPrimitives?.[primitive.id] ?? []).filter(d=>d === "done" || d === "fail")
+                    let targetRel
+                    
+                    logger.debug("Existing relationship to remove", existingRels)
+                    for(const d of existingRels){
+                        await removeRelationship(primitive.id, child.id, d)
+                    }
+                    
+                    if( result.success === true){
+                        targetRel = "done"
+                    }else{
+                        targetRel = "fail"
+                    }
+                    if( targetRel ){
+                        await addRelationship(primitive.id, child.id, targetRel)
+                        logger.debug(`-- ${primitive.id} => ${child.id} : ${targetRel}`)
+                    }
                 }
             }
         })
@@ -80,7 +84,7 @@ class FlowQueueClass extends BaseQueue {
         for (const d of jobs) {
             const status = d.getState();
             running ||= status === "active";
-            waiting ||= status === "waiting";
+            waiting ||= status === "waiting-children";
         }
 
         return { running, waiting };

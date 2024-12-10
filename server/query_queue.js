@@ -43,6 +43,7 @@ export async function processQueue(job, cancelCheck){
                     const parentSearch = (await primitiveParentsOfType( primitive, "search"))?.[0]
 
                     const config = primitive.referenceParameters || {}
+                    
                     Object.keys(category.parameters).forEach((k)=>{
                         if(config[k] === undefined && k !== "title"){
                             config[k] = category.parameters[k].default
@@ -465,13 +466,13 @@ export default function QueryQueue(){
     
 
     instance = {} 
-    instance.doQuery = (primitive, options )=>{
+    instance.doQuery = async (primitive, options = {})=>{
         const primitiveId = primitive.id
         const workspaceId = primitive.workspaceId
         const field = "processing.ai.query"
         const data = {mode: "query", text:"Running query", ...options}
 
-        _queue.addJob(workspaceId, {id: primitiveId, ...data, field})
+        await _queue.addJob(workspaceId, {id: primitiveId, ...data, field})
         dispatchControlUpdate(primitiveId, field , {status: "pending"}, {...data, track: primitiveId})
     }
     instance.pending = async ()=>{

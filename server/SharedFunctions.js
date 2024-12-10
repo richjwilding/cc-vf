@@ -28,6 +28,9 @@ import BrightDataQueue, { enrichmentDuplicationCheck } from './brightdata_queue'
 import { runAction } from './action_helper';
 import "./workflow.js"
 import FlowQueue from './flow_queue.js';
+import { getLogger } from './logger.js';
+
+const logger = getLogger('sharedfn'); // Debug level for moduleA
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -560,12 +563,13 @@ export async function primitiveChildren(primitive, types){
     return await primitivePrimitives(primitive, 'primitives.origin', types )
 }
 export async function fetchPrimitives(ids, queryOptions, projection){
-    ids = [ids].flat()
+    ids = ids ? [ids].flat() : undefined
 
     let query = [
         { deleted: {$exists: false}}
     ]
-    if( ids && ids.length > 0){
+    //if( ids && ids.length > 0){
+    if( ids ){
         query.push( {_id: {$in: ids}} )
     }
     if(queryOptions){
@@ -773,6 +777,7 @@ export function primitiveWithRelationship(primitive, relationship){
     return allPrimitivesWithRelationship(primitive, relationship)[0]
 }
 export async function primitiveParentsOfType(primitive, types = [] ){
+    console.log(`===> DEPREACTED - use findParentPrimitivesOfType instead`)
     const out = []
     types = [types].flat()
     const parentIds = Object.keys(primitive.parentPrimitives)
@@ -1218,26 +1223,40 @@ async function __OLD__filterItems(list, filters){
     return thisSet || list
 }
 
-export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}}, forceImportForQuery = false, first = true ){
+export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}}, forceImport = false, first = true ){
     let fullList = []
 
-    if(source.type === "query" && !forceImportForQuery){
-        let node = new Proxy(source.primitives, parser)
+    if((source.type === "query" || source.type === "search") && !forceImport ){
+        let list 
+        
+        if(source.type === "query"){
+            let node = new Proxy(source.primitives, parser)
 
-        const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" ).map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
-        let list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
-
-        const viewFilters = getBaseFilterForView( source ).map(d=>{
-            if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
-                return {
-                    ...d,
-                    is_range: true
+            const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" ).map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
+            list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
+            
+            const viewFilters = getBaseFilterForView( source ).map(d=>{
+                if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
+                    return {
+                        ...d,
+                        is_range: true
                 }
             }
             return d
-        })
-        if( viewFilters.length > 0 ){
-            list = await filterItems( list, viewFilters)
+            })
+            if( viewFilters.length > 0 ){
+                list = await filterItems( list, viewFilters)
+            }
+        }
+        if(source.type === "search"){
+            const nestedSearch = [source, await primitiveChildren(source, "search")].filter(d=>d)
+            console.log(`Got ${nestedSearch.length} nested searches`)
+            const ids = nestedSearch.flatMap(d=>{
+                let node = new Proxy(d.primitives, parser)
+                ids.push(node[d].uniqueAllIds)
+            }).filter((d,i,a)=>a.indexOf(d) === i)
+
+            list = await fetchPrimitives( ids)
         }
 
         const params = await getConfig( source) 
@@ -1246,7 +1265,6 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             list = list.filter(d=>check.includes(d.referenceId))
         }
         list = list.filter(d=>!["segment", "category", "query", "report", "reportinstance"].includes(d.type))
-        //list = list.filter(d=>!["segment","category","query"].includes(d.type))
         
         console.log(`Import from query = ${list.length} direct items`)
         return list
@@ -1858,6 +1876,11 @@ export async function getFilterName( scopeNode ){
     }
 }
 
+export async function findParentPrimitivesOfType(primitive, types){
+    const candidates = Object.keys(primitive.parentPrimitives ?? {})
+    return await fetchPrimitives( candidates, {type: Array.isArray(types) ? {$in: types} : types} )
+}
+
 
 export async function primitiveParents(primitive, path){
     let ids 
@@ -1883,7 +1906,8 @@ export async function primitiveParents(primitive, path){
 }
 
 export async function createSegmentQuery(primitive, queryData, importData){
-    let interimSegment
+    let interimImport
+    let parent = primitive
     let needsSegment = true
     if( queryData.referenceId === 114 || queryData.referenceId === 113 || queryData.referenceId === 112 || queryData.referenceParameters?.useAxis){
         if( !importData?.[0]?.filters ){
@@ -1891,10 +1915,19 @@ export async function createSegmentQuery(primitive, queryData, importData){
         }
     }
 
-    if( needsSegment){
+    const flow = (await findParentPrimitivesOfType(primitive, "flow"))[0]
+
+    
+    if( flow ){
+        interimImport = primitive
+        parent = flow
+
+        logger.info(`createSegmentQuery in flow - create at flow ${parent.id} / ${parent.plainId} with import from ${interimImport.id} / ${interimImport.plainId}`)
+        
+    }else if( needsSegment){
         const candidates = await primitiveChildren( primitive, "segment")
-        interimSegment = candidates.find(d=>PrimitiveConfig.checkImports( d, primitive.id, importData?.[0]?.filters ))
-        if( !interimSegment ){
+        interimImport = candidates.find(d=>PrimitiveConfig.checkImports( d, primitive.id, importData?.[0]?.filters ))
+        if( !interimImport ){
             const segmentData = {
                 parent: primitive.id,
                 workspaceId: primitive.workspaceId,
@@ -1907,30 +1940,33 @@ export async function createSegmentQuery(primitive, queryData, importData){
                 }
             }
             
-            interimSegment = await createPrimitive(segmentData)
-            await addRelationship( interimSegment.id, primitive.id, "imports")
+            interimImport = await createPrimitive(segmentData)
+            await addRelationship( interimImport.id, primitive.id, "imports")
         }
+        parent = interimImport
     }
     const newPrimitiveData = {
         data: queryData,
-        parent: interimSegment ?? primitive,
+        parent,
         workspaceId: primitive.workspaceId,
         referenceParameters: {"target":"items"} 
     }
 
     let newPrimitive = await createPrimitive(newPrimitiveData)
     
-    await addRelationship( newPrimitive.id, interimSegment ? interimSegment.id : primitive.id, "imports")
+    await addRelationship( newPrimitive.id, interimImport ? interimImport.id : parent.id, "imports")
     
     newPrimitive = await fetchPrimitive(newPrimitive.id)
 
-    if( newPrimitive.type === "query"){
-        doPrimitiveAction(newPrimitive, "custom_query")
-    }else if( newPrimitive.type === "summary"){
-        doPrimitiveAction(newPrimitive, "rebuild_summary")
+    if( !flow ){
+        if( newPrimitive.type === "query"){
+            doPrimitiveAction(newPrimitive, "custom_query")
+        }else if( newPrimitive.type === "summary"){
+            doPrimitiveAction(newPrimitive, "rebuild_summary")
+        }
     }
 
-    return {primitiveId: newPrimitive.id, segment: interimSegment?.id}
+    return {primitiveId: newPrimitive.id, segment: needsSegment ? interimImport?.id : undefined, flow: flow?.id}
 }
 export async function doPrimitiveAction(primitive, actionKey, options, req){
     const frameworkResult = await runAction(primitive, actionKey, options, req)
@@ -3252,24 +3288,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             if( command === "embed_content"){
                 await indexDocument( primitive, {force:options.force} )
-            }
-            if( command === "custom_query"){
-                const thisCategory = await Category.findOne({id: primitive.referenceId})
-                const parentForScope = (await primitiveParentsOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
-
-                if( thisCategory.type === "aggregator"){
-                    await aggregateItems( parentForScope, primitive, options )
-                }else if( thisCategory.type === "comparator"){
-                    await compareItems( parentForScope, primitive, options )
-                }else if( thisCategory.type === "iterator"){
-                    await iterateItems( parentForScope, primitive, options )
-                }else  if( thisCategory.type === "lookup"){
-                    await resourceLookupQuery( parentForScope, primitive, options )
-                }else if( primitive.referenceParameters.useAxis && !options?.scope){
-                    await queryByAxis( parentForScope, primitive, options )                
-                }else{
-                    await QueueDocument().doDataQuery( primitive, {...action, ...options, primitive})
-                }
             }
             if( command === "evidence_from_query"){
                 //await QueueDocument().extractEvidenceFromFragmentSearch( primitive, {...action, ...options})

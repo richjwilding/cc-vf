@@ -154,6 +154,7 @@ class QueueManager {
                                     }catch(error){
                                         logger.error(`Couldnt parse parent data`)
                                         logger.error(error)
+                                        logger.error(error.stack)
                                     }
                                 }
 
@@ -187,7 +188,7 @@ class QueueManager {
                                 // Handle addJob requests from worker threads
                                 const {requestId, workspaceId, jobData, options, parentJob, queueType} = message
                                 logger.debug(`Got addJob request from child`)
-                                logger.debug(`Queus ${this.type} got request for ${queueType}`)
+                                logger.debug(`Queue ${this.type} got request for ${queueType}`)
 
                                 let queue = this.getQueueObject(queueType)
                                 if( !queue ){
@@ -205,8 +206,8 @@ class QueueManager {
                                 {
                                     (async()=>{
                                        const childId =  await queue.addJob( message.workspaceId, jobData, jobOptions)
-                                       logger.info(`Child ID added ${childId}`) 
-                                       logger.debug(`Set Redis parent ${JSON.stringify(parentJob)}`)
+                                       logger.info(`Child ID added ${childId} on ${jobOptions.parent.id} / ${jobOptions.parent.queue}`) 
+                                       logger.debug(`Set Redis parent job:${childId}:parent to ${JSON.stringify(parentJob)}`)
                                         await this.redis.set(`job:${childId}:parent`, JSON.stringify(parentJob));
 
                                         logger.debug("AFTER REDIS SENT")
@@ -287,6 +288,8 @@ class QueueManager {
                 },
                 data,
                 childJob)
+        }else{
+            logger.error(`Got no notify methos for ${this.type}`)
         }
     }
     getParentJobId(){
@@ -316,6 +319,11 @@ class QueueManager {
         }
     }
     getQueueObject(queueType){
+        logger.debug(`getQueueObject : ${this.type} / ${queueType}`)
+        if( this.type === queueType ){
+            logger.debug(`Fetching same queue type - returning parent`)
+            return this.parentObject
+        }
         switch( queueType){
             case "flow": return FlowQueue()
             case "ai": return  QueueAI()
@@ -330,8 +338,8 @@ class QueueManager {
         this.pendingRequests = new Map();
 
         this.addJobResponse = async (message) => {
-            console.log(`Handling addJob response `)
             const { requestId, status, jobId, error } = message;
+            console.log(`Handling addJob response ${requestId} for ${this.type} - ${jobId}`)
             const { resolve, reject } = this.pendingRequests.get(requestId) || {};
             if (resolve) {
                 if (status === 'success') {
@@ -355,6 +363,7 @@ class QueueManager {
             return new Promise((resolve, reject) => {
                 // Store the resolve and reject functions
                 this.pendingRequests.set(requestId, { resolve, reject });
+
         
                 let parentJob
                 const store = asyncLocalStorage.getStore();
@@ -379,7 +388,7 @@ class QueueManager {
                     }
                 }
     
-                logger.debug(`Parent job ${parentJob.id} in ${parentJob.queueName} asked for addjob on ${this.type}`)
+                logger.debug(`Parent job ${parentJob.id} in ${parentJob.queueName} asked for addjob on ${this.type} - request ${requestId}`, jobData)
     
                 try{
                     parentPort.postMessage(jobOptions);

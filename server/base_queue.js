@@ -6,6 +6,8 @@ class BaseQueue {
     constructor(queueName, processQueue = undefined, concurrency = 3) {
         this.logger = getLogger(`${queueName}-queue`);
         this._queue = new QueueManager(queueName, processQueue, concurrency);
+        this._queue.parentObject = this
+        this.queueName = queueName
         this.notifyTracker = {}
     }
 
@@ -25,9 +27,9 @@ class BaseQueue {
         return await this._queue.getJob(...args);
     }
 
-    async addJob(workspace, data) {
+    async addJob(workspace, data, jobOptions) {
         dispatchControlUpdate(data.id, data.field, { status: "pending", pending: new Date().toISOString(), track: data.id });
-        return await this._queue.addJob(workspace, data);
+        return await this._queue.addJob(workspace, data, jobOptions);
     }
 
     async addJobResponse(...args) {
@@ -75,9 +77,9 @@ class BaseQueue {
 
             if( childJob ){
                 if( this.notifyTracker["_child_" + job.mode]){
-                    const [childId, mode] = childJob.split("-")
+                    const [childId, childMode] = childJob.split("-")
                     const child = await fetchPrimitive( childId)
-                    await this.notifyTracker["_child_" + job.mode](prim, child, result, job.mode)
+                    await this.notifyTracker["_child_" + job.mode](prim, child, result, childMode, job.mode)
                 }
             }else{
                 if( this.notifyTracker[job.mode]){
@@ -88,7 +90,7 @@ class BaseQueue {
     }
 
     async myInit() {
-        console.log(`${this._queue.name} initialized`);
+        console.log(`${this.queueName} initialized`);
     }
 }
 module.exports = BaseQueue;

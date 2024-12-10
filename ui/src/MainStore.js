@@ -1812,7 +1812,8 @@ function MainStore (prims){
                             }
                             const excludedTypes = new Set(["segment", "category", "query", "report", "reportinstance"]);
 
-                            if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "summary"))){
+                            //if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "search" && receiver.type !== "summary"))){
+                            if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "summary" && receiver.type !== "search"))){
                                 let fullList = []
                                 for( const source of receiver.primitives.imports.allItems){
                                     if( id && source.id !== id){
@@ -1856,10 +1857,6 @@ function MainStore (prims){
                                     let config
                                     
                                     config = receiver.referenceParameters?.importConfig?.filter(d=>d.id === source.id)
-                                    
-                                    
-                                    //console.log(`For ${received.plainId} - ${list.length} and ${config?.length} configs to scan`)
-
                                     if( config && config.length > 0){
                                         let filterOut
                                         for(const set of config ){
@@ -1892,19 +1889,8 @@ function MainStore (prims){
                                     fullList = uniquePrimitives(fullList)
                                     fullList = receiver.filterItems(fullList, viewFilters)
                                 }
-                                /*
-                                if( (options?.pivot !== false) && receiver.referenceParameters?.pivot){
-                                    fullList = uniquePrimitives(fullList)
-                                    if( typeof(receiver.referenceParameters?.pivot) === "number"){
-                                        fullList = fullList.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot))
-                                    }else{
-                                        fullList = fullList.map(d=>d.relationshipAtLevel(receiver.referenceParameters.pivot, receiver.referenceParameters.pivot.length))
-                                    }
-                                }
-                                */
                                 return uniquePrimitives(fullList)
                             }else{
-                                //let list = uniquePrimitives(Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params").map(d=>receiver.primitives[d].uniqueAllItems).flat())
                                 let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" ).map(d=>receiver.primitives[d].allIds).flat()
                                 let list = []
                                 const check = new Set()
@@ -1917,17 +1903,21 @@ function MainStore (prims){
                                         }
                                     }
                                 }
-                                if( receiver.type === "query" || receiver.type  === "segment"){
+                                if( receiver.type === "query" || receiver.type  === "segment" || receiver.type === "search"){
                                     if( receiver.type === "query" && !options.ignoreFinalViewFilter){
                                         const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
                                         list = receiver.filterItems(list, viewFilters)
+                                    }
+                                    if( receiver.type === "search"){
+                                        const nestedSearch = [receiver, ...receiver.primitives.origin.allSearch].filter(d=>d)
+                                        console.log(`Got ${nestedSearch.length} nested searches`)
+                                        list = nestedSearch.flatMap(d=>d.primitives.uniqueAllItems)
                                     }
                                     let params = options.params ?? receiver.getConfig
                                     if( params.extract ){
                                         const check = [params.extract].flat()
                                         list = list.filter(d=>check.includes(d.referenceId))
                                     }
-                                    //list = list.filter(d=>!["segment","category","query"].includes(d.type))
                                     list = list.filter(d => !excludedTypes.has(d.type));
                                 }
                                 return list

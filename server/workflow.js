@@ -9,7 +9,8 @@ import FlowQueue from "./flow_queue";
 registerAction("run_step", undefined, async (p,a,o)=>FlowQueue().runStep(p,o))
 registerAction("run_flow", {id: "flow"}, async (p,a,o)=>FlowQueue().runFlow(p,o))
 registerAction("run_flow_instance", {id: "flowinstance"}, async (p,a,o)=>FlowQueue().runFlowInstance(p,o))
-registerAction("workflow_info", {id: "flow"}, async (p,a,o)=>scheduleScaffoldWorkflow(p,{...(o ?? {}), create: false}))
+registerAction("instance_info", {id: "flowinstance"}, async (p,a,o)=>flowInstanceStatus(p,o))
+registerAction("workflow_info", {id: "flow"}, async (p,a,o)=>getScaffoldWorkflow(p,{...(o ?? {}), create: false}))
 registerAction("workflow_scaffold", {id: "flow"}, async (p,a,o)=>{
     const result = await scheduleScaffoldWorkflow(p, o)
     markActionComplete(p, o)
@@ -18,9 +19,9 @@ registerAction("workflow_scaffold", {id: "flow"}, async (p,a,o)=>{
 
 const logger = getLogger('workflow'); // Debug level for moduleA
 
-export async function scheduleScaffoldWorkflow( flow, options = {} ){
+export async function getScaffoldWorkflow( flow, options = {} ){
     try{
-        await FlowQueue().scaffoldWorkflow(flow,options)
+        return await scaffoldWorkflow(flow,{...options, create:false})
     }catch(e){
         logger.error("Error scheduleScaffoldWorkflow ")
         logger.error(e)
@@ -45,6 +46,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
     
     for( const source of sources){
         logger.debug(`-- For ${source.title}`, {flow: flow.id, source: source.id});
+
         const segments = await checkAndGenerateSegments( source, flow, {...options, by_axis: true})
         logger.debug(`-- got ${segments.length} segments`, {flow: flow.id, source: source.id});
 
@@ -81,12 +83,26 @@ export async function scaffoldWorkflow( flow, options = {} ){
             instanceList.push({
                 instance: existing,
                 for: segment.id,
-                forName: await getFilterName(segment),
+                //forName: await getFilterName(segment),
                 status:{
                 }
             })
         }
     }
+
+    /*const flowInstanceIds = instanceList.map(d=>d.instance.id).filter(d=>d)
+    const fQuery = {
+        workspaceId: flow.workspaceId,
+        $or: flowInstanceIds.map(d=>{
+            return {
+                [`parentPrimitives.${d}`]: {$exists: true}
+            }
+        })
+
+    }
+    console.log(fQuery)
+    const flowInstanceItems = await fetchPrimitives(undefined, fQuery )
+    console.log(`got ${flowInstanceItems.length} children of flowInstances`)*/
 
     logger.info( "Flow instances:")
     for(const instanceInfo of instanceList){
@@ -103,6 +119,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
         }else{
             logger.info( "Flow instance ", {id: instanceInfo.instance.id, segment: instanceInfo.for, name: instanceInfo.forName})
             const instanceStepsForFlow = await primitiveChildren( instanceInfo.instance )
+            //const instanceStepsForFlow = flowInstanceItems.filter(d=>d.parentPrimitives?.[instanceInfo.instance.id])
             for(const step of steps){
                 let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
                 if( stepInstance ){
@@ -133,7 +150,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
                     instance: stepInstance,
                     stepId: step.id,
                     title: `Instance of ${step.plainId} for ${instanceInfo.instance.plainId}`,
-                    ...(await stepInstanceStatus(step, instanceInfo.instance))
+                    ...(await stepInstanceStatus(stepInstance, instanceInfo.instance))
                 } )
             }
             logger.info(`Checking import mapping`)
@@ -184,6 +201,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
                     
                     
                     logger.debug(`${toAdd.length} imports to add, ${toRemove.length} imports to remove`)
+
                     if( options.create !== false ){
                         for(const importId of toAdd){
                             await addRelationship(mappedStep.instance.id, importId, "imports")
@@ -191,18 +209,20 @@ export async function scaffoldWorkflow( flow, options = {} ){
                         for(const importId of toRemove){
                             await removeRelationship(mappedStep.instance.id, importId, "imports")
                         }
+                        const allFilters = targetImports.map(d=>d.filters).flat().filter(d=>d)
+                        let importConfig = allFilters?.length > 0 ? allFilters : null
+                        
+                        dispatchControlUpdate(mappedStep.instance.id, "referenceParameters.importConfig", importConfig)
                     }
-                    const allFilters = targetImports.map(d=>d.filters).flat().filter(d=>d)
-                    let importConfig = allFilters?.length > 0 ? allFilters : null
-                    
-
-                    dispatchControlUpdate(mappedStep.instance.id, "referenceParameters.importConfig", importConfig)
                 }
             }
         }
 
     }
     return instanceList
+}
+async function flowInstanceStatus( flowInstance, options ){
+    return await flowInstanceStepsStatus( flowInstance)
 }
 async function duplicateStep( step, parent){
     let stepInstance = await createPrimitive({
@@ -254,7 +274,10 @@ export async function runFlowInstance( flowInstance, options = {}){
 
     const stepsToRun = stepStatus.filter(d=>d.can && d.need)
 
-    logger.info(`${stepsToRun.length} steps able to run`)
+    logger.info(`${stepsToRun.length} steps to run`, {steps: stepsToRun.map(d=>d.step.plainId)})
+    for(const step of stepsToRun ){
+        await FlowQueue().runStep(step.step)
+    }
 
 }
 async function flowInstanceStepsStatus( flowInstance ){
@@ -271,7 +294,7 @@ async function flowInstanceStepsStatus( flowInstance ){
 }
 async function stepInstanceStatus( step, flowInstance){
     const should = await shouldStepRun( step, flowInstance)
-    const running = should.need ? await stepIsRunning( step, flowInstance ) : undefined
+    const running = should.need ? await stepIsRunning( step, flowInstance ) : false
     return {
         ...should,
         running,
@@ -286,7 +309,7 @@ async function shouldStepRun( step, flowInstance ){
     let canReason, needReason
     let can = undefined, need = false
 
-    if( step.processing?.flow?.started === flowStarted){
+    if( step.processing?.flow?.started === flowStarted && flowStarted){
         if(step.processing?.flow?.status === "complete"){
             needReason = "complete"
         }else{
@@ -310,7 +333,9 @@ async function shouldStepRun( step, flowInstance ){
                 }
                 if( imp.id !== flowInstance.id){
                     if( !Object.keys(imp.parentPrimitives ?? {}).includes(flowInstance.id) ){
-                        throw `${imp.id} / ${imp.plainId} is not linked to flow instance ${flowInstance.id} / ${flowInstance.plainId}`
+                        logger.error(`${imp.id} / ${imp.plainId} is not linked to flow instance ${flowInstance.id} / ${flowInstance.plainId} for ${step.id} / ${step.plainId}`)
+                        can = false
+                        continue
                     }
                 }
                 const importPrimValid = (imp.id === flowInstance.id) || (imp.processing?.flow?.started === flowStarted && imp.processing?.flow?.status === "complete")
@@ -345,8 +370,14 @@ export async function runStep( step, options = {}){
         }else{
             logger.error(`No acton defined for ${step.id} / ${step.plainId} action runner`)
         }
+    }else if( step.type === "search"){
+        await doPrimitiveAction(step, "run_search", {flowStarted} )
+    }else if( step.type === "summary"){
+        await doPrimitiveAction(step, "rebuild_summary" )
+    }else if( step.type === "query"){
+        await doPrimitiveAction(step, "custom_query", {flow: true} )
     }else{
-        logger.error(`${step.type} unhandles in runStep`)
+        logger.error(`Unhandled step type '${step.type}' in runStep`)
     }
 
 }
