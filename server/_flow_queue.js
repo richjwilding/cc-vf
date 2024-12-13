@@ -69,12 +69,12 @@ export default function FlowQueue(){
             
             dispatchControlUpdate(primitiveId, field , {status: "pending"}, {track: primitiveId})
         },
-        runFlowInstance: async (primitive)=>{
+        runFlowInstance: async (primitive, options)=>{
             const primitiveId = primitive.id
             const workspaceId = primitive.workspaceId
             const field = "processing.run_flow_instance"
             
-            await _queue.addJob(workspaceId, {id: primitiveId,  mode: "run_flow_instance", field, notify: true})
+            await _queue.addJob(workspaceId, {id: primitiveId,  mode: "run_flow_instance", options, field, notify: true})
             
             dispatchControlUpdate(primitiveId, field , {status: "pending"}, {track: primitiveId})
         },

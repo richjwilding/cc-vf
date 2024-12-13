@@ -1,4 +1,4 @@
-import { markActionComplete, registerAction } from "./action_helper";
+import { registerAction } from "./action_helper";
 import { getLogger } from "./logger";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, getConfig, getFilterName, primitiveChildren, primitiveDescendents, primitiveParentsOfType, removeRelationship } from "./SharedFunctions";
 import { checkAndGenerateSegments, getItemsForQuery, getSegemntDefinitions } from "./task_processor";
@@ -12,8 +12,7 @@ registerAction("run_flow_instance", {id: "flowinstance"}, async (p,a,o)=>FlowQue
 registerAction("instance_info", {id: "flowinstance"}, async (p,a,o)=>flowInstanceStatus(p,o))
 registerAction("workflow_info", {id: "flow"}, async (p,a,o)=>getScaffoldWorkflow(p,{...(o ?? {}), create: false}))
 registerAction("workflow_scaffold", {id: "flow"}, async (p,a,o)=>{
-    const result = await scheduleScaffoldWorkflow(p, o)
-    markActionComplete(p, o)
+    const result = await scaffoldWorkflow(p, o)
     return result
 })
 
@@ -222,7 +221,13 @@ export async function scaffoldWorkflow( flow, options = {} ){
     return instanceList
 }
 async function flowInstanceStatus( flowInstance, options ){
-    return await flowInstanceStepsStatus( flowInstance)
+    const raw = await flowInstanceStepsStatus( flowInstance)
+    return raw.map(d=>{
+        return {
+            ...d,
+            step: {id: d.step.id}
+        }
+    })
 }
 async function duplicateStep( step, parent){
     let stepInstance = await createPrimitive({
@@ -261,6 +266,9 @@ export async function runFlowInstance( flowInstance, options = {}){
     }
     let newIteration = true
     let flowStarted = options.flowStarted ?? flow.processing.flow.started
+    if( options.force){
+        flowStarted = undefined
+    }
     if( flowInstance.processing?.flow?.started === flowStarted ){
         logger.info(`Flow instance already started for this iteration`)
         newIteration = false
@@ -275,6 +283,22 @@ export async function runFlowInstance( flowInstance, options = {}){
     const stepsToRun = stepStatus.filter(d=>d.can && d.need)
 
     logger.info(`${stepsToRun.length} steps to run`, {steps: stepsToRun.map(d=>d.step.plainId)})
+    
+
+    let iteration = 0
+    const lastRun = flowInstance.processing?.flow?.last_run?.steps ?? []
+    const thisRun = stepsToRun.map(d=>d.step.id)
+    if( thisRun.length === lastRun.length && thisRun.every((v, i) => v === lastRun[i]) ){
+        iteration = (flowInstance.processing?.flow?.last_run?.iteration ?? 0) + 1
+        if( iteration > 3){
+            logger.info(`Tried ${iteration} attempts to run steps ${thisRun.join(", ")} - failing`)
+            return
+        }
+        logger.debug(`Steps same as previous iteration - retrying iteration ${iteration}`)
+    }
+
+    dispatchControlUpdate(flowInstance, "processing.flow.last_run", {steps: thisRun, iteration})
+
     for(const step of stepsToRun ){
         await FlowQueue().runStep(step.step)
     }
@@ -287,6 +311,7 @@ async function flowInstanceStepsStatus( flowInstance ){
         const status = await stepInstanceStatus(step, flowInstance)
         stepStatus.push({
             step,
+            flowStepId: Object.keys(step.parentPrimitives ?? {}).find(d=>step.parentPrimitives[d].includes("primitives.config")),
             ...status
         })
     }
@@ -339,7 +364,7 @@ async function shouldStepRun( step, flowInstance ){
                     }
                 }
                 const importPrimValid = (imp.id === flowInstance.id) || (imp.processing?.flow?.started === flowStarted && imp.processing?.flow?.status === "complete")
-                logger.debug(`Checking status of import step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
+                //logger.debug(`Checking status of import step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
                 can = can && importPrimValid
             }
             if( !can ){
@@ -359,6 +384,11 @@ export async function runStep( step, options = {}){
     let flowInstance = options.flowInstance ?? (await primitiveParentsOfType(step, "flowinstance"))?.[0]
     let flowStarted = flowInstance.processing?.flow?.started
     let newIteration = step.processing?.flow?.started !== flowStarted
+
+
+    logger.info(`Delaying for 30 seconds`)
+    await new Promise((resolve)=>setTimeout(()=>resolve(), 30000))
+    return
 
     if( newIteration ){
         dispatchControlUpdate(step, "processing.flow", {status: "running", started: flowStarted})

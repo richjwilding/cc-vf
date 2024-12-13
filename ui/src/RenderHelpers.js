@@ -10,6 +10,7 @@ import { renderToString } from "react-dom/server";
 import { MagnifyingGlassIcon } from "@heroicons/react/20/solid";
 import { convertOrganizationFinancialData, formatNumber, roundCurrency } from "./SharedTransforms";
 import { HeroIcon } from "./HeroIcon";
+import { cloneElement } from "react";
 const typeMaps = {}
 const categoryMaps = {}
 
@@ -3040,15 +3041,6 @@ registerRenderer( {type: "type", id: "flow", configs: "default"}, (primitive, op
         name:"inf_track inf_keep"
         //name:"inf_track action_primitive inf_keep"
     })
-    const r = new Konva.Rect({
-        x: 0,
-        y: 0,
-        cornerRadius: 10,
-        width: config.width,
-        height: config.height,
-        fill:  "#fffbeb"
-    })
-    g.add(r)
     return g
 })
 
@@ -3243,16 +3235,31 @@ function renderReactSVGIcon( icon, options = {} ){
     }else if( icon.render ){
         icon = renderToString( icon.render(options.props))
     }else if( icon.$$typeof ){
-        icon = renderToString( icon )
+        //icon = renderToString( icon )
+        icon = renderToString(cloneElement(icon, options.props));
     }else{
         return undefined
     }
     const dim = options.width && options.height ? undefined : extractSVGDimensions(icon)
+    let width = options.width ?? dim.width
+    let height = options.height ?? dim.height
+    let ox = 0, oy = 0
+
+    if( options.width && options.height && options.center){
+        const dim = extractSVGDimensions(icon)
+        const scale = Math.min( options.width / dim.width, options.height / dim.height)
+        const nWidth = dim.width * scale
+        const nHeight = dim.height * scale
+        ox = (width - nWidth) / 2
+        oy = (height - nHeight) / 2
+        width = nWidth
+        height = nHeight
+    }
     const o = imageHelper( 'svg:' + icon, {
-        x: options.x ?? 0,
-        y: options.y ?? 0,
-        width: options.width ?? dim.width,
-        height: options.height ?? dim.height,
+        x: (options.x ?? 0) + ox,
+        y: (options.y ?? 0) + oy,
+        width,
+        height,
         center: true,
         imageCallback: options.imageCallback,
         maxScale: 1,
@@ -4928,3 +4935,52 @@ function convertMarkupToTable( markup, options = {} ){
         }
     }
 }
+
+export function renderIndicators(indicatorList, options){
+    const indicatorWidth = 20
+    
+    const padding = 2
+    const offsetX = 4
+    const fullWidth = indicatorWidth + padding + padding
+    const height = indicatorList.length * fullWidth
+
+    const g = new Konva.Group({
+        x: (options.x ?? fullWidth),
+        y: options.y ?? 0,
+        width: fullWidth + offsetX,
+        height: height,
+        name:"indicators"
+    })
+    const r = new Konva.Rect({
+        x: offsetX,
+        y: 0,
+        width: fullWidth,
+        height: height,
+        fill: '#fcfcfc',
+        stroke: '#b8b8b8',
+        strokeWidth: 0.5,
+            strokeScaleEnabled: false,
+        cornerRadius: 10
+    })
+    g.add(r)
+    let y = 2
+    for(const indicator of indicatorList){
+        if( indicator.icon){
+            renderReactSVGIcon( <HeroIcon icon={indicator.icon}/>, 
+                {
+                    target: g,
+                    props: {fill: indicator.color},
+                    x:padding + offsetX, 
+                    y:padding,
+                    width: indicatorWidth,
+                    height: indicatorWidth,
+                    center: true,
+                    imageCallback: options.imageCallback
+                }
+            )
+        }
+        y += fullWidth
+    }
+    return g
+}
+

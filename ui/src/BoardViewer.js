@@ -52,6 +52,62 @@ async function moveItemWithinFrame(primitiveId, startZone, endZone, frame){
 
 }
 
+function buildIndicators(primitive, flowInstance, flow, state){
+    flowInstance ||= primitive?.findParentPrimitives({type: "flowinstance"})?.[0]
+    flow ||= flowInstance?.findParentPrimitives({type: "flow"})?.[0]
+    let step
+    if( flow && flowInstance ){
+        step = state.current.flowWatchList?.[flow.id]?.[flowInstance.id]?.status.find(d=>d.step.id === primitive.id)
+    }
+    return translateIndicatorState( step )
+}
+function translateIndicatorState(step){
+    let out = {
+        icon: "Eye",
+        color: "#666"
+    }
+    if( step ){
+        if( step ){
+            if( step.running){
+                out = {
+                    icon: "FAPlay",
+                    color: "#3b82f6"
+                }
+            }else if( step.needReason === "complete"){
+                out = {
+                    icon: "FACircleCheck",
+                    color: "#4ade80"
+                }
+            }else{
+                out = {
+                    icon: "FAHand",
+                    color: "#f97316"//#f59e0b
+                }
+            } 
+        }
+    }
+    return [out]
+}
+function _buildIndicators(primitive){
+    let indicatorMap = {
+        "complete": {
+            icon: "FACircleCheck",
+            color: "#4ade80"
+        },
+        "running": {
+            icon: "FAPlay",
+            color: "#3b82f6"
+        },
+        "default": {
+            icon: "FAHand",
+            color: "#f97316"//#f59e0b
+        }
+    }
+    return [
+        indicatorMap[primitive.processing?.flow?.status] ?? indicatorMap.default
+    ]
+}
+
 let mainstore = MainStore()
     function SharedRenderView(d, primitive, myState){
         const view = myState[d.id]
@@ -60,9 +116,15 @@ let mainstore = MainStore()
 
         const primitiveToRender = view.underlying ?? view.primitive
 
-        const title = view.noTitle ? undefined : ()=>`${d.title} - #${d.plainId}${view.underlying ? ` (${primitiveToRender.plainId})` : ""}`
+        const title = view.noTitle ? undefined : ()=>{
+            return view.title ?? `${d.title} - #${d.plainId}${view.underlying ? ` (${primitiveToRender.plainId})` : ""}`
+        }
         const canvasMargin = view.noTitle ? [0,0,0,0] : [20,20,20,20]
 
+        let indicators
+        if( primitiveToRender.processing?.flow){
+            indicators = buildIndicators(primitive, undefined, undefined, myState)
+        }
 
         const mapMatrix = (stageOptions, d, view)=>renderMatrix(
             primitiveToRender, 
@@ -108,28 +170,30 @@ let mainstore = MainStore()
                     }
                 }
             }
-            return {id: d.id, parentRender: view.parentRender, title, canChangeSize: "width", canvasMargin, items: render}
+            return {id: d.id, parentRender: view.parentRender, title, indicators, canChangeSize: "width", canvasMargin, items: render}
         }else if( view.config === "cat_overview"){
             return {
                 id: d.id, 
                 parentRender: view.parentRender, 
                 title, 
+                indicators, 
                 canChangeSize: "width", 
                 canvasMargin, 
                 items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: "cat_overview", data: view.renderData})
             }
         }else if( view.config === "flow"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, parentRender: view.parentRender, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render}
+            return {id: d.id, parentRender: view.parentRender, indicators, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#fffbeb"}
         }else if( view.config === "widget"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, parentRender: view.parentRender, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
+            return {id: d.id, parentRender: view.parentRender, indicators, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
         }else if( view.config === "report_set"){
 
 
             return {id: d.id, 
                     title, 
                     canChangeSize: "width", 
+                    indicators, 
                     canvasMargin, 
                     parentRender: view.parentRender, 
                     items: (stageOptions)=>RenderSetAsKonva(
@@ -147,17 +211,18 @@ let mainstore = MainStore()
         }
         
         if( d.type === "query" && d.processing?.ai?.data_query){
-            return {id: d.id, parentRender: view.parentRender, title, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {config: "ai_processing",...stageOptions, ...renderOptions})}
+            return {id: d.id, parentRender: view.parentRender, title, indicators, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {config: "ai_processing",...stageOptions, ...renderOptions})}
         }
 
         const canChangeSize = view?.viewConfig?.resizable 
 
-        return {id: d.id ,parentRender: view.parentRender, title, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
+        return {id: d.id ,parentRender: view.parentRender, title, indicators, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
 
     }
 
     function SharedPrepareBoard(d, myState, element, forceViewConfig){
         let didChange = false
+        let boardsToRefresh = []
         let stateId = element ? element.id : d.id
         if( !myState[stateId]){
                 myState[stateId] = {id: stateId}
@@ -338,24 +403,33 @@ let mainstore = MainStore()
             }
         }else if( primitiveToPrepare.type === "flow" ){
             let childNodes = d.primitives.origin.uniqueAllItems
-            const flowInstances = childNodes.filter(d=>d.type === "flowinstance")
-            const flowInstanceToShow = flowInstances[1] ??  flowInstances[0]
+            const flowInstances = childNodes.filter(d=>d.type === "flowinstance").sort((a,b)=>a.plainId - b.plainId)
+
+            
+            const flowInstanceToShow = flowInstances[d.referenceParameters?.explore?.view ?? 0]
             childNodes = childNodes.filter(d=>d.type !== "flowinstance")
+            
+            if(flowInstanceToShow ){
+                stopWatchingFlowInstances(primitiveToPrepare, flowInstances, myState, flowInstanceToShow.id)
+                watchFlowInstance( primitiveToPrepare, flowInstanceToShow, myState)
+            }
 
             myState[stateId].primitive = basePrimitive
             myState[stateId].config = "flow"
+            myState[stateId].title = `${basePrimitive.title} - #${basePrimitive.plainId}${flowInstanceToShow ? ` (${flowInstanceToShow.plainId})` : ""}`
+            myState[stateId].internalWatchIds = [flowInstanceToShow.id, ...flowInstanceToShow.primitives.origin.allIds]
             myState[stateId].renderData = {
                 icon: <HeroIcon icon='CogIcon'/>,
                 count: primitiveToPrepare.primitives.uniqueAllIds.length
             }
-
 
             for(let child of childNodes){
                 if( child.type === "flowinstance"){
                     continue
                 }
                 console.log(`- preparing child of flow ${child.plainId} ${child.type}`)
-                myState[child.id] = {id: child.id}
+                myState[child.id] ||= {id: child.id}
+                boardsToRefresh.push(child.id)
                 if( flowInstanceToShow ){
                     const instanceChild = flowInstanceToShow.primitives.uniqueAllItems.find(d=>d.parentPrimitiveIds.includes(child.id))
                     if( instanceChild ){
@@ -364,7 +438,9 @@ let mainstore = MainStore()
                         console.log(`-- couldnt find instance for flowinstance ${flowInstanceToShow.id}`)
                     }
                 }
-                SharedPrepareBoard(child, myState)
+                const childChanged = SharedPrepareBoard(child, myState)
+                console.log(`--- ${childChanged}`)
+                didChange ||= (childChanged ?? true)
                 myState[child.id].parentRender = stateId
             }
             console.log(`Flow children done`)
@@ -380,8 +456,80 @@ let mainstore = MainStore()
         if( oldConfig !== myState[stateId].config){
             didChange = true
         }
-        return didChange
+        return didChange ? [stateId, ...boardsToRefresh] : false
     }
+
+
+async function watchFlowInstances( flow, flowInstances, state){
+    for(const fi of flowInstances ){
+        await watchFlowInstance(flow, fi, state)
+    }
+
+}
+async function stopWatchingFlowInstances( flow, flowInstances, state, filter){
+    if( filter ){
+        filter = [filter].flat()
+    }
+    for(const fi of flowInstances ){
+        if( filter && filter.includes(fi.id)){
+            continue
+        }
+        await stopWatchingFlowInstance( flow, fi, state)
+    }
+
+}
+async function stopWatchingFlowInstance( flow, flowInstance, state){
+    if( flow && flowInstance && flow.type === "flow" && flowInstance.type === "flowinstance"){
+        if( !state.current.flowWatchList ){
+            return
+        }
+        if( !state.current.flowWatchList[flow.id] ){
+            return
+        }
+        if( !state.current.flowWatchList[flow.id][flowInstance.id] ){
+            return
+        }
+        if( state.current.flowWatchList[flow.id][flowInstance.id].timer ){
+            clearTimeout(state.current.flowWatchList[flow.id][flowInstance.id].timer)
+        }
+        delete state.current.flowWatchList[flow.id][flowInstance.id]
+        console.log(`Stopped watching ${flowInstance.id}`)
+        
+    }
+}
+async function watchFlowInstance( flow, flowInstance, state){
+    if( flow && flowInstance && flow.type === "flow" && flowInstance.type === "flowinstance"){
+        if( !state.current.flowWatchList ){
+            state.current.flowWatchList = {}
+        }
+        if( !state.current.flowWatchList[flow.id] ){
+            state.current.flowWatchList[flow.id] = {}
+        }
+        if( !state.current.flowWatchList[flow.id][flowInstance.id] ){
+            state.current.flowWatchList[flow.id][flowInstance.id] = {}
+            await updateFlowInstanceState(flow, flowInstance, state)
+        }
+    }
+}
+async function updateFlowInstanceState(flow, flowInstance, state){
+    if(state.current.flowWatchList?.[flow.id]?.[flowInstance.id]){
+        await MainStore().doPrimitiveAction(flowInstance, "instance_info",undefined, (data)=>{
+            console.log(`Got state`, data)
+            if(state.current.flowWatchList?.[flow.id]?.[flowInstance.id]){
+                state.current.flowWatchList[flow.id][flowInstance.id].status = data
+
+                if( state.current?.canvas){
+                    for(const d of data){
+                        state.current.canvas.updateIndicators( d.flowStepId, translateIndicatorState( d ) )
+                    }
+                }
+                state.current.flowWatchList[flow.id][flowInstance.id].timer = setTimeout(()=>{
+                    updateFlowInstanceState(flow, flowInstance, state)
+                }, 5000)
+            }
+        })
+    }
+}
 
 export default function BoardViewer({primitive,...props}){
     const mainstore = MainStore()
@@ -395,33 +543,53 @@ export default function BoardViewer({primitive,...props}){
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
 
+
+    const setCanvasRef = (node) => {
+        console.log("SETTING CANVAS REF", node)
+        if (node) {
+          canvas.current = node;
+          myState.current.canvas = node
+        }
+      };
+
     window.exportFrames = exportMultiple
 
-    useDataEvent("relationship_update set_parameter set_field delete_primitive set_title", undefined, (ids, event, info)=>{
+    useDataEvent("relationship_update set_parameter set_field delete_primitive set_title", undefined, (ids, event, info, fromRemote)=>{
         if( myState.current.watchList  ){
             myState.current.framesToUpdate = myState.current.framesToUpdate || []
+            myState.current.framesToUpdateForRemote = myState.current.framesToUpdateForRemote || []
             Object.keys(myState.current.watchList).forEach(frameId=>{
+                let listName = fromRemote ? "framesToUpdateForRemote" : "framesToUpdate"
+                let timerName = fromRemote ? "frameUpdateTimerForRemote" : "frameUpdateTimer"
                 let checkIds = ids
                 if( myState[frameId] && myState.current.watchList[frameId].filter(d=>checkIds.includes(d)).length > 0 ){
                     
-                    const existing = myState.current.framesToUpdate.find(d=>d.frameId === frameId && d.event === event) 
+                    const existing = myState.current[listName].find(d=>d.frameId === frameId && d.event === event) 
                     if( !existing){
-                        myState.current.framesToUpdate.push({frameId, event, info})
+                        myState.current[listName].push({frameId, event, info})
                     }else{
                         console.log(`already queued`)
                     }
                     
-                    if( !myState.current.frameUpdateTimer ){
-                        myState.current.frameUpdateTimer = setTimeout(()=>{
-                            myState.current.frameUpdateTimer = undefined
-                            for( const {frameId, event, info} of  myState.current.framesToUpdate){
+                    if( !myState.current[timerName] ){
+                        myState.current[timerName] = setTimeout(()=>{
+                            myState.current[timerName] = undefined
+                            for( const {frameId, event, info} of  myState.current[listName]){
                                 let needRefresh = true
                                 let needRebuild = ((event === "set_field" || event === "set_parameter") && info === "referenceParameters.explore.view")
 
-                                if( event === "set_field" && info && typeof(info)==="strng"){
-                                    if( info.match(/processing.ai/)){
+                                if( event === "set_field" && info && typeof(info)==="string"){
+                                    if( info.startsWith('processing.ai.')){
                                         const board = myState[frameId]
                                         canvas.current.refreshFrame( board.id, renderView(board.primitive))
+                                    /*}else if( info.startsWith('processing.flow.')){
+                                        for(const cId of checkIds){
+                                            if( cId === frameId || cId === myState[frameId].underlying?.id ){
+                                                const ind = myState[frameId].underlying ?? myState[frameId].primitive
+                                                canvas.current.updateIndicators( frameId, buildIndicators( ind, undefined, undefined, myState ) )
+                                            }
+                                        }
+                                        needRefresh = false*/
                                     }else if(info.startsWith('procesing.') || info.startsWith('embed_')){
                                         needRefresh = false
                                     }
@@ -436,17 +604,24 @@ export default function BoardViewer({primitive,...props}){
                                 if( needRefresh){
                                     console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}`)
                                     forceUpdateLinks()
+
+                                    const refreshBoards = Array.isArray(needRefresh) ? needRefresh : [frameId]
+
                                     if( needRebuild ){
                                         console.log(`With rebuild`)
-                                        const board = myState[frameId]
-                                        canvas.current.refreshFrame( frameId, renderView(board.primitive))
+                                        for(const frameId of refreshBoards ){
+                                            const board = myState[frameId]
+                                            canvas.current.refreshFrame( frameId, renderView(board.primitive))
+                                        }
                                     }else{
-                                        canvas.current.refreshFrame( frameId )
+                                        for(const frameId of refreshBoards ){
+                                            canvas.current.refreshFrame( frameId )
+                                        }
                                     }
                                 }
                             }
                             myState.current.framesToUpdate = []
-                        }, 2820)
+                        }, fromRemote ? 2820 : 50)
                     }
                 }
             })
@@ -476,7 +651,7 @@ export default function BoardViewer({primitive,...props}){
 
     function updateWatchList(frameId, ids){
         myState.current.watchList = myState.current.watchList || {}
-        myState.current.watchList[frameId] = [frameId, ...(myState[frameId].internalWatchIds ?? [] ),...ids]
+        myState.current.watchList[frameId] = [frameId, myState[frameId].underlying?.id,...(myState[frameId].internalWatchIds ?? [] ),...ids].filter(d=>d)
     }
 
     const prepareBoard = (d)=>SharedPrepareBoard(d, myState)
@@ -1318,7 +1493,7 @@ export default function BoardViewer({primitive,...props}){
                             primitive={primitive}
                             board
                             background="#fdfdfd"
-                            ref={canvas}
+                            ref={setCanvasRef}
                             ignoreAfterDrag={false}
                             highlights={{
                                 "primitive":"border",
@@ -1369,16 +1544,30 @@ export default function BoardViewer({primitive,...props}){
                                     const prim = MainStore().primitive(d.id)
                                     if(prim){
 
+                                        console.log(d)
+
                                         let target = primitive
+                                        let scaledWidth, scaledHeight
+
+                                        const updateData = {
+                                            x: d.x, 
+                                            y: d.y, 
+                                            s: d.s
+                                        }
+
                                         if( myState[d.id].parentRender ){
                                             target = myState[myState[d.id].parentRender].primitive
                                             console.log(`Will update position in flow parent`)
+                                            
+                                            updateData.scaledWidth = d.width * d.s
+                                            updateData.scaledHeight = d.height * d.s
                                         }
+                                        updateData.expand = target.frames?.[d.id]?.expand ?? {}
+                                        updateData.width = target.frames?.[d.id]?.width
+                                        
+                                        target.setField(`frames.${d.id}`, updateData)
 
-                                        const expand = target.frames?.[d.id]?.expand ?? {}
-                                        const width = target.frames?.[d.id]?.width
-                                        target.setField(`frames.${d.id}`, {x: d.x, y: d.y, s: d.s, width, expand })
-                                        canvas.current.updateFramePosition( d.id, {x: d.x, y: d.y, s: d.s})
+                                        canvas.current.updateFramePosition( d.id, {x: updateData.x, y: updateData.y, s: updateData.s})
                                     }
                                 },
                                 onClick:{

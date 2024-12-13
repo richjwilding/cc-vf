@@ -5,13 +5,16 @@ import path from 'path';
 import { SIO } from './socket';
 import { parentPort, workerData, isMainThread} from 'worker_threads';
 import { getLogger } from './logger';
+import EventEmitter from 'events';
+import { getQueueObjectByName } from './queue_register';
+
+/*
 import FlowQueue from './flow_queue';
 import QueueAI from './ai_queue';
 import QueueDocument from './document_queue';
 import EnrichPrimitive from './enrich_queue';
 import QueryQueue from './query_queue';
-import EventEmitter from 'events';
-import BrightDataQueue from './brightdata_queue';
+import BrightDataQueue from './brightdata_queue';*/
 
 const asyncLocalStorage = require('./asyncLocalStorage');
 
@@ -324,14 +327,17 @@ class QueueManager {
             logger.debug(`Fetching same queue type - returning parent`)
             return this.parentObject
         }
+        return getQueueObjectByName( queueType )
+        /*
         switch( queueType){
+            
             case "flow": return FlowQueue()
             case "ai": return  QueueAI()
             case "document": return  QueueDocument()
             case "enrich": return  EnrichPrimitive()
             case "brightdata": return  BrightDataQueue()
             case "query": return  QueryQueue()
-        }
+        }*/
     }
     overrideMethodsForWorkerThread() {
         this.requestIdCounter = 0;

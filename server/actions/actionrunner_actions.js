@@ -1,4 +1,5 @@
 import { registerAction } from "../action_helper"
+import QueueDocument from "../document_queue";
 import { getLogger } from "../logger";
 import Category from "../model/Category";
 import QueryQueue from "../query_queue";
@@ -119,6 +120,6 @@ registerAction( "custom_query", undefined, async (primitive, action, options, re
     }else if( primitive.referenceParameters.useAxis && !options?.scope){
         await queryByAxis( parentForScope, primitive, options )                
     }else{
-        await QueueDocument().doDataQuery( primitive, {...action, ...options, primitive})
+        await QueueDocument().doDataQuery( primitive, {...action, ...options})
     }
 })

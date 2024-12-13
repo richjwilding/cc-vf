@@ -7,13 +7,12 @@ import Category from "./model/Category";
 import PrimitiveParser from "./PrimitivesParser";
 import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 import agglo from "agglo";
-import QueueManager from "./queue_manager";
+import { BaseQueue } from './base_queue';
 import { comapreToPeers, summarizeWithQuery } from "./task_processor";
 
 
 const parser = PrimitiveParser()
 let instance
-let _queue
 
 function calculateCentroid(vectors) {
     if (!vectors || vectors.length === 0) {
@@ -843,58 +842,27 @@ async function rollup( primitive, target, action ){
 }
 
 export default function QueueAI(){
-    if( instance ){
-        return instance
+    if (!instance) {
+        instance = new AIQueueClass();
+        instance.myInit();
     }
-    
-    instance = {}
-    instance.pending = async ()=>{
-        return (await _queue.status()) ?? [];
-    }
-    instance.purge = async (workspaceId)=>{
-        if( workspaceId ){
-            return await _queue.purgeQueue(workspaceId);
-        }else{
-            return await _queue.purgeAllQueues();
+    return instance;
+}
 
-        }
+class AIQueueClass extends BaseQueue{
+    constructor() {
+        super('ai', undefined, 2)
     }
-    _queue = new QueueManager("ai", undefined, 2 );
-
-    instance.myInit = async ()=>{
-        console.log("AI Queue (v2)")
-        const jobCount = (await _queue.status()).length
-        console.log( jobCount + " jobs in queue (ai)")        
-    }
-    instance.getJob = async function (...args) {
-        return await _queue.getJob.apply(_queue, args);
-    };
-    
-    instance.addJob = async function (...args) {
-        return await _queue.addJob.apply(_queue, args);
-    };
-    instance.addJobResponse = async function (...args) {
-        return await _queue.addJobResponse.apply(_queue, args);
-    };
-    instance.getChildWaiting = async function (...args) {
-        return await _queue.getChildWaiting.apply(_queue, args);
-    };
-    instance.resetChildWaiting = async function (...args) {
-        return await _queue.resetChildWaiting.apply(_queue, args);
-    };
 
 
-    instance.rebuildSummary = (primitive, action, req)=>{
+    async rebuildSummary(primitive, action, req){
         const workspaceId = primitive.workspaceId
         const field = `processing.ai.rebuild_summary`
-        
         const data = {id: primitive.id, action: action, mode: "rebuild_summary", field}
 
-        dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, { track: primitive.id, text:"Rebuilding summary"})
-        //instance.add(`axis_${primitive.id}` , {id: primitive.id, field: field})
-        _queue.addJob(workspaceId, data)
+        await this.addJob(workspaceId, data)
     }
-    instance.defineAxis = (primitive, action, req)=>{
+    async defineAxis(primitive, action, req){
         const workspaceId = primitive.workspaceId
         const field = `processing.ai.define_axis`
         if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
@@ -902,22 +870,18 @@ export default function QueueAI(){
             return false
         }
         const data = {id: primitive.id, action: action, mode: "define_axis", field}
-        dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Analyzing for axis"})
-        //instance.add(`axis_${primitive.id}` , {id: primitive.id, field: field})
-        _queue.addJob(workspaceId, data)
+        await this.addJob(workspaceId, data)
     }
-    instance.rollUp = (primitive, target, action, req)=>{
+    async rollUp(primitive, target, action, req){
             const field = `processing.ai.rollup`
             const workspaceId = primitive.workspaceId
             if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
                 return false
             }
-            dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Building clusters"})
-            dispatchControlUpdate(target.id, field , {status: "pending"})
-            _queue.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: action.alternate ? "rollup2" : "rollup", field: field})
+            await this.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: action.alternate ? "rollup2" : "rollup", field: field})
     }
-    instance.aggregateDuplicatedInSegment = (primitive, action, req)=>{
+    async aggregateDuplicatedInSegment(primitive, action, req){
             const field = `processing.ai.aggregate_duplicated_in_segment`
             const workspaceId = primitive.workspaceId
             if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
@@ -925,10 +889,10 @@ export default function QueueAI(){
                 return false
             }
             dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Looking for duplicates"})
-            _queue.addJob(workspaceId,  {id: primitive.id, action: action, mode: "aggregate_duplicated_in_segment", field: field})
+            await this.addJob(workspaceId,  {id: primitive.id, action: action, mode: "aggregate_duplicated_in_segment", field: field})
     }
 
-    instance.markCategories = (primitive, target, action, req)=>{
+    async markCategories(primitive, target, action, req){
         if( primitive.type === "category"){
             const workspaceId = primitive.workspaceId
             const field = `processing.ai.mark_categories`
@@ -936,12 +900,12 @@ export default function QueueAI(){
                 console.log(`Already active - exiting`)
                 return false
             }
-            dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Assign to categories"})
-            dispatchControlUpdate(target.id, field , {status: "pending"})
-            _queue.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: "mark_categories", field: field})
+            //dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Assign to categories"})
+            //dispatchControlUpdate(target.id, field , {status: "pending"})
+            await this.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: "mark_categories", field: field})
         }
     }
-    instance.categorize = (primitive, target, action, req)=>{
+    async categorize(primitive, target, action, req){
         if( primitive.type === "category"){
             const workspaceId = primitive.workspaceId
             const field = `processing.ai.categorize`
@@ -949,15 +913,12 @@ export default function QueueAI(){
                 console.log(`Already active - exiting`)
                 return false
             }
-            dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Looking for categories"})
-            dispatchControlUpdate(target.id, field , {status: "pending"})
-            _queue.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: "categorize", field: field})
+            //dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Looking for categories"})
+            //dispatchControlUpdate(target.id, field , {status: "pending"})
+            await this.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: "categorize", field: field})
         }
         return true
     }
-    
-    return instance
-    
 }
 
 async function treeToCluster( tree, primitive){

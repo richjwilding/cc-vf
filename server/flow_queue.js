@@ -1,6 +1,6 @@
-import BaseQueue from './base_queue';
+import { BaseQueue } from './base_queue';
 import { getLogger } from './logger';
-import { addRelationship, dispatchControlUpdate, fetchPrimitive, removeRelationship } from './SharedFunctions';
+import { addRelationship, dispatchControlUpdate, fetchPrimitive, primitiveParentsOfType, removeRelationship } from './SharedFunctions';
 import { runFlow, runFlowInstance, scaffoldWorkflow, runStep } from './workflow';
 
 const logger = getLogger('case-queue'); // Debug level for moduleA
@@ -41,8 +41,11 @@ class FlowQueueClass extends BaseQueue {
         })
         this.registerNotification("run_step", async (primitive, result)=>{
             if( result.success === true){
-                console.log(`Step ${primitive.id} ${primitive.plainId} finished --`)
+                console.log(`Step ${primitive.id} ${primitive.plainId} finished`)
                 dispatchControlUpdate(primitive, "processing.flow", {status: "complete", started: primitive.processing?.flow?.started})
+                
+                let flowInstance = (await primitiveParentsOfType(primitive, "flowinstance"))?.[0]
+                await this.runFlowInstance( flowInstance )
             }else{
 
             }
@@ -82,7 +85,7 @@ class FlowQueueClass extends BaseQueue {
         let running = false, waiting = false;
 
         for (const d of jobs) {
-            const status = d.getState();
+            const status = await d.getState();
             running ||= status === "active";
             waiting ||= status === "waiting-children";
         }
@@ -102,10 +105,10 @@ class FlowQueueClass extends BaseQueue {
         await this.addJob(primitive.workspaceId, { id: primitive.id, mode: "run_flow", field });
     }
 
-    async runFlowInstance(primitive) {
+    async runFlowInstance(primitive, options) {
         const field = "processing.run_flow_instance";
 
-        await this.addJob(primitive.workspaceId, { id: primitive.id, mode: "run_flow_instance", field, notify: true });
+        await this.addJob(primitive.workspaceId, { id: primitive.id, mode: "run_flow_instance", options, field, notify: true });
     }
 
     async runStep(primitive) {

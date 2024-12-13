@@ -11,74 +11,79 @@ import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import Parser from "@postlight/parser";
 import { extractURLsFromPage, extractURLsFromPageAlternative, fetchURLPlainText, getMetaDescriptionFromURL } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
-import QueueManager from "./queue_manager";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
 import { findCompanyURLByName } from "./task_processor";
 import { enrichEntityFromOwler } from "./owler_helper";
+import { BaseQueue } from "./base_queue";
 
 
 let instance
-let _queue
 
 export default function EnrichPrimitive(){    
-    if( instance ){
-        return instance
+    if (!instance) {
+        instance = new EnrichQueueClass();
+        instance.myInit()
     }
-    
-    instance = {} 
+    return instance;
+}
 
-    instance.addToQueue = (primitive, name, description, options)=>{
+class EnrichQueueClass extends BaseQueue{
+    constructor() {
+        super('enrich', undefined, 2)
+    }
+
+    async addToQueue(primitive, name, description, options){
         const primitiveId = primitive.id
         const workspaceId = primitive.workspaceId
         const field = `processing.${name}`
         dispatchControlUpdate(primitive.id, field , {status: "pending"}, {track: primitive.id, text: description})
-        _queue.addJob( workspaceId,  {id: primitive.id, mode: name, options: options, field: field})
+        await this.addJob( workspaceId,  {id: primitive.id, mode: name, options: options, field: field})
     }
-    instance.fromURL = (primitive, options )=>{
+    async fromURL(primitive, options ){
         instance.addToQueue( primitive, "url_as_detail", "Examining url", options )
     }
 
-    instance.findArticles = (primitive, options )=>{
+    async findArticles(primitive, options ){
         if( primitive.type === "activity"){
-            instance.addToQueue( primitive, "find_articles", "Finding articles", options )
+            addToQueue( primitive, "find_articles", "Finding articles", options )
         }
     }
-    instance.siteDiscovery = (primitive, options )=>{
+    async siteDiscovery(primitive, options ){
         if( primitive.type === "entity"){
             instance.addToQueue( primitive, "site_discovery", "Site discovery", options )
         }
     }
-    instance.generateJTBD = (primitive, options )=>{
+    async generateJTBD(primitive, options ){
         if( primitive.type === "entity"){
             instance.addToQueue( primitive, "generate_jtbd", "JTBD generation", options )
         }
     }
-    instance.siteDiscoveryShort = (primitive, options )=>{
+    async siteDiscoveryShort(primitive, options ){
         if( primitive.type === "entity"){
             instance.addToQueue( primitive, "site_discovery_short", "Site discovery (short)", options )
         }
     }
-    instance.siteSummarize = (primitive, options )=>{
+    async siteSummarize(primitive, options ){
         if( primitive.type === "entity"){
             instance.addToQueue( primitive, "site_summarize", "Site discovery", options )
         }
     }
-    instance.findPosts = (primitive, options )=>{
+    async findPosts(primitive, options ){
         if( primitive.type === "activity"){
             instance.addToQueue( primitive, "find_posts", "Find posts", options )
         }
     }
-    instance.searchCompanies = (primitive, options )=>{
+    async searchCompanies(primitive, options ){
         if( primitive.type === "activity"){
             instance.addToQueue( primitive, "search_company", "Search companies", options )
         }
     }
-    instance.enrichCompany = (primitive, source, force)=>{
+    async enrichCompany(primitive, source, force){
         if( primitive.type === "entity"){
             instance.addToQueue( primitive, "enrich", "Enriching company", {source, force, target: "entity"} )
         }
     }
-    instance.pivotCompany = async (primitive, source, action)=>{
+    async pivotCompany(primitive, source, action){
         throw "Deprecated"
        /* if( primitive.type === "entity" || primitive.type === "activity"){
             
@@ -105,45 +110,6 @@ export default function EnrichPrimitive(){
             }
         }*/
     }
-
-
-    
-    instance.pending = async ()=>{
-        return await _queue.status();
-    }
-    instance.purge = async (workspaceId)=>{
-        if( workspaceId ){
-            return await _queue.purgeQueue(workspaceId);
-        }else{
-            return await _queue.purgeAllQueues();
-
-        }
-    }
-    
-    _queue = new QueueManager("enrich", undefined, 1 );
-    
-    instance.myInit = async ()=>{
-        console.log("Enrich Queue")
-    }
-    instance.getJob = async function (...args) {
-        return await _queue.getJob.apply(_queue, args);
-    };
-    
-    instance.addJob = async function (...args) {
-        return await _queue.addJob.apply(_queue, args);
-    };
-    instance.addJobResponse = async function (...args) {
-        return await _queue.addJobResponse.apply(_queue, args);
-    };
-    instance.getChildWaiting = async function (...args) {
-        return await _queue.getChildWaiting.apply(_queue, args);
-    };
-    instance.resetChildWaiting = async function (...args) {
-        return await _queue.resetChildWaiting.apply(_queue, args);
-    };
-
-    return instance
-    
 }
 
 async function fetchDetails(primitive, options){

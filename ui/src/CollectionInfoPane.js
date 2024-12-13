@@ -273,7 +273,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     </div>
                     {underlyingInfo}
                     <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 p-2">
-                        <CategoryHeader itemCategory={searchResultCategory} items={searchResults}/>
+                        <CategoryHeader itemCategory={searchResultCategory} items={searchResults} actionAnchor={frame} />
                     </div>
                     <QueryPane.Info primitive={frame}/>
                     <div className="flex space-x-3 mt-3">
@@ -298,7 +298,12 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
 
 
         const list = filters ? primitiveForContent.itemsForProcessingWithFilter(filters) : primitiveForContent.itemsForProcessing
-        const viewConfigs = CollectionUtils.viewConfigs(list?.[0]?.metadata)
+        const viewConfigs = frame.type === "flow" ? frame.primitives.origin.allFlowinstance.sort((a,b)=>a.plainId - b.plainId).map((d,i)=>(
+            {
+                id: i,
+                title:`Flow instance #${d.plainId}`
+            }
+        )) : CollectionUtils.viewConfigs(list?.[0]?.metadata)
         const viewConfig = viewConfigs?.[activeView] 
 
 

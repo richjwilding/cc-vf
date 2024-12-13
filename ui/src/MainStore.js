@@ -146,8 +146,8 @@ function MainStore (prims){
                                 })
                             }
                         }
-                        obj.triggerCallback("new_primitive", [newObj] )
-                        obj.triggerCallback("relationship_update", list)
+                        obj.triggerCallback("new_primitive", [newObj], undefined, true )
+                        obj.triggerCallback("relationship_update", list, undefined, true)
                     }
                 }else if(entry.type === "add_relationship"){
                         const parent = obj.primitive( entry.id)
@@ -155,7 +155,7 @@ function MainStore (prims){
                         if( parent && target){
                             if(parent.primitives.fromPath(entry.path)?.allIds.includes(entry.target)){
                             }else{
-                                obj.triggerCallback("relationship_update", [entry.id, entry.target], {parent: entry.id, target:entry.target})
+                                obj.triggerCallback("relationship_update", [entry.id, entry.target], {parent: entry.id, target:entry.target}, true)
                                 parent.addRelationship(target, entry.path, true)
                             }
                         }
@@ -165,7 +165,7 @@ function MainStore (prims){
                         const target = obj.primitive( entry.target)
                         if( parent && target){
                             if(parent.primitives.fromPath(entry.path)?.allIds.includes(entry.target)){
-                                obj.triggerCallback("relationship_update", [entry.id, entry.target])
+                                obj.triggerCallback("relationship_update", [entry.id, entry.target], true)
                                 parent.removeRelationship(target, entry.path, true)
                             }else{
                                 console.log(`SKIP REMOVED - NOT THERE`)
@@ -205,14 +205,14 @@ function MainStore (prims){
                                         trigger = !obj.deepEqual(oldValue, val)
                                     }
                                     if( trigger ){
-                                        obj.triggerCallback("set_parameter", [target], field )
+                                        obj.triggerCallback("set_parameter", [target], field, true )
                                     }
                                 }else{
                                     
                                     const oldVal = PrimitiveConfig.decodeParameter(target, field)
                                     if( !obj.deepEqual(oldVal, val) ){
                                         target.setField(field, val, undefined, true)
-                                        obj.triggerCallback("set_field", [target], field )
+                                        obj.triggerCallback("set_field", [target], field, true )
                                     }
                                 }
                             })
@@ -875,7 +875,7 @@ function MainStore (prims){
             })
             return id
         },
-        triggerCallback:function(e, items, data){
+        triggerCallback:function(e, items, data, fromRemote){
             let store = this
             if( this.callbacks[e] === undefined){
                 return
@@ -902,7 +902,7 @@ function MainStore (prims){
                     }
                 }
                 if( doCall){
-                    e.callback(items, name, data)
+                    e.callback(items, name, data, fromRemote)
                 }
             })
 

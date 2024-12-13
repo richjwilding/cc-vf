@@ -1,9 +1,11 @@
 import { getLogger } from './logger';
 import QueueManager from './queue_manager';
+import { registerQueue } from './queue_register';
 import { dispatchControlUpdate, fetchPrimitive } from './SharedFunctions';
 
-class BaseQueue {
+export class BaseQueue {
     constructor(queueName, processQueue = undefined, concurrency = 3) {
+        registerQueue(queueName, this)
         this.logger = getLogger(`${queueName}-queue`);
         this._queue = new QueueManager(queueName, processQueue, concurrency);
         this._queue.parentObject = this
@@ -93,4 +95,3 @@ class BaseQueue {
         console.log(`${this.queueName} initialized`);
     }
 }
-module.exports = BaseQueue;

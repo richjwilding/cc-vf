@@ -1974,7 +1974,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         return frameworkResult.result
     }
 
-    if( primitive.type === "search" && actionKey !== "bdcollect"){
+    if( primitive.type === "search" && actionKey !== "bdcollect" && actionKey !== "auto_cascade"){
         return await QueryQueue().doQuery(primitive, options)
     }
     if( actionKey === "d_test"){

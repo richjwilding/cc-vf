@@ -4,14 +4,10 @@ import Primitive from "./model/Primitive";
 import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getConfig, getDataForImport, getDataForProcessing, getFilterName, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
 import Category from "./model/Category";
 import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
-import Contact from "./model/Contact";
 import ContentEmbedding from "./model/ContentEmbedding";
 import PrimitiveParser from "./PrimitivesParser";
-import { searchPosts } from "./linkedin_helper";
 import { fetchFragmentsForTerm } from "./DocumentSearch";
-import { aggregateItems, checkAndGenerateSegments } from "./task_processor";
-import { reviseUserRequest } from "./prompt_helper";
-import QueueManager from "./queue_manager";
+import { BaseQueue } from './base_queue';
 
 const parser = PrimitiveParser()
 
@@ -379,7 +375,6 @@ export async function processQueue(job, cancelCheck){
 export const MAX_QUOTE_TEXT_DISTANCE_THRESHOLD = 0.2
 
 let instance
-let _queue
 
 export async function mergeDataQueryResult( primitive, {ids = [], descriptionRewrite = true, ...options} = {}){
     const origin = await fetchPrimitive( primitiveOrigin( primitive ) )
@@ -1040,25 +1035,18 @@ async function processQuestions( data ){
 }
 
 export default function QueueDocument(){    
-    if( instance ){
-        return instance
+    if (!instance) {
+        instance = new DocumentQueueClass();
+        instance.myInit();
     }
-    
-    instance = {}
-    instance.pending = async ()=>{
-        return (await _queue.status()) ?? [];
-    }
-    instance.purge = async (workspaceId)=>{
-        if( workspaceId ){
-            return await _queue.purgeQueue(workspaceId);
-        }else{
-            return await _queue.purgeAllQueues();
+    return instance;
+}
 
-        }
+class DocumentQueueClass extends BaseQueue{
+    constructor() {
+        super('document', undefined, 2)
     }
-    _queue = new QueueManager("document", /*processQueue*/ undefined, 2 );
-    
-    instance.doDataQuery = async ( primitive, options )=>{
+    async doDataQuery( primitive, options ){
         const workspaceId = primitive.workspaceId
         const field = `processing.ai.data_query`
 
@@ -1069,9 +1057,10 @@ export default function QueueDocument(){
         
         const data = {id: primitive.id, mode: "data_query", field: field, ...options}
         dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date()}, {track: primitive.id, text:"Parsing document"})
-        _queue.addJob(workspaceId, {id: primitive.id, ...data, field})
+        await this.addJob(workspaceId, {id: primitive.id, ...data, field})
     }
-    instance.documentDiscovery = async ( primitive, req )=>{
+    
+    async documentDiscovery( primitive, req ){
         if( primitive.type === "result"){
             const workspaceId = primitive.workspaceId
             const category = await Category.findOne({id: primitive.referenceId})
@@ -1094,13 +1083,13 @@ export default function QueueDocument(){
                 mode: "discovery", 
                 req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}
             }
-            _queue.addJob(workspaceId, {id: primitive.id, ...data, field: field})
+            await  this.addJob(workspaceId, {id: primitive.id, ...data, field: field})
             dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date(), targetFields: fieldList}, {user: req?.user?.id, track: primitive.id, text:"Parsing document"})
         }
         return true
     }
         
-    instance.processQuestions = async ( primitive, options, req )=>{
+    async processQuestions( primitive, options, req ){
         try{
             const workspaceId = primitive.workspaceId
             const field = `processing.ai.document_questions`
@@ -1113,7 +1102,7 @@ export default function QueueDocument(){
                     mode: "questions", ...options, 
                     req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}
                 }
-                if(await _queue.addJob(workspaceId, {id: primitive.id, ...data, field: field}) ){
+                if(await this.addJob(workspaceId, {id: primitive.id, ...data, field: field}) ){
                     console.log(`Added - updating control flag`)
                     dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date(), subset: options?.qIds}, {user: req?.user?.id, track: primitive.id, text:"Processing document"})
                 }
@@ -1126,30 +1115,6 @@ export default function QueueDocument(){
         return true
     }
 
-
-    instance.myInit = async ()=>{
-        console.log("Document Queue (v2)")
-    }
-    instance.getJob = async function (...args) {
-        return await _queue.getJob.apply(_queue, args);
-    };
-    
-    instance.addJob = async function (...args) {
-        return await _queue.addJob.apply(_queue, args);
-    };
-    instance.addJobResponse = async function (...args) {
-        return await _queue.addJobResponse.apply(_queue, args);
-    };
-    instance.getChildWaiting = async function (...args) {
-        return await _queue.getChildWaiting.apply(_queue, args);
-    };
-    instance.resetChildWaiting = async function (...args) {
-        return await _queue.resetChildWaiting.apply(_queue, args);
-    };
-
-
-
-    return instance
 }
 
 export async function extractEvidenceFromFragmentSearch( primitive, config){

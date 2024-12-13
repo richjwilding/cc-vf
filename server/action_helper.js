@@ -54,7 +54,3 @@ export async function runAction(primitive, actionKey, options, req){
     return {success: true, result: await actionCall(primitive, action ?? actionKey, options, req)}
 
 }
-export async function markActionComplete(primitive, action){
-    const actionKey = typeof(action) === "string" ? action : action?.key
-    dispatchControlUpdate(primitive.id, `aLog.${actionKey}`, {...(primitive.aLog?.[actionKey] ?? {}), status: "complete", date_complete: new Date()})
-}

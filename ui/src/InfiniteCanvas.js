@@ -2,7 +2,7 @@ import { Stage, Layer, Text, Rect, Group, FastLayer} from 'react-konva';
 import Konva from 'konva';
 import { Children, cloneElement, forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGesture } from '@use-gesture/react';
-import { RenderPrimitiveAsKonva, finalizeImages, renderToggle } from './RenderHelpers';
+import { RenderPrimitiveAsKonva, finalizeImages, renderIndicators, renderToggle } from './RenderHelpers';
 import { exportKonvaToPptx } from './PptHelper';
 import MainStore from './MainStore';
 import { AvoidLib } from 'libavoid-js';
@@ -174,6 +174,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             removeFrame,
             framePosition,
             frameList,
+            updateIndicators,
             frameData,
             stageNode: ()=>stageRef.current,
             size: ()=>[myState.current.width,myState.current.height],
@@ -264,16 +265,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         myState.current.rescaleList.push( image )
         refreshImages()
-        return
-        if( !image.queuedForRefresh ){
-            //const doRefresh = myState.current.rescaleList.length === 0
-            image.queuedForRefresh = true
-            myState.current.rescaleList.push( image )
-            
-            //if( doRefresh){
-                refreshImages()
-            //}
-        }
     }
     function buildPositionCache(frame){
         if(!stageRef.current){
@@ -326,6 +317,30 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         frame.maxCol = maxCol
         frame.maxRow  = maxRow
     }
+    function updateIndicators(id, indicators){
+        const frame = myState.current.frames.find(d=>d.id === id)
+        if( frame?.indicators ){
+            const oldAttrs = frame.indicators.attrs
+            const newIndicators = renderIndicators(indicators, {
+                x: oldAttrs.x,
+                y: oldAttrs.y,
+                imageCallback: processImageCallback
+            })
+
+            frame.indicators.destroyChildren()
+
+            const children = newIndicators.getChildren()
+            while(children.length > 0){
+                frame.indicators.add(children[0]);
+            }
+            newIndicators.destroy()
+            finalizeImages(frame.indicators)
+
+            frame.indicators.drawScene(layerRef.current.getCanvas())
+            //stageRef.current.batchDraw()
+        }
+
+    }
 
     function createFrame(options = {}){
         const target = stageRef.current?.children[0]
@@ -345,7 +360,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             y:0,
             width: 1000,
             height: 10,
-            fill:"#fcfcfc",
+            fill: options.bgFill ?? "#fcfcfc",
             cornerRadius: 10,
             strokeScaleEnabled: false,
             visible: props.board,
@@ -422,6 +437,66 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
 
     }
+    function updateIndicatorPosition( id, frame){
+        frame ||= myState.current.frames.find(d=>d.id === id)
+        if( frame.indicators){
+            frame.indicators.x( frame.node.width() - frame.indicators.width())
+        }
+
+    }
+
+    function resizeNestedFrame( id ){
+        const children = getNestedFrames(id).map(d=>{
+            const frame = myState.current.frames.find(d2=>d.id === d2.id)
+            if( frame ){
+                return {
+                    id: d.id,
+                    frame,
+                    node: frame.node
+                }
+            }
+        }).filter(d=>d)
+        const positions = children.map(d=>{
+            const rp = getRelativeFramePosition( d.id)
+            const w = d.node.width() * rp.s
+            const h = d.node.height() * rp.s
+            return {
+                id: d.id,
+                x: rp.x,
+                y: rp.y,
+                w,
+                h,
+                b: rp.y + h,
+                r: rp.x + w
+            }
+        })
+        console.log(positions)
+        if( positions.length > 0){
+
+            const maxX = Math.max(...positions.map(d=>d.r),0) + 30
+            const maxY = Math.max(...positions.map(d=>d.b),0) + 30
+            console.log(maxX,maxY)
+            
+            const frame = myState.current.frames.find(d=>d.id === id)
+            if( frame?.node ){
+                const frameBorder = frame.border
+                if( frame.bg){
+                    frame.bg.width(maxX)
+                    frame.bg.height(maxY)
+                }
+                if( frameBorder){
+                    frameBorder.remove()
+                    frameBorder.width(maxX)
+                    frameBorder.height(maxY)
+                    frame.node.add(frameBorder)
+                }
+                frame.node.width(maxX)
+                frame.node.height(maxY)
+
+                updateIndicatorPosition( id, frame)
+            }
+        }
+    }
 
     function setupFrameForItems( id, title, items, x, y, s, options ){
         let ids, removeIds
@@ -433,7 +508,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             removeRoutingForFrame( existing )
             myState.current.frames = myState.current.frames.filter(d=>d.id !== id) 
         }
-        const frame = createFrame({id: id, x, y, s})
+        const frame = createFrame({id: id, x, y, s, bgFill: options.bgFill})
         if( frame ){
             const frameBorder = frame.border//node.find('#frame')?.[0]
             let framePadding = [0,0,0,0]
@@ -469,6 +544,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     })
                     label.attrs.originWidth = titleText.width()
                     label.attrs.scaleFont = 12
+
                     
                     label.add(titleText)
                     frame.label = label
@@ -499,10 +575,24 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 frameBorder.height(maxY)
                 frame.node.add(frameBorder)
             }
+
+            if( options.indicators ){
+                const indicators = renderIndicators( options.indicators, {
+                    x: maxX,
+                    y: 0,
+                    imageCallback: processImageCallback
+                }) 
+                frame.node.add( indicators )
+                frame.indicators = indicators
+            }
             frame.node.width(maxX)
             frame.node.height(maxY)
             addRoutingForFrame( frame )
             refreshLinks()
+
+            if( options.parentRender ){
+                resizeNestedFrame( options.parentRender )
+            }
         }
         if( existingNode ){
             if( frame ){
@@ -1022,10 +1112,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
         }
     }
+    function getNestedFrames(id){
+        return myState.current.renderList.filter(d=>d.parentRender === id)
+    }
 
     function orderNestedFrames(node, start = true){
         console.log(`Check reorder frame ${node.attrs.id}`)
-        const children = myState.current.renderList.filter(d=>d.parentRender === node.attrs.id)
+        const children = getNestedFrames( node.attrs.id)
         //let nextZ = startZ ?? node.zIndex() + 1
         if( children.length > 0){
             for(const d of children){
@@ -1053,9 +1146,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
 
             const {x, y, s} = getFramePosition(id)
-            const {items, title, ...options} = item
+            const {items, title, ...options} = force ? newItems : item
 
-            const frame = setupFrameForItems(id, title, items, x, y, s, {...options, forceRender: force})
+            const frame = setupFrameForItems(id, title, items, x, y, s, {...options, parentRender: item.parentRender, forceRender: force})
             buildPositionCache(frame)
             finalizeImages(stageRef.current, {imageCallback: processImageCallback})
             alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
@@ -1068,6 +1161,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             refreshLinks()
             orderNestedFrames(frame.node)
+            resizeNestedFrame( id )
             stageRef.current.batchDraw()
         }else{
             addFrame(newItems)
@@ -1096,7 +1190,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     y = ty
                     s = ts
                 }
-                const frame = setupFrameForItems(set.id, set.title, set.items, x, y, s, set)
+                const {id, title, items, ...options} = set
+                const frame = setupFrameForItems(id, title, items, x, y, s, options)
                 y += (frame.node.attrs.height * frame.node.attrs.scaleY) + 200
 
             }
@@ -1905,6 +2000,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                         fx = (fx - px) / ps
                                         fy = (fy - py) / ps
                                         fs /= ps
+                                    
+                                        resizeNestedFrame( item.parentRender )
                                     }
                                     
                                     props.callbacks.frameMove({
@@ -2502,7 +2599,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 id: frame.id,
                                 x: fx,
                                 y: fy,
-                                s: newScale
+                                s: newScale,
+                                width: frame.node.attrs.width,
+                                height: frame.node.attrs.height
                             })
                         }
                         refreshLinks()

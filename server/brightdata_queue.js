@@ -6,11 +6,77 @@ import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpda
 import Category from "./model/Category";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { handleCollection } from './brightdata';
+import { BaseQueue } from './base_queue';  
 
 
 let instance
-let _queue
 
+export async function processQueue(job, cancelCheck){
+    try{
+        const {id: primitiveId, field, ...data} = job.data
+        const primitive = await Primitive.findOne({_id: primitiveId})
+        if( primitive){
+            if( data.mode === "collect" ){
+                console.log(`Check...`)
+                dispatchControlUpdate(primitiveId, field , {status: "Checking for results"}, {...data, track: primitiveId})
+                return await handleCollection( primitive, data )
+            }else if( data.mode === "enrich"){
+                console.log(`check for enrich...`)
+                const result = await handleCollection( primitive, data, false)
+
+                if( result?.reschedule ){
+                    return result
+                }
+                const sourceCategory = await Category.findOne({id: primitive.referenceId})
+                if( sourceCategory){
+                    const [_, api, endpoint] = data.api.split(/(.+?)_(.*)/)
+                    const action = sourceCategory.actions.find(d=>d.api === api && d.endpoint === endpoint)
+                    const createConfig = action.create
+
+                    const addNewAsParent = createConfig.asParent
+
+                    const addItem = async (data)=>{
+                        if( action.create?.checkDuplicatePost ){
+                            if( await enrichmentDuplicationCheck( primitive, data.referenceParameters.url, createConfig )){
+                                return
+                            }
+                            console.log("not found")
+                        }
+
+                        const newData = {
+                            workspaceId: primitive.workspaceId,
+                            paths: addNewAsParent ? undefined : ['origin', 'auto'],
+                            parent: addNewAsParent ? undefined : primitive.id,
+                            data:{
+                                type: "result",
+                                referenceId: 63,
+                                ...data
+                            }
+                        }
+                        
+                        try{
+                            const newPrim = await createPrimitive( newData )
+                            if( addNewAsParent ){
+                                const rel = typeof(addNewAsParent) === "string" ? addNewAsParent : "link"
+                                await addRelationship( newPrim.id, primitive.id, rel )
+                            }
+                        }catch(error){
+                            console.log(`Error creating primitive for BD result`)
+                            console.log(newData)
+                            console.log(error)
+                        }
+                    }
+                    await executeConcurrently( result, addItem, undefined, undefined, 10)
+                    dispatchControlUpdate(primitiveId, field , {status: "Collected", date: new Date()}, {...data, track: primitiveId})
+                }
+            }
+        }
+    }catch(error){
+        console.log(`Error in queryQueue`)
+        console.log(error)
+    }
+    
+}
 export async function enrichmentDuplicationCheck( primitive, valueToCheck, config ){
     const referenceId = config.resultCategory
     
@@ -38,79 +104,20 @@ export async function enrichmentDuplicationCheck( primitive, valueToCheck, confi
 }
 
 export default function BrightDataQueue(){    
-    if( instance ){
-        return instance
+    if (!instance) {
+        instance = new BDQueueClass();
+        instance.myInit();
     }
+    return instance;
+}
+
+class BDQueueClass extends BaseQueue{
+    constructor() {
+        super('brightdata', undefined, 1)
+    }
+
     
-    const processQueue = async (job, cancelCheck) => {
-        try{
-            const {id: primitiveId, field, ...data} = job.data
-            const primitive = await Primitive.findOne({_id: primitiveId})
-            if( primitive){
-                if( data.mode === "collect" ){
-                    console.log(`Check...`)
-                    dispatchControlUpdate(primitiveId, field , {status: "Checking for results"}, {...data, track: primitiveId})
-                    return await handleCollection( primitive, data )
-                }else if( data.mode === "enrich"){
-                    console.log(`check for enrich...`)
-                    const result = await handleCollection( primitive, data, false)
-
-                    if( result?.reschedule ){
-                        return result
-                    }
-                    const sourceCategory = await Category.findOne({id: primitive.referenceId})
-                    if( sourceCategory){
-                        const [_, api, endpoint] = data.api.split(/(.+?)_(.*)/)
-                        const action = sourceCategory.actions.find(d=>d.api === api && d.endpoint === endpoint)
-                        const createConfig = action.create
-
-                        const addNewAsParent = createConfig.asParent
-
-                        const addItem = async (data)=>{
-                            if( action.create?.checkDuplicatePost ){
-                                if( await enrichmentDuplicationCheck( primitive, data.referenceParameters.url, createConfig )){
-                                    return
-                                }
-                                console.log("not found")
-                            }
-
-                            const newData = {
-                                workspaceId: primitive.workspaceId,
-                                paths: addNewAsParent ? undefined : ['origin', 'auto'],
-                                parent: addNewAsParent ? undefined : primitive.id,
-                                data:{
-                                    type: "result",
-                                    referenceId: 63,
-                                    ...data
-                                }
-                            }
-                            
-                            try{
-                                const newPrim = await createPrimitive( newData )
-                                if( addNewAsParent ){
-                                    const rel = typeof(addNewAsParent) === "string" ? addNewAsParent : "link"
-                                    await addRelationship( newPrim.id, primitive.id, rel )
-                                }
-                            }catch(error){
-                                console.log(`Error creating primitive for BD result`)
-                                console.log(newData)
-                                console.log(error)
-                            }
-                        }
-                        await executeConcurrently( result, addItem, undefined, undefined, 10)
-                        dispatchControlUpdate(primitiveId, field , {status: "Collected", date: new Date()}, {...data, track: primitiveId})
-                    }
-                }
-            }
-        }catch(error){
-            console.log(`Error in queryQueue`)
-            console.log(error)
-        }
-        
-    }
-
-    instance = {} 
-    instance.scheduleCollection = (primitive, options, reschedule )=>{
+    async scheduleCollection(primitive, options, reschedule ){
         const primitiveId = primitive.id
         const workspaceId = primitive.workspaceId
         //const field = "processing.bd.collect"
@@ -126,42 +133,6 @@ export default function BrightDataQueue(){
         const delay = (reschedule ? 45 : 2) * 1000
 
         console.log(`Schedule checkin in ${delay / 1000}s`)
-        _queue.addJob(workspaceId, {id: primitiveId, ...data, field}, { delay, reschedule })
-        dispatchControlUpdate(primitiveId, field , {status: "pending"}, {...data, track: primitiveId})
+        await this.addJob(workspaceId, {id: primitiveId, ...data, field}, { delay, reschedule })
     }
-    instance.pending = async ()=>{
-        return await _queue.status();
-    }
-    instance.purge = async (workspaceId)=>{
-        if( workspaceId ){
-            return await _queue.purgeQueue(workspaceId);
-        }else{
-            return await _queue.purgeAllQueues();
-
-        }
-    }
-    
-    _queue = new QueueManager("brightdata", processQueue, 1 );
-    
-    instance.myInit = async ()=>{
-        console.log("Brightdata")
-    }
-    instance.getJob = async function (...args) {
-        return await _queue.getJob.apply(_queue, args);
-    };
-    
-    instance.addJob = async function (...args) {
-        return await _queue.addJob.apply(_queue, args);
-    };
-    instance.addJobResponse = async function (...args) {
-        return await _queue.addJobResponse.apply(_queue, args);
-    };
-    instance.getChildWaiting = async function (...args) {
-        return await _queue.getChildWaiting.apply(_queue, args);
-    };
-    instance.resetChildWaiting = async function (...args) {
-        return await _queue.resetChildWaiting.apply(_queue, args);
-    };
-    
-    return instance
 }

@@ -11,10 +11,10 @@ import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
 import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, queryTiktokWithBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI } from './rapid_helper';
+import { BaseQueue } from './base_queue';
 
 
 let instance
-let _queue
 export async function processQueue(job, cancelCheck){
         try{
 
@@ -460,55 +460,25 @@ export async function processQueue(job, cancelCheck){
     }
 
 export default function QueryQueue(){    
-    if( instance ){
-        return instance
+    if (!instance) {
+        instance = new QueryQueueClass();
+        instance.myInit();
     }
-    
+    return instance;
+}
 
-    instance = {} 
-    instance.doQuery = async (primitive, options = {})=>{
+class QueryQueueClass extends BaseQueue{
+    constructor() {
+        super('query', undefined, 2)
+    }
+
+    async doQuery(primitive, options = {}){
         const primitiveId = primitive.id
         const workspaceId = primitive.workspaceId
         const field = "processing.ai.query"
         const data = {mode: "query", text:"Running query", ...options}
 
-        await _queue.addJob(workspaceId, {id: primitiveId, ...data, field})
+        await this.addJob(workspaceId, {id: primitiveId, ...data, field})
         dispatchControlUpdate(primitiveId, field , {status: "pending"}, {...data, track: primitiveId})
     }
-    instance.pending = async ()=>{
-        return await _queue.status();
-    }
-    instance.purge = async (workspaceId)=>{
-        if( workspaceId ){
-            return await _queue.purgeQueue(workspaceId);
-        }else{
-            return await _queue.purgeAllQueues();
-
-        }
-    }
-    
-    _queue = new QueueManager("query", /*processQueue*/ undefined, 1);
-    
-    instance.myInit = async ()=>{
-        console.log("Query Queue v2")
-    }
-    instance.getJob = async function (...args) {
-        return await _queue.getJob.apply(_queue, args);
-    };
-    
-    instance.addJob = async function (...args) {
-        return await _queue.addJob.apply(_queue, args);
-    };
-    instance.addJobResponse = async function (...args) {
-        return await _queue.addJobResponse.apply(_queue, args);
-    };
-    instance.getChildWaiting = async function (...args) {
-        return await _queue.getChildWaiting.apply(_queue, args);
-    };
-    instance.resetChildWaiting = async function (...args) {
-        return await _queue.resetChildWaiting.apply(_queue, args);
-    };
-
-    
-    return instance
 }
