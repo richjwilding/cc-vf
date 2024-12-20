@@ -169,6 +169,16 @@ const removeParentReference = async (target, parentId)=>{
     }
 
 }
+export async function getConfigParentForTerm(primitive, term){
+    const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
+    if( configParentId ){
+        let configParent = await fetchPrimitive( configParentId )
+        if( Object.keys(configParent.referenceParameters ?? {}).includes( term ) ){
+            return configParent
+        }
+        return await getConfigParentForTerm(configParent, term)
+    }
+}
 export async function getConfig(primitive, category, cache){
     let out = {}
     if( !category ){

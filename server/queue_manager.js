@@ -322,22 +322,11 @@ class QueueManager {
         }
     }
     getQueueObject(queueType){
-        logger.debug(`getQueueObject : ${this.type} / ${queueType}`)
         if( this.type === queueType ){
             logger.debug(`Fetching same queue type - returning parent`)
             return this.parentObject
         }
         return getQueueObjectByName( queueType )
-        /*
-        switch( queueType){
-            
-            case "flow": return FlowQueue()
-            case "ai": return  QueueAI()
-            case "document": return  QueueDocument()
-            case "enrich": return  EnrichPrimitive()
-            case "brightdata": return  BrightDataQueue()
-            case "query": return  QueryQueue()
-        }*/
     }
     overrideMethodsForWorkerThread() {
         this.requestIdCounter = 0;
@@ -770,9 +759,13 @@ class QueueManager {
                     })
                 }
 
+                const { activeCount, lastActivity } = await this.getQueueActivity(queueName);
+
                 aggregateList.push({
                     queue: queueName,
                     jobs: mappedJobs,
+                    activeCount,
+                    lastActivity,
                     workers: workerStatuses,
                 })
             } catch (error) {

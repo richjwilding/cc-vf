@@ -35,14 +35,22 @@ class FlowQueueClass extends BaseQueue {
 
         this.registerNotification("run_flow_instance", async (primitive, result)=>{
             if( result.success === true){
-                console.log(`Flow instance ${primitive.plainId} finished`)
-                dispatchControlUpdate(primitive, "processing.flow", {status: "complete", started: primitive.processing?.flow?.started})
+                console.log(`Flow instance ${primitive.plainId} finished step`)
+                const update = {
+                    ...primitive.processing?.flow,
+                    status: "complete"
+                }
+                await dispatchControlUpdate(primitive, "processing.flow", update)
             }
         })
         this.registerNotification("run_step", async (primitive, result)=>{
             if( result.success === true){
                 console.log(`Step ${primitive.id} ${primitive.plainId} finished`)
-                dispatchControlUpdate(primitive, "processing.flow", {status: "complete", started: primitive.processing?.flow?.started})
+                const update = {
+                    ...primitive.processing?.flow,
+                    status: "complete"
+                }
+                await dispatchControlUpdate(primitive, "processing.flow", update)
                 
                 let flowInstance = (await primitiveParentsOfType(primitive, "flowinstance"))?.[0]
                 await this.runFlowInstance( flowInstance )

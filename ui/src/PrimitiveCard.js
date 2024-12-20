@@ -196,7 +196,7 @@ let mainstore = MainStore()
                 return d.primitives.imports.allItems
               }
               return d
-            })).flat()
+            }).flat())
             const itp = items.map(d=>d.itemsForProcessing).flat()
             let lookups = mainstore.uniquePrimitives([itp, itp.map(d=>d.primitives.directDescendants)].flat(Infinity))
             lookups = [...items, ...lookups]

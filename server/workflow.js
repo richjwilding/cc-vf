@@ -168,12 +168,12 @@ export async function scaffoldWorkflow( flow, options = {} ){
                                 const mappedImportStep = instanceInfo.steps.find(d=>d.stepId === originalImportStep.id)
                                 logger.info(`Step ${step.id} / ${step.plainId} imports from flow step ${originalImportStep.id} / ${originalImportStep.plainId} - mapping to flow instance ${mappedImportStep.instance.id} / ${mappedImportStep.instance.plainId}`)
                                 
-                                let filtersForOriginal = step.referenceParameters.importConfig?.filter(d=>d.id === importId) ?? []
-                                logger.debug(`-- ${filtersForOriginal} filters to remap for import`)
+                                let filtersForOriginal = step.referenceParameters?.importConfig?.filter(d=>d.id === importId) ?? []
+                                logger.debug(`-- filters to remap for import`, {filtersForOriginal})
                                 let mappedFilters = filtersForOriginal.map(d=>{
                                     return {
                                         id: mappedImportStep.instance.id,
-                                        filters: d.filters.map(d=>{
+                                        filters: d.filters === undefined ? undefined : d.filters.map(d=>{
                                             if( d.type === "parent" && d.value === originalImportStep.id){
                                                 logger.debug(`--- remapped done / fail filter : ${d.value} => ${mappedImportStep.instance.id}`)
                                                 return {
@@ -249,7 +249,7 @@ async function duplicateStep( step, parent){
 
 export async function runFlow( flow ){
     const flowStarted = new Date().toISOString()
-    dispatchControlUpdate(flow, "processing.flow", {status: "running", started: flowStarted})
+    dispatchControlUpdate(flow.id, "processing.flow", {status: "running", started: flowStarted})
     const flowInstances = await scaffoldWorkflow(flow)
     for( const flowInstance of flowInstances ){
         if( !flowInstance.instance.missing ){
@@ -265,16 +265,18 @@ export async function runFlowInstance( flowInstance, options = {}){
         logger.error(`Cant find parent flow for instance`, {flowInstance})
     }
     let newIteration = true
-    let flowStarted = options.flowStarted ?? flow.processing.flow.started
+    let flowStarted = options.flowStarted ?? flowInstance.processing?.flow?.last_run?.started ?? flow.processing?.flow?.started
     if( options.force){
-        flowStarted = undefined
+        flowStarted = new Date().toISOString()
     }
     if( flowInstance.processing?.flow?.started === flowStarted ){
         logger.info(`Flow instance already started for this iteration`)
         newIteration = false
     }else{
-        dispatchControlUpdate(flowInstance, "processing.flow", {status: "running", started: flowStarted})
+        await dispatchControlUpdate(flowInstance.id, "processing.flow", {status: "running", started: flowStarted})
+        flowInstance = await fetchPrimitive( flowInstance.id )
     }
+    logger.info(`Running flow instanace ${flowInstance.id} @ ${flowInstance.processing.flow.started} (${flowStarted})`)
     logger.info(`Looking for next steps to run`)
     const stepStatus = await flowInstanceStepsStatus( flowInstance )
 
@@ -297,10 +299,15 @@ export async function runFlowInstance( flowInstance, options = {}){
         logger.debug(`Steps same as previous iteration - retrying iteration ${iteration}`)
     }
 
-    dispatchControlUpdate(flowInstance, "processing.flow.last_run", {steps: thisRun, iteration})
-
-    for(const step of stepsToRun ){
-        await FlowQueue().runStep(step.step)
+    if( stepsToRun.length === 0){
+        await dispatchControlUpdate(flowInstance.id, "processing.flow.last_run", null)
+        logger.info(`No more steps to run`)
+    }else{
+        await dispatchControlUpdate(flowInstance.id, "processing.flow.last_run", {steps: thisRun, iteration, started: flowStarted})
+        
+        for(const step of stepsToRun ){
+            await FlowQueue().runStep(step.step)
+        }
     }
 
 }
@@ -334,7 +341,7 @@ async function shouldStepRun( step, flowInstance ){
     let canReason, needReason
     let can = undefined, need = false
 
-    if( step.processing?.flow?.started === flowStarted && flowStarted){
+    if( (step.processing?.flow?.started === flowStarted) && flowStarted){
         if(step.processing?.flow?.status === "complete"){
             needReason = "complete"
         }else{
@@ -385,25 +392,30 @@ export async function runStep( step, options = {}){
     let flowStarted = flowInstance.processing?.flow?.started
     let newIteration = step.processing?.flow?.started !== flowStarted
 
+    dispatchControlUpdate(step.id, "processing.flow", {status: "running", started: flowStarted})
+    //if( newIteration ){
+    //}
 
-    logger.info(`Delaying for 30 seconds`)
-    await new Promise((resolve)=>setTimeout(()=>resolve(), 30000))
+    if( step.type === "categorizer"){
+        await doPrimitiveAction(step, "run_categorizer", {flowStarted, flow: true} )
+
+    }else{
+        logger.info(`Delaying for 120 seconds`)
+        await new Promise((resolve)=>setTimeout(()=>resolve(), 120000))
+    }
     return
 
-    if( newIteration ){
-        dispatchControlUpdate(step, "processing.flow", {status: "running", started: flowStarted})
-    }
     if( step.type === "actionrunner"){
         const config = await getConfig( step )
         if( config?.action ){
-            await doPrimitiveAction(step, "run_runner", {action: config.action, flowStarted, newIteration})
+            await doPrimitiveAction(step, "run_runner", {action: config.action, flowStarted, newIteration, flow: true})
         }else{
             logger.error(`No acton defined for ${step.id} / ${step.plainId} action runner`)
         }
     }else if( step.type === "search"){
-        await doPrimitiveAction(step, "run_search", {flowStarted} )
+        await doPrimitiveAction(step, "run_search", {flowStarted, flow: true} )
     }else if( step.type === "summary"){
-        await doPrimitiveAction(step, "rebuild_summary" )
+        await doPrimitiveAction(step, "rebuild_summary", {flow: true} )
     }else if( step.type === "query"){
         await doPrimitiveAction(step, "custom_query", {flow: true} )
     }else{

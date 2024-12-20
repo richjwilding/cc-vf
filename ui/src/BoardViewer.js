@@ -114,17 +114,22 @@ let mainstore = MainStore()
         const renderOptions = view.renderConfigOverride ?? {}
         const configNames = ["width", "height"]
 
+        if( view.widgetConfig){
+            renderOptions.widgetConfig = view.widgetConfig
+        }
+
         const primitiveToRender = view.underlying ?? view.primitive
 
         const title = view.noTitle ? undefined : ()=>{
             return view.title ?? `${d.title} - #${d.plainId}${view.underlying ? ` (${primitiveToRender.plainId})` : ""}`
         }
-        const canvasMargin = view.noTitle ? [0,0,0,0] : [20,20,20,20]
+        const canvasMargin = (view.noTitle || view.inFlow) ? [0,0,0,0] : [20,20,20,20]
 
         let indicators
         if( primitiveToRender.processing?.flow){
             indicators = buildIndicators(primitive, undefined, undefined, myState)
         }
+
 
         const mapMatrix = (stageOptions, d, view)=>renderMatrix(
             primitiveToRender, 
@@ -185,7 +190,11 @@ let mainstore = MainStore()
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
             return {id: d.id, parentRender: view.parentRender, indicators, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#fffbeb"}
         }else if( view.config === "widget"){
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
+            const data = view.renderData
+            if( view.inFlow ){
+                data.basePrimitive = view.primitive
+            }
+            let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: "widget", data: data})
             return {id: d.id, parentRender: view.parentRender, indicators, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
         }else if( view.config === "report_set"){
 
@@ -231,7 +240,44 @@ let mainstore = MainStore()
         const primitiveToPrepare = myState[stateId].underlying ?? d
         myState[stateId].isBoard = true
         const oldConfig = myState[stateId]?.config
-        if( primitiveToPrepare.type === "view" || primitiveToPrepare.type === "query"){
+
+
+        let widgetConfig = {}
+        let renderType = primitiveToPrepare.type
+        
+        if( myState[stateId].inFlow ){
+
+            if( primitiveToPrepare.type=== "query"){
+                let useQuery = basePrimitive.referenceId === 81 
+
+                widgetConfig.showItems = myState[stateId].showItems
+                widgetConfig.title = basePrimitive.title
+                widgetConfig.icon = <HeroIcon icon='FARobot'/>
+                widgetConfig.count = primitiveToPrepare.itemsForProcessing.length
+                widgetConfig.items = "results"
+                widgetConfig.content = `**${useQuery ? "Query" : "Prompt"}:** ` + (useQuery ? basePrimitive.referenceParameters.query : basePrimitive.referenceParameters.prompt)
+                myState[stateId].widgetConfig = widgetConfig
+            }else if( primitiveToPrepare.type=== "summary"){
+                widgetConfig.showItems = myState[stateId].showItems
+                widgetConfig.title = basePrimitive.title
+                widgetConfig.icon = <HeroIcon icon='FARobot'/>
+                widgetConfig.count = primitiveToPrepare.itemsForProcessing.length
+                widgetConfig.items = "results"
+                widgetConfig.content = `**Prompt:** ` + basePrimitive.referenceParameters.prompt
+                myState[stateId].widgetConfig = widgetConfig
+            }
+        }
+
+        
+
+        if( renderType === "widget"){
+            myState[stateId].primitive = basePrimitive
+            myState[stateId].config = "widget"
+            let renderData = {}
+
+            myState[stateId].renderData = renderData
+        }else if( renderType === "view" || renderType === "query"){
+            
             const items = primitiveToPrepare.itemsForProcessing
             
             const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
@@ -372,7 +418,8 @@ let mainstore = MainStore()
                                                                         }
                                                                         return a}, {})
             }
-        }else if( primitiveToPrepare.type === "summary" || primitiveToPrepare.type === "element"){
+        }else if( renderType === "summary" || renderType === "element"){
+            const showItems = d.frames?.[stateId]?.showItems
             myState[stateId].primitive = basePrimitive
             myState[stateId].list = [{column: undefined, row: undefined, primitive: primitiveToPrepare}]
             myState[stateId].columns = [{idx: undefined, label: ''}]
@@ -383,31 +430,40 @@ let mainstore = MainStore()
                 row:[{idx: undefined, label: ''}]
             }
             myState[stateId].toggles = {}
-        }else if( primitiveToPrepare.type === "actionrunner" ){
+            
+            let childChanged = myState[stateId].showItems !== showItems
+            didChange ||= childChanged
+        }else if( renderType === "actionrunner" || renderType === "categorizer" ){
+            const items = primitiveToPrepare.itemsForProcessing
+            const title = items.length === 0 ? "items" : (items.length > 1 ? items[0]?.metadata?.plural : undefined ) ?? items[0]?.metadata?.title
             myState[stateId].primitive = basePrimitive
             myState[stateId].config = "widget"
             myState[stateId].renderData = {
+                title: basePrimitive.title,
                 icon: <HeroIcon icon='FARun'/>,
-                count: primitiveToPrepare.primitives.uniqueAllIds.length
+                count: items.length,
+                items: items[0]?.metadata?.title ?? "items"
             }
-        }else if( primitiveToPrepare.type === "search" ){
+        }else if( renderType === "search" ){
 
             const resultCategory = mainstore.category( d.metadata.parameters.sources.options[0].resultCategoryId )
 
             myState[stateId].primitive = basePrimitive
             myState[stateId].config = "widget"
             myState[stateId].renderData = {
+                title: basePrimitive.title,
                 icon: <HeroIcon icon={resultCategory?.icon}/>,
                 items: resultCategory.plural ?? resultCategory.title + "s",
                 count: primitiveToPrepare.primitives.strictDescendants.filter(d=>d.referenceId === resultCategory.id).length
             }
-        }else if( primitiveToPrepare.type === "flow" ){
+        }else if( renderType === "flow" ){
             let childNodes = d.primitives.origin.uniqueAllItems
             const flowInstances = childNodes.filter(d=>d.type === "flowinstance").sort((a,b)=>a.plainId - b.plainId)
 
             
             const flowInstanceToShow = flowInstances[d.referenceParameters?.explore?.view ?? 0]
             childNodes = childNodes.filter(d=>d.type !== "flowinstance")
+            didChange ||= d.referenceParameters?.explore?.view !== myState[stateId].lastView
             
             if(flowInstanceToShow ){
                 stopWatchingFlowInstances(primitiveToPrepare, flowInstances, myState, flowInstanceToShow.id)
@@ -416,6 +472,7 @@ let mainstore = MainStore()
 
             myState[stateId].primitive = basePrimitive
             myState[stateId].config = "flow"
+            myState[stateId].lastView = d.referenceParameters?.explore?.view
             myState[stateId].title = `${basePrimitive.title} - #${basePrimitive.plainId}${flowInstanceToShow ? ` (${flowInstanceToShow.plainId})` : ""}`
             myState[stateId].internalWatchIds = [flowInstanceToShow.id, ...flowInstanceToShow.primitives.origin.allIds]
             myState[stateId].renderData = {
@@ -427,9 +484,20 @@ let mainstore = MainStore()
                 if( child.type === "flowinstance"){
                     continue
                 }
+                const showItems = d.frames?.[child.id]?.showItems
+
+                
                 console.log(`- preparing child of flow ${child.plainId} ${child.type}`)
-                myState[child.id] ||= {id: child.id}
-                boardsToRefresh.push(child.id)
+                myState[child.id] ||= {
+                    id: child.id, 
+                    inFlow: true,
+                    flow: d
+                }
+                let childChanged = myState[child.id].showItems !== showItems
+
+                myState[child.id].showItems = showItems
+
+
                 if( flowInstanceToShow ){
                     const instanceChild = flowInstanceToShow.primitives.uniqueAllItems.find(d=>d.parentPrimitiveIds.includes(child.id))
                     if( instanceChild ){
@@ -438,8 +506,12 @@ let mainstore = MainStore()
                         console.log(`-- couldnt find instance for flowinstance ${flowInstanceToShow.id}`)
                     }
                 }
-                const childChanged = SharedPrepareBoard(child, myState)
+                const renderResult = SharedPrepareBoard(child, myState)
+                childChanged ||= renderResult !== false
                 console.log(`--- ${childChanged}`)
+                if( childChanged ){
+                    boardsToRefresh.push(child.id)
+                }
                 didChange ||= (childChanged ?? true)
                 myState[child.id].parentRender = stateId
             }
@@ -545,7 +617,6 @@ export default function BoardViewer({primitive,...props}){
 
 
     const setCanvasRef = (node) => {
-        console.log("SETTING CANVAS REF", node)
         if (node) {
           canvas.current = node;
           myState.current.canvas = node
@@ -582,14 +653,8 @@ export default function BoardViewer({primitive,...props}){
                                     if( info.startsWith('processing.ai.')){
                                         const board = myState[frameId]
                                         canvas.current.refreshFrame( board.id, renderView(board.primitive))
-                                    /*}else if( info.startsWith('processing.flow.')){
-                                        for(const cId of checkIds){
-                                            if( cId === frameId || cId === myState[frameId].underlying?.id ){
-                                                const ind = myState[frameId].underlying ?? myState[frameId].primitive
-                                                canvas.current.updateIndicators( frameId, buildIndicators( ind, undefined, undefined, myState ) )
-                                            }
-                                        }
-                                        needRefresh = false*/
+                                    }else if(info.startsWith('frames.') && info.endsWith('.showItems')){
+                                        needRebuild = true
                                     }else if(info.startsWith('procesing.') || info.startsWith('embed_')){
                                         needRefresh = false
                                     }
@@ -722,9 +787,6 @@ export default function BoardViewer({primitive,...props}){
                 prepareBoard(d)
             }
         }
-        //const renderedSet = boards.map(d=>renderView(d))
-        //const renderedSet = boards.map(d=>renderView(d))
-        //return [boards, renderedSet]
         const allBoards = Object.values(myState).filter(d=>d && d.isBoard).map(d=>d.primitive)
         const renderedSet = allBoards.map(d=>renderView(d))
         return [allBoards, renderedSet]
@@ -853,7 +915,6 @@ export default function BoardViewer({primitive,...props}){
         return links
     }, [primitive?.id, update, updateLinks])
 
-    //console.log("LINKLIST", linkList)
     let selectedColIdx = 0
     let selectedRowIdx = 0
     async function updateAxis(axisName, axis){
@@ -904,7 +965,6 @@ export default function BoardViewer({primitive,...props}){
                 myState[id].axisOptions = CollectionUtils.axisFromCollection( source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
             }
             handleViewChange(true)
-            //mainstore.sidebarSelect(id)
             setCollectionPaneInfo({frame: myState.activeBoard.primitive, underlying: myState.activeBoard.underlying, board: primitive})
         }else{
             myState.activeBoard = undefined
@@ -1086,6 +1146,7 @@ export default function BoardViewer({primitive,...props}){
         const {pivot, ...options} = full_options 
         let importPrimitive = importId ? mainstore.primitive(importId) : undefined
         let position = (importPrimitive ? canvas.current.framePosition(importPrimitive.id)?.scene : undefined) ?? {r:0, t: 0, s: 1}
+        let createInFlow = myState[importId]?.inFlow ? myState[importId]?.flow : false
         
         if(pivot){
             console.log("has pivot", pivot)
@@ -1124,15 +1185,17 @@ export default function BoardViewer({primitive,...props}){
                 target: "items",
                 ...options,
             },
-            parent: primitive,
+            parent: createInFlow ? createInFlow : primitive,
         })
         if( newPrimitive ){
             if(importPrimitive){
                 await newPrimitive.addRelationshipAndWait( importPrimitive, "imports")
             }
-            primitive.addRelationship(newPrimitive, "ref")
+            if( !createInFlow ){
+                primitive.addRelationship(newPrimitive, "ref")
+                addBoardToCanvas( newPrimitive, {x:position.r + 50, y: position.t, s: position.s})
+            }
 
-            addBoardToCanvas( newPrimitive, {x:position.r + 50, y: position.t, s: position.s})
         }
     }
 
@@ -1244,13 +1307,12 @@ export default function BoardViewer({primitive,...props}){
 
        const categoryList = [
         mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
-        addToFlow ? [] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id),
+        addToFlow ? [131,132,81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id),
        ].flat()
 
         mainstore.globalNewPrimitive({
             title: addToFlow ? `Add to ${addToFlow.title} flow` : "Add to board",
-            //categoryId: [38, 117, 81, 118],
-            categoryId: [38, 130, 131, 118, 109, 81, 113, ...categoryList],
+            categoryId: [38, 130, 118, 109, ...categoryList],
             parent: primitive,
             beforeCreate:async (data)=>{
                 if( addToFlow ){
@@ -1375,7 +1437,7 @@ export default function BoardViewer({primitive,...props}){
                 pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
         }
     }
-    async function exportFrame(asTable = false){
+    async function exportFrame(asTable = false, byCell){
         if(myState.activeBoard){
             if( asTable ){
                 const root = canvas.current.frameData( myState.activeBoardId )
@@ -1384,6 +1446,23 @@ export default function BoardViewer({primitive,...props}){
             
                 await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: ["frame_outline", "frame_bg", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
                 root.node.children = temp
+            }else if(byCell){
+                const frames = canvas.current.getSelection("frame")
+                const pptx = createPptx()
+                for(const d of frames){
+                    const root = canvas.current.frameData( d.attrs.id )
+                    const temp = root.node.children
+                    root.node.children = root.allNodes
+
+                    const cells = root.node.find('.primitive')
+                    for(const cell of cells){
+                        await exportKonvaToPptx( cell, pptx, {removeNodes: ["frame_outline", "frame_bg",  "background", "view"],  padding: [3, 1, 0.25, 1]} )
+                    }
+
+                    root.node.children = temp
+                }
+                pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
+
             }else{
                 const frames = canvas.current.getSelection("frame")
                 const pptx = createPptx()
@@ -1472,7 +1551,7 @@ export default function BoardViewer({primitive,...props}){
                     <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={pickNewItem} flat placement='left-start' />
                     <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
                     {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
-                    {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(true)} flat placement='left-start' />}
+                    {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false,true)} flat placement='left-start' />}
                     {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false)} flat placement='left-start' />}
                     {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportReport(false)} flat placement='left-start' />}
                     {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
@@ -1574,6 +1653,14 @@ export default function BoardViewer({primitive,...props}){
                                     frame: (id)=>setActiveBoard(id),
                                     primitive:(id)=>mainstore.sidebarSelect(id),
                                     canvas:(id)=>setCollectionPaneInfo(),
+                                    toggle_items:(id, frameId, data)=>{
+                                        let target = primitive
+                                        if( myState[frameId].parentRender ){
+                                            target = myState[myState[frameId].parentRender].primitive
+                                            console.log(`Will update toggle in flow parent`)
+                                        }
+                                        target.setField(`frames.${frameId}.showItems`, !(data?.open ?? false))
+                                    },
                                     cell:(id, frameId)=>{
                                         const cell = id?.[0]
                                         if( cell && myState[frameId].axis){

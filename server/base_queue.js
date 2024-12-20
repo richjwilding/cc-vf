@@ -65,7 +65,7 @@ export class BaseQueue {
         }else if(result.success === false){
             status = "failed"
         }
-        this.logger.info("Got notification", { id:job.id, status, childJob });
+        this.logger.info("Got notification", { id:job.id, status, childJob, mode: job.mode });
 
         const prim = await fetchPrimitive( job.id )
         if( prim ){

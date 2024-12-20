@@ -53,7 +53,7 @@ export default function SearchSet({primitive, searchPrimitive, resultSet, filter
                                 <>
                                     <UIHelper.Disclosure.Button counter={`${d.primitives.uniqueAllIds.length} items`}>
                                         <MagnifyingGlassIcon className="h-4"/>
-                                        <p>{d.title}</p>
+                                        <p className='w-full text-left'>{d.title}</p>
                                         <BadgeButton 
                                             onClick={(e)=>{
                                                 e.stopPropagation()

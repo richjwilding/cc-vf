@@ -25,6 +25,7 @@ router.get('/', async function(req, res, next) {
     res.json({up: true})
 })
 router.get('/image/:id', async function(req, res, next) {
+    console.log(`FINDING IMAGE`)
     const id = req.params.id
     const bucketName = 'cc_vf_images'
     const storage = new Storage({

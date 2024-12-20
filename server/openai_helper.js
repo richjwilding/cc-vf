@@ -1115,10 +1115,13 @@ async function executeAI(messages, options = {}){
         return { error: true, token_limit: true };
     }
 
-    const answers = response.choices?.[0]?.message?.content;
+    let answers = response.choices?.[0]?.message?.content;
     
     // Extract the content from the response
     try {
+        if( answers.startsWith("```json")){
+            answers = answers.slice(7, -3)
+        }
         const parsedContent = JSON.parse(answers);
     
         return {

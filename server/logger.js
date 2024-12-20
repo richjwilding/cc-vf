@@ -20,6 +20,7 @@ export function getLogger(moduleName, level = globalLogLevel) {
           format.json() // JSON structured logging for production
         )
       : format.combine(
+          format.colorize(),    // Adds color to the console output,
           format.timestamp(),
           format.printf(({ level, message, timestamp, _expand, ...meta }) => {
             const metaString = meta && Object.keys(meta).length > 0
@@ -29,9 +30,9 @@ export function getLogger(moduleName, level = globalLogLevel) {
             return `[${timestamp}] [${moduleName}] ${message}${metaString}`;
           })
         ),
-    transports: [
-        new transports.Console(), // No `format` here; uses the global format
-      ]
+    transports:  isProduction
+      ? [new LoggingWinston()] 
+      : [new transports.Console()]
   });
   // Add Google Cloud Logging transport in production
   if (isProduction) {

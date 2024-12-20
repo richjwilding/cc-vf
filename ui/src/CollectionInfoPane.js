@@ -40,11 +40,8 @@ const tabs = [
 
 const mainTabs = [
     { name: 'Query', referenceId: 81, initial: true},
-    //{ name: 'Summarize (singular)', referenceId: 109},
     { name: 'Summarize', referenceId: 113},
     { name: 'Compare', referenceId: 114}
-//    { name: 'Lookup', referenceId: 117}
-    //{ name: 'Process', referenceId: 112},
 ]
 
 function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...props}){

@@ -54,6 +54,41 @@ function registerRenderer( mappings, callback){
 
 }
 
+function renderWithWidget( primitive, options, mainRender){
+    if( options.widgetConfig && options.config !== "widget"){
+        const g = new Konva.Group({
+            name: "view",
+            x:options.x ?? 0,
+            y:options.y ?? 0
+        })
+
+        let w, h
+        const widget = RenderPrimitiveAsKonva( primitive, {config: "widget", data: options.widgetConfig, imageCallback: options.imageCallback})
+        g.add( widget )
+        w = widget.width()
+        h = widget.height()
+
+        if( options.widgetConfig.showItems ){
+            const px = Math.max(options.x ?? 5, 5)
+            const py = Math.max(options.y ?? 5, 5)
+            
+            const content = mainRender({...options, x: px, y: py, widgetConfig: undefined})
+            const contentScale = Math.min(1, (w - px - px) / content.width() )
+            content.scale({x:contentScale, y:contentScale})
+            content.y(h)
+            g.add(content)
+            
+            h = h + py +(content.height() * contentScale)
+        }
+
+        g.width( w )
+        g.height( h )
+        
+        return g
+    }
+    return mainRender(options)
+}
+
 export function RenderSetAsKonva( primitive, list, options = {} ){
     if( !list ){
         return
@@ -77,7 +112,7 @@ export function RenderPrimitiveAsKonva( primitive, options = {} ){
         return
     }
     let config = options.config || "default"
-    let renderer = categoryMaps[primitive.referenceId]?.[config] ?? typeMaps[ primitive.type ]?.[config]
+    let renderer = categoryMaps[primitive.referenceId]?.[config] ?? typeMaps[ primitive.type ]?.[config]  ?? typeMaps[ primitive.type ]?.["default"]
     if( !renderer ){
         renderer = typeMaps[ "default" ]?.[config]
     }
@@ -85,7 +120,8 @@ export function RenderPrimitiveAsKonva( primitive, options = {} ){
         console.warn(`Cant find renderer for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${config}`)
         return
     }
-    return renderer(primitive, options)
+
+    return renderWithWidget( primitive, options, (options)=>renderer(primitive, options))
 
 }
 registerRenderer( {type: "default", configs: "set_TEMP_dials"}, (primitive, options = {})=>{
@@ -1994,7 +2030,8 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
         const title = new CustomText({
             fontSize: config.fontSize - 2,
             fontStyle:"bold",
-            text: `${primitive.title} (${roundCurrency(primitive?.referenceParameters[config.parameter] ?? 0)})`,
+            //text: (!config.parameter || config.parameter === "none") ? primitive.title : `${primitive.title} (${roundCurrency(primitive?.referenceParameters[config.parameter] ?? 0)})`,
+            text: primitive.title ,
             y: oy + config.padding[0],
             x: tx,
             width: availableWidth - tx,
@@ -3045,7 +3082,9 @@ registerRenderer( {type: "type", id: "flow", configs: "default"}, (primitive, op
 })
 
 registerRenderer( {type: "type", id: "actionrunner", configs: "default"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, typeText: "Action", typeIcon: <HeroIcon icon='FARun'/>}))
-
+registerRenderer( {type: "type", id: "summary", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Summary", typeIcon: <HeroIcon icon='FARun'/>}))
+registerRenderer( {type: "type", id: "categorizer", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Summary", typeIcon: <HeroIcon icon='FARun'/>}))
+registerRenderer( {type: "type", id: "query", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "Query", typeIcon: <HeroIcon icon='FARobot'/>}))
 registerRenderer( {type: "type", id: "search", configs: "default"}, renderDefaultActionPrimitive)
 
 function renderDefaultActionPrimitive(primitive, options){
@@ -3078,23 +3117,28 @@ function renderDefaultActionPrimitive(primitive, options){
             if( options.y ){
                 ly = options.y
             }
+            ly += (options.margin?.[0] ?? 0)
+            let fontHeight = options.fontSize ?? 14
+            let lineHeight = options.lineHeight ?? 1.1
             const t = new CustomText({
                 text: text,
                 align:"left",
                 wrap: false,
                 ellipsis: true,
+                withMarkdown: options.markdown,
                 fontStyle: options.bold ? "bold" : undefined,
                 fill: options.color,
                 verticalAlign:"middle",
                 x: lx,
                 y: ly,
+                wrap: options.wrap,
                 lineFill: options.lineFill,
                 width: config.width - lx,
-                height: 12,
-                fontSize: options.fontSize ?? 14,
+                lineHeight: lineHeight,
+                fontSize: fontHeight,
                 refreshCallback: options.imageCallback
             })
-            ly += t.textHeight * 1.15
+            ly += t.height() + (options.margin?.[1] ?? 0)
             return t
         }
     
@@ -3113,20 +3157,21 @@ function renderDefaultActionPrimitive(primitive, options){
             lx = 56
             ly = 12
         }
-    
-        g.add(addWidgetText(primitive.title, {fontSize: 18, bold:true, lineFill: '#666'}))
+
+        g.add(addWidgetText(options.data.title, {fontSize: 18, bold:true, lineFill: '#666'}))
         
-        const count = addWidgetText(options.data.count + " " + options.data.items, {color: "#eee", fontSize: 11, lineFill: "#3f6212"})
+        const count = addWidgetText(options.data.count + " " + options.data.items, {color: "#eee", fontSize: 14, lineFill: "#3f6212"})
         const pill = new Konva.Rect({
             x: lx,
             y: count.attrs.y,
             cornerRadius: 10,
-            fill: "#3f6212",
-            width: count.textWidth + 8,
-            height: count.textHeight + 4
+            fill: PrimitiveConfig.typeConfig[primitive.type]?.render?.accentBackground ?? "#626262",
+            width: count.textWidth + 16,
+            height: count.textHeight + 8
         })
-        count.attrs.x += 4
-        count.attrs.y += 3
+        count.attrs.x += 8
+        count.attrs.y += 5
+        ly += 5
         g.add(pill)
         g.add(count)
         
@@ -3149,22 +3194,14 @@ function renderDefaultActionPrimitive(primitive, options){
                 py += 20
             }
         }
+        if( options.data.content ){
+            g.add(addWidgetText(options.data.content, {fontSize: 14, lineHeight: 1.25, color: '#555', wrap: true, markdown: options.contentAsMarkdown, margin: [8,8]}))
+        }
         
-        renderReactSVGIcon( options.typeIcon ?? MagnifyingGlassIcon, 
-                            {
-                                props: {fill: "#555"},
-                                target: g,
-                                x:5, 
-                                y:config.height - 20,
-                                width: 16,
-                                height: 16,
-                                imageCallback: options.imageCallback
-                            })
-        g.add(addWidgetText(`${options.typeText ?? "Search"} #${primitive.plainId}`, {color:"#555", fontSize: 11, x: 23, y: config.height - 17}))
     
         const button1 = new Konva.Group({
             x: config.width - 46,
-            y: config.height - 46,
+            y: 5,
             width: 36,
             height:36,
             name:"inf_track widget"
@@ -3221,7 +3258,54 @@ function renderDefaultActionPrimitive(primitive, options){
         }
         g.add(button1)
     
+        const finalHeight = Math.max( config.height, ly + 20)
+        r.height(finalHeight)
+        g.height(finalHeight)
+
+        if( options.getConfig ){
+            config.height = finalHeight
+            return config
+        }
     
+        renderReactSVGIcon( options.typeIcon ?? MagnifyingGlassIcon, 
+                            {
+                                props: {fill: "#555"},
+                                target: g,
+                                x:5, 
+                                y: finalHeight - 20,
+                                width: 16,
+                                height: 16,
+                                imageCallback: options.imageCallback,
+                                
+                            })
+        g.add(addWidgetText(`${options.typeText ?? "Search"} #${primitive.plainId}`, {color:"#555", fontSize: 11, x: 25, y: finalHeight- 18}))
+
+        if( true ){
+            const label = new CustomText({text: "Show", color: "#eee", fontSize: 11, lineFill: "#3f6212", x: 4, y: 3})
+            const button = new Konva.Group({
+                x: config.width - 46,
+                y: finalHeight - 18,
+                width: label.width() + 8,
+                height: label.height() + 4,
+                name:"inf_track widget"
+            })
+            button.add(new Konva.Rect({
+                x: 0,
+                y: 0,
+                cornerRadius: 10,
+                fill: '#f2f2f2',
+                hoverFill: '#d2d2d2',
+                width: button.width(),
+                height: button.height(),
+                data: {
+                    open: options.data.showItems
+                },
+                name: "hover_target clickable toggle_items"
+            }))
+            button.add(label)
+            g.add(button)
+        }
+
         return g
 }
 
@@ -3410,6 +3494,37 @@ export function renderMatrix( primitive, list, options ){
     }
     if( rowExtents.length === 0){
         rowExtents = [{idx:0}]
+    }
+
+    if( options.widgetConfig ){
+        const g = new Konva.Group({
+            name: "view",
+            x:options.x ?? 0,
+            y:options.y ?? 0
+        })
+
+        let w, h
+        const widget = RenderPrimitiveAsKonva( primitive, {config: "widget", data: options.widgetConfig, imageCallback: options.imageCallback})
+        g.add( widget )
+        w = widget.width()
+        h = widget.height()
+
+        if( options.widgetConfig.showItems ){
+
+            
+            const content = renderMatrix(primitive, list, {...options, widgetConfig: undefined})
+            const contentScale = Math.min(1, w / content.width() )
+            content.scale({x:contentScale, y:contentScale})
+            content.y(h)
+            g.add(content)
+            
+            h = h + (content.height() * contentScale)
+        }
+
+        g.width( w )
+        g.height( h )
+        
+        return g
     }
 
     

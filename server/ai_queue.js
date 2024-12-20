@@ -1,4 +1,4 @@
-import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findPrimitiveOriginParent, getConfig, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
+import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findPrimitiveOriginParent, getConfig, getConfigParentForTerm, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
@@ -9,6 +9,7 @@ import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmb
 import agglo from "agglo";
 import { BaseQueue } from './base_queue';
 import { comapreToPeers, summarizeWithQuery } from "./task_processor";
+import { reviseUserRequest } from "./prompt_helper";
 
 
 const parser = PrimitiveParser()
@@ -893,7 +894,7 @@ class AIQueueClass extends BaseQueue{
     }
 
     async markCategories(primitive, target, action, req){
-        if( primitive.type === "category"){
+        //if( primitive.type === "category"){
             const workspaceId = primitive.workspaceId
             const field = `processing.ai.mark_categories`
             if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
@@ -903,10 +904,10 @@ class AIQueueClass extends BaseQueue{
             //dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Assign to categories"})
             //dispatchControlUpdate(target.id, field , {status: "pending"})
             await this.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: "mark_categories", field: field})
-        }
+        //}
     }
     async categorize(primitive, target, action, req){
-        if( primitive.type === "category"){
+        //if( primitive.type === "category"){
             const workspaceId = primitive.workspaceId
             const field = `processing.ai.categorize`
             if(primitive.processing?.ai?.categorize && (new Date() - new Date(primitive.processing.ai.categorize.started)) < (5 * 60 *1000) ){
@@ -916,7 +917,7 @@ class AIQueueClass extends BaseQueue{
             //dispatchControlUpdate(primitive.id, field , {status: "pending", started: new Date()}, {user: req?.user?.id,  track: primitive.id, text:"Looking for categories"})
             //dispatchControlUpdate(target.id, field , {status: "pending"})
             await this.addJob(workspaceId, {id: primitive.id, action: action, targetId: target.id, mode: "categorize", field: field})
-        }
+        //}
         return true
     }
 }
@@ -1225,20 +1226,52 @@ export async function processQueue(job){
                     }else{
                         if( config.verify || config.structure){
                             try{
+
+                                if( config.revised_query && config.revised_query.cache === config.prompt){
+                                    console.log(`--- Using structure cache`)
+                                }else{
+                                    console.log(`--- Finding config parent`)
+                                    const configParent = await getConfigParentForTerm(primitive, "prompt")
+                                    if( configParent ){
+                                        const revised = await reviseUserRequest(config.prompt)
+                                        const toStore = {
+                                            structure: revised,
+                                            cache: config.prompt
+                                        }
+                                        await dispatchControlUpdate( configParent.id, "referenceParameters.revised_query", toStore)
+                                        console.log(`--- Revised structure cached for reuse`)
+                                    }
+                                }
+
                                 result = await summarizeWithQuery(primitive)
                                 if( result ){
                                     dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
+                                    const linkIds = result.sourcePrimitives?.map(d=>d.id) ?? []
+                                    const existingLinks = primitive.primitives.link ?? []
+                                    const toRemove = existingLinks.filter(d=>!linkIds.includes(d))
+                                    const toAdd = linkIds.filter(d=>!existingLinks.includes(d))
+                                    
+                                    if( toRemove.length > 0 ){
+                                        await removeRelationshipFromMultiple( primitive.id, toRemove, "link")
+                                    }
+                                    if( toAdd.length > 0 ){
+                                        await addRelationshipToMultiple( primitive.id, toAdd, "link")
+                                    }
                                     result = result.plain
                                 }
+
                             }catch(error){
                                 console.log(`error in summarizeWithQuery call`)
                                 console.log(error)
+                                result = result?.plain
                             }
                         }else{
                             result = await doPrimitiveAction(primitive, "auto_summarize", {...config, action_override: true})
                         }
                     }
-                    dispatchControlUpdate( primitive.id, "referenceParameters.summary", result)
+                    if( typeof(result) === "string"){
+                        dispatchControlUpdate( primitive.id, "referenceParameters.summary", result)
+                    }
             }
             if( job.data.mode === "define_axis" ){
                 try{
@@ -1316,13 +1349,13 @@ export async function processQueue(job){
                         console.log(`Filtered to ${list.length} for scope`)
                     }
                     const targetCatIds = list.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
-                    if( targetCatIds.length > 0){
+                    if( targetCatIds.length > 1){
                         console.log(`Multiple referenceIds - using first ${targetCatIds[0]}`)
                     }
                     const targetCatgeory = await Category.findOne({id: targetCatIds[0]})
                     let targetConfig
                     if( targetCatgeory ){
-                        const parts = primitive.referenceParameters?.field.split(".")
+                        const parts = primitive.referenceParameters?.field?.split(".") ?? ["title"]
                         const lastField = parts.pop()
                         targetConfig = targetCatgeory.ai?.categorize?.[lastField]
                     }
@@ -1382,21 +1415,27 @@ export async function processQueue(job){
                                 }
                                 if( catData.success && catData.categories){
                                     console.log(catData.categories)
-                                    for( const cat of catData.categories){
-                                        await createPrimitive({
-                                            workspaceId: primitive.workspaceId,
-                                            parent: primitive.id,
-                                            paths: ['origin'],
-                                            data:{
-                                                type: "category",
-                                                referenceId: primitive.referenceParameters?.resultCategory || action.resultCategory,
-                                                title: cat.t,
-                                                referenceParameters:{
-                                                    description: cat.d
+                                    if(job.data.action.textOnly){
+                                        console.log(`Storing text only`)
+                                        await dispatchControlUpdate(primitive.id, "referenceParameters.categories", catData.categories)
+                                    }else{
+
+                                        for( const cat of catData.categories){
+                                            await createPrimitive({
+                                                workspaceId: primitive.workspaceId,
+                                                parent: primitive.id,
+                                                paths: ['origin'],
+                                                data:{
+                                                    type: "category",
+                                                    referenceId: primitive.referenceParameters?.resultCategory || action.resultCategory,
+                                                    title: cat.t,
+                                                    referenceParameters:{
+                                                        description: cat.d
+                                                    }
                                                 }
-                                            }
-                                            
-                                        })
+                                                
+                                            })
+                                        }
                                     }
                                     console.log("Done")
                                 }

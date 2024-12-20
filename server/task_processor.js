@@ -941,10 +941,15 @@ export async function extractor( source, config, options = {} ){
                     console.log(`Got lookup result`)
                     if(extractConfig.direction === "parent"){
                         await addRelationship( lookup.id, source.id, "link")
-                        console.log(`Linked to ${lookup.id} / ${lookup.plainId}`)
+                        console.log(`Linked to ${lookup.id} / ${lookup.plainId} to ${source.id}`)
                     }else{
                         await addRelationship( source.id, lookup.id, "link")
-                        console.log(`Linked to ${lookup.id} / ${lookup.plainId}`)
+                        console.log(`Linked from ${source.id} to ${lookup.id} / ${lookup.plainId}`)
+
+                        if( addTarget && !Object.keys(lookup.parentPrimitives ?? {}).includes(addTarget.id)){
+                            await addRelationship( addTarget.id, lookup.id, "link")
+                            console.log(`Linked from ${addTarget.id} to ${lookup.id} / ${lookup.plainId}`)
+                        }
                     }
                 }
 
@@ -1554,6 +1559,7 @@ export async function summarizeWithQuery( primitive ){
             
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
             let config = evidenceCategory?.ai?.summarize?.[ config?.summary_type ?? "summary"] ?? {}
+            let segmentName
             if( primitiveConfig.prompt?.trim && primitiveConfig.prompt.trim().length > 0){
                 config.prompt = primitiveConfig.prompt
                 
@@ -1562,9 +1568,9 @@ export async function summarizeWithQuery( primitive ){
                     console.log(`getting ${segmentSource}`)
                     const segment = primitive.type === "segment" ? primitive : (await fetchPrimitive( segmentSource ))
                     if( segment ){
-                        const name = (await getFilterName(segment)) ?? segment.title
-                        config.prompt = config.prompt.replaceAll('{focus}', name)
-                        config.prompt = config.prompt.replaceAll('{segment}', name)
+                        segmentName = (await getFilterName(segment)) ?? segment.title
+                        config.prompt = config.prompt.replaceAll('{focus}', segmentName)
+                        config.prompt = config.prompt.replaceAll('{segment}', segmentName)
                     }
                 }
             }
@@ -1577,10 +1583,26 @@ export async function summarizeWithQuery( primitive ){
                     toProcess.push(`Finance information (values in thousands USD)\n${finances}`)
                 }
             }
-            
-            const revised = await reviseUserRequest(config.prompt)
+            let revised
+            if( primitiveConfig.revised_query ){
+                console.log(`--- Checking revised structure from config`)
+                revised = primitiveConfig.revised_query.structure
 
-            await dispatchControlUpdate( primitive.id, "log.ai.structured", revised.structure)
+                if( (primitiveConfig.revised_query.cache !== config.prompt) && (primitiveConfig.revised_query.cache === primitiveConfig.prompt)){
+                    console.log(`--- Revised structure has local mods - reapplying`)
+                    revised.task = revised.task.replaceAll('{focus}', segmentName)
+                    revised.task = revised.task.replaceAll('{segment}', segmentName)
+
+                    revised.output = revised.output.replaceAll('{focus}', segmentName)
+                    revised.output = revised.output.replaceAll('{segment}', segmentName)
+                }
+            }
+            if(!revised){
+                console.log(`--- Revised structure not present - building`)
+                revised = await reviseUserRequest(config.prompt)
+            }
+            
+
             
             const results = await summarizeMultiple( toProcess,{
                 ...config, 
@@ -1617,8 +1639,15 @@ export async function summarizeWithQuery( primitive ){
 
 
                 let out = flattenStructuredResponse( nodeResult, nodeStruct, primitiveConfig.heading !== false)
+
+
+                const idsForSections = extractFlatNodes(nodeResult).map(d=>typeof(d.ids) === "string" ? d.ids.split(",").map(d=>parseInt(d)) : d.ids)
+                const allIds = idsForSections.flat().filter((d,i,a)=>a.indexOf(d) === i)
+                const mappedPrimitives = allIds.map(d=>items[d])
+
+
                 console.log(out)
-                return {plain:out, structured: nodeResult}
+                return {plain:out, structured: nodeResult, sourcePrimitives: mappedPrimitives}
             }
             
         }
@@ -1648,6 +1677,7 @@ function extractFlatNodes(nodeResult, types = ["markdown formatted string"], out
         if( types.includes(d.type) ){
             out.push({
                 content: d.content,
+                ids: d.ids,
                 node: d
             })
         }

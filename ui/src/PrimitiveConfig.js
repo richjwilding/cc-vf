@@ -160,7 +160,8 @@ const PrimitiveConfig = {
                 useTerms: true
             },
             render:{
-                background: "#f7fee7"
+                background: "#f7fee7",
+                accentBackground: "#3f6212"
             }
         },
         "element": {
@@ -207,7 +208,8 @@ const PrimitiveConfig = {
         "summary",
         "actionrunner",
         "flow",
-        "flowinstance"
+        "flowinstance",
+        "categorizer"
     ],
     pageview:{
         "board":{

@@ -4,6 +4,11 @@ import { renderToString } from "react-dom/server";
 
 
 const manual = {
+  "FARobot":(props)=>{
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512" fill="currentColor" {...props}>{/*><!--!Font Awesome Pro 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2024 Fonticons, Inc.-->*/}<path d="M320 0c13.3 0 24 10.7 24 24l0 72 104 0c53 0 96 43 96 96l0 224c0 53-43 96-96 96l-256 0c-53 0-96-43-96-96l0-224c0-53 43-96 96-96l104 0 0-72c0-13.3 10.7-24 24-24zM192 144c-26.5 0-48 21.5-48 48l0 224c0 26.5 21.5 48 48 48l256 0c26.5 0 48-21.5 48-48l0-224c0-26.5-21.5-48-48-48l-128 0-128 0zM48 224l16 0 0 192-16 0c-26.5 0-48-21.5-48-48l0-96c0-26.5 21.5-48 48-48zm544 0c26.5 0 48 21.5 48 48l0 96c0 26.5-21.5 48-48 48l-16 0 0-192 16 0zM208 384l32 0c8.8 0 16 7.2 16 16s-7.2 16-16 16l-32 0c-8.8 0-16-7.2-16-16s7.2-16 16-16zm96 0l32 0c8.8 0 16 7.2 16 16s-7.2 16-16 16l-32 0c-8.8 0-16-7.2-16-16s7.2-16 16-16zm96 0l32 0c8.8 0 16 7.2 16 16s-7.2 16-16 16l-32 0c-8.8 0-16-7.2-16-16s7.2-16 16-16zM200 256a40 40 0 1 1 80 0 40 40 0 1 1 -80 0zm200-40a40 40 0 1 1 0 80 40 40 0 1 1 0-80z"/></svg>
+    )
+  },
   "FAPlay":(props)=>{
     return (
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" fill="currentColor" {...props}>{/*<!--!Font Awesome Pro 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2024 Fonticons, Inc.-->*/}<path class="fa-secondary" opacity=".4" d=""/><path class="fa-primary" d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80L0 432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg>

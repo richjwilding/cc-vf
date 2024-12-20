@@ -941,7 +941,6 @@ function MainStore (prims){
             const response = await result.json()
             const success = this.ajaxResponseHandler(response)
             if( response.success && callback && typeof(callback) === "function"){
-                console.log(`WILL CALL CALLBACK`)
                 await callback(response.result)
             }
             return success

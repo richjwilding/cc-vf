@@ -1,4 +1,5 @@
 import { registerAction } from "../action_helper"
+import QueueAI from "../ai_queue";
 import QueueDocument from "../document_queue";
 import { getLogger } from "../logger";
 import Category from "../model/Category";
@@ -91,7 +92,7 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
     }
 })
 
-registerAction( "custom_query", undefined, async (primitive, action, options, req)=>{
+registerAction( "custom_query", undefined, async (primitive, action, options = {}, req)=>{
     const thisCategory = await Category.findOne({id: primitive.referenceId})
     //const parentForScope = (await primitiveParentsOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
     let parentForScope 
@@ -122,4 +123,12 @@ registerAction( "custom_query", undefined, async (primitive, action, options, re
     }else{
         await QueueDocument().doDataQuery( primitive, {...action, ...options})
     }
+})
+registerAction( "run_categorizer", undefined, async (primitive, action, options, req)=>{
+    console.log(`******\nIN RUN CATEGORIZER\n******`, options)
+    if( options.flow ){
+        const targetId = primitive.primitives?.imports?.[0]
+        await QueueAI().categorize( primitive, {id: targetId}, {textOnly: true })
+    }
+
 })
