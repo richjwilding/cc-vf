@@ -232,6 +232,9 @@ const PrimitiveConfig = {
         },
         "evidence":{
             showRefs: true
+        },
+        "summary":{
+            showRefs: true
         }
     },
     stateInfo:{
@@ -612,6 +615,47 @@ const PrimitiveConfig = {
             }
         }
         return false
+    },getInputMap:(primitive)=>{
+        const input_list = Object.keys(primitive.primitives?.inputs ?? {})
+        const out = []
+        for(const inp of input_list){
+            const [sourcePin, inputPin] = inp.split("_")
+            const sourceIds = primitive.primitives.inputs[inp]
+            for(const sourceId of sourceIds){
+                out.push( {sourceId, sourcePin, inputPin} )
+            }
+        }
+        return out
+    },translateInputMap:(inputMap)=>{
+        let out = {}
+        for(const input of inputMap){
+            if( input.inputMapConfig ){
+                const source = input.sourcePrimitive
+                if( source ){
+                    const sourcePinConfig = input.sourcePinConfig
+                    const useConfig = sourcePinConfig.types.map(d=>({config:d, position: input.inputMapConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
+                    if( !out[input.inputPin]){
+                        out[input.inputPin] = {
+                            config: useConfig,
+                            data: []
+                        }
+                    }else{
+                        if(out[input.inputPin].config !== useConfig ){
+                            continue
+                        }
+                    }
+
+                    if( useConfig === "object_list"){
+                        out[input.inputPin].data = out[input.inputPin].data.concat( PrimitiveConfig.decodeParameter(source.referenceParameters, input.sourcePin) )
+                    }else if(useConfig === "primitive"){
+                        out[input.inputPin].data.push( source)
+                    }
+
+                }
+            }
+        }
+        return out
+
     },doFilter: ({resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, fns)=>{
             const invert = filter.invert ?? false
             const temp = []

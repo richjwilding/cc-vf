@@ -827,6 +827,8 @@ export default function BoardViewer({primitive,...props}){
                         }else{
                             return {left: left.id, right: right.id}
                         }
+                    }else if(right.primitives.inputs.allIds.includes(left.id)){
+                            return {left: left.id, right: right.id}
                     }else{
                         const route = right.findImportRoute(left.id)
                         if( route.length > 0){
@@ -1307,7 +1309,7 @@ export default function BoardViewer({primitive,...props}){
 
        const categoryList = [
         mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
-        addToFlow ? [131,132,81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id),
+        addToFlow ? [131,132,133,81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id),
        ].flat()
 
         mainstore.globalNewPrimitive({

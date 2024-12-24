@@ -2134,8 +2134,8 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
 
     let availableWidth = config.width - config.padding[1] - config.padding[3]
     let availableHeight = config.height - config.padding[0] - config.padding[2]
-    let ox = (options.x ?? 0) + config.padding[3]
-    let oy = (options.y ?? 0) + config.padding[0]
+    let ox = 0
+    let oy = 0
 
 
 
@@ -2143,6 +2143,9 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
         id: primitive.id,
         width: config.width,
         height: config.height,
+        x: (options.x ?? 0) + config.padding[3],
+        y: (options.y ?? 0) + config.padding[0],
+        name: 'primitive clickable'
     })
     if( g ){
 
@@ -2152,6 +2155,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
             y: oy,
             size: config.itemSize,
             center: true,
+            name: 'primitive',
             imageCallback: options.imageCallback,
             placeholder: options.placeholder !== false
         })
@@ -2174,7 +2178,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
         
         const rhs = config.leftSize
         const rightSize = availableWidth - rhs
-        const amountSize = 50
+        const amountSize = 80
         const barSize = rightSize - amountSize
 
         const scale = (primitive?.referenceParameters[config.parameter] ??0 ) / config.maxScale 
@@ -2189,7 +2193,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
         })
         g.add(bar);
         const amount = new Konva.Text({
-            fontSize: config.fontSize,
+            fontSize: config.fontSize * 0.8,
             text: roundCurrency(primitive?.referenceParameters[config.parameter] ?? 0),
             y: oy + config.padding[0] + (config.itemSize - config.fontSize) / 2,
             x: rhs + thisBar + 5,

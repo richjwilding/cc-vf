@@ -457,6 +457,32 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
         throw new Error("Couldn't find target")
     }
 }
+export async function getPrimitiveInputs(primitive){
+    let inputMap = PrimitiveConfig.getInputMap(primitive)
+    let sourceIds = inputMap.map(d=>d.sourceId).filter((d,i,a)=>a.indexOf(d)===i) 
+
+    const sourcePrimitives = await fetchPrimitives( sourceIds )
+    let categoryIds = [primitive.referenceId, ...sourcePrimitives.map(d=>d.referenceId)].filter((d,i,a)=>a.indexOf(d)===i) 
+    const categories = await Category.find({id: {$in: categoryIds}})
+
+    const thisCategory = categories.find(d=>d.id === primitive.referenceId)
+
+
+    inputMap = inputMap.map(d=>{
+        const sourcePrimitive = sourcePrimitives.find(d2=>d2.id === d.sourceId)
+        const sourceCategory = categories.find(d=>d.id === sourcePrimitive.referenceId)
+        return {
+        ...d,
+        sourcePrimitive,
+        inputMapConfig: thisCategory?.pins?.input?.[d.inputPin],
+        sourcePinConfig: sourceCategory?.pins?.output?.[d.sourcePin]
+    }})
+
+
+    let output =  PrimitiveConfig.translateInputMap(inputMap)
+    console.log(output)
+    return output
+}
 
 export async function addRelationshipToMultiple(receiver, targetIds, path, workspaceId){
     if( !targetIds || targetIds.length === 0){
@@ -647,7 +673,6 @@ export async function primitiveDescendents(primitive, types, options={}){
     if(options.fullDocument && !options.deferFullDocument){
         fields = DONT_LOAD
     }
-    console.log("primitiveDescendents", fields)
 
     const a = Array.isArray(types) ? types : [types]
 
@@ -662,9 +687,7 @@ export async function primitiveDescendents(primitive, types, options={}){
             }
             if( item ){
                 Object.keys(item).forEach((key)=>{
-                    if( key === "imports"){
-                        console.log(`NOT FOLLOWING IMPORTS`)
-                    }else{
+                    if( !(key === "imports" || key === "config" || key === "inputs")){
                         const value = item[key]
                         unpack(value)
                     }
@@ -684,7 +707,6 @@ export async function primitiveDescendents(primitive, types, options={}){
     let ids = [primitive].flat().map(d=>getIds(d)).flat()
     let checked = {}
     if( ids.length === 0){
-        console.log(`NO DESCENDANTS`)
         return []
     }
 
@@ -1242,7 +1264,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         if(source.type === "query"){
             let node = new Proxy(source.primitives, parser)
 
-            const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" ).map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
+            const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" ).map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
             list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
             
             const viewFilters = getBaseFilterForView( source ).map(d=>{
@@ -1988,11 +2010,8 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         return await QueryQueue().doQuery(primitive, options)
     }
     if( actionKey === "d_test"){
-        const ids = options.ids
-
-        const prims = await fetchPrimitives( ids, undefined, {_id: 1, referenceId:1} )
-        const items = [prims.filter(d=>d.type==="result"), await primitiveDescendents( prims, "result", false)].flat()
-        return
+        const inputs = await getPrimitiveInputs( primitive )
+        return inputs
 
     }
     if( actionKey === "new_query"){

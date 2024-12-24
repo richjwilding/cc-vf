@@ -1890,7 +1890,7 @@ function MainStore (prims){
                                 }
                                 return uniquePrimitives(fullList)
                             }else{
-                                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" ).map(d=>receiver.primitives[d].allIds).flat()
+                                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" ).map(d=>receiver.primitives[d].allIds).flat()
                                 let list = []
                                 const check = new Set()
                                 for( const d of ids ){
@@ -1996,6 +1996,21 @@ function MainStore (prims){
                         }
                         return id
                     }
+                    if( prop === "inputs"){
+                        let inputMap = PrimitiveConfig.getInputMap(receiver)
+                        
+                        inputMap = inputMap.map(d=>{
+                            const sourcePrimitive = obj.primitive(d.sourceId)
+                            return {
+                            ...d,
+                            sourcePrimitive,
+                            inputMapConfig: receiver.metadata.pins?.input?.[d.inputPin],
+                            sourcePinConfig: sourcePrimitive.metadata.pins?.output?.[d.sourcePin]
+                        }})
+                        console.log(inputMap)
+
+                        return PrimitiveConfig.translateInputMap(inputMap)
+                    }
                     if( prop === "originTask"){
                         let origin = receiver.origin
                         if( origin ){
@@ -2018,7 +2033,7 @@ function MainStore (prims){
                             return d._ppIdCache
                         }
 
-                        d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports")) : []
+                        d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports") && !d.parentPrimitives[p].find(d=>d.startsWith("primitives.inputs."))) : []
                         return d._ppIdCache
                     }
                     if( prop === "parentPrimitiveIdsAsSource"){

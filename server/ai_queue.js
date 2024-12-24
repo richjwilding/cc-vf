@@ -893,7 +893,7 @@ class AIQueueClass extends BaseQueue{
             await this.addJob(workspaceId,  {id: primitive.id, action: action, mode: "aggregate_duplicated_in_segment", field: field})
     }
 
-    async markCategories(primitive, target, action, req){
+    async markCategories(primitive, target, action = {}, req){
         //if( primitive.type === "category"){
             const workspaceId = primitive.workspaceId
             const field = `processing.ai.mark_categories`
@@ -1417,6 +1417,7 @@ export async function processQueue(job){
                                     console.log(catData.categories)
                                     if(job.data.action.textOnly){
                                         console.log(`Storing text only`)
+                                        catData.categories = catData.categories.map(d=>({title:d.t, description:d.d}))
                                         await dispatchControlUpdate(primitive.id, "referenceParameters.categories", catData.categories)
                                     }else{
 

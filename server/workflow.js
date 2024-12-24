@@ -156,62 +156,99 @@ export async function scaffoldWorkflow( flow, options = {} ){
             for(const step of steps){
                 const mappedStep = instanceInfo.steps.find(d=>d.stepId === step.id)
                 if( mappedStep){
-                    const importIds = Object.values(step.primitives.imports ?? {})
-                    const targetImports = []
-                    for(const importId of importIds){
-                        if(importId === flow.id){
-                            logger.info(`Step ${step.id} / ${step.plainId} imports from flow ${flow.id} - mapping to flow instance ${instanceInfo.instance.id}`)
-                            targetImports.push( {id: instanceInfo.instance.id} )
-                        }else{
-                            const originalImportStep = steps.find(d=>d.id === importId)
-                            if( originalImportStep ){
-                                const mappedImportStep = instanceInfo.steps.find(d=>d.stepId === originalImportStep.id)
-                                logger.info(`Step ${step.id} / ${step.plainId} imports from flow step ${originalImportStep.id} / ${originalImportStep.plainId} - mapping to flow instance ${mappedImportStep.instance.id} / ${mappedImportStep.instance.plainId}`)
-                                
-                                let filtersForOriginal = step.referenceParameters?.importConfig?.filter(d=>d.id === importId) ?? []
-                                logger.debug(`-- filters to remap for import`, {filtersForOriginal})
-                                let mappedFilters = filtersForOriginal.map(d=>{
-                                    return {
-                                        id: mappedImportStep.instance.id,
-                                        filters: d.filters === undefined ? undefined : d.filters.map(d=>{
-                                            if( d.type === "parent" && d.value === originalImportStep.id){
-                                                logger.debug(`--- remapped done / fail filter : ${d.value} => ${mappedImportStep.instance.id}`)
-                                                return {
-                                                    ...d,
-                                                    value: mappedImportStep.instance.id
-                                                }
+                    for(const rel of ["imports", "inputs"]){
+                        const pp = (new Proxy(step.primitives, PrimitiveParser()))[rel]
+                        const importIds= pp.uniqueAllIds
+
+                        //const importIds = Object.values(step.primitives[rel] ?? {})
+                        const targetImports = []
+                        for(const importId of importIds){
+                            const paths = pp.paths(importId).map(d=>rel + d)
+                            if(importId === flow.id){
+                                logger.info(`Step ${step.id} / ${step.plainId} imports from flow ${flow.id} - mapping to flow instance ${instanceInfo.instance.id}`)
+                                targetImports.push( {id: instanceInfo.instance.id, paths} )
+                            }else{
+                                const originalImportStep = steps.find(d=>d.id === importId)
+                                if( originalImportStep ){
+                                    const mappedImportStep = instanceInfo.steps.find(d=>d.stepId === originalImportStep.id)
+                                    logger.info(`Step ${step.id} / ${step.plainId} ${rel} from flow step ${originalImportStep.id} / ${originalImportStep.plainId} - mapping to flow instance ${mappedImportStep.instance.id} / ${mappedImportStep.instance.plainId}`)
+                                    
+                                    let mappedFilters
+                                    if( rel === "imports"){
+                                        let filtersForOriginal = step.referenceParameters?.importConfig?.filter(d=>d.id === importId) ?? []
+                                        logger.debug(`-- filters to remap for import`, {filtersForOriginal})
+                                        mappedFilters = filtersForOriginal.map(d=>{
+                                            return {
+                                                id: mappedImportStep.instance.id,
+                                                filters: d.filters === undefined ? undefined : d.filters.map(d=>{
+                                                    if( d.type === "parent" && d.value === originalImportStep.id){
+                                                        logger.debug(`--- remapped done / fail filter : ${d.value} => ${mappedImportStep.instance.id}`)
+                                                        return {
+                                                            ...d,
+                                                            value: mappedImportStep.instance.id
+                                                        }
+                                                    }
+                                                    return d
+                                                })
                                             }
-                                            return d
                                         })
                                     }
-                                })
-                                
-                                
-                                targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters} )
-                            }else{
-                                throw "Importing from something other than flow or step - possibly nested segemnt??"
+                                        
+                                    
+                                    targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters, paths} )
+                                }else{
+                                    throw `Importing from something other than flow or step id = ${importId} - possibly nested segemnt??`
+                                }
                             }
                         }
-                    }
-                    const currentImports = Object.values(mappedStep.instance.primitives?.imports ?? {})
-                    const targetImportIds = targetImports.map(d=>d.id)
-                    const toAdd = targetImportIds.filter(d=>!currentImports.includes(d))
-                    const toRemove = currentImports.filter(d=>!targetImportIds.includes(d))
-                    
-                    
-                    logger.debug(`${toAdd.length} imports to add, ${toRemove.length} imports to remove`)
+                        //const currentImports = Object.values(mappedStep.instance.primitives?.[rel] ?? {})
+                        const mappedPP = (new Proxy(mappedStep.instance.primitives, PrimitiveParser()))[rel]
+                        const currentImports = mappedPP.uniqueAllIds
+                        const currentImportsWithPaths = currentImports.map(d=>({id:d, paths: mappedPP.paths(d).map(d=>rel + d)}))
 
-                    if( options.create !== false ){
-                        for(const importId of toAdd){
-                            await addRelationship(mappedStep.instance.id, importId, "imports")
+                        /*const targetImportIds = targetImports.map(d=>d.id)
+                        const toAdd = targetImportIds.filter(d=>!currentImports.includes(d))
+                        const toRemove = currentImports.filter(d=>!targetImportIds.includes(d))*/
+
+                        function buildDelta(target, compare){
+                            return target.reduce((a,d)=>{
+                                const current = compare.find(d2=>d2.id === d.id)
+                                if( current){
+                                    for(const path of d.paths){
+                                        if(!current.paths.includes(path)){
+                                            a.push({id: d.id, path: path})
+                                        }
+                                    }
+                                }else{
+                                    for(const path of d.paths){
+                                        a.push({id: d.id, path: path})
+                                    }
+                                }
+                                return a
+                            }, [])
                         }
-                        for(const importId of toRemove){
-                            await removeRelationship(mappedStep.instance.id, importId, "imports")
-                        }
-                        const allFilters = targetImports.map(d=>d.filters).flat().filter(d=>d)
-                        let importConfig = allFilters?.length > 0 ? allFilters : null
+
+                        const toAdd = buildDelta(targetImports, currentImportsWithPaths)
+                        const toRemove = buildDelta(currentImportsWithPaths, targetImports)
                         
-                        dispatchControlUpdate(mappedStep.instance.id, "referenceParameters.importConfig", importConfig)
+                        logger.debug(`${toAdd.length} ${rel} to add, ${toRemove.length} ${rel} to remove`)
+                        
+                        if( options.create !== false ){
+                            for(const d of toRemove){
+                                console.log(`--- Removing ${d.id} at ${d.path}`)
+                                await removeRelationship(mappedStep.instance.id, d.id, d.path)
+                            }
+                            for(const d of toAdd){
+                                console.log(`--- Adding ${d.id} at ${d.path}`)
+                                await addRelationship(mappedStep.instance.id, d.id, d.path)
+                            }
+                            if( rel === "imports"){
+                                const allFilters = targetImports.map(d=>d.filters).flat().filter(d=>d)
+                                let importConfig = allFilters?.length > 0 ? allFilters : null
+                                
+                                dispatchControlUpdate(mappedStep.instance.id, "referenceParameters.importConfig", importConfig)
+                            }
+                        }
                     }
                 }
             }

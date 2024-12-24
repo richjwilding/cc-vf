@@ -2163,7 +2163,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                     if( clickables && clickables?.length){
                                         for( const d2 of clickables ){
                                             if( (d2.attrs.width * myState.current.viewport.scale) > 5 && (d2.attrs.height * myState.current.viewport.scale) > 5){
-                                                if( (d.attrs.x + d2.attrs.x) <= x && (d.attrs.y + d2.attrs.y) <= y &&  (d.attrs.x + d2.attrs.x + (d2.attrs.width * d2.scaleX())) >= x && (d.attrs.y + d2.attrs.y + (d2.attrs.height * d2.scaleY())) >= y){
+                                                if( (d.x() + d2.x()) <= x && (d.y() + d2.y()) <= y &&  (d.x() + d2.x() + (d2.attrs.width * d2.scaleX())) >= x && (d.y() + d2.y() + (d2.attrs.height * d2.scaleY())) >= y){
                                                     found.push(d2)
                                                     addMajor = false
                                                 }

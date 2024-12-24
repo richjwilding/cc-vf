@@ -4,7 +4,7 @@ import QueueDocument from "../document_queue";
 import { getLogger } from "../logger";
 import Category from "../model/Category";
 import QueryQueue from "../query_queue";
-import { addRelationship, createPrimitive, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getDataForImport, primitiveParentsOfType } from "../SharedFunctions"
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
 import { aggregateItems, compareItems, iterateItems, queryByAxis, resourceLookupQuery } from "../task_processor";
 const logger = getLogger('actionrunner'); // Debug level for moduleA
 
@@ -126,9 +126,88 @@ registerAction( "custom_query", undefined, async (primitive, action, options = {
 })
 registerAction( "run_categorizer", undefined, async (primitive, action, options, req)=>{
     console.log(`******\nIN RUN CATEGORIZER\n******`, options)
+    const category = await Category.findOne({id: primitive.referenceId})
     if( options.flow ){
         const targetId = primitive.primitives?.imports?.[0]
-        await QueueAI().categorize( primitive, {id: targetId}, {textOnly: true })
+        if( category.mode === "assign"){
+            let targetCategoryObject = (await primitiveChildren(primitive, "category"))?.[0]
+            let inputs = await getPrimitiveInputs( primitive )
+            let realignCategoriesToInput = false
+            let categoryData 
+
+            if( inputs.categories ){
+                if( inputs.categories.config === "primitive"){
+                    logger.info(`Category labeller assigned existing category primitive`)
+                }else if( inputs.categories.config === "object_list"){
+                    realignCategoriesToInput = true
+                    categoryData = inputs.categories.data
+                }
+                if( realignCategoriesToInput && categoryData){
+                    let categoiesToAdd = categoryData
+
+                    if( !targetCategoryObject ){
+                        logger.info(`Category labeller needs internal category - creating`)
+                        
+                        targetCategoryObject = await createPrimitive({
+                            workspaceId: primitive.workspaceId,
+                            paths: ["origin", "config"],
+                            parent: primitive.id,
+                            data:{
+                                title: `Category for ${primitive.plainId}`,
+                                type: "category"
+                            }
+                        })
+                    }
+                    if(!targetCategoryObject){
+                        throw "Error creating new Catgeory for categorizer"
+                    }
+                    const existingCategories = await primitiveChildren(targetCategoryObject, "category")
+                    const toAdd = categoryData.filter(d=>existingCategories.find(d2=>d2.title === d.title) == undefined)
+                    const toDelete = existingCategories.filter(d=>categoryData.find(d2=>d2.title === d.title) == undefined)
+                    const toUpdate = categoryData.reduce((a,d)=>{
+                        const titleMatch = existingCategories.find(d2=>d2.title === d.title && d2.referenceParameters.description !== d.description)
+                        if( titleMatch ){
+                            a.push({
+                                existing: titleMatch,
+                                description: d.description
+                            })
+                        }
+                        return a
+                    }, [])
+
+                    logger.info(` ${toAdd.length} categories to add, ${toDelete.length} categories to delete, ${toUpdate.length} categories to update` )
+                    for(const d of toDelete){
+                        await removePrimitiveById(d.id)
+                    }
+                    for(const d of toAdd){
+                        await createPrimitive({
+                            workspaceId: primitive.workspaceId,
+                            parent: targetCategoryObject.id,
+                            data:{
+                                title: d.title,
+                                referenceId: targetCategoryObject.referenceId,
+                                type: "category",
+                                referenceParameters: {
+                                    description: d.description
+                                }
+                            }
+                        })
+                    }
+                    for(const d of toUpdate){
+                        dispatchControlUpdate(d.existing.id, "referenceParameters.description", d.description)
+                    }
+
+
+                }
+            }
+            if( targetCategoryObject ){
+                logger.info(`Will assign to category ${targetCategoryObject.id} / ${targetCategoryObject.plainId}`)
+                await QueueAI().markCategories( targetCategoryObject, {id: targetId})
+            }
+
+        }else if( category.mode === "build"){
+            await QueueAI().categorize( primitive, {id: targetId}, {textOnly: true })
+        }
     }
 
 })

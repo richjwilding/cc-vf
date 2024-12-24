@@ -433,23 +433,6 @@ export function Sidebar({primitive, ...props}) {
                     </Panel>
                 }
 
-                {(metadata?.sidebar?.showRefs || PrimitiveConfig.sidebar[primitive.type]?.showRefs) && (primitive.primitives.ref?.allIds.length + primitive.primitives.link?.allIds.length)> 0 && 
-                    <Panel title="References" collapsable={true} open={true} major>
-                        <CardGrid   
-                            list={MainStore().uniquePrimitives( [...primitive.primitives.ref.allItems, ...primitive.primitives.link.allItems])} 
-                            className='p-2'
-                            columnConfig={{"sm":1}}
-                            cardProps={{
-                                showDetails:"panel",
-                                compact: true,
-                                border:false,
-                                showExpand: false,
-                                titleAtBase: true, 
-                                showMenu: true
-                            }}
-                        />
-                    </Panel>
-                }
                 {primitive.primitives.results?.[0].allIds.length > 0 && 
                     <Panel title={primitive.metadata?.resultCategories?.find(d=>d.id === 0)?.title ?? "Items"} collapsable={true} open={true} major>
                         <CardGrid   
@@ -484,6 +467,25 @@ export function Sidebar({primitive, ...props}) {
                     <PrimitiveCard primitive={task}  showState={true} showDetails="panel" showUsers="panel" showLink={true}/>
                 </div>}
             </div>}
+            {(metadata?.sidebar?.showRefs || PrimitiveConfig.sidebar[primitive.type]?.showRefs) && (primitive.primitives.ref?.allIds.length + primitive.primitives.link?.allIds.length)> 0 && 
+                <div className="pb-2 pl-4 pr-4 pt-4">
+                    <Panel title="References" collapsable={true} open={true} major>
+                        <CardGrid   
+                            list={MainStore().uniquePrimitives( [...primitive.primitives.ref.allItems, ...primitive.primitives.link.allItems])} 
+                            className='p-2'
+                            columnConfig={{"sm":1}}
+                            cardProps={{
+                                showDetails:"panel",
+                                compact: true,
+                                border:false,
+                                showExpand: false,
+                                titleAtBase: true, 
+                                showMenu: true
+                            }}
+                        />
+                    </Panel>
+                </div>
+            }
             {!infoPane && showButtons && <div className="flex-shrink-0 justify-between space-y-2 p-4 mt-1">
                 {showUnlinkFromScope && <button
                     type="button"
