@@ -565,12 +565,16 @@ class QueueManager {
                     this.workers[queueName].push(new Worker(queueName, async job => {
                         await this.setQueueActivity(queueName, true);
                         
+                        const extendJob = ()=>{
+                            console.log(`Job still active`)
+                            job.updateProgress(1); 
+                        }
                         // Process job here
                         console.log(`Processing job ${job.name}`);
                         let result
                         let rescheduled = false
                         if( this.processCallback ){
-                            result = await this.processCallback( job, ()=>this.checkIfJobCancelled(job.name) )
+                            result = await this.processCallback( job, ()=>this.checkIfJobCancelled(job.name), extendJob )
                             if( result?.reschedule ){
                                 console.log(`Job asked to be rescheduled`)
                                 rescheduled = true

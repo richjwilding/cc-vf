@@ -46,7 +46,7 @@ export async function analyzeForClusterPhrases( list, options = {}){
     //let prompt =  `I will undertake a clustering process of several thousand ${inputType}s  based on the distance of the embedding of each ${inputType} to each cluster centroid.  Assess the provided ${inputType}s to first filter out those which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a consolidated set of phrases which would group similar ${inputType}s together when used to generate embeddings for the centroid of a cluster.  The aim is to group similar ${inputType}s together into between ${minC} and ${maxC} non-overlapping clusters. Ensure that the phrases are as specific and selective as possible, do not overlap with one another, are not a subset of another phrase, are based on only the information in the ${inputType}s i have provided, and are directly and explicitly relevant to the provided theme. If there are no relevant ${inputType}s then return an empty list.    `
     //let output = `Provide your response as a json object called "result" containing an array of objects each with a 'phrase' field containing the proposed phrase, a 'relevance' field containing an explanation for how the proposed phrase is directly relevant to the provided theme in no more than 15 words, a 'score' field with an assessment for how relevant the phrase is to the provided theme on the scale of 'not at all', 'hardly', 'somewhat' , 'clearly', and a 'size' field containing the number of ${inputType}s from the provided list that you estimate to align with this phrase.  Do not provide anything other than the json object in your response`
 
-    let prompt = `i will undertake a clustering process of several thousand ${inputType}s based on the distance of the embedding of each ${inputType} to each cluster centroid. Each cluster must relate to a sub topic of ${focus ? focus : options.theme}. The aim is to group similar ${inputType}s together into between 2 and 10 non-overlapping clusters. Assess the provided ${inputType}s to first filter out any which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a 2-3 candidate phrases per cluster. Ensure that the clusters are as specific and selective as possible, do not overlap with one another, are not a subset of another cluster, are based on only the information in the ${inputType}s i have provided, are directly and explicitly relevant to the provided theme${focus ? ` and are related to ${focus}` : ""}. If there are no relevant ${inputType}s then return an empty list.`
+    let prompt = `i will undertake a clustering process of several thousand ${inputType}s based on the distance of the embedding of each ${inputType} to each cluster centroid. Each cluster must relate to a sub topic of ${focus ? focus : options.theme}. The aim is to group similar ${inputType}s together into between ${minC} and ${maxC} non-overlapping clusters. Assess the provided ${inputType}s to first filter out any which are not directly and explicitly relevant to the provided theme, and then analyze the remaining ${inputType}s to identify a 2-3 candidate phrases per cluster. Ensure that the clusters are as specific and selective as possible, do not overlap with one another, are not a subset of another cluster, are based on only the information in the ${inputType}s i have provided, are directly and explicitly relevant to the provided theme${focus ? ` and are related to ${focus}` : ""}. If there are no relevant ${inputType}s then return an empty list.`
     let output = `Provide your response as a json object called "result" containing an array of objects each with a 'cluster_title' field set a 5 word title of the cluster${focus ? ` which is framed as ${focus}` : ""}, a 'phrase' field containing an array of proposed phrases (each as a string), a 'relevance' field containing an explanation for how the proposed phrase is directly relevant to the provided theme in no more than 15 words, a 'score' field with an assessment for how relevant the phrase is to the provided theme on the scale of 'not at all', 'hardly', 'somewhat' , 'clearly', and a 'size' field containing the number of ${inputType}s from the provided list that you estimate to align with this phrase.  Do not provide anything other than the json object in your response`
 
 
@@ -199,7 +199,7 @@ export async function summarizeMultiple(list, options = {} ){
         if( options.scored){
             outputFields = `Return your answer in a json field called "scores" - each assessment should have a 'score' field, 'assessment' field and 'relevance' field`
         }else{
-            outputFields = `Provide the result as a json object with an single field called 'summary' which conatins a string with your summary. ${format}. Do not put anything other than the raw json object in the response .`
+            outputFields = `Provide the result as a json object with an single field called 'response' which conatins a string with your response. ${format}. Do not put anything other than the raw json object in the response .`
         }
     }
     
@@ -214,7 +214,7 @@ export async function summarizeMultiple(list, options = {} ){
             ],
             {
                 no_num: list.length === 1 , 
-                field: wholeResponse ? undefined : (options.field ?? "summary"), 
+                field: wholeResponse ? undefined : (options.field ?? "response"), 
                 debug: false, 
                 ...options })
 
@@ -249,12 +249,12 @@ export async function summarizeMultiple(list, options = {} ){
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here is a list of summaries:`}],
             [
-                {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single summary to address this original prompt: ${prompt}`                    
+                {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single response to address this original prompt, if asked to include quotes use a selection of the quotes stated in the interim results: ${prompt}`                    
                             },
                 {"role": "user", "content": outputFields},
             ],
             {
-                field: wholeResponse ? undefined : (options.field ?? "summary"),
+                field: wholeResponse ? undefined : (options.field ?? "response"),
                 ...options,
                 debug: true,
                 debug_content: true
@@ -416,7 +416,12 @@ export async function buildKeywordsFromList(list, options = {} ){
     return {success: true, keywords: interim}
 }
 export async function buildCategories(list, options = {} ){
-    const count = options.count ?? 10
+    let count = options.count ?? 10
+    let doAll = false
+    if( count === 0){
+        doAll = true
+        count = "as many as possbile"
+    }
     let theme = options.themes
     if( theme === ""){
         theme = undefined
@@ -426,10 +431,13 @@ export async function buildCategories(list, options = {} ){
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here are a list of numbered ${options.types || "items"}: `}],
             [
-                {"role": "user", "content": `I am building a categorization map of these items.  Generate a set of ${count} distinct and non overlapping categories which can be used as an axis to compare and contrast the list. ${options.themes ? `\nFirst, review the list and filter out any items which are not relevant to theme of: **${options.themes}**, then for each remainining items consider how it relates to theme when building the categories, grouping items with similar semantic meaning together.` : "\Identify categories by grouping items with similar semantic meaning together."} Each category should be no more than 3 words and should have a clear defintion. The categories must not overlap - you must follow MECE pricnciples`},
+                {"role": "user", "content": options.literal 
+                        ? `I am building a categorization map of these items.  Generate a set of ${count} distinct and non overlapping categories which can be used as an axis to compare and contrast the list. ${options.themes ? `\nFirst, review the list and filter out any items which do not have information about '${options.themes}', then for each remainining items assess the '${options.themes}' for the item, grouping items based upon string similarity, allowing for abbreviates and short hand` : `Identify categories by grouping items based upon string similarity, allowing for abbreviates and short hand`}. Each category should be no more than 3 words and should have a clear defintion. A group can contain just one item. The categories must not overlap - ensure you follow MECE pricnciples. ${doAll ? "Ensure you capture each and every relevant category - i want as many as possible." : ""}`
+                        : `I am building a categorization map of these items.  Generate a set of ${count} distinct and non overlapping categories which can be used as an axis to compare and contrast the list. ${options.themes ? `\nFirst, review the list and filter out any items which are not relevant to theme of: **${options.themes}**, then for each remainining items consider how it relates to the theme when building the categories, grouping items based upon semantic similarity` : `Identify categories by grouping items based upon semantic similarity`}. Each category should be no more than 3 words and should have a clear defintion. The categories must not overlap - you must follow MECE pricnciples`
+                    },
                 {"role": "user", "content": `Provide the result as a json object with an array called "categories" with each entry being an object with a 't' field containing the title and a 'd' field containing the definition in no more than 20 words. Do not put anything other than the raw json object in the response .`}
             ],
-            {field: "categories", engine: options.engine, ...options})
+            {field: "categories", engine: options.engine, markPass: true,...options})
     if( Object.hasOwn(interim, "success")){
         console.log(interim)
         return interim
@@ -444,8 +452,8 @@ export async function buildCategories(list, options = {} ){
 
 
     let final = interim
-
-    if( interim.length > 1){
+    const passes = interim.map(d=>d._pass).filter((d,i,a)=>a.indexOf(d)===i).length
+    if( passes > 1){
 
         const result = await processInChunk( interim.map(d=>`${d.t}: ${d.d}`), 
             [
@@ -464,7 +472,6 @@ export async function buildCategories(list, options = {} ){
         }
 
     }
-
     return {success: true, categories: final, interim: interim}
 }
 export async function analyzeTextAgainstTopics( text, topics, options = {}){
@@ -1162,7 +1169,7 @@ export  async function categorize(list, categories, options = {} ){
     
     Steps:\n
     1. Carefully analyze the provided information 
-    2. Compare the item to each and every category in turn - considering only the information that has been provided
+    2. Compare the item to each and every category in turn - considering only the information that has been provided${(options.literal && options.theme) ? ` Ensure you specifically focus on the '${options.theme}'` : ""}
     3. Assign an assessment score for every category using the provided scale 
     4. Review and correct mistakes`
 
@@ -1198,9 +1205,15 @@ export  async function categorize(list, categories, options = {} ){
 
 export  async function __categorize(list, categories, options = {} ){
     const targetType = options.types || "item"
-//    const match = options.matchPrompt || `I am categorizing a list of ${options.longType ?? targetType}s.  You must assess how well each of the provided numbered ${targetType}s aligns with each of the candidate numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} based on conceptual similarity, rather than exact text matches`
-    const match = options.matchPrompt ?? `I am categorizing a list of numbered ${options.longType ?? targetType}s. Assess how well each item aligns with the candidate categories based on ${options.literal ? "a string similarirty" : "conceptual similarity"}.`
-//options.literal ? ["unclear", "current", "adjacent","middle","far"] : 
+    let match = options.matchPrompt ?? `I am categorizing a list of numbered ${options.longType ?? targetType}s. Assess how well each item aligns with the candidate categories based on ${options.literal ? "a string similarirty" : "conceptual similarity"}`
+    if( options.theme){
+        if( options.literal ){
+            match += `. When undertaking you assessment consider ${options.theme} of each item.`
+        }
+        else{
+            match += `. The theme for categorization is ${options.theme}.`
+        }
+    } 
     const scoreMap = ["Not", "Hardly", "Somewhat", "Likely", "Clear"]
 
     let instructions = `
@@ -1213,7 +1226,7 @@ export  async function __categorize(list, categories, options = {} ){
     
     Steps:
     1. Each item has been numbered with all data for that item on a single line following the number
-    2. Compare each and every item to each and every category in turn - considering only the information that has been provided for this specific item.
+    2. Compare each and every item to each and every category in turn - considering only the information that has been provided for this specific item.${(options.literal && options.theme) ? ` Ensure you specifically focus on the '${options.theme}' of the item` : ""}
     3. Assign an assessment score for each item for every category using the provided scale 
     4. Review and correct mistakes
     5. Do this for every item`

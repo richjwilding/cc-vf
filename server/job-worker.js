@@ -146,18 +146,18 @@ async function getQueueObject(type) {
 
 
             await asyncLocalStorage.run(new Map(), async () => {
-                console.log(`RESET CHILD WAITING`)
+                console.log(`RESET CHILD WAITING on ${job.id}`)
                 if(queueObject.default().resetChildWaiting){
                     children = await queueObject.default().resetChildWaiting(queueName, job.id)
                 }
-                console.log(`RESET CHILD WAITING - DONE`)
+                console.log(`RESET CHILD WAITING - DONE on ${job.id}`)
                 const store = asyncLocalStorage.getStore();
                 store.set('parentJob', job);
                 console.log(`---- ${queueName} set parentJob to ${job.id}`)
     
                 let result, success
                 try {
-                    result = await processQueue(job, () => redisClient.get(`job:${job.id}:cancel`) === 'true');
+                    result = await processQueue(job, () => redisClient.get(`job:${job.id}:cancel`) === 'true', ()=>{logger.info("!!! extend job in thread"); job.updateProgress(1)});
                     success = true
                 } catch (e) {
                     logger.debug(`Error in ${workerData.type} queue during job processing: ${e.stack}`, { type: workerData.type });
@@ -216,7 +216,7 @@ async function getQueueObject(type) {
                 waitChildren: true, 
                 removeOnComplete: false, 
                 stalledInterval:300000,
-                lockDuration: 10 * 60 * 1000, // Set lock duration to 10 minutes
+                lockDuration: 30 * 60 * 1000, // Set lock duration to 10 minutes
             });
         worker.on('failed', async (job, error) =>{
             console.log(`failed`, error)

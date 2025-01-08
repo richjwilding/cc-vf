@@ -160,12 +160,12 @@ export async function buildDocumentEmbedding(id, req){
 
 }
 
-export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
+export async function getDocumentAsPlainText(id, req, override_url, forcePDF, forceRefresh){
 
 
         
 
-    if( !forcePDF ){
+    if( !forcePDF  && !forceRefresh){
         const text = await retrieveDocumentFromSearchCache( id )
         if( text){
             return {plain: text}
@@ -190,7 +190,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
     const bucket = storage.bucket(bucketName);
 
     let file = bucket.file(id)
-    if( file ){
+    if( file && !forceRefresh){
         if( (await file.exists())[0] ){
             const [metadata] = await file.getMetadata();
             const fileSize = metadata.size; // Size in bytes
@@ -211,7 +211,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
         fecthFromPdf = true
     }
 
-    if( forcePDF || fecthFromPdf || !file ){
+    if( forcePDF || fecthFromPdf || !file || forceRefresh){
         let text, matches
         if( notes || fecthFromPdf || forcePDF){
             console.log(`----- EXTRACT FROM PDF`)
@@ -239,7 +239,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF){
             }else if( url && (matches = url.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/))){
                 text = (await extractPlainTextFromPdf( id, req ))?.plain
             }else{
-                const data = await fetchURLPlainText(url, true)
+                const data = await fetchURLPlainText(url, false, true )
                 if( data?.fullText ){
                     text = data?.fullText
                 }
@@ -1048,7 +1048,8 @@ export async function fetchLinksFromWebQuery(query, options , attempts = 3){
             params.search_type = options.search_type
             if( options.search_type === "scholar"){
                 useBD = false
-                delete params["timeFrame"]
+                delete params["time_period"]
+                delete params["gl"]
                 params.scholar_year_min = 2016
             }
         }
@@ -1687,7 +1688,7 @@ export async function queryGoogleNews(keywords, options = {}){
     return await queryGoogleSERP(keywords, {...options, search_type: "news", article: true})
 }
 export async function queryGoogleScholar(keywords, options = {}){
-    return await queryGoogleSERP(keywords, {...options, search_type: "scholar", article: true})
+    return await queryGoogleSERP(keywords, {...options, search_type: "scholar", article: false, preferDownload: true})
 }
 export async function queryYoutube(keywords, options = {}){
     return await queryGoogleSERP(keywords, {title: "Youtube search",...options, search_type: "videos", prefix: "site:youtube.com"})
@@ -1739,7 +1740,7 @@ export async function queryGoogleSERP(keywords, options = {}){
                         }
                     }
 
-                    const pageContent = await fetchURLPlainText( item.url, options?.article )
+                    const pageContent = await fetchURLPlainText( item.url, options?.article, options?.preferDownload )
                     if( !pageContent ){
                         return
                     }
@@ -2027,7 +2028,7 @@ export async function getMetaImageFromURL(url) {
         const $ = cheerio.load(response);
   
   
-      let imageURL = $('meta[property="og:image:secure_url"]').attr('content');
+      let imageURL = $('meta[property="og:image:secure_url"]').attr('content') //?? $('meta[property="og:image:url"]').attr('content')
   
       if (imageURL && !imageURL.startsWith('http')) {
         const baseUrl = new URL(finalUrl);
@@ -2050,7 +2051,7 @@ export async function getFaviconFromURL(url) {
   
       if (faviconUrl && !faviconUrl.startsWith('http')) {
         const baseUrl = new URL(finalUrl);
-        faviconUrl = `${baseUrl.origin}${faviconUrl}`;
+        faviconUrl = `${baseUrl.origin}/${faviconUrl}`;
       }
   
       console.log(`Favicon URL: ${faviconUrl}`);
@@ -2333,6 +2334,13 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                                     embeddedPdfs.push(value)
 
                                 }
+                            }
+                        }
+                        if( embeddedPdfs.length === 0){
+                            const spanElementRegex = /<embed[^>]*type=["']application\/pdf["'][^>]*src=["']([^"']+)["'][^>]*>/gi;
+                            while ((match = spanElementRegex.exec(results)) !== null) {
+                                const pdfUrl = match[1];
+                                embeddedPdfs.push(pdfUrl);
                             }
                         }
                         if( embeddedPdfs.length === 0){

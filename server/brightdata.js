@@ -104,6 +104,22 @@ const bdExtractors = {
             }
         }
     },
+    "subreddit_post":{
+        datasetId: "gd_lvz8ah06191smkebj4",
+        id: (data)=>data.post_id,
+       // excludeIds:async (primitive)=>baseExcludeByReferenceId(125, primitive, "post_id"),
+    //    limit: 100,
+        linkConfig:linkToPrimitiveViaSearchPath,
+        queryParams: "&type=discover_new&discover_by=subreddit_url",
+        data:  (data)=>{
+            const {title, ...referenceParameters} = data
+            return {
+                title,
+                referenceId: 125,
+                referenceParameters
+            }
+        }
+    },
     "reddit_post":{
         datasetId: "gd_lvz8ah06191smkebj4",
         id: (data)=>data.post_id,
@@ -246,12 +262,36 @@ export async function queryGlassdoorReviewWithBrightData( primitive, terms, call
     }))
     await triggerBrightDataCollection(input, "glassdoor_review", primitive, terms, {...callopts, limit_count: callopts.count})
 }
-export async function queryRedditWithBrightData( primitive, terms, callopts){
+
+export async function querySubredditWithBrightData( primitive, terms, callopts){
     const individualTerms = terms.split(",").map(d=>d.trim())
-    const config = bdExtractors["reddit_post"]
+    const config = bdExtractors["subreddit_post"]
     
     const input = individualTerms.map(d=>({
+        url: d,
+        sort_by: "Hot"
+    }))
+    await triggerBrightDataCollection(input, "subreddit_post", primitive, terms, {...callopts, limit_count: callopts.count})
+}
+export async function queryRedditWithBrightData( primitive, terms, callopts){
+    const individualTerms = terms.split(",").map(d=>d.trim())
+
+    const today = moment()
+    let date
+    if( callopts.timeFrame === "last_year"){
+        date = "Past year"
+    }else if( callopts.timeFrame === "last_month"){
+        date = "Past month"
+    }else if( callopts.timeFrame === "last_week"){
+        date = "Past week"
+    }else{
+        date = "Past year"
+    }
+
+    const input = individualTerms.map(d=>({
         keyword: d,
+        date,
+        num_of_posts: callopts.count
     }))
     await triggerBrightDataCollection(input, "reddit_post", primitive, terms, {...callopts, limit_count: callopts.count})
 }
@@ -527,6 +567,7 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
             console.error(`Fetch request timed out after ${options.timeout || 30000}ms`);
         } else {
             console.log(`Error in fetchViaBrightDataProxy`)
+            console.log(`${error.response?.status} : ${error.response?.statusText}`)
         }
         return {status: 500, error} 
     }

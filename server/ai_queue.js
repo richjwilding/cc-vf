@@ -1,4 +1,4 @@
-import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findPrimitiveOriginParent, getConfig, getConfigParentForTerm, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
+import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findPrimitiveOriginParent, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
@@ -8,8 +8,11 @@ import PrimitiveParser from "./PrimitivesParser";
 import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 import agglo from "agglo";
 import { BaseQueue } from './base_queue';
-import { comapreToPeers, summarizeWithQuery } from "./task_processor";
+import { comapreToPeers, getItemsForQuery, summarizeWithQuery } from "./task_processor";
 import { reviseUserRequest } from "./prompt_helper";
+import { getLogger } from './logger.js';
+
+const logger = getLogger('ai_queue'); // Debug level for moduleA
 
 
 const parser = PrimitiveParser()
@@ -856,6 +859,13 @@ class AIQueueClass extends BaseQueue{
     }
 
 
+    async runPromptOnPrimitive(primitive, action){
+        const workspaceId = primitive.workspaceId
+        const field = `processing.ai.run_prompt`
+        const data = {id: primitive.id, action: action, mode: "run_prompt", field}
+
+        await this.addJob(workspaceId, data)
+    }
     async rebuildSummary(primitive, action, req){
         const workspaceId = primitive.workspaceId
         const field = `processing.ai.rebuild_summary`
@@ -1197,6 +1207,32 @@ export async function processQueue(job){
         const primitive = await Primitive.findOne({_id: job.data.id})
         console.log(action, primitive.id)
         if( primitive){
+            if( job.data.mode === "run_prompt"){
+                const config = await getConfig(primitive)
+                //const [items, toSummarize] = await getDataForProcessing(primitive, {}, undefined, {config})
+                const items = await getDataForImport( primitive, undefined, true)
+                let data 
+                if( config.field === "title"){
+                    data = items.map(d=>d.title)
+                }else{
+                    let field = config.field?.startsWith("param.") ? config.field.slice(6) : config.field
+                    data = items.map(d=>decodePath(d.referenceParameters, field))
+                } 
+                let prompt = config.prompt
+                
+                const response = await processPromptOnText( data, {
+                    opener: "Here is some data i will give you instructions about",
+                    prompt: prompt,
+                    output: "Provide the result as a json object with an array called 'results' which has a string entry for each complete part of your answer",
+                    engine: "gpt4o"
+                })
+                if( response?.success && response.output){
+                    dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", response.output)
+                    dispatchControlUpdate( primitive.id, "referenceParameters.result", response.output.join("\n"))
+                }else{
+                    throw "Couldnt process prompt"
+                }
+            }
             if( job.data.mode === "rebuild_summary"){
                 console.log(`--> Rebuilding sumamry in queue`)
                     const config = await getConfig(primitive)
@@ -1378,16 +1414,21 @@ export async function processQueue(job){
                                     }
                                     console.log(`Type = ${itemType}`)
                                 }
+                                let literal = primitive.referenceParameters?.literal
                                 if( action.alternative){
                                     let types = itemType ?? primitive.referenceParameters?.types ?? action.aiConfig?.[primitive.referenceParameters?.field]?.types ??  "problem statement"
                                     const task = await primitiveTask( primitive)
                                     const theme = (primitive.referenceParameters?.cat_theme && primitive.referenceParameters?.cat_theme.trim().length > 0 ? primitive.referenceParameters?.cat_theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics
+                                    const minClusters = primitive.referenceParameters?.count || action.count || 8
                                     const result = await analyzeForClusterPhrases( data, {
                                         //type:primitive.referenceParameters?.listType, 
                                         type: types,
                                         focus: primitive.referenceParameters?.cat_theme,
                                         batch: 500,
                                         theme: theme,
+                                        literal,
+                                        minClusters,
+                                        maxClusters: Math.round(minClusters * 1.2),
                                         debug_content: true,
                                         debug: true} )
                                     if( result.success ){
@@ -1404,9 +1445,10 @@ export async function processQueue(job){
                                     let theme = primitive.referenceParameters?.cat_theme ?? targetConfig?.build?.theme ?? action.theme
                                     
                                     catData = await buildCategories( data, {
-                                        count: primitive.referenceParameters?.count || action.count || 8,
+                                        count: primitive.referenceParameters?.count ,
                                         types: types, 
                                         themes: theme, 
+                                        literal,
                                         batch: 500,
                                         engine:  primitive.referenceParameters?.engine || action.engine,
                                         debug: true,
@@ -1853,6 +1895,8 @@ export async function processQueue(job){
                                     let focus = primitive.referenceParameters?.focus ?? targetConfig?.mark?.theme ??primitive.referenceParameters?.cat_theme
                                     let literal = primitive.referenceParameters?.literal
                                     const complex = primitive.referenceParameters?.complex ?? action.complex ?? false
+                                    const theme = (primitive.referenceParameters?.cat_theme && primitive.referenceParameters?.cat_theme.trim().length > 0 ? primitive.referenceParameters?.cat_theme : undefined ) ?? action?.theme 
+                                    
                                     console.log(`Compexity = ${complex} (${primitive.referenceParameters?.complex} / ${action.complex})`)
 
                                     let runInBatch = (primitive.referenceParameters?.field ?? action.field) !== "context"
@@ -1865,14 +1909,15 @@ export async function processQueue(job){
                                         evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
                                         engine:  primitive.referenceParameters?.engine || action.engine,
                                         complex: complex,
+                                        theme,
                                         literal,
                                         batch: runInBatch ? 50 : 1,
                                         no_num: !runInBatch,
                                         rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
                                         types: types,
                                         focus: focus,
-                                        debug: false,
-                                        debug_content: false,
+                                        debug: true,
+                                        debug_content: true,
                                         progressCallback:(status)=>{
                                             dispatchControlUpdate(primitive.id, job.data.field + ".progress", status.completed / status.total , {track: primitive.id})
                                         }
@@ -1888,9 +1933,12 @@ export async function processQueue(job){
                                         "standard": ["likely", "clear" ,"somewhat"],
                                         "high": ["likely", "clear"],
                                     }[thresholdName]
+                                   
                                     if( literal ){
-                                        thresholds = ["clear"]
-                                    }
+                                        thresholds ={
+                                            "standard": ["likely", "clear"],
+                                            "high": ["clear"],
+                                        }[thresholdName]}
                                     
                                     
                                     console.log(`Thresholds to keep = ${thresholds.join(", ")}`)

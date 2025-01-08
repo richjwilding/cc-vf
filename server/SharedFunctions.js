@@ -417,13 +417,17 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
             console.log(`WILL DO ALL PATHS`)
         }
         
-        await Primitive.updateOne(
+        const rTarget = await Primitive.findOneAndUpdate(
             {
                 "_id": new ObjectId(target),
                 [parentPath]: { $in: [path] }
             },
             {
                 $pull: { [parentPath]: path }
+            },
+            {
+                new: true,
+                projection: { _id: 1, workspaceId: 1, primitives: 1, flowElement: 1}
             }
         );
     
@@ -437,9 +441,10 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
             }
         );
 
+        let receiverPrim
         await doRemovePrimitiveLink(receiver, target, path)
         if( !skip_notify ){
-            const receiverPrim =  await Primitive.findOne(
+            receiverPrim =  await Primitive.findOne(
                 {
                     "_id": new ObjectId(receiver)
                 })
@@ -451,6 +456,15 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
                     path:  path
                 }])
         }
+        if(rTarget?.flowElement){
+            if( !receiverPrim){
+                receiverPrim =  await Primitive.findOne(
+                    {
+                        "_id": new ObjectId(receiver)
+                    })
+            }
+            await replicateRelationshipUpdateToFlowInstance( receiverPrim, rTarget, path, "remove")
+        }
     }
     catch(error){
         console.log(error)
@@ -458,6 +472,9 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
     }
 }
 export async function getPrimitiveInputs(primitive){
+    if( !Object.keys(primitive.primitives ?? {}).includes("inputs") ){
+        return {}
+    }
     let inputMap = PrimitiveConfig.getInputMap(primitive)
     let sourceIds = inputMap.map(d=>d.sourceId).filter((d,i,a)=>a.indexOf(d)===i) 
 
@@ -561,25 +578,28 @@ export async function addRelationship(receiver, target, path, skipParent = false
                 })
         }
         catch(error){
-            console.log(`Error in addRelationship ${receiver} ${target} ${path}`)
             console.log(error)
+            console.log(`Error in addRelationship ${receiver} ${target} ${path}`)
             throw new Error("Couldn't find target")
         }
     }
-    await Primitive.updateOne(
+    const rObject = await Primitive.findOneAndUpdate(
         {
             "_id": new ObjectId(receiver),
         },{
             "$addToSet": {
                 [path]: target
             }
+        },{
+            new: true,
+            projection: { _id: 1, workspaceId: 1, primitives: 1, flowElement: 1}
         })
 
     const check = await Primitive.findOne({
             "_id": new ObjectId(target),
             deleted: {$exists: false}
         },{
-            _id: 1, workspaceId: 1
+            _id: 1, workspaceId: 1, primitives: 1
         })
     if( !check){
         await doRemovePrimitiveLink( receiver, target, path )
@@ -594,7 +614,41 @@ export async function addRelationship(receiver, target, path, skipParent = false
                                             target: target,
                                             path:  path
                                         }])
+
+    if(rObject?.flowElement){
+        await replicateRelationshipUpdateToFlowInstance( rObject, check, path, "add")
+    }
 }
+
+async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, relationship, mode){
+    if( !rObject.flowElement || !tObject.flowElement){
+        logger.error(`${rObject.instance} / ${rObject.id} > ${tObject.instance} / ${tObject.id} is not a flowElement for relationship update ${relationship} ${mode}`)
+    }
+    const instancesOfElement = await fetchPrimitives( rObject.primitives?.config ?? [])
+    logger.debug(`Relationship update on flowElement - got ${instancesOfElement.length} instances to update`)
+    const instancesOfTarget =  await fetchPrimitives( tObject.primitives?.config ?? [])
+    logger.debug(`Found ${instancesOfTarget.length} instances of target`)
+    for(const ie of instancesOfElement){
+        const flowInstanceId = primitiveOrigin( ie )
+        const it = instancesOfTarget.find(d=>d.parentPrimitives[flowInstanceId]?.includes("primitives.origin"))
+        if( it ){
+            let useTarget = it.id
+            if( it.type == "categorizer"){
+                logger.debug(` - Instance target is categroizer - redirecting to nested primitive`)
+                useTarget = it.primitives?.origin?.[0]
+
+            }
+            logger.debug(` - Instance ${ie.id} / ${ie.plainId} match to ${it.id} / ${it.plainId} > ${useTarget} `)
+            if( mode == "add"){
+                await addRelationship( ie.id, useTarget, relationship)
+            }else if( mode == "remove"){
+                await removeRelationship( ie.id, useTarget, relationship)
+            }
+        }
+    }
+
+}
+
 export async function primitiveChildren(primitive, types){
     return await primitivePrimitives(primitive, 'primitives.origin', types )
 }
@@ -1390,11 +1444,15 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         }
         return list
     }
-    const process = await executeConcurrently( sources, doImport, undefined, undefined,10)
-    if( process.results ){
-        fullList = process.results.flat()
+    if( sources.length > 0){
+        const process = await executeConcurrently( sources, doImport, undefined, undefined,10)
+        if( process.results ){
+            fullList = process.results.flat()
+        }else{
+            throw "Exec of imports failed"
+        }
     }else{
-        throw "Exec of imports failed"
+        fullList = []
     }
     
 
@@ -1520,11 +1578,12 @@ export async function getDataForProcessing(primitive, action, source, options = 
 
     const category = await Category.findOne({id: primitive.referenceId})
 
-    let type = primitive.referenceParameters?.type || action.type //|| category.type
-    let target = primitive.referenceParameters?.target || action.target || (typeof(category) === "string" ? category?.target : undefined) || (Object.keys(source?.primitives ?? {}).includes("imports") ? "items" : "children") || (source.type === "category" ? "items" : undefined)
-    //let target = primitive.referenceParameters?.target || action.target || category?.target || "children"
-    let referenceId = primitive.referenceParameters?.referenceId || action.referenceId || category?.referenceId
-    let field = primitive.referenceParameters?.field || action.field || "title"
+    const configSource = options.config ?? primitive.referenceParameters
+
+    let type = configSource?.type || action.type //|| category.type
+    let target = configSource?.target || action.target || (typeof(category) === "string" ? category?.target : undefined) || (Object.keys(source?.primitives ?? {}).includes("imports") ? "items" : "children") || (source.type === "category" ? "items" : undefined)
+    let referenceId = configSource?.referenceId || action.referenceId || category?.referenceId
+    let field = configSource?.field || action.field || "title"
 
     if( action.action_override){
         if( action.target){
@@ -1607,9 +1666,9 @@ export async function getDataForProcessing(primitive, action, source, options = 
         console.log(`TOTAL Stage 3  = ${list.length}`)
 
     }
-    if( primitive.referenceParameters?.pivot && primitive.referenceParameters.pivot > 0){            
-        console.log(`Primitive pivot = ${primitive.referenceParameters.pivot} / ${primitive.referenceParameters.pivotBy}`)
-        list = await primitiveListOrigin( list, primitive.referenceParameters.pivot, ["result", "entity", "evidence"], primitive.referenceParameters.pivotBy)
+    if( configSource?.pivot && configSource.pivot > 0){            
+        console.log(`Primitive pivot = ${configSource.pivot} / ${configSource.pivotBy}`)
+        list = await primitiveListOrigin( list, configSource.pivot, ["result", "entity", "evidence"], configSource.pivotBy)
     }
     if( action.constrainId ){
         console.log(`Filtering ${list.length} for constraint ${action.constrainId} -- QUESTION OVERRIDE`)
@@ -1641,9 +1700,9 @@ export async function getDataForProcessing(primitive, action, source, options = 
     if( options.childPrimitiveIds ){
         list = list.filter((d)=>options.childPrimitiveIds.includes(d._id.toString()))
     }
-    if( primitive.referenceParameters?.postPivot && primitive.referenceParameters.postPivot > 0){            
-        console.log(`Post Primitive pivot = ${primitive.referenceParameters.postPivot} / ${primitive.referenceParameters.postPivotBy}`)
-        list = await primitiveListOrigin( list, primitive.referenceParameters.postPivot, ["result", "entity"], primitive.referenceParameters.postPivotBy)
+    if( configSource?.postPivot && configSource.postPivot > 0){            
+        console.log(`Post Primitive pivot = ${configSource.postPivot} / ${configSource.postPivotBy}`)
+        list = await primitiveListOrigin( list, configSource.postPivot, ["result", "entity"], configSource.postPivotBy)
     }
 
     if( list === undefined){
@@ -2371,9 +2430,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                                             scored: options.scored ?? primitive.referenceParameters.scored,
                                                             outputFields: isCustomPrompt ? undefined : [
                                                                 {field:"headline", prompt:"a short overview", header: true},
-                                                                {field:"main", prompt: "the main summary", formatted: true},
+                                                                {field:"summary", prompt: "the main summary", formatted: true},
                                                                 {field:"noteworthy", prompt: "a list of the top 5 most noteworthy insights as a single string in markdown format.", formatted: true},
-                                                            ],
+                                                            ],                                                            
                                                             debug: true, 
                                                             debug_content:true
                                                         })
@@ -4024,9 +4083,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             if( primitive.type === "entity" ){
                 if( command === "update_icon_url"){
-                    let url = await getMetaImageFromURL( primitive.referenceParameters?.url )
+                    let url = await getFaviconFromURL( primitive.referenceParameters?.url )
                     if( !url ){
-                        url = await getFaviconFromURL( primitive.referenceParameters?.url )
+                        url = await getMetaImageFromURL( primitive.referenceParameters?.url )
                     }
                     if( url ){
                         await replicateURLtoStorage(url, primitive._id.toString(), "cc_vf_images")
@@ -4604,6 +4663,9 @@ export async function executeConcurrently(list, process, cancelCheck, stopCheck,
 }
 
 export function decodePath(node, path){
+    if(!path){
+        return
+    }
     const parts = path.split(".")
     const last = parts.pop()
     for(const d of parts){

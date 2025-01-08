@@ -41,6 +41,7 @@ class FlowQueueClass extends BaseQueue {
                     status: "complete"
                 }
                 await dispatchControlUpdate(primitive, "processing.flow", update)
+               // await this.runFlowInstance( primitive )
             }
         })
         this.registerNotification("run_step", async (primitive, result)=>{
@@ -52,8 +53,6 @@ class FlowQueueClass extends BaseQueue {
                 }
                 await dispatchControlUpdate(primitive, "processing.flow", update)
                 
-                let flowInstance = (await primitiveParentsOfType(primitive, "flowinstance"))?.[0]
-                await this.runFlowInstance( flowInstance )
             }else{
 
             }
@@ -119,10 +118,10 @@ class FlowQueueClass extends BaseQueue {
         await this.addJob(primitive.workspaceId, { id: primitive.id, mode: "run_flow_instance", options, field, notify: true });
     }
 
-    async runStep(primitive) {
+    async runStep(primitive, options) {
         const field = "processing.run_step";
 
-        await this.addJob(primitive.workspaceId, { id: primitive.id, mode: "run_step", field });
+        await this.addJob(primitive.workspaceId, { id: primitive.id, mode: "run_step", options, field });
     }
 }
 

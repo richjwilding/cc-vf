@@ -13,6 +13,32 @@ export function roundCurrency(number){
 
     return prefix + formatNumber(number)
 }
+
+export function cleanURL(url){
+   // Trim whitespace from the input
+   let cleanedUrl = url.trim();
+
+   // Check if the URL has a protocol, if not, add "https://"
+   if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(cleanedUrl)) {
+       cleanedUrl = "https://" + cleanedUrl;
+   }
+
+   return cleanedUrl;
+}
+export function baseURL(url) {
+  // Clean the URL first
+  const cleanedUrl = cleanURL(url);
+
+  // Use URL constructor to parse and extract the base URL
+  try {
+      const parsedUrl = new URL(cleanedUrl);
+      // Combine protocol and hostname
+      return `${parsedUrl.protocol}//${parsedUrl.hostname}`;
+  } catch (error) {
+      throw new Error("Invalid URL");
+  }
+}
+
 export function formatNumber(number){
     if(number === 0){
         return "0"
@@ -29,6 +55,318 @@ export function formatNumber(number){
 
     return formattedNumber.replace(/\.00$/, '') + (suffixes[suffixIndex] ?? "");
 }
+  export function markdownToSlate(markdownContent){
+    const lines = (markdownContent ?? "").split('\n');
+    const slateNodes = [];
+  
+    let currentTable = null; // Keep track of the current table
+    let isInTable = false;
+  
+    lines.forEach((line) => {
+      const trimmedLine = line.trim();
+  
+      if (trimmedLine.includes('|')) {
+        let columns = trimmedLine
+          .split('|')
+          .map((col) => col.trim())
+          .slice(1, -1); // Remove the first and last empty elements due to leading and trailing '|'
+  
+        // Check if this is a header separator (---)
+        const isHeaderSeparator = columns.every((col) => /^-+$/.test(col));
+  
+        if (isHeaderSeparator) {
+          if (currentTable && currentTable.children.length > 0) {
+            currentTable.children[0].isHeader = true; // Mark the first row as a header
+          }
+          return; // Skip this line
+        }
+  
+        const row = {
+          type: 'table-row',
+          children: columns.map((col) => ({
+            type: 'table-cell',
+            children: parseMarkdownText(col), // Parse cell content for formatting
+          })),
+        };
+  
+        // If we're already in a table, append the row
+        if (isInTable) {
+          currentTable.children.push(row);
+        } else {
+          // Otherwise, create a new table and start it
+          currentTable = {
+            type: 'table',
+            children: [row],
+          };
+          slateNodes.push(currentTable);
+          isInTable = true;
+        }
+        return;
+      } else {
+        isInTable = false;
+      }
+  
+      // Handle headers
+      if (trimmedLine.startsWith('#')) {
+        const headingMatch = trimmedLine.match(/^(#+)\s*(.*)/);
+  
+        if (headingMatch) {
+          const headingLevel = headingMatch[1].length;
+          const headingText = headingMatch[2];
+  
+          // Ensure the heading level is between 1 and 6 (HTML heading levels)
+          const validHeadingLevel = Math.min(Math.max(headingLevel, 1), 6);
+  
+          slateNodes.push({
+            type: 'heading',
+            level: validHeadingLevel, // Add the heading level to the node
+            children: parseMarkdownInline(headingText),
+          });
+        }
+        return;
+      }
+  
+      // Handle ordered list items (e.g., "1. Item")
+      const orderedListMatch = line.match(/^(\s*)(\d+\.)\s+(.*)/);
+      if (orderedListMatch) {
+        //const indentLevel = Math.floor(orderedListMatch[1].length / 2); // Two spaces per indent level
+        const indentLevel = Math.max(1, Math.floor(orderedListMatch[1].length / 2)); // Two spaces per indent level
+        const content = parseMarkdownInline(orderedListMatch[3]);
+  
+        slateNodes.push({
+          type: 'ordered-list',
+          children: [
+            {
+              type: 'list-item',
+              indentLevel: indentLevel,
+              children: content,
+            },
+          ],
+        });
+        return;
+      }
+  
+      // Handle unordered list items (e.g., "- Item")
+      const unorderedListMatch = line.match(/^(\s*)(-|\*)\s+(.*)/);
+      if (unorderedListMatch) {
+        const indentLevel = Math.max(1, Math.floor(unorderedListMatch[1].length / 2)); // Two spaces per indent level
+        const content = parseMarkdownInline(unorderedListMatch[3]);
+  
+        const wrappedContent = wrapInNestedLists('unordered-list', content, indentLevel);
+  
+        slateNodes.push(wrappedContent);
+        return;
+      }
+  
+      // Handle regular paragraphs
+      if (trimmedLine) {
+        slateNodes.push({
+          type: 'paragraph',
+          children: parseMarkdownInline(trimmedLine),
+        });
+      } else {
+        // Handle blank lines by adding an empty paragraph node
+        slateNodes.push({
+          type: 'paragraph',
+          children: [{ text: '' }],
+        });
+      }
+    });
+  
+    return slateNodes;
+  };
+  export function parseMarkdownText(text){
+    const lines = text.split('\n');
+    const nodes = [];
+  
+    lines.forEach((line) => {
+      const trimmedLine = line.trim();
+  
+      // Handle headers
+      if (trimmedLine.startsWith('#')) {
+        const headingMatch = trimmedLine.match(/^(#+)\s*(.*)/);
+  
+        if (headingMatch) {
+          const headingLevel = headingMatch[1].length;
+          const headingText = headingMatch[2];
+  
+          // Ensure the heading level is between 1 and 6 (HTML heading levels)
+          const validHeadingLevel = Math.min(Math.max(headingLevel, 1), 6);
+  
+          nodes.push({
+            type: 'heading',
+            level: validHeadingLevel, // Add the heading level to the node
+            children: parseMarkdownInline(headingText),
+          });
+        }
+        return;
+      }
+  
+      // Handle ordered list items (e.g., "1. Item")
+      const orderedListMatch = line.match(/^(\s*)(\d+\.)\s+(.*)/);
+      if (orderedListMatch) {
+        const indentLevel = Math.floor(orderedListMatch[1].length / 2); // Two spaces per indent level
+        const content = parseMarkdownInline(orderedListMatch[3]);
+  
+        nodes.push({
+          type: 'ordered-list',
+          children: [
+            {
+              type: 'list-item',
+              indentLevel: indentLevel,
+              children: content,
+            },
+          ],
+        });
+        return;
+      }
+  
+      // Handle unordered list items (e.g., "- Item")
+      const unorderedListMatch = line.match(/^(\s*)(-|\*)\s+(.*)/);
+      if (unorderedListMatch) {
+        const indentLevel = Math.floor(unorderedListMatch[1].length / 2); // Two spaces per indent level
+        const content = parseMarkdownInline(unorderedListMatch[3]);
+  
+        const wrappedContent = wrapInNestedLists('unordered-list', content, indentLevel);
+  
+        nodes.push(wrappedContent);
+        return;
+      }
+  
+      // Handle paragraphs
+      if (trimmedLine) {
+        nodes.push({
+          type: 'paragraph',
+          children: parseMarkdownInline(trimmedLine),
+        });
+      } else {
+        // Handle blank lines by adding an empty paragraph node
+        nodes.push({
+          type: 'paragraph',
+          children: [{ text: '' }],
+        });
+      }
+    });
+    
+  
+    return nodes;
+  };
+  
+  export function parseMarkdownInline(text){
+    const tokens = [];
+    let i = 0;
+  
+    while (i < text.length) {
+      if (text.startsWith('**', i)) {
+        // Bold text
+        const endIndex = text.indexOf('**', i + 2);
+        if (endIndex !== -1) {
+          tokens.push({
+            text: text.substring(i + 2, endIndex),
+            bold: true,
+          });
+          i = endIndex + 2;
+        } else {
+          // No matching closing **
+          tokens.push({ text: text.substring(i) });
+          break;
+        }
+      } else if (text.startsWith('*', i)) {
+        // Italic text
+        const endIndex = text.indexOf('*', i + 1);
+        if (endIndex !== -1) {
+          tokens.push({
+            text: text.substring(i + 1, endIndex),
+            italic: true,
+          });
+          i = endIndex + 1;
+        } else {
+          // No matching closing *
+          tokens.push({ text: text.substring(i) });
+          break;
+        }
+      } else if (text.startsWith('__', i)) {
+        // Bold text
+        const endIndex = text.indexOf('__', i + 2);
+        if (endIndex !== -1) {
+          tokens.push({
+            text: text.substring(i + 2, endIndex),
+            bold: true,
+          });
+          i = endIndex + 2;
+        } else {
+          // No matching closing __
+          tokens.push({ text: text.substring(i) });
+          break;
+        }
+      } else if (text.startsWith('_', i)) {
+        // Italic text
+        const endIndex = text.indexOf('_', i + 1);
+        if (endIndex !== -1) {
+          tokens.push({
+            text: text.substring(i + 1, endIndex),
+            italic: true,
+          });
+          i = endIndex + 1;
+        } else {
+          // No matching closing _
+          tokens.push({ text: text.substring(i) });
+          break;
+        }
+      } else if (text.startsWith('`', i)) {
+        // Code
+        const endIndex = text.indexOf('`', i + 1);
+        if (endIndex !== -1) {
+          tokens.push({
+            text: text.substring(i + 1, endIndex),
+            code: true,
+          });
+          i = endIndex + 1;
+        } else {
+          // No matching closing `
+          tokens.push({ text: text.substring(i) });
+          break;
+        }
+      } else {
+        // Plain text
+        let nextSpecialIndex = text.length;
+        const specialChars = ['*', '_', '`'];
+        specialChars.forEach((char) => {
+          const index = text.indexOf(char, i);
+          if (index !== -1 && index < nextSpecialIndex) {
+            nextSpecialIndex = index;
+          }
+        });
+        tokens.push({
+          text: text.substring(i, nextSpecialIndex),
+        });
+        i = nextSpecialIndex;
+      }
+    }
+    if( tokens.length === 0){
+          tokens.push({ text: "" });
+
+    }
+  
+    return tokens;
+  };
+  
+  export function wrapInNestedLists(listType, content, indentLevel){
+    let wrappedContent = {
+      type: 'list-item',
+      children: content,
+    };
+    
+  
+    for (let i = 0; i < (indentLevel ?? 1); i++) {
+      wrappedContent = {
+        type: listType,
+        children: [wrappedContent],
+      };
+    }
+  
+    return wrappedContent;
+  };
 
 export function convertOrganizationFinancialData( primitive, analysisTables, sections){
     let overall = ""

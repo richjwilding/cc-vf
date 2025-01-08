@@ -470,7 +470,7 @@ let mainstore = MainStore()
         if( sourceMeta?.parameters ){
           Object.keys(sourceMeta.parameters).forEach((d)=>{
             const param = sourceMeta.parameters[d]
-            if( (param.type === "string" || param.type === "long_string" || param.type === "list") && !param.hidden){
+            if( (param.type === "markdown" || param.type === "string" || param.type === "long_string" || param.type === "list") && !param.hidden){
               list.push({key: `param.${d}`, title: param.title})
             }
           })
@@ -649,6 +649,13 @@ let mainstore = MainStore()
               {item.key === "valuation" && <HeroIcon icon="ArrowTrendingUpIcon" className='w-4 h-4 mr-1'/>}
                 <p>${(val || 0).toFixed(2)}{unit}</p>
               </div>
+      }else if( item.type === "markdown"){
+        return <MarkdownEditor 
+                  initialMarkdown={item.value} 
+                  onChange={props.callback ? props.callback : (value)=>{
+                      return props.primitive.setParameter(item.key, value)
+                  }}
+          />
       }else if( item.type === "prompt"){
         return <MarkdownEditor 
                   initialMarkdown={item.value} 
@@ -657,9 +664,10 @@ let mainstore = MainStore()
                   }}
           />
       }else if( item.type === "url"){
+        const url = item.value?.trim()?.startsWith("http") ? item.value.trim() : `https://${item.value?.trim()}`
         if( props.minor ){
           return (
-              <a className='flex space-x-2' href={item.value?.startsWith("http") ? item.value : `https://${item.value}`} target="_blank">
+              <a className='flex space-x-2' href={url} target="_blank">
                 <LinkIcon className='w-3'/>
                 <p className='break-all'>{item.value}</p>
               </a>
@@ -680,7 +688,7 @@ let mainstore = MainStore()
                 return props.primitive.setParameter(item.key, value)
             }}
           />
-            <a href={item.value?.startsWith("http") ? item.value : `https://${item.value}`} className='p-1' target="_blank">
+            <a href={url} className='p-1' target="_blank">
                 <LinkIcon className='w-5'/>
               </a>
             </div>

@@ -209,7 +209,8 @@ const PrimitiveConfig = {
         "actionrunner",
         "flow",
         "flowinstance",
-        "categorizer"
+        "categorizer",
+        "action"
     ],
     pageview:{
         "board":{
@@ -364,6 +365,15 @@ const PrimitiveConfig = {
                         type: "option_list",
                         title: "Show Title",
                         default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "by_tag":{
+                        type: "option_list",
+                        title: "Color by tag",
+                        default: false,
                         options: [
                             {id:false, title: "No"},
                             {id:true, title: "Yes"}
@@ -633,7 +643,16 @@ const PrimitiveConfig = {
                 const source = input.sourcePrimitive
                 if( source ){
                     const sourcePinConfig = input.sourcePinConfig
-                    const useConfig = sourcePinConfig.types.map(d=>({config:d, position: input.inputMapConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
+                    let sourceTransform
+                    let useConfig = sourcePinConfig.types.map(d=>({config:d, position: input.inputMapConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
+                    
+                    if( !useConfig ){
+                        if( sourcePinConfig.types.includes("string_list") && input.inputMapConfig.types.includes("string")){
+                            sourceTransform = "list_to_string"
+                            useConfig = "string"
+                        }
+                    }
+
                     if( !out[input.inputPin]){
                         out[input.inputPin] = {
                             config: useConfig,
@@ -644,12 +663,29 @@ const PrimitiveConfig = {
                             continue
                         }
                     }
-
-                    if( useConfig === "object_list"){
-                        out[input.inputPin].data = out[input.inputPin].data.concat( PrimitiveConfig.decodeParameter(source.referenceParameters, input.sourcePin) )
-                    }else if(useConfig === "primitive"){
+                    if(useConfig === "primitive"){
                         out[input.inputPin].data.push( source)
+                    }else{
+                        const sourceField = input.sourcePinConfig.source
+                        let sourceData = sourceField === "title" ? source.title : PrimitiveConfig.decodeParameter(source.referenceParameters, sourceField.replace(/^param./,"")) 
+                        if( sourceTransform === "list_to_string"){
+                            sourceData = sourceData.map(d=>{
+                                let tx = d.trim()
+                                if( sourceData.length > 1 && !tx.endsWith(".")){
+                                    tx = tx + ".  "
+                                }
+                                return tx
+                            }).join("")
+                        }
+                        if( useConfig === "object_list"){
+                            out[input.inputPin].data = out[input.inputPin].data.concat( sourceData )
+                        }else if(useConfig === "string_list"){
+                            out[input.inputPin].data = out[input.inputPin].data.concat( sourceData )
+                        }else if(useConfig === "string"){
+                            out[input.inputPin].data =  sourceData
+                        }
                     }
+                    
 
                 }
             }
@@ -727,7 +763,7 @@ const PrimitiveConfig = {
 }
 
 
-export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings = true, headerLevel = 0){
+export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings = true, headerLevel = 0, first = true) {
     let out = ""
 
     for(const d in nodeResult){
@@ -741,18 +777,34 @@ export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings 
             }
         }
         if( nextR?.content ){
-            if( nextR?.type === "list" && typeof(nextR.content) === "string"){
-                out += `${nextR.content.split(",").map(d=>`- ${d}`).join("\n")}\n`
+            if( nextR?.type.match(/list/) ){
+                let asArray = nextR.content ?? []
+
+                if( typeof(nextR.content) === "string"){
+                    asArray = nextR.content.split(/\n/)
+                }
+                
+                out += asArray.map(d=>{
+                    if( typeof(d) === "string"){
+                        d = d.trim()
+                        if(!d.startsWith("- ")){
+                            d = "- " + d
+                        }
+                    }
+                    return d
+                }).join("\n") + "\n"
             }else{
                 out += `${nextR.content}\n`
             }
         }
         if( nextR?.subsections){
-            out += flattenStructuredResponse(nextR?.subsections, nextR?.subsections, allowHeadings, headerLevel + 1)
+            out += flattenStructuredResponse(nextR?.subsections, nextR?.subsections, allowHeadings, headerLevel + 1) + "\n"
         }
     }
-    return out
+    return first ? out.trim() : out
 }
 
+
+PrimitiveConfig.flattenStructuredResponse = flattenStructuredResponse
 
 export default PrimitiveConfig

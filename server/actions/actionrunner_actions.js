@@ -4,15 +4,63 @@ import QueueDocument from "../document_queue";
 import { getLogger } from "../logger";
 import Category from "../model/Category";
 import QueryQueue from "../query_queue";
-import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
-import { aggregateItems, compareItems, iterateItems, queryByAxis, resourceLookupQuery } from "../task_processor";
-const logger = getLogger('actionrunner'); // Debug level for moduleA
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
+import { aggregateItems, compareItems, iterateItems, lookupEntity, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
+import { baseURL, cleanURL } from "./SharedTransforms";
+const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
+
+
+registerAction("lookup_entity", {type: "action"}, async (primitive, action, options, req)=>{
+    const config = await getConfig( primitive )
+    const inputs = await getPrimitiveInputs( primitive )
+    if( inputs?.items ){
+        let lookupList = inputs.items.data ?? []
+        const existing = await primitiveDescendents(primitive, "entity", {fields:"referenceParameters", first: true})
+
+
+        for(const toLookup of lookupList ){
+            if( config.entity_type === "Organization"){
+                if( config.source_type === "URL"){
+
+                    const cleaned = baseURL( toLookup )
+
+                    if( existing.find(d=>baseURL(d.referenceParameters?.url) === cleaned)){
+                        logger.debug(`Skipping ${cleaned} - already here`)
+                        continue
+                    }
+                    let resultCategoryId = 29
+
+                    const newData = {
+                        workspaceId: primitive.workspaceId,
+                        parent: primitive.id,
+                        paths: ['origin'],
+                        data:{
+                            title: cleaned,
+                            referenceParameters:{
+                              url: cleaned  
+                            },
+                            type: "entity",
+                            referenceId: resultCategoryId
+                        }
+                    }
+                    const newPrim = await createPrimitive( newData )
+                }
+            }
+        }
+    }
+})
+registerAction("run_prompt", undefined, async (primitive, action, options, req)=>{
+    await QueueAI().runPromptOnPrimitive( primitive, options)
+})
+
+
+
 
 registerAction( "run_runner", undefined, async (primitive, action, options, req)=>{
     let list = await getDataForImport( primitive, undefined, true ) 
     logger.info(`Action runner ${primitive.id} / ${primitive.plainId} got ${list.length} items for ${options.action} / ${options.flowStarted} / ${options.newIteration}`)
     
-    if( !options.newIteration ){
+    if( !options.newIteration && !options.force){
         list = list.filter(d=>d.processing?.flow?.start !== options.flowStarted)
         logger.info(`Filtered to ${list.length} for flow continuation`)
     }
@@ -32,63 +80,68 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
     let list = await getDataForImport( primitive, undefined, true ) 
     logger.info(`Search runner ${primitive.id} / ${primitive.plainId} got ${list.length} items`)
 
-    const candidateChildSearches = Object.values(primitive?.primitives?.config ?? {})
-    const childSearches = await fetchPrimitives( candidateChildSearches, {type: "search"} )
-
-    logger.info(`Got ${childSearches.length} existing searches`)
     if( list.length > 0){
-
+        const candidateChildSearches = Object.values(primitive?.primitives?.config ?? {})
+        const childSearches = await fetchPrimitives( candidateChildSearches, {type: "search"} )
         
-        const itemCategoryIds = list.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
-        const itemCategoryId = itemCategoryIds[0]
-        if( itemCategoryIds.length > 1){
-            logger.error(`Target list for search has multiple categories - using first ${itemCategoryId}`)
-            list = list.filter(d=>d.referenceId === itemCategoryId)
-        }
-        const itemCategory = await Category.findOne({id: itemCategoryId})
-        const searchSet = itemCategory.resultCategories.find((d)=>d.searchCategoryIds?.includes(primitive.referenceId))
-        console.log(`Found ${searchSet?.id} for ${primitive.referenceId} in ${itemCategory.title}`)
-        if( searchSet ){
-            for(const d of list ){
-                try{
-                    logger.info(` - Checking search node for ${d.id} / ${d.plainId}`)
-                    
-                    const currentSearches = childSearches.filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d.id))
-                    let childSearch = currentSearches[0]
-                    if( currentSearches.length > 1){
-                        logger.error(`Found mutiple searches ${childSearches.length} for run_seach ${primitive.id} <> ${d.id}`)
-                    }
-                    if( childSearch ){
-                        logger.info(` --- Found child search ${childSearch.id} / ${childSearch.plainId} for ${d.id} / ${d.plainId}`)
-                    }else{
-                        logger.info(` --- No child search found for ${d.id} / ${d.plainId}`)
-                        childSearch = await createPrimitive({
-                            workspaceId: primitive.workspaceId,
-                            paths: ["origin", "config"],
-                            parent: primitive.id,
-                            data:{
-                                type: "search",
-                                referenceId: primitive.referenceId
-                            }
-                        })
-                        if( childSearch ){
-                            await addRelationship(d.id, childSearch.id, `link`)
-                            await addRelationship(d.id, childSearch.id, `primitives.search.${searchSet.id}`)
-
-                            logger.info(` --- Created child search ${childSearch.id} / ${childSearch.plainId} found for ${d.id} / ${d.plainId}`)
-                            //const res = await doPrimitiveAction(childSearch, "do_search" )
-                            await QueryQueue().doQuery(childSearch)
-                            console.log(`do_search dispatched for ${childSearch.id}`)
+        logger.info(`Got ${childSearches.length} existing searches`)
+        if( list.length > 0){
+            
+            
+            const itemCategoryIds = list.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
+            const itemCategoryId = itemCategoryIds[0]
+            if( itemCategoryIds.length > 1){
+                logger.error(`Target list for search has multiple categories - using first ${itemCategoryId}`)
+                list = list.filter(d=>d.referenceId === itemCategoryId)
+            }
+            const itemCategory = await Category.findOne({id: itemCategoryId})
+            const searchSet = itemCategory.resultCategories.find((d)=>d.searchCategoryIds?.includes(primitive.referenceId))
+            console.log(`Found ${searchSet?.id} for ${primitive.referenceId} in ${itemCategory.title}`)
+            if( searchSet ){
+                for(const d of list ){
+                    try{
+                        logger.info(` - Checking search node for ${d.id} / ${d.plainId}`)
+                        
+                        const currentSearches = childSearches.filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d.id))
+                        let childSearch = currentSearches[0]
+                        if( currentSearches.length > 1){
+                            logger.error(`Found mutiple searches ${childSearches.length} for run_seach ${primitive.id} <> ${d.id}`)
                         }
+                        if( childSearch ){
+                            logger.info(` --- Found child search ${childSearch.id} / ${childSearch.plainId} for ${d.id} / ${d.plainId}`)
+                        }else{
+                            logger.info(` --- No child search found for ${d.id} / ${d.plainId}`)
+                            childSearch = await createPrimitive({
+                                workspaceId: primitive.workspaceId,
+                                paths: ["origin", "config"],
+                                parent: primitive.id,
+                                data:{
+                                    type: "search",
+                                    referenceId: primitive.referenceId
+                                }
+                            })
+                            if( childSearch ){
+                                await addRelationship(d.id, childSearch.id, `link`)
+                                await addRelationship(d.id, childSearch.id, `primitives.search.${searchSet.id}`)
+                                
+                                logger.info(` --- Created child search ${childSearch.id} / ${childSearch.plainId} found for ${d.id} / ${d.plainId}`)
+                                //const res = await doPrimitiveAction(childSearch, "do_search" )
+                                await QueryQueue().doQuery(childSearch)
+                                console.log(`do_search dispatched for ${childSearch.id}`)
+                            }
+                        }
+                        
+                    }catch(e){
+                        logger.error(`Error in run_search action`)
+                        logger.error(e)
+                        throw e
                     }
-                    
-                }catch(e){
-                    logger.error(`Error in run_search action`)
-                    logger.error(e)
-                    throw e
                 }
             }
         }
+    }else{
+        logger.info(`Running search instance ${primitive.id} / ${primitive.plainId}`)
+        await QueryQueue().doQuery( primitive )
     }
 })
 
@@ -114,6 +167,8 @@ registerAction( "custom_query", undefined, async (primitive, action, options = {
         await aggregateItems( parentForScope, primitive, options )
     }else if( thisCategory.type === "comparator"){
         await compareItems( parentForScope, primitive, options )
+    }else if( thisCategory.type === "ai_prompt"){
+        await QueueAI().runPromptOnPrimitive( primitive, options)
     }else if( thisCategory.type === "iterator"){
         await iterateItems( parentForScope, primitive, options )
     }else  if( thisCategory.type === "lookup"){

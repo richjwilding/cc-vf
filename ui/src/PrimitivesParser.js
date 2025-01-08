@@ -392,7 +392,7 @@ export default function PrimitiveParser(obj){
                                     last = addNode( last, step, prevLast, prevStep)
                                     node = last[step]
                                 }else{
-                                    return undefined
+                                    return new Proxy([], structure)
                                 }
                             }
                             prevLast = last

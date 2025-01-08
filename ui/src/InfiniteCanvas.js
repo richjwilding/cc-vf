@@ -446,6 +446,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
 
     function resizeNestedFrame( id ){
+        
         const children = getNestedFrames(id).map(d=>{
             const frame = myState.current.frames.find(d2=>d.id === d2.id)
             if( frame ){
@@ -583,7 +584,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
 
             if( options.indicators ){
-                const indicators = renderIndicators( options.indicators, {
+                const indicators = renderIndicators( options.indicators(), {
                     x: maxX,
                     y: 0,
                     imageCallback: processImageCallback
@@ -2130,8 +2131,23 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     },
                     //scaleBounds: { min: 0.03, max: 8 },
                     scaleBounds: ()=>{
+                        let min = 0.03
+                        if( props.board ){
+                            let minX, maxX, minY, maxY
+                            myState.current.frames.forEach(frame=>{
+                                let fl = frame.x
+                                let ft = frame.y
+                                let fr = (frame.x + (frame.node.attrs.width * frame.scale))
+                                let fb = (frame.y + (frame.node.attrs.height * frame.scale))
+                                if( minX == undefined || fl < minX){ minX = fl}
+                                if( minY == undefined || ft < minY){ minY = ft}
+                                if( maxX == undefined || fr > maxX){ maxX = fr}
+                                if( maxY == undefined || fb > maxY){ maxY = fb}
+                            })
+                            min = Math.min( 0.03, myState.current.width / (maxX- minX) / 2,  myState.current.height / (maxY - minY) / 2 )
+                        }
                         const max = props.board ? 5 / Math.min(1, ...Object.values(props.framePositions ?? {}).map(d=>d.s ?? 1)) : 8
-                        return { min: 0.03, max: max }
+                        return { min, max }
                     }
                 },
             }
@@ -2405,6 +2421,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             return anythingFound
         }
         function orderInteractiveNodes(found){
+            if( !found ){return []}
             const nodesWithZIndex = found.map(node => {
                 let zIndex = node.zIndex()
                 if(!node.attrs.className || !node.attrs.className.attrs.name.match(/\bframe\b/)){

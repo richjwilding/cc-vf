@@ -57,7 +57,7 @@ function buildIndicators(primitive, flowInstance, flow, state){
     flow ||= flowInstance?.findParentPrimitives({type: "flow"})?.[0]
     let step
     if( flow && flowInstance ){
-        step = state.current.flowWatchList?.[flow.id]?.[flowInstance.id]?.status.find(d=>d.step.id === primitive.id)
+        step = state.current.flowWatchList?.[flow.id]?.[flowInstance.id]?.status?.find(d=>d.step.id === primitive.id)
     }
     return translateIndicatorState( step )
 }
@@ -67,24 +67,30 @@ function translateIndicatorState(step){
         color: "#666"
     }
     if( step ){
-        if( step ){
-            if( step.running){
-                out = {
-                    icon: "FAPlay",
-                    color: "#3b82f6"
-                }
-            }else if( step.needReason === "complete"){
-                out = {
-                    icon: "FACircleCheck",
-                    color: "#4ade80"
-                }
-            }else{
-                out = {
-                    icon: "FAHand",
-                    color: "#f97316"//#f59e0b
-                }
-            } 
-        }
+        if( step.running){
+            out = {
+                icon: "FAPlay",
+                color: "#3b82f6"
+            }
+        }else if( step.needReason === "complete"){
+            out = {
+                icon: "FACircleCheck",
+                color: "#4ade80"
+            }
+        }else if( step.canReason === "all_ready"){
+            out = {
+                icon: "FAPlay",
+                color: "#f97316"//#f59e0b
+            }
+        }else{
+            out = {
+                icon: "FAHand",
+                color: "#f97316"//#f59e0b
+            }
+        } 
+    }
+    if( out.icon === "Eye"){
+        console.log(`Is eye`, step)
     }
     return [out]
 }
@@ -118,7 +124,7 @@ let mainstore = MainStore()
             renderOptions.widgetConfig = view.widgetConfig
         }
 
-        const primitiveToRender = view.underlying ?? view.primitive
+        const primitiveToRender = view.primitive.type === "element" ? view.primitive : (view.underlying ?? view.primitive)
 
         const title = view.noTitle ? undefined : ()=>{
             return view.title ?? `${d.title} - #${d.plainId}${view.underlying ? ` (${primitiveToRender.plainId})` : ""}`
@@ -127,7 +133,7 @@ let mainstore = MainStore()
 
         let indicators
         if( primitiveToRender.processing?.flow){
-            indicators = buildIndicators(primitive, undefined, undefined, myState)
+            indicators = ()=>buildIndicators(primitiveToRender, undefined, undefined, myState)
         }
 
 
@@ -195,7 +201,7 @@ let mainstore = MainStore()
                 data.basePrimitive = view.primitive
             }
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: "widget", data: data})
-            return {id: d.id, parentRender: view.parentRender, indicators, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
+            return {id: d.id, title,parentRender: view.parentRender, indicators, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
         }else if( view.config === "report_set"){
 
 
@@ -224,6 +230,30 @@ let mainstore = MainStore()
         }
 
         const canChangeSize = view?.viewConfig?.resizable 
+        if( view.viewConfig?.matrixType ){
+            
+        return {id: d.id ,
+            parentRender: 
+            view.parentRender, 
+            title, 
+            indicators, 
+            canChangeSize, 
+            items: (stageOptions)=>RenderSetAsKonva(
+                primitiveToRender, 
+                view.list, 
+                {
+                    referenceId: primitiveToRender.referenceId,
+                    ...stageOptions, 
+                    ...renderOptions,
+                    axis:view.axis,
+                    extents:{column: view.columns.map(d=>({...d, primitive: mainstore.primitive(d.idx)})), row:view.rows.map(d=>({...d, primitive: mainstore.primitive(d.idx)}))},
+                    config: view.viewConfig?.matrixType
+
+                }
+            )
+}
+
+        }
 
         return {id: d.id ,parentRender: view.parentRender, title, indicators, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
 
@@ -253,10 +283,20 @@ let mainstore = MainStore()
                 widgetConfig.showItems = myState[stateId].showItems
                 widgetConfig.title = basePrimitive.title
                 widgetConfig.icon = <HeroIcon icon='FARobot'/>
-                widgetConfig.count = primitiveToPrepare.itemsForProcessing.length
                 widgetConfig.items = "results"
+                widgetConfig.count = primitiveToPrepare.itemsForProcessing.length
                 widgetConfig.content = `**${useQuery ? "Query" : "Prompt"}:** ` + (useQuery ? basePrimitive.referenceParameters.query : basePrimitive.referenceParameters.prompt)
                 myState[stateId].widgetConfig = widgetConfig
+                didChange = true
+            }else if( primitiveToPrepare.type=== "action"){
+
+                widgetConfig.showItems = myState[stateId].showItems
+                widgetConfig.title = basePrimitive.title
+                widgetConfig.icon = <HeroIcon icon='FARobot'/>
+                widgetConfig.items = "results"
+                widgetConfig.content = `**Result:** ` + (primitiveToPrepare.referenceParameters.result ?? "")
+                myState[stateId].widgetConfig = widgetConfig
+                didChange = true
             }else if( primitiveToPrepare.type=== "summary"){
                 widgetConfig.showItems = myState[stateId].showItems
                 widgetConfig.title = basePrimitive.title
@@ -276,7 +316,7 @@ let mainstore = MainStore()
             let renderData = {}
 
             myState[stateId].renderData = renderData
-        }else if( renderType === "view" || renderType === "query"){
+        }else if( renderType === "view" || renderType === "query" || (renderType === "action" && primitiveToPrepare.metadata.hasResults)){
             
             const items = primitiveToPrepare.itemsForProcessing
             
@@ -294,15 +334,16 @@ let mainstore = MainStore()
                 }
             }
 
-            const columnAxis = CollectionUtils.primitiveAxis(d, "column", items)
-            const rowAxis = CollectionUtils.primitiveAxis(d, "row", items)
+            const columnAxis = CollectionUtils.primitiveAxis(primitiveToPrepare, "column", items)
+            const rowAxis = CollectionUtils.primitiveAxis(primitiveToPrepare, "row", items)
 
             if( viewConfig?.renderType === "cat_overview"){
+                let config = primitiveToPrepare.getConfig
                 let categoriesToMap
-                if( primitiveToPrepare.referenceParameters.explore.axis?.column?.type === "category" || primitiveToPrepare.referenceParameters.explore.axis?.row?.type === "category"){
+                if( config.explore.axis?.column?.type === "category" || config.explore.axis?.row?.type === "category"){
                     categoriesToMap = [
-                        primitiveToPrepare.referenceParameters.explore.axis?.column?.type === "category" ? primitiveToPrepare.primitives.axis.column.allItems : undefined,
-                        primitiveToPrepare.referenceParameters.explore.axis?.row?.type === "category" ? primitiveToPrepare.primitives.axis.row.allItems : undefined,
+                        config.explore.axis?.column?.type === "category" ? primitiveToPrepare.primitives.axis.column.allItems : undefined,
+                        config.explore.axis?.row?.type === "category" ? primitiveToPrepare.primitives.axis.row.allItems : undefined,
                     ].flat().filter(d=>d)
                 }else{
                     categoriesToMap = primitiveToPrepare.primitives.origin.allUniqueCategory
@@ -337,6 +378,7 @@ let mainstore = MainStore()
                                 return {
                                     idx: d.idx,
                                     label: d.label,
+                                    tag: mainstore.primitive(d.idx).referenceParameters?.tag,
                                     count: items.length,
                                     items
                                 }})
@@ -399,7 +441,7 @@ let mainstore = MainStore()
                             }
                             return false
                         })
-                        didChange = changes
+                        didChange = didChange || changes
                     }
                 }
                             
@@ -418,12 +460,27 @@ let mainstore = MainStore()
                                                                         }
                                                                         return a}, {})
             }
-        }else if( renderType === "summary" || renderType === "element"){
+        }else if( renderType === "summary" || renderType === "element" || renderType === "action"){
+
+            let viewConfig
+            const viewConfigs = CollectionUtils.viewConfigs(basePrimitive.metadata)
+            if( forceViewConfig ){
+                let activeView = viewConfigs.findIndex(d=>d.renderType === forceViewConfig.viewConfig || d.id === forceViewConfig.viewConfig) 
+                if( activeView == -1){
+                    viewConfig = {
+                        renderType: forceViewConfig.viewConfig
+                    }
+                }else{
+                    viewConfig = viewConfigs[activeView] 
+                }
+            }
+
             const showItems = d.frames?.[stateId]?.showItems
             myState[stateId].primitive = basePrimitive
             myState[stateId].list = [{column: undefined, row: undefined, primitive: primitiveToPrepare}]
             myState[stateId].columns = [{idx: undefined, label: ''}]
             myState[stateId].rows = [{idx: undefined, label: ''}]
+                myState[stateId].viewConfig = viewConfig
             myState[stateId].config = "full"
             myState[stateId].extents = {
                 columns: [{idx: undefined, label: ''}],
@@ -444,6 +501,7 @@ let mainstore = MainStore()
                 count: items.length,
                 items: items[0]?.metadata?.title ?? "items"
             }
+            didChange = true
         }else if( renderType === "search" ){
 
             const resultCategory = mainstore.category( d.metadata.parameters.sources.options[0].resultCategoryId )
@@ -468,13 +526,13 @@ let mainstore = MainStore()
             if(flowInstanceToShow ){
                 stopWatchingFlowInstances(primitiveToPrepare, flowInstances, myState, flowInstanceToShow.id)
                 watchFlowInstance( primitiveToPrepare, flowInstanceToShow, myState)
+                myState[stateId].internalWatchIds = [flowInstanceToShow.id, ...flowInstanceToShow.primitives.origin.allIds]
             }
 
             myState[stateId].primitive = basePrimitive
             myState[stateId].config = "flow"
             myState[stateId].lastView = d.referenceParameters?.explore?.view
             myState[stateId].title = `${basePrimitive.title} - #${basePrimitive.plainId}${flowInstanceToShow ? ` (${flowInstanceToShow.plainId})` : ""}`
-            myState[stateId].internalWatchIds = [flowInstanceToShow.id, ...flowInstanceToShow.primitives.origin.allIds]
             myState[stateId].renderData = {
                 icon: <HeroIcon icon='CogIcon'/>,
                 count: primitiveToPrepare.primitives.uniqueAllIds.length
@@ -585,21 +643,29 @@ async function watchFlowInstance( flow, flowInstance, state){
 }
 async function updateFlowInstanceState(flow, flowInstance, state){
     if(state.current.flowWatchList?.[flow.id]?.[flowInstance.id]){
-        await MainStore().doPrimitiveAction(flowInstance, "instance_info",undefined, (data)=>{
-            console.log(`Got state`, data)
-            if(state.current.flowWatchList?.[flow.id]?.[flowInstance.id]){
-                state.current.flowWatchList[flow.id][flowInstance.id].status = data
+        try{
 
-                if( state.current?.canvas){
-                    for(const d of data){
-                        state.current.canvas.updateIndicators( d.flowStepId, translateIndicatorState( d ) )
+            await MainStore().doPrimitiveAction(flowInstance, "instance_info",undefined, (data)=>{
+                console.log(`Got state`, data)
+                if(state.current.flowWatchList?.[flow.id]?.[flowInstance.id]){
+                    state.current.flowWatchList[flow.id][flowInstance.id].status = data
+                    
+                    if( state.current?.canvas){
+                        for(const d of data){
+                            state.current.canvas.updateIndicators( d.flowStepId, translateIndicatorState( d ) )
+                        }
                     }
+                    state.current.flowWatchList[flow.id][flowInstance.id].timer = setTimeout(()=>{
+                        updateFlowInstanceState(flow, flowInstance, state)
+                    }, 5000)
                 }
-                state.current.flowWatchList[flow.id][flowInstance.id].timer = setTimeout(()=>{
-                    updateFlowInstanceState(flow, flowInstance, state)
-                }, 5000)
-            }
-        })
+            })
+        }catch(e){
+                    state.current.flowWatchList[flow.id][flowInstance.id].timer = setTimeout(()=>{
+                        updateFlowInstanceState(flow, flowInstance, state)
+                    }, 5000)
+
+        }
     }
 }
 
@@ -963,7 +1029,7 @@ export default function BoardViewer({primitive,...props}){
         if( id ){
             myState.activeBoard = myState[id]
             if(true || !myState[id].axisOptions ){
-                const source = myState[id].primitive
+                const source = /*myState[id].underlying ?? */ myState[id].primitive
                 myState[id].axisOptions = CollectionUtils.axisFromCollection( source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
             }
             handleViewChange(true)
@@ -1182,6 +1248,7 @@ export default function BoardViewer({primitive,...props}){
             title: `New ${category.primitiveType}`,
             categoryId: category.id,
             type: category.primitiveType,
+            flowElement: true,
             referenceParameters: {
                 ...(importPrimitive ? {target: "items", importConfig: [{id: importPrimitive.id, filters: filter}]} : {}),
                 target: "items",
@@ -1266,7 +1333,7 @@ export default function BoardViewer({primitive,...props}){
             return
         }
         const views = primitive.primitives.origin.allUniqueView.filter(d=>{
-            if(d.doesImport(manual)){
+            if(d.doesImport(manual.id)){
                 if( d.referenceParameters?.referenceId === item.referenceId){
                     return true
                 }
@@ -1314,7 +1381,7 @@ export default function BoardViewer({primitive,...props}){
 
         mainstore.globalNewPrimitive({
             title: addToFlow ? `Add to ${addToFlow.title} flow` : "Add to board",
-            categoryId: [38, 130, 118, 109, ...categoryList],
+            categoryId: [38, 130, 118, 135, 109, 136, 137,...categoryList],
             parent: primitive,
             beforeCreate:async (data)=>{
                 if( addToFlow ){
@@ -1324,7 +1391,7 @@ export default function BoardViewer({primitive,...props}){
                     }
 
                 }else{
-                    if( data.type === "entity"){
+                    if( data.type === "entity" || data.type === "result"){
                         console.log(`Entity selected - need to add to manual segment`)
                         let segment = primitive.primitives.manual.allUniqueSegment[0]
                         if( !segment ){
@@ -1355,7 +1422,7 @@ export default function BoardViewer({primitive,...props}){
                     if( addToFlow ){
                         console.log(`Added to flow`)
                     }else{
-                        if(d.type === "entity"){
+                        if(d.type === "entity" || d.type === "result"){
                             await getOrCreateSuitableView(d)
                         }
                         addBoardToCanvas( d, findSpace())

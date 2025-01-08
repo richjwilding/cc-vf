@@ -25,7 +25,6 @@ router.get('/', async function(req, res, next) {
     res.json({up: true})
 })
 router.get('/image/:id', async function(req, res, next) {
-    console.log(`FINDING IMAGE`)
     const id = req.params.id
     const bucketName = 'cc_vf_images'
     const storage = new Storage({
@@ -835,7 +834,7 @@ router.get('/primitive/:id/getDocumentAsPlainText', async function(req, res, nex
     const force = req.query.force
     console.log( primitiveId )
     try{
-        const result = await getDocumentAsPlainText( primitiveId, req, undefined, force )
+        const result = await getDocumentAsPlainText( primitiveId, req, undefined, undefined, force )
         res.json({success: true, result: result?.plain, encoded: result?.data})
     }catch(err){
         res.status(400).json( {error: err.message})

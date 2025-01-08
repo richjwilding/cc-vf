@@ -32,6 +32,21 @@ export const categoryColors = [ "#4e79a7",
                                 "#9c755f",
                                 "#bab0ab"]
 
+export const tagColors =  {
+    Blue: ["#dbeafe", "#bfdbfe", "#93c5fd", "#60a5fa", "#3b82f6", "#2563eb"],
+    Green: ["#dcfce7", "#bbf7d0", "#86efac", "#4ade80", "#22c55e", "#16a34a"],
+    Yellow: ["#fef9c3", "#fef08a", "#fde047", "#facc15", "#eab308", "#ca8a04"],
+    Red: ["#fee2e2", "#fecaca", "#fca5a5", "#f87171", "#ef4444", "#dc2626"],
+    Lime: ["#ecfccb", "#d9f99d", "#bef264", "#a3e635", "#84cc16", "#65a30d"],
+    Amber: ["#fef3c7", "#fde68a", "#fcd34d", "#fbbf24", "#f59e0b", "#d97706"],
+    Indigo: ["#e0e7ff", "#c7d2fe", "#a5b4fc", "#818cf8", "#6366f1", "#4f46e5"],
+    Orange: ["#ffedd5", "#fed7aa", "#fdba74", "#fb923c", "#f97316", "#ea580c"],
+    Violet: ["#ede9fe", "#ddd6fe", "#c4b5fd", "#a78bfa", "#8b5cf6", "#7c3aed"],
+    Cyan: ["#cffafe", "#a5f3fc", "#67e8f9", "#22d3ee", "#06b6d4", "#0891b2"],
+    Emerald: ["#d1fae5", "#a7f3d0", "#6ee7b7", "#34d399", "#10b981", "#059669"],
+    Teal: ["#ccfbf1", "#99f6e4", "#5eead4", "#2dd4bf", "#14b8a6", "#0d9488"],
+    Sky: ["#e0f2fe", "#bae6fd", "#7dd3fc", "#38bdf8", "#0ea5e9", "#0284c7"]
+  };
 
 function registerRenderer( mappings, callback){
     for(const d of [mappings].flat()){
@@ -473,6 +488,19 @@ registerRenderer( {type: "default", configs: "set_totalValue"}, (primitive, opti
     return g
 })
 
+function getTextColor(hexColor) {
+    // Convert hex to RGB
+    const r = parseInt(hexColor.slice(1, 3), 16) / 255;
+    const g = parseInt(hexColor.slice(3, 5), 16) / 255;
+    const b = parseInt(hexColor.slice(5, 7), 16) / 255;
+
+    // Calculate luminance
+    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    // Return black or white text color based on luminance
+    return luminance > 0.5 ? 'black' : 'white';
+}
+
 function mixHexWithWhite(hex, opacity = 0.25) {
     // Convert hex to RGB
     const r = parseInt(hex.slice(1, 3), 16);
@@ -560,6 +588,8 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
 
     let color = primitive.renderConfig?.color ? categoryColors[primitive.renderConfig?.color] : "#0ea5e9"
+
+
     if( options.renderConfig?.viewConfig?.scheme === "under_over" ){
         const cleaned = series.filter(d=>d)
         const first = cleaned[0]
@@ -931,7 +961,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     return g
 })
 registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})=>{
-    const config = {showId: true, fontSize: 16, width: 128, padding: [10,10,10,10], ...options}
+    const config = {showId: true, fontSize: 16, fontFamily: "Arial", width: 128, padding: [10,10,10,10], ...options}
     if( config.minWidth){
         config.width = config.minWidth
     }
@@ -956,6 +986,8 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
     let h = config.height ?? 40
     const fullWidth = config.width - config.padding[3] - config.padding[1]
 
+    
+    options.format = options.format ?? options.fontStyle
 
     if( options.field === "icon"){
         if(!options.getConfig){
@@ -994,6 +1026,20 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
                     text = "-"
                 }
             }
+        }else if( options.field.startsWith("summary_")){
+            const sectionNames = options.field.slice(8).split("_")
+            text = ""
+            for(const sectionName of sectionNames ){
+                const section = primitive.referenceParameters.structured_summary?.filter(d=>d.heading.toLowerCase() === sectionName.toLowerCase()).map(d=>d.content).filter(d=>d).join("\n").trim()
+                if( sectionNames.length > 1){
+                    text += `**${sectionName}**: `
+                }
+                text += section + "\n"
+            }
+            text = text.trim()
+            if( options.format === "bold"){
+                text = `**${text}**`
+            }
         }else if( options.type === "date_string"){
             text = value?.match(/(\d+)-/)?.[1] ?? "-"
         }else if(options.part){
@@ -1023,12 +1069,36 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
         }
         
         if( text ){
+            let y = config.padding[0]
+            if(options.heading){
+                const t = new CustomText({
+                    x: config.padding[3],
+                    y: y,
+                    fontSize: config.fontSize * 0.8,
+                    fontFamily: config.fontFamily,
+                    fontStyle:"bold",
+                    text: options.heading.toUpperCase(),
+                    fill: '#999999',
+                    showPlaceHolder: false,
+                    wrap: false,
+                    bgFill: 'transparent',
+                    align:'center',
+                    width: fullWidth,
+                    withMarkdown: false,
+                    ellipsis: false,
+                    refreshCallback: options.imageCallback
+                })
+                g.add(t)
+                y += t.height() * 2
+            }
             const textHeight = options.getConfig ? undefined : h - config.padding[0] - config.padding[2] 
             
             const t = new CustomText({
                 x: config.padding[3],
-                y: config.padding[0],
+                y,
                 fontSize: config.fontSize,
+                fontFamily: config.fontFamily,
+                fontStyle: options.format === "light" ? "light" : "normal",
                 lineHeight: 1.25,
                 text: text,
                 fill: '#334155',
@@ -1046,7 +1116,7 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
             }
             const th = Math.max(t.height(), textHeight ?? 0)
             
-            t.y( config.padding[0] + (th - t.height())  /2)
+          //  t.y( config.padding[0] + (th - t.height())  /2)
         }
     }
 
@@ -3089,6 +3159,7 @@ registerRenderer( {type: "type", id: "actionrunner", configs: "default"}, (primi
 registerRenderer( {type: "type", id: "summary", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Summary", typeIcon: <HeroIcon icon='FARun'/>}))
 registerRenderer( {type: "type", id: "categorizer", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Summary", typeIcon: <HeroIcon icon='FARun'/>}))
 registerRenderer( {type: "type", id: "query", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "Query", typeIcon: <HeroIcon icon='FARobot'/>}))
+registerRenderer( {type: "type", id: "action", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "Action", typeIcon: <HeroIcon icon='FARobot'/>}))
 registerRenderer( {type: "type", id: "search", configs: "default"}, renderDefaultActionPrimitive)
 
 function renderDefaultActionPrimitive(primitive, options){
@@ -3164,20 +3235,23 @@ function renderDefaultActionPrimitive(primitive, options){
 
         g.add(addWidgetText(options.data.title, {fontSize: 18, bold:true, lineFill: '#666'}))
         
-        const count = addWidgetText(options.data.count + " " + options.data.items, {color: "#eee", fontSize: 14, lineFill: "#3f6212"})
-        const pill = new Konva.Rect({
-            x: lx,
-            y: count.attrs.y,
-            cornerRadius: 10,
-            fill: PrimitiveConfig.typeConfig[primitive.type]?.render?.accentBackground ?? "#626262",
-            width: count.textWidth + 16,
-            height: count.textHeight + 8
-        })
-        count.attrs.x += 8
-        count.attrs.y += 5
-        ly += 5
-        g.add(pill)
-        g.add(count)
+        if( options.data.count !== undefined){
+
+            const count = addWidgetText(options.data.count + " " + options.data.items, {color: "#eee", fontSize: 14, lineFill: "#3f6212"})
+            const pill = new Konva.Rect({
+                x: lx,
+                y: count.attrs.y,
+                cornerRadius: 10,
+                fill: PrimitiveConfig.typeConfig[primitive.type]?.render?.accentBackground ?? "#626262",
+                width: count.textWidth + 16,
+                height: count.textHeight + 8
+            })
+            count.attrs.x += 8
+            count.attrs.y += 5
+            ly += 5
+            g.add(pill)
+            g.add(count)
+        }
         
         if( options.data?.descendants ){
             let py = 20
@@ -4042,18 +4116,21 @@ function renderPieChart( segments, options = {}){
     let a = 0
     let idx = 0
     let colors = options.colors ?? categoryColors
+
+
     for( const s of  segments){
+
         const degs = scale * s.count
         var wedge = new Konva.Wedge({
             x: r,
             y: r,
             radius: r,
             angle: degs,
-            fill: colors[idx % colors.length],
+            fill: s.color ?? colors[idx % colors.length],
             //stroke: 'black',
             //strokeWidth: 1,
             strokeScaleEnabled: false,
-            rotation: a,
+            rotation: 270 + a,
           });
         g.add(wedge)
         a += degs
@@ -4076,6 +4153,23 @@ function renderSubCategoryChart( title, data, options = {}){
         itemSize = 200,        
         colors = categoryColors
     } = options
+
+    if( options.byTag ){
+        data = data.sort((a,b)=>a.tag - b.tag)
+        const tagColorsArr = Object.values(tagColors)
+        let lastTag, idx = 0
+        data.forEach(d=>{
+            if( d.tag !== lastTag){
+                idx = 0
+            }else{
+                idx ++
+            }
+            lastTag = d.tag
+            const colArr = tagColorsArr[d.tag]
+            d.color = colArr[idx % colArr.length]
+        })
+    }
+
     
     const sg = new Konva.Group({
         x,
@@ -4130,7 +4224,7 @@ function renderSubCategoryChart( title, data, options = {}){
                 y: ly + (legendFontSize * 0.05),
                 width: legendFontSize * 0.9,
                 height: legendFontSize * 0.9,
-                fill: colors[ lIdx % colors.length],
+                fill: d.color ?? colors[ lIdx % colors.length],
                 strokeScaleEnabled: false,
                 strokeWidth:1,
                 stroke: '#555'
@@ -4158,7 +4252,7 @@ function renderSubCategoryChart( title, data, options = {}){
 }
 
 registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, options = {})=>{
-    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, itemSize: 280, width: 1200, padding: [0,0,0,0], ...options}
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, itemSize: 280, width: 1200, padding: [0,0,0,0], ...options, ...(primitive.renderConfig ?? {})}
 
     let ox = (options.x ?? 0) 
     let oy = (options.y ?? 0) 
@@ -4201,7 +4295,7 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
     }
 
     for( const item of sets ){
-        const sg = renderSubCategoryChart(item.title, item.details, {x: x, y: y, itemSize, innerPadding, hideTitle: options.show_title === false, hideLegend: options.show_legend === false})
+        const sg = renderSubCategoryChart(item.title, item.details, {x: x, y: y, itemSize, innerPadding, hideTitle: config.show_title === false, hideLegend: config.show_legend === false, byTag: config.by_tag})
         g.add(sg)
         rowCells.push( sg )
         
@@ -4228,8 +4322,14 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
 
 })
 registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, function renderFunc(primitive, options = {}){
+    return categoryGrid( primitive, options)
+})
+registerRenderer( {type: "categoryId", id: 113, configs: "set_format_grid"}, function renderFunc(primitive, options = {}){
+    return categoryGrid( primitive, {...options, itemSize: 450})
+})
 
-    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, height: 1200, itemSize: 280, padding: [10,10,10,10], ...options}
+function categoryGrid(primitive, options = {}){
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, height: 1200, itemSize: 280, padding: [10,10,10,10], ...options, ...(primitive.renderConfig ?? {})}
     let ox = (options.x ?? 0) 
     let oy = (options.y ?? 0) 
 
@@ -4270,8 +4370,35 @@ registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, functio
         }
     }
 
-    for(const row of options.extents.row){
-        for(const column of options.extents.column){
+    let sortedRows = options.extents.row
+    let sortedCols = options.extents.column
+    
+    if(  config.by_tag ){
+        [sortedRows, sortedCols].flat().forEach(d=>{
+            d.tag = d.primitive?.filterTargets?.[0]?.referenceParameters?.tag
+        })
+
+        sortedCols = sortedCols.sort((a,b)=>a.tag - b.tag)
+        sortedRows = sortedRows.sort((a,b)=>a.tag - b.tag)
+
+        let lastTag, tagIdx = 0;
+
+        ([sortedRows, sortedCols]).flat().forEach(d=>{
+            if( d.tag !== lastTag){
+                tagIdx = 0
+            }
+            const scol = Object.values(tagColors)[d.tag]
+            d.color = scol ? scol[tagIdx % scol.length] : undefined
+            tagIdx ++
+            lastTag = d.tag
+        })
+        
+    }
+
+
+    for(const row of sortedRows){
+        for(const column of sortedCols){
+            let color = column.color ?? row.color ?? colors[idx % colors.length] 
             const tg = new Konva.Group({
                 x: x,
                 y: y,
@@ -4285,7 +4412,7 @@ registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, functio
                 y: 0,
                 width: itemSize,
                 height: itemSize,
-                stroke: colors[idx % colors.length],
+                stroke: color,
                 strokeWidth: 1,
                 name:"background_rect"
             })
@@ -4302,7 +4429,7 @@ registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, functio
                         verticalAlign:"top",
                         fontStyle: "bold",
                         fontFamily: "Poppins",
-                        fill:"white",
+                        fill: config.by_tag ? getTextColor(color) : "white",
                         x: innerPadding[3],
                         y: innerPadding[0],
                         width: itemSize - innerPadding[3] - innerPadding[1],
@@ -4314,7 +4441,7 @@ registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, functio
                 y: 0,
                 width: itemSize,
                 height: header.height() + innerPadding[3] + innerPadding[1],
-                fill: colors[idx % colors.length],
+                fill: color,
             })
             tg.add(r2)
             tg.add(header)
@@ -4335,6 +4462,7 @@ registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, functio
                     wrap: false,
                     ellipsis: true,
                     withMarkdown: true,
+                    lineHeight: 1.3,
                     verticalAlign:"top",
                     fill:"#334155",
                     x: 4,
@@ -4375,7 +4503,7 @@ registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, functio
     g.height(h)
     
     return g
-})
+}
 registerRenderer( {type: "categoryId", id: 29, configs: "export_finances"}, function renderFunc(primitive, options = {}){
     const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 492, itemSize: 280, padding: [10,10,10,10], ...options}
 

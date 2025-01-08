@@ -113,7 +113,7 @@ export default function CollectionViewer({primitive, category, ...props}){
             const text = await navigator.clipboard.readText()
               
                 // `text` variable now contains the text from the clipboard
-                const items = text.split(/,|\n/);
+                const items = text.split(/,|\n/).map(d=>d.trim());
                 if( window.confirm(`Create ${items.length} from:\n${items.slice(0,10).join('\n')}`) ){
                    for( const url of items){
                         await createResult({referenceParameters: {[field]: url}})

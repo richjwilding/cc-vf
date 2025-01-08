@@ -1467,9 +1467,11 @@ export async function validateResponse(task, response, nodeStruct, inputs, confi
                             - Identify and flag qualitative assessments, focusing on subjective language or claims.
                             - Verify if qualitative statements are supported by data trends or broader context 
                             - Assess whether qualitative claims align with the overall trends and context provided by the data - or if they have been  significantly exaggerated / down-played.
+                            - When reviewing quotes, do not fact the content of the quote - just ensure the quote was in the original data
                         5. **Error Identification**:
                         - Highlight statements that are completely lacking provenance, contain factual inaccuracies, or instances where qualitative statements are wildly off.
                         - Ensure your findings are genuine errors, not omissions, abbreviations, or abridged details.
+                        - Do not highlight factual errors in quotes, just highlight if the quote was not present in the original data 
                         Do this for all statements or claims in the response output i provided.  Filter out all of the statements or claims which do not contain errors. Your response should be an empty array if no statement contain an error. `.replaceAll(/[^\S\r\n]+/g," ")
 
 

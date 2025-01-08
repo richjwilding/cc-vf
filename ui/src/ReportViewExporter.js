@@ -57,6 +57,9 @@ export default function ReportViewExporter({primitive, ...props}){
 
 
         targetList = primitive.primitives.imports.main.allItems
+        if( targetList.length > 0 && targetList[0].type === "query"){
+            targetList = targetList.flatMap(d=>d.primitives.origin.allSummary)
+        }
     }
 
     const myState = useRef({})
@@ -74,7 +77,7 @@ export default function ReportViewExporter({primitive, ...props}){
     }
 
     //const pptConfig = {removeNodes: ["frame_outline", "plainId", "background"], padding: [2, 0.2, 0.2, 0.2], scale: 0.03}
-    const pptConfig = {removeNodes: ["frame_outline", "plainId", "background", "bounds_frame"], padding: [0,0,0,0], scale: 0.03}
+    const pptConfig = {removeNodes: ["frame_outline", "frame_bg", "frame_label","plainId", "background", "bounds_frame"], padding: [0,0,0,0], scale: 0.03}
     
     useEffect(()=>{
         async function doCallback(){
@@ -132,86 +135,17 @@ export default function ReportViewExporter({primitive, ...props}){
 
 
             if( myState[d.id].viewConfig?.renderType === "field" ){
-                return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(myState[d.id]?.underlying, {...stageOptions, ...renderOptions, config: "field", field: d.referenceParameters?.field ?? "title", part: d.part})}
+                return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,20,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(myState[d.id]?.underlying, {...stageOptions, ...renderOptions, config: "field", field: d.referenceParameters?.field ?? "title", part: d.part, heading: d.referenceParameters.heading, fontFamily: "Poppins", fontSize: d.referenceParameters.fontSize, fontStyle: d.referenceParameters.fontStyle})}
             }
-            if( d.referenceParameters?.limit === "single"){
-                return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(myState[d.id]?.underlying, {...stageOptions, ...renderOptions})}
+            if( !myState[d.id].list || d.referenceParameters?.limit === "single"){
+                return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,20,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(myState[d.id]?.underlying, {...stageOptions, ...renderOptions})}
             }
 
             return BoardViewer.renderBoardView(d, primitive, myState)
         }
         
-        return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(d, {...stageOptions, ...renderOptions, config: "field", field: d.field ?? "title", part: d.part, format: d.format})}
+        return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,20,2,2], items: (stageOptions)=>RenderPrimitiveAsKonva(d, {...stageOptions, ...renderOptions, config: "field", field: d.field ?? "title", part: d.part, format: d.format})}
         
-        /*
-        const view = myState[d.id]
-        const viewConfig = view.viewConfig
-
-
-        let targetPrims = view.primitive.itemsForProcessing.filter(d=>{
-            if( d.id === activeTarget.id ){
-                return true
-            }else if(d.primitives.ref.allIds.includes(activeTarget.id)){
-                return true
-            }else if(d.primitives.link.allItems.map(d=>d.parentPrimitiveIds).flat().includes(activeTarget.id)){
-                return true
-            } else if(d.findParentPrimitives({type:"segment"})[0]?.primitives.allSummary[1]?.primitives.ref.allItems[0]?.primitives?.ref.allIds.includes(activeTarget.id)){
-                return true
-            }else if (d.findParentPrimitives({type:"segment"}).map(d=>d.itemsForProcessing).flat().map(d=>d.id).includes(activeTarget.id)){
-                renderOptions.renderConfig.minColumns = 5
-                renderOptions.renderConfig.columns = 5
-                return true
-            }
-        }).map(d=>d.id)
-        console.log(`renderng ${d.plainId} - ${activeTarget.id}`)
-
-        const filteredList = view.list.filter(d=>targetPrims.includes(d.primitive.id) )
-        const rowIdxList = filteredList.map(d=>d.row).flat().filter((d,i,a)=>a.indexOf(d)===i)
-        const filteredRows = view.rows.filter(d=>rowIdxList.includes(d.idx ))
-
-        let render = (stageOptions)=>renderMatrix(
-            view.primitive, 
-            filteredList, {
-                axis: view.axis,
-                columnExtents: view.columns,
-                rowExtents: filteredRows,
-                viewConfig: view.viewConfig,
-                hideRowHeaders: true,
-                hideColumnHeader: true,
-
-                ...stageOptions,
-                ...renderOptions,
-                toggles: view.toggles,
-                expand: Object.keys(primitive.frames[ d.id ]?.expand ?? {})
-            })
-
-
-
-        if( d.referenceId === 118){
-            let boardToCombine = d.primitives.imports.allItems
-            if(d.order){
-                boardToCombine.sort((a,b)=>d.order.indexOf(a.id) - d.order.indexOf(b.id))
-            }
-            if( boardToCombine.length >0 ){
-
-                render = (stageOptions)=>{
-                    const partials = boardToCombine.map(d=>{
-                        const board = myState[d.id]
-                        return {
-                            primitive: d,
-                            axis: board.axis,
-                            columnExtents: board.columns,
-                            rowExtents: board.rows,
-                            viewConfig: board.viewConfig,
-                            list: board.list
-                    }})
-                    console.log("DID PARTIALS",partials)
-                    return RenderPrimitiveAsKonva(view.primitive, {...stageOptions, ...renderOptions, partials})
-                }
-            }
-        }else
-        return {id: d.id, title: ()=>``, canChangeSize: true, canvasMargin: [2,2,2,2], items: render}
-        */
     }
     function prepareBoard(element, underlying){
         const stateId = element.id
@@ -267,7 +201,7 @@ export default function ReportViewExporter({primitive, ...props}){
 
             console.log(extents)
 
-            if( config.transform.mode === "summary"){
+            if( true || config.transform.mode === "summary"){
                 myState[stateId].processing = true
                 const toExec = async ()=>{
                     const segmentList = element.primitives.allSegment
@@ -466,6 +400,8 @@ export default function ReportViewExporter({primitive, ...props}){
                 }else{
                     if( config.sourceData === "active"){
                         underlying = activeTarget 
+                    }else if(config.sourceData === "segment source"){
+                        underlying = activeTarget.findParentPrimitives({type:"segment"})?.[0].filterTargets[0]
                     }else if(config.sourceData === "items"){
                         underlying = activeTarget.itemsForProcessing
                         if( true || config.limit === "single"){

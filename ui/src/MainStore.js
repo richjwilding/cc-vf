@@ -1754,30 +1754,45 @@ function MainStore (prims){
                             const idsToLookup = []
                             let relationships = []
                             let doImport
-                            receiver.referenceParameters.importConfig.forEach(d=>{
-                                return d.filters.forEach( d=>{
+                            let importFrom = receiver
+                            let importFilter
+                            receiver.referenceParameters.importConfig.forEach(d2=>{
+                                return d2.filters.forEach( d=>{
                                     if( d.type === "parent"){
                                         idsToLookup.push(d.value)
                                     }else if( d.type === "title" || d.type === "parameter"){
                                         doImport = true
-                                        relationships.push(d.relationship)
+                                        if( d.relationship ){
+                                            relationships.push(d.relationship)
+                                        }
+                                        importFilter = (d3)=>d3.title === d.value
+                                        importFrom = obj.primitive( d2.id )
                                     }
                                 })
                             })
-                            if( doImport && relationships.length > 0){
-                                let items = receiver.itemsForProcessing
+                            if( doImport && (relationships.length > 0 || importFilter)){
+                                let items = importFrom.itemsForProcessing
                                 let mapped = []
-                                for(const rel of relationships){
-                                    mapped.push(items.flatMap(d=>d.relationshipAtLevel(rel, rel.length)))
+                                if( relationships.length > 0){
+
+                                    for(const rel of relationships){
+                                        mapped.push(items.flatMap(d=>d.relationshipAtLevel(rel ?? "origin", rel?.length ?? 1)))
+                                    }
+                                    mapped = uniquePrimitives(mapped.flat(Infinity))
+                                }else{
+                                    mapped = items
                                 }
-                                mapped = uniquePrimitives(mapped.flat(Infinity))
+                                if( importFilter ){
+                                    mapped = mapped.filter(importFilter)
+                                }                                
                                 return mapped
                             }
                             if( idsToLookup.length > 0){
-                                return uniquePrimitives(idsToLookup.flatMap(d=>obj.primitive(d).filterTargets))
+                                return uniquePrimitives(idsToLookup.flatMap(d=>obj.primitive(d)?.filterTargets))
                             }
                             return []
                         }
+                        return [receiver]
                     }
                     if( prop === "filterDescription"){
                         if( receiver.referenceParameters?.importConfig ){
@@ -2283,6 +2298,9 @@ function MainStore (prims){
                         }
                         let found = []
                         let current = scatter( [receiver] )
+                        if( typeof(options.type) == "string"){
+                            options.type = [options.type]
+                        }
                         
                         while( current.length > 0){
                             if (options.type === undefined && options.referenceId === undefined) {
@@ -2312,7 +2330,7 @@ function MainStore (prims){
                             }
                             current = scatter( current )
                         }
-                        return found
+                        return uniquePrimitives(found)
                     }
                     /*return function(options = {type: undefined, referenceId: undefined, first: false}){
                         const ids = {}

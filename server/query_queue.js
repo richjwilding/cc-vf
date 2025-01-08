@@ -1,6 +1,6 @@
 import QueueManager from './queue_manager'; 
 import Primitive from "./model/Primitive";
-import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, fetchPrimitive, findResultSetForCategoryId, getDataForProcessing, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
+import { addRelationship, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, fetchPrimitive, findResultSetForCategoryId, getDataForProcessing, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParents, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { findCompanyLIPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
@@ -9,13 +9,13 @@ import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
 import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleScholar, queryYoutube } from "./google_helper";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
-import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, queryTiktokWithBrightData } from './brightdata';
+import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, querySubredditWithBrightData, queryTiktokWithBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
 
 
 let instance
-export async function processQueue(job, cancelCheck){
+export async function processQueue(job, cancelCheck, extendJob){
         try{
 
             const primitive = await Primitive.findOne({_id: job.data.id})
@@ -42,9 +42,18 @@ export async function processQueue(job, cancelCheck){
 
                     const parentSearch = (await primitiveParentsOfType( primitive, "search"))?.[0]
 
-                    const config = primitive.referenceParameters || {}
+                    const {topic:topicFromInput, ...inputsForSearch} = await getPrimitiveInputs( primitive )
+                    let config = {}
                     
-                    Object.keys(category.parameters).forEach((k)=>{
+                    if( primitive.referenceParameters ){
+                        for(const k of Object.keys(primitive.referenceParameters)){
+                            if( primitive.referenceParameters[k] !== undefined){
+                                config[k] = primitive.referenceParameters[k]
+                            }
+                        }
+                    }
+                    
+                    for(const k of Object.keys(category.parameters)){
                         if(config[k] === undefined && k !== "title"){
                             config[k] = category.parameters[k].default
                         }
@@ -56,14 +65,70 @@ export async function processQueue(job, cancelCheck){
                         if( config[k] && category.parameters[k].type === "options"){
                             config[k] = config[k].map(d=>category.parameters[k].options.find(d2=>d2.id === d))
                         }
-                    })
+                        if(config[k] === undefined){
+                            if( category.parameters[k].default_process){
+                                let source = parentSearch ?? primitive
+                                if(category.parameters[k].default_process?.source.startsWith("parent")){
+                                    let [_, rId] = category.parameters[k].default_process?.source.split("_")
+                                    let candidates = await primitiveParents( primitive )
+                                    if( rId !== undefined){
+                                        candidates = candidates.filter(d=>d.referenceId === parseInt(rId))
+                                    }
+                                    source = candidates[0]
+                                }
+                                    console.log(source?.plainId)
+                                if( source ){
+                                    let value = source.title
+                                    if( category.parameters[k].default_process.param){
+                                        value = decodePath( source.referenceParameters, category.parameters[k].default_process.param)
+                                    }
+                                    console.log(value)
+                                    if( category.parameters[k].default_process.process === "domain"){
+                                        try{
+                                            let url = new URL(value)
+                                            value = url.origin
+                                        }catch(e){
+                                            console.log(`Not valid url`)
+                                        }
+                                    }
+                                    console.log(value)
+                                    config[k] = value
+                                }
+                            }
+                        }
+                    }
                     if( parentSearch ){
                         const asTitle = !parentSearch.referenceParameters?.useTerms && !parentSearch?.referenceParameters.hasOwnProperty("terms") && parentSearch.title
                         baseTerms = asTitle ? parentSearch.title : parentSearch.referenceParameters?.terms
                         //baseTerms = parentSearch.title
                         console.log(`OVERRIDE WITH PARENT SEARCH TERMS`)
                     }
+                    if( !baseTerms){
+                        baseTerms = inputsForSearch.terms.data.join(",")
+                    }
+
+                    let topic = primitive.referenceParameters?.topic?.trim()
+                    if( parentSearch ){
+                        topic = parentSearch.referenceParameters?.topic?.trim()
+                    }
+                    if( !topic ){
+                        topic = topicFromInput?.data
+                    }
+                    if( !topic  ){
+                        const realOrigin = await fetchPrimitive(primitiveOrigin( parentSearch ?? primitive ) )
+                        if( realOrigin?.type === "board" ){
+                            topic = realOrigin.referenceParameters?.topics?.trim()
+                        }
+                    }
+                    if( !topic ){
+                        console.log(`Fetching topic from task`)
+                        const task = await Primitive.findOne({_id: await primitiveTask( primitive ) })
+                        if( task ){
+                            topic = task.referenceParameters?.topics?.trim()
+                        }
+                    }
                     console.log(config)
+                    console.log(topic)
 
                     const nestCandidates = category.nestedSearch
                     if( nestCandidates && ! parentSearch ){
@@ -112,23 +177,6 @@ export async function processQueue(job, cancelCheck){
                     
                     
                     // Get query results
-                    let topic = primitive.referenceParameters?.topic?.trim()
-                    if( parentSearch ){
-                        topic = parentSearch.referenceParameters?.topic?.trim()
-                    }
-                    if( !topic  ){
-                        const realOrigin = await fetchPrimitive(primitiveOrigin( parentSearch ?? primitive ) )
-                        if( realOrigin?.type === "board" ){
-                            topic = realOrigin.referenceParameters?.topics?.trim()
-                        }
-                    }
-                    if( !topic ){
-                        console.log(`Fetching topic from task`)
-                        const task = await Primitive.findOne({_id: await primitiveTask( primitive ) })
-                        if( task ){
-                            topic = task.referenceParameters?.topics?.trim()
-                        }
-                    }
                     let cache = primitive.checkCache 
                     let resetCache = false
                     if( cache ){
@@ -345,7 +393,8 @@ export async function processQueue(job, cancelCheck){
                             filterPost: mapFilter(source.filterPost), 
                             createResult: createResult, 
                             prefix: prefix, 
-                            cancelCheck: cancelCheck
+                            cancelCheck: cancelCheck,
+                            extendJob
                         }
 
                         if( source.platform === "linkedin" ){
@@ -368,12 +417,14 @@ export async function processQueue(job, cancelCheck){
                         if( source.platform === "reddit" ){
                             await queryRedditWithBrightData( primitive, terms, callopts) 
                         }
+                        if( source.platform === "sub_reddit" ){
+                            await querySubredditWithBrightData( primitive, terms, callopts) 
+                        }
                         if( source.platform === "glassdoor" ){
                             //await queryInstagramWithBrightData( primitive, terms, callopts) 
                             await queryGlassdoorReviewWithBrightData( primitive, terms, callopts)
                         }
                         if( source.platform === "instagram" ){
-                            //await queryInstagramWithBrightData( primitive, terms, callopts) 
                             await queryInstagramPostsByRapidAPI( primitive, terms, callopts)
                         }
                         if( source.platform === "youtube" ){
@@ -381,6 +432,9 @@ export async function processQueue(job, cancelCheck){
                         }
                         if( source.platform === "google_news" ){
                             await queryGoogleNews( terms, callopts) 
+                        }
+                        if( source.platform === "webpage" ){
+                            await queryGoogleSERP( terms, {...callopts, timeFrame: ""}) 
                         }
                         if( source.platform === "google_scholar" ){
                             await queryGoogleScholar( terms, callopts) 

@@ -560,7 +560,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     </div>
                 </div>
             
-            {!filters && (frame.type === "view" || frame.type === "summary") && 
+            {!filters && (frame.type === "view" || frame.type === "action" || frame.type === "summary") && 
                 <div className="space-y-2">
                     <div className="border rounded-md bg-gray-50">
                         <div onClick={()=>setShowDetails(!showDetails)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">

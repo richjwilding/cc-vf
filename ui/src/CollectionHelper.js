@@ -35,25 +35,25 @@ class CollectionUtils{
 
         let timeSeries = sourceData.map(d=>({period: moment(d.date).startOf(period).diff(earliestDate, period), amount: d.amount}))
 
-        let maxPeriod = config.endDate ?  moment(config.endDate).endOf(period).diff(earliestDate, period) : timeSeries.reduce((a,c)=>c.period > a.period ? c : a)?.period
+        let maxPeriod = config.endDate ? moment(config.endDate).endOf(period).diff(earliestDate, period) : timeSeries.reduce((a, c) => c.period > a.period ? c : a)?.period
         console.log(maxPeriod)
 
         let values
-        if( cumulative){
-            values = new Array( maxPeriod + 1).fill(0)
-            for(const d of timeSeries){
+        if (cumulative) {
+            values = new Array(maxPeriod + 1).fill(0)
+            for (const d of timeSeries) {
                 values[d.period] += d.amount
             }
-            values = values.reduce((acc,d,i)=>{
-                if( i === 0){
+            values = values.reduce((acc, d, i) => {
+                if (i === 0) {
                     acc.push(d)
-                }else{
-                    acc.push( d + acc[i-1] )
+                } else {
+                    acc.push(d + acc[i - 1])
                 }
                 return acc
             }, [])
-        }else{
-            values = new Array( maxPeriod + 1).fill(undefined)
+        } else {
+            values = new Array(maxPeriod + 1).fill(undefined)
             for(const d of timeSeries){
                 values[d.period] = (values[d.period] ?? 0) + d.amount
             }
@@ -455,7 +455,8 @@ class CollectionUtils{
         if( primitive ){
             let baseCategories = uniquePrimitives([
                 ...primitive.primitives.origin.allUniqueCategory, 
-                ...primitive.findParentPrimitives({type:["view", "query"]}).map(d=>d.primitives.origin.allUniqueCategory).flat(),
+                ...primitive.findParentPrimitives({type:["view", "query","categorizer"]}).map(d=>d.primitives.origin.allUniqueCategory).flat(),
+                ...primitive.origin.type == "flow" ? primitive.origin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
                 ...uniquePrimitives(items.map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()).map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()
             ])
 
@@ -1083,11 +1084,12 @@ class CollectionUtils{
         return outList
     }
     static primitiveAxis( primitive, axisName, items){
+        let config = primitive.getConfig
         let axis 
         if( axisName === "column" || axisName === "row"){
-            axis = primitive.referenceParameters?.explore?.axis?.[axisName]
+            axis = config?.explore?.axis?.[axisName]
         }else{
-            axis = primitive.referenceParameters?.explore?.filters?.[ axisName]
+            axis = config?.explore?.filters?.[ axisName]
         }
         if( axis ){
             if( ["question", "title", "type", "icon","segment_filter"].includes(axis.type)){
@@ -1116,7 +1118,6 @@ class CollectionUtils{
     static async setPrimitiveAxis(primitive, item, axisName, forExplorer = true){
         let target
         if( forExplorer){
-
             if( axisName === "column" || axisName === "row"){
                 target =`referenceParameters.explore.axis.${axisName}`
             }else{
@@ -1133,6 +1134,15 @@ class CollectionUtils{
         }
         if( item.type === "none"){
             primitive.setField(target, null)
+
+            const existingPrimitives = primitive.primitives.fromPath( `axis.${axisName}` ).allItems
+            if( existingPrimitives ){
+                for(const d of existingPrimitives){
+                    await primitive.removeRelationship(d, `axis.${axisName}` )
+                }
+            }
+
+
             return
         }else if( item.type === "category"){
             primitive.setField(target, fullState)

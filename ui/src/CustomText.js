@@ -4,6 +4,7 @@ import { _registerNode } from "konva/lib/Global";
 import { Util } from "konva/lib/Util";
 import { getBooleanValidator, getNumberOrAutoValidator, getNumberValidator, getStringValidator } from "konva/lib/Validators";
 import { Text } from "konva/lib/shapes/Text";
+import { markdownToSlate } from "./SharedTransforms";
 
 var DISABLE_CANVAS = true
 var AUTO = 'auto',
@@ -58,6 +59,21 @@ function getDummyContext() {
     dummyContext = Util.createCanvasElement().getContext(CONTEXT_2D);
     return dummyContext;
 }
+  function normalizeFontFamily(fontFamily) {
+      return fontFamily
+        .split(',')
+        .map((family) => {
+          family = family.trim();
+          const hasSpace = family.indexOf(' ') >= 0;
+          const hasQuotes = family.indexOf('"') >= 0 || family.indexOf("'") >= 0;
+          if (hasSpace && !hasQuotes) {
+            family = `"${family}"`;
+          }
+          return family;
+        })
+        .join(', ');
+    }
+    
 
 class CustomText extends Text {
 
@@ -68,15 +84,6 @@ class CustomText extends Text {
 
     let w = this.attrs.width//this.width()
     let h = this._cachedHeight
-
-    //const w = this.getWidth()
-    //const h = this.getHeight()
-
-    /*this.pcache = new SceneCanvas({
-      width: w * this.scaleRatio ,
-      height: h * this.scaleRatio,
-      pixelRatio: 1
-    })*/
 
       this.pcache = document.createElement('canvas');
       this.pcache.width = w * this.scaleRatio;
@@ -165,7 +172,266 @@ class CustomText extends Text {
         )
     }
 
+
+    _getContextFont(options = {}) {
+      return (
+        (options.style ?? this.fontStyle()) +
+        SPACE +
+        (options.variant ?? this.fontVariant()) +
+        SPACE +
+        (options.weight ?? "normal") +
+        SPACE +
+        ((options.size ?? this.fontSize()) + PX_SPACE) +
+        // wrap font family into " so font families with spaces works ok
+        normalizeFontFamily(options.family ?? this.fontFamily())
+      );
+    }
+
 _setTextData() {
+  /*if( !this.text().startsWith("### Brand\nPet Travel Hub by Mars Petcare & Tripadviso")){
+    return this._setTextDataOLD()
+  }*/
+
+    this.fontCache = this._getContextFont()
+
+  if( this.fontStyle() === "light"){
+    this.standardFont = this._getContextFont({style: "normal", weight: 200})
+    this.boldFont = this._getContextFont({style: "normal", weight: 500})
+    this.headlineFont = this._getContextFont({style: "normal", weight: 500, size: this.fontSize() * 1.5 })
+  }else{
+    this.standardFont = this._getContextFont({weight: "normal"})
+    this.boldFont = this._getContextFont({weight: "bold"})
+    this.headlineFont = this._getContextFont({weight: "bold", size: this.fontSize() * 1.5 })
+  }
+
+  if( !this.attrs.withMarkdown ){
+    super._setTextData()
+    this._cachedHeight = this.height()
+    return
+  }
+
+  const formattedList = markdownToSlate( this.text()) 
+  const p = formattedList[formattedList.length - 1]
+  if( p.children.length === 1 && p.type === "paragraph" && p.children[0].text.length === 0 ){
+    formattedList.pop()
+  }
+  
+  var fontSize = +this.fontSize(),
+      baseLineHeightPx = this.lineHeight() * fontSize, 
+      width = this.attrs.width, 
+      height = this.attrs.height, 
+      fixedWidth = width !== AUTO && width !== undefined, 
+      fixedHeight = height !== AUTO && height !== undefined, 
+      padding = this.padding(), 
+      maxWidth = width - padding * 2, 
+      maxHeightPx = height - padding * 2, 
+      currentHeightPx = 0, 
+      wrap = this.wrap(), 
+      shouldWrap = wrap !== NONE, 
+      wrapAtWord = wrap !== CHAR && shouldWrap, 
+      shouldAddEllipsis = this.ellipsis();
+
+  let translateY
+  let lineHeightPx 
+  this.textArr = [];
+  
+  var additionalWidth = shouldAddEllipsis ? this._getTextStats(ELLIPSIS).width : 0;
+  
+
+  const placeText = ( text, large, bold, drawBullet, startIndent, indent, lastLine )=>{
+    
+    getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : (large ? this.headlineFont : this.standardFont)
+    
+    let lineMetrics = this._getTextStats(text)
+    let lineWidth = lineMetrics.width + indent;
+    var leaveForHeight = false
+    let advanced = false
+    let textWidth = 0
+    
+    if( translateY === undefined){
+      translateY = lineHeightPx / 2 ;
+    }
+
+    if (lineWidth > maxWidth) {
+      let frag = 0
+      while (text.length > 0) {
+          var low = 0, high = text.length, match = '', matchWidth = 0;
+          while (low < high) {
+              var mid = (low + high) >>> 1, substr = text.slice(0, mid + 1), substrWidth = this._getTextStats(substr).width + additionalWidth + indent
+              if (substrWidth <= maxWidth) {
+                  low = mid + 1;
+                  match = substr;
+                  matchWidth = substrWidth;
+              }
+              else {
+                  high = mid;
+              }
+          }
+          if (match) {
+              let matchMetrics
+              if (wrapAtWord) {
+                  var wrapIndex;
+                  var nextChar = text[match.length];
+                  var nextIsSpaceOrDash = nextChar === SPACE || nextChar === DASH;
+                  if (nextIsSpaceOrDash && matchWidth <= maxWidth) {
+                      wrapIndex = match.length;
+                  }
+                  else {
+                      wrapIndex =
+                          Math.max(match.lastIndexOf(SPACE), match.lastIndexOf(DASH)) +
+                              1;
+                  }
+                  if (wrapIndex > 0) {
+                      low = wrapIndex;
+                      match = match.slice(0, low);
+                    }
+                    matchMetrics = this._getTextStats(match)
+                    matchWidth = matchMetrics.width + indent;
+              }
+              match = match.trimRight();
+              this._addMDTextLine(match, matchMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet && (frag === 0));
+              indent = startIndent
+              textWidth = Math.max(textWidth, matchWidth);
+              currentHeightPx += lineHeightPx;
+              advanced = true
+              var shouldHandleEllipsis = this._shouldHandleEllipsis(currentHeightPx);
+              if (shouldHandleEllipsis) {
+                  this._MDtryToAddEllipsisToLastLine();
+                  leaveForHeight = true
+                  break;
+              }
+              text = text.slice(low);
+              text = text.trimLeft();
+              if (text.length > 0) {
+                  lineMetrics = this._getTextStats(text)
+                  lineWidth = lineMetrics.width + indent;
+                  if (lineWidth <= maxWidth) {
+                      this._addMDTextLine(text, lineMetrics, indent, currentHeightPx + translateY, bold, large);
+                      advanced = false
+                      textWidth = Math.max(textWidth, lineWidth);
+                      break;
+                  }
+              }
+          }
+          else {
+              break;
+          }
+          frag++
+          if( leaveForHeight ){
+            break
+          }
+      }
+    }else {
+      this._addMDTextLine(text, lineMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet);
+      textWidth = Math.max(textWidth, lineWidth);
+      if (this._shouldHandleEllipsis(currentHeightPx ) && !lastLine) {
+        this._MDtryToAddEllipsisToLastLine();
+        leaveForHeight = true
+      }
+    }
+    indent = lineWidth
+
+    return {indent: indent, newline: advanced, clippedForHeight: leaveForHeight, textWidth}
+  }
+
+  let maxUsedWidth = 0
+  let lastWasHeading, lastWasListItem,lastLineHeight
+  let startIndent = 0
+  let clipped
+
+
+  let indentWidths = []
+
+  const processSection = ( section, lastSection )=>{
+    if( section.type === "table"){
+      return
+    }
+    if( clipped ){
+      return
+    }
+    const isHeading = section.type === "heading"
+    const isListItem = section.type === "list-item"
+    const large = isHeading
+
+
+    let didAdvance = false, needAdvance = false
+    lineHeightPx = large ? baseLineHeightPx * 1.2 : baseLineHeightPx
+
+    if( section.type === "unordered-list" || section.type === "ordered-list"){
+      const px = "" + lineHeightPx
+      if( !indentWidths[px] ){
+        getDummyContext().font = (large ? this.headlineFont : this.standardFont)
+        indentWidths[px] = this._getTextStats("    ").width
+      }
+      let preIndent = startIndent
+      startIndent += indentWidths[px]
+      
+      if( section.children ){
+        for(const sub of section.children ){
+          processSection( sub )
+        }
+      }
+
+      startIndent = preIndent
+    }else{
+      needAdvance  = true
+      if(isHeading && (lastWasHeading === false)){
+        currentHeightPx += (lineHeightPx * 0.6);
+      }else if(!isHeading && lastWasHeading){
+        currentHeightPx -= (lineHeightPx * 0.3);
+      }else if( isListItem){
+        currentHeightPx += (lineHeightPx * 0.2);
+      }else if( !isListItem && lastWasListItem){
+        currentHeightPx += (lastLineHeight * 0.2);
+      }
+      if( section.children ){
+        let indent = startIndent
+        let fragmentIdx = 0
+        for(const frag of section.children ){
+          const bold = frag.bold || isHeading
+          const bullet = isListItem && (fragmentIdx === 0)
+          const lastLine = lastSection && (fragmentIdx === (section.children.length - 1))
+          const result = placeText( frag.text, large, bold, bullet, startIndent, indent, lastLine)
+          
+          indent = result.indent
+          if( result.textWidth > maxUsedWidth ){
+            maxUsedWidth = result.textWidth
+          }
+          didAdvance = result.newline
+          if( result.clippedForHeight ){
+            clipped = true
+            break
+          }
+          fragmentIdx++
+        }
+        if (this.textArr[this.textArr.length - 1]) {
+            this.textArr[this.textArr.length - 1].lastInParagraph = true;
+        }
+      }
+    }
+    if( !didAdvance && needAdvance){
+      currentHeightPx += (lineHeightPx * (isListItem ? 1.1 : 1.4));
+    }
+    
+    lastWasHeading = isHeading
+    lastWasListItem = isListItem
+    if( needAdvance ){
+      lastLineHeight = lineHeightPx
+    }
+
+  }
+
+  let sIdx = 0
+  for(const section of formattedList ){
+    sIdx++
+    processSection(section, sIdx === formattedList.length)
+  }
+  this.textHeight = fontSize;
+  this.textWidth = maxUsedWidth;
+  this._cachedHeight = this.height()
+
+}
+_setTextDataOLD() {
     this.fontCache = this._getContextFont()
 
     let stem = this.fontCache.slice(this.fontCache.indexOf(" "))
@@ -189,9 +455,11 @@ _setTextData() {
   var additionalWidth = shouldAddEllipsis ? this._getTextStats(ELLIPSIS).width : 0;
   var translateY 
 
+
+
+
   let wasIndented = false
   let wasHeader = undefined
-  let lastLarge = undefined
 
   for (var i = 0, max = lines.length; i < max; ++i) {
       var line = lines[i];

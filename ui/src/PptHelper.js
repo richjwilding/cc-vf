@@ -280,7 +280,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 if( konvaNode.parent?.attrs?.name?.includes("primitive")){
                     if( window.pptlinks){
                         if( window.pptlinks[konvaNode.parent?.attrs.id]){
-                            stack[0].options.hyperlink = {slide: window.pptlinks[konvaNode.parent?.attrs.id]}
+                     //       stack[0].options.hyperlink = {slide: window.pptlinks[konvaNode.parent?.attrs.id]}
                         }
                     }
                 }
@@ -292,7 +292,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     bold: konvaNode.fontStyle() === "bold",
                     lineSpacingMultiple: konvaNode.lineHeight() * 0.866,
                     italic: konvaNode.fontStyle() === "italic",
-                    fontFace: konvaNode.fontFamily(),
+                    fontFace: konvaNode.fontFamily() + (konvaNode.fontStyle() === "light" ? " light" : ""),
                     align: hasIndents ? undefined : konvaNode.align(),
                     valign: hasIndents ? "top" : konvaNode.verticalAlign(),
                     margin:konvaNode.padding(),
@@ -311,7 +311,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     bold: konvaNode.fontStyle() === "bold",
                     lineSpacingMultiple: konvaNode.lineHeight() * 0.866,
                     italic: konvaNode.fontStyle() === "italic",
-                    fontFace: konvaNode.fontFamily(),
+                    fontFace: konvaNode.fontFamily() + (konvaNode.fontStyle() === "light" ? " light" : ""),
                     align: konvaNode.align(),
                     valign: konvaNode.verticalAlign(),
                     margin:konvaNode.padding(),
