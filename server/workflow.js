@@ -113,6 +113,8 @@ export async function scaffoldWorkflow( flow, options = {} ){
     console.log(`got ${flowInstanceItems.length} children of flowInstances`)*/
 
     logger.info( "Flow instances:")
+    const flowPrimitiveParser = new Proxy(flow.primitives ?? {}, PrimitiveParser())
+
     for(const instanceInfo of instanceList){
         instanceInfo.steps = []
         if( instanceInfo.instance.missing){
@@ -132,6 +134,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
                 let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
                 if( stepInstance ){
                     logger.info(` - Step instance ${stepInstance.id} for ${step.id}`)
+                        dispatchControlUpdate(stepInstance.id, "flowElement", false)
                 }else{
                     logger.info(` - Missing step instance for ${step.id}`)
                     if( options.create !== false ){
@@ -161,11 +164,34 @@ export async function scaffoldWorkflow( flow, options = {} ){
                     ...(await stepInstanceStatus(stepInstance, instanceInfo.instance))
                 } )
             }
-            logger.info(`Checking import mapping`)
+            logger.info(`Check outputs`)
+            const outputList = flowPrimitiveParser.outputs
+            const targetImports = []
+            const outputPP = pp.fromPath("outputs")
+            for(const rel of Object.keys(outputList)){
+                for(const source of outputList[rel].allIds ){
+                    const paths = outputPP.paths(source).map(d=>"outputs" + d)
+                    const mappedStep = instanceInfo.steps.find(d=>d.stepId === source)
+                    if( mappedStep ){
+                        logger.debug(`flow has output ${rel} from ${source} - need to map to ${mappedStep.instance.id} / ${mappedStep.instance.plainId} `)
+                        targetImports.push({id: mappedStep.instance.id, paths } )
+                    }else{
+                        logger.debug(`Cant find instance of ${source} `)
+                        if( options.create ){
+                            throw "Missing step"
+                        }
+                    }
+
+                }
+            }
+            await alignPrimitiveRelationships( instanceInfo.instance, targetImports, "outputs", options.create)
+
+
+            logger.info(`Checking relationship mapping`)
             for(const step of steps){
                 const mappedStep = instanceInfo.steps.find(d=>d.stepId === step.id)
                 if( mappedStep){
-                    for(const rel of ["imports", "inputs", "axis.column","axis.row"]){
+                    for(const rel of ["imports", "inputs", "outputs", "axis.column","axis.row"]){
                         const pp = (new Proxy(step.primitives ?? {}, PrimitiveParser())).fromPath(rel)
                         const importIds= pp.uniqueAllIds
 
@@ -210,54 +236,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
                                 }
                             }
                         }
-                        //const currentImports = Object.values(mappedStep.instance.primitives?.[rel] ?? {})
-                        const mappedPP = (new Proxy(mappedStep.instance.primitives ?? {}, PrimitiveParser())).fromPath(rel)
-                        const currentImports = mappedPP.uniqueAllIds
-                        const currentImportsWithPaths = currentImports.map(d=>({id:d, paths: mappedPP.paths(d).map(d=>rel + d)}))
-
-                        /*const targetImportIds = targetImports.map(d=>d.id)
-                        const toAdd = targetImportIds.filter(d=>!currentImports.includes(d))
-                        const toRemove = currentImports.filter(d=>!targetImportIds.includes(d))*/
-
-                        function buildDelta(target, compare){
-                            return target.reduce((a,d)=>{
-                                const current = compare.find(d2=>d2.id === d.id)
-                                if( current){
-                                    for(const path of d.paths){
-                                        if(!current.paths.includes(path)){
-                                            a.push({id: d.id, path: path})
-                                        }
-                                    }
-                                }else{
-                                    for(const path of d.paths){
-                                        a.push({id: d.id, path: path})
-                                    }
-                                }
-                                return a
-                            }, [])
-                        }
-
-                        const toAdd = buildDelta(targetImports, currentImportsWithPaths)
-                        const toRemove = buildDelta(currentImportsWithPaths, targetImports)
-                        
-                        logger.debug(`${toAdd.length} ${rel} to add, ${toRemove.length} ${rel} to remove`)
-                        
-                        if( options.create !== false ){
-                            for(const d of toRemove){
-                                console.log(`--- Removing ${d.id} at ${d.path}`)
-                                await removeRelationship(mappedStep.instance.id, d.id, d.path)
-                            }
-                            for(const d of toAdd){
-                                console.log(`--- Adding ${d.id} at ${d.path}`)
-                                await addRelationship(mappedStep.instance.id, d.id, d.path)
-                            }
-                            if( rel === "imports"){
-                                const allFilters = targetImports.map(d=>d.filters).flat().filter(d=>d)
-                                let importConfig = allFilters?.length > 0 ? allFilters : null
-                                
-                                dispatchControlUpdate(mappedStep.instance.id, "referenceParameters.importConfig", importConfig)
-                            }
-                        }
+                        await alignPrimitiveRelationships( mappedStep.instance, targetImports, rel, options.create)
                     }
                 }
             }
@@ -266,6 +245,59 @@ export async function scaffoldWorkflow( flow, options = {} ){
     }
     return instanceList
 }
+
+async function alignPrimitiveRelationships( targetPrimitive, targetImports, rel, create = true){
+    const mappedPP = (new Proxy(targetPrimitive.primitives ?? {}, PrimitiveParser())).fromPath(rel)
+    const currentImports = mappedPP.uniqueAllIds
+    const currentImportsWithPaths = currentImports.map(d=>({id:d, paths: mappedPP.paths(d).map(d=>rel + d)}))
+    console.log(rel)
+    console.log(mappedPP)
+    console.log(currentImports)
+    console.log(currentImportsWithPaths)
+
+    function buildDelta(target, compare){
+        console.log(target)
+        console.log(compare)
+        return target.reduce((a,d)=>{
+            const current = compare.find(d2=>d2.id === d.id)
+            if( current){
+                for(const path of d.paths){
+                    if(!current.paths.includes(path)){
+                        a.push({id: d.id, path: path})
+                    }
+                }
+            }else{
+                for(const path of d.paths){
+                    a.push({id: d.id, path: path})
+                }
+            }
+            return a
+        }, [])
+    }
+
+    const toAdd = buildDelta(targetImports, currentImportsWithPaths)
+    const toRemove = buildDelta(currentImportsWithPaths, targetImports)
+    
+    logger.debug(`${toAdd.length} ${rel} to add, ${toRemove.length} ${rel} to remove`)
+    
+    if( create !== false ){
+        for(const d of toRemove){
+            console.log(`--- Removing ${d.id} at ${d.path}`)
+            await removeRelationship(targetPrimitive.id, d.id, d.path)
+        }
+        for(const d of toAdd){
+            console.log(`--- Adding ${d.id} at ${d.path}`)
+            await addRelationship(targetPrimitive.id, d.id, d.path)
+        }
+        if( rel === "imports"){
+            const allFilters = targetImports.map(d=>d.filters).flat().filter(d=>d)
+            let importConfig = allFilters?.length > 0 ? allFilters : null
+            
+            dispatchControlUpdate(targetPrimitive.id, "referenceParameters.importConfig", importConfig)
+        }
+    }
+}
+
 async function flowInstanceStatus( flowInstance, options ){
     const raw = await flowInstanceStepsStatus( flowInstance)
     return raw.map(d=>{

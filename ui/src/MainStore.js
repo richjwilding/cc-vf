@@ -1833,6 +1833,12 @@ function MainStore (prims){
                                     if( id && source.id !== id){
                                         continue
                                     }
+                                    if( source.type === "flow"){
+                                        if( !receiver.inFlow){
+                                            const instances = source.primitives.origin.allUniqueFlowInstance
+                                            return uniquePrimitives(instances.flatMap(d=>d.outputs.output?.data).filter(d=>d))
+                                        }
+                                    }
                                     let list = []
                                     let node = source.primitives
                                     if( Object.keys(node).includes("imports")  ){
@@ -1905,7 +1911,7 @@ function MainStore (prims){
                                 }
                                 return uniquePrimitives(fullList)
                             }else{
-                                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" ).map(d=>receiver.primitives[d].allIds).flat()
+                                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs" ).map(d=>receiver.primitives[d].allIds).flat()
                                 let list = []
                                 const check = new Set()
                                 for( const d of ids ){
@@ -2012,19 +2018,44 @@ function MainStore (prims){
                         return id
                     }
                     if( prop === "inputs"){
-                        let inputMap = PrimitiveConfig.getInputMap(receiver)
-                        
-                        inputMap = inputMap.map(d=>{
-                            const sourcePrimitive = obj.primitive(d.sourceId)
-                            return {
-                            ...d,
-                            sourcePrimitive,
-                            inputMapConfig: receiver.metadata.pins?.input?.[d.inputPin],
-                            sourcePinConfig: sourcePrimitive.metadata.pins?.output?.[d.sourcePin]
-                        }})
-                        console.log(inputMap)
-
-                        return PrimitiveConfig.translateInputMap(inputMap)
+                        return receiver.pins("inputs", "input")
+                    }
+                    if( prop === "outputs"){
+                        return receiver.pins("outputs", "output")
+                    }
+                    if(prop === "inFlow"){
+                        if( receiver.flowElement){
+                            return true
+                        }
+                        const configParent = receiver.parentPrimitiveWithRelationship("config")?.[0]
+                        if( configParent?.flowElement ){
+                            return true
+                        }
+                        return false
+                    }
+                    if( prop === "pins"){
+                        return (mode, pinMode)=>{
+                            let inputMap = PrimitiveConfig.getPinMap(receiver, mode)
+                            
+                            inputMap = inputMap.map(d=>{
+                                const sourcePrimitive = obj.primitive(d.sourceId)
+                                return {
+                                    ...d,
+                                    sourcePrimitive,
+                                    inputMapConfig: receiver.type === "flowinstance" ? receiver.origin.metadata?.pins?.[pinMode]?.[d.inputPin] : receiver.metadata?.pins?.[pinMode]?.[d.inputPin],
+                                    sourcePinConfig: sourcePrimitive.metadata.pins?.output?.[d.sourcePin]
+                                }})
+                                
+                                let interim = PrimitiveConfig.alignInputAndSource(inputMap,  PrimitiveConfig.getDynamicPins(receiver, receiver.getConfig, mode))
+                                for(const d of interim){
+                                    if( d.sourceTransform === "child_list_to_string"){
+                                        d.sources = d.sourcePrimitive.itemsForProcessing
+                                    }
+                                }
+                                let final = PrimitiveConfig.translateInputMap(interim)
+                                
+                                return final
+                        }
                     }
                     if( prop === "originTask"){
                         let origin = receiver.origin

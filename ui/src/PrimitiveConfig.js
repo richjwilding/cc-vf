@@ -626,63 +626,138 @@ const PrimitiveConfig = {
         }
         return false
     },getInputMap:(primitive)=>{
-        const input_list = Object.keys(primitive.primitives?.inputs ?? {})
+        return PrimitiveConfig.getPinMap(primitive, "inputs")
+    },getOutputMap:(primitive)=>{
+        return PrimitiveConfig.getPinMap(primitive, "outputs")
+    },getPinMap:(primitive, pins)=>{
+        const input_list = Object.keys(primitive.primitives?.[pins] ?? {})
         const out = []
         for(const inp of input_list){
             const [sourcePin, inputPin] = inp.split("_")
-            const sourceIds = primitive.primitives.inputs[inp]
+            const sourceIds = primitive.primitives[pins][inp]
             for(const sourceId of sourceIds){
                 out.push( {sourceId, sourcePin, inputPin} )
             }
         }
         return out
-    },translateInputMap:(inputMap)=>{
-        let out = {}
+    },getDynamicPins:(primitive, config, mode = "inputs")=>{
+        if( mode === "inputs"){
+            if( primitive.type === "query" || primitive.type === "summary"){
+                if( config?.prompt ){
+                    const matches = config.prompt.match(/\{([^}]+)\}/g);
+                    const dynamicNames =  matches ? matches.map(match => match.slice(1, -1)) : [];
+                    return dynamicNames.reduce((a,c)=>{
+                        a[c] = {
+                            types: ["string"]
+                        }
+                        return a
+                    }, {})
+                }
+            }
+        }
+        return {}
+    },alignInputAndSource:(inputMap, dynamicPins)=>{
+        let out = []
         for(const input of inputMap){
-            if( input.inputMapConfig ){
+            let imConfig = input.inputMapConfig
+
+            if(!imConfig && dynamicPins){
+                input.inputMapConfig = dynamicPins[input.inputPin]
+                imConfig = input.inputMapConfig
+            }
+
+            if( imConfig ){
                 const source = input.sourcePrimitive
                 if( source ){
                     const sourcePinConfig = input.sourcePinConfig
-                    let sourceTransform
-                    let useConfig = sourcePinConfig.types.map(d=>({config:d, position: input.inputMapConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
-                    
-                    if( !useConfig ){
-                        if( sourcePinConfig.types.includes("string_list") && input.inputMapConfig.types.includes("string")){
-                            sourceTransform = "list_to_string"
-                            useConfig = "string"
-                        }
-                    }
+                    if( sourcePinConfig ){
 
-                    if( !out[input.inputPin]){
-                        out[input.inputPin] = {
-                            config: useConfig,
-                            data: []
+                        let sourceTransform
+                        let useConfig = sourcePinConfig.types.map(d=>({config:d, position: imConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
+                        
+                        if( !useConfig ){
+                            if( sourcePinConfig.types.includes("string_list") && imConfig.types.includes("string")){
+                                sourceTransform = "list_to_string"
+                                useConfig = "string"
+                            }else if( sourcePinConfig.types.includes("children") && imConfig.types.includes("string")){
+                                sourceTransform = "child_list_to_string"
+                                useConfig = "string"
+                            }
                         }
-                    }else{
-                        if(out[input.inputPin].config !== useConfig ){
-                            continue
+
+                        out.push({
+                            ...input,
+                            useConfig,
+                            sourceTransform
+                        })
+
+                    }                
+                }
+            }
+        }
+        return out
+
+    },translateInputMap:(inputMap)=>{
+        let out = {}
+        for(const input of inputMap){
+            let imConfig = input.inputMapConfig
+
+            if( imConfig ){
+                const source = input.sourcePrimitive
+                if( source ){
+                    const sourcePinConfig = input.sourcePinConfig
+                    if( sourcePinConfig ){
+
+                        /*let sourceTransform
+                        let useConfig = sourcePinConfig.types.map(d=>({config:d, position: imConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
+                        
+                        if( !useConfig ){
+                            if( sourcePinConfig.types.includes("string_list") && imConfig.types.includes("string")){
+                                sourceTransform = "list_to_string"
+                                useConfig = "string"
+                            }else if( sourcePinConfig.types.includes("children") && imConfig.types.includes("string")){
+                                sourceTransform = "child_list_to_string"
+                                useConfig = "primitive"
+                            }
+                        }*/
+                        
+                        if( !out[input.inputPin]){
+                            out[input.inputPin] = {
+                                config: input.useConfig,
+                                data: []
+                            }
+                        }else{
+                            if(out[input.inputPin].config !== input.useConfig ){
+                                continue
+                            }
                         }
-                    }
-                    if(useConfig === "primitive"){
-                        out[input.inputPin].data.push( source)
-                    }else{
-                        const sourceField = input.sourcePinConfig.source
-                        let sourceData = sourceField === "title" ? source.title : PrimitiveConfig.decodeParameter(source.referenceParameters, sourceField.replace(/^param./,"")) 
-                        if( sourceTransform === "list_to_string"){
-                            sourceData = sourceData.map(d=>{
-                                let tx = d.trim()
-                                if( sourceData.length > 1 && !tx.endsWith(".")){
-                                    tx = tx + ".  "
+                        if(input.useConfig === "primitive"){
+                            out[input.inputPin].data.push( source)
+                        }else{
+                            const sourceField = input.sourcePinConfig.source
+
+                            let sources = input.sources ?? [source] 
+
+                            let sourceData = sources.map(d=>(sourceField === "title" ? d.title : PrimitiveConfig.decodeParameter(d.referenceParameters, sourceField.replace(/^param./,"")) )).flat(Infinity)
+                            if( input.useConfig === "object_list"){
+                                out[input.inputPin].data = out[input.inputPin].data.concat( sourceData )
+                            }else if(input.useConfig === "string_list"){
+                                out[input.inputPin].data = out[input.inputPin].data.concat( sourceData )
+                            }else if(input.useConfig === "string"){
+
+
+                                if( Array.isArray(sourceData)){
+                                    sourceData = sourceData.map(d=>{
+                                        let tx = (d ?? "").trim()
+                                        if( sourceData.length > 1 && !tx.endsWith(".")){
+                                            tx = tx + ".  "
+                                        }
+                                        return tx
+                                    }).join("")
                                 }
-                                return tx
-                            }).join("")
-                        }
-                        if( useConfig === "object_list"){
-                            out[input.inputPin].data = out[input.inputPin].data.concat( sourceData )
-                        }else if(useConfig === "string_list"){
-                            out[input.inputPin].data = out[input.inputPin].data.concat( sourceData )
-                        }else if(useConfig === "string"){
-                            out[input.inputPin].data =  sourceData
+
+                                out[input.inputPin].data =  sourceData
+                            }
                         }
                     }
                     

@@ -358,6 +358,7 @@ class CollectionUtils{
                 if( category.primitiveType === "marketsegment"){
                         out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "indexed"})
                 }else{
+
                     if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query" || category.primitiveType === "evidence" ){
                         out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "raw"})
                     }
@@ -500,6 +501,11 @@ class CollectionUtils{
                             }
                         }
                     }
+                    const flowinstances = uniquePrimitives(nodes.map(d=>d.findParentPrimitives({type:"flowinstance"})).flat())
+                    if( flowinstances.length > 0 ){
+                        out.push( {type: 'title', title: `Flow instance`,  passType: "title"})
+                    }
+
                     const questions = uniquePrimitives(uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "prompt").map(d => d.origin))
                     if( questions.length > 0 ){
 

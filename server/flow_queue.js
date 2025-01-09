@@ -41,7 +41,9 @@ class FlowQueueClass extends BaseQueue {
                     status: "complete"
                 }
                 await dispatchControlUpdate(primitive, "processing.flow", update)
-               // await this.runFlowInstance( primitive )
+                if( update.last_run ){
+                    await this.runFlowInstance( primitive, { continue: true} )
+                }
             }
         })
         this.registerNotification("run_step", async (primitive, result)=>{

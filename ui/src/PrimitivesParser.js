@@ -142,9 +142,8 @@ export default function PrimitiveParser(obj){
                         find( target, "" )
                         let result = out
                         if( result && arguments.length == 2){
-                            let str = arguments[1] instanceof(Array) ? `.${arguments[1].join('.')}.` : arguments[1]
-                            let len = str.length
-                            result = result.filter((p)=>p.slice(0, len) === str)
+                            let str = arguments[1] instanceof(Array) ? `.${arguments[1].join('.')}.` : ("." + arguments[1] + (arguments[1].endsWith(".") ? "" :"."))
+                            result = result.filter((p)=>p.startsWith(str))
                         }
                         if( result ){
                             result = result.map((p)=>p.replace(/^\.null/,""))
@@ -246,7 +245,7 @@ export default function PrimitiveParser(obj){
                     return result;
 
                 }
-                if( prop === "uniqueAllIds"){
+                if( prop === "uniqueAllIds" || prop === "allUniqueIds"){
                     return uniqueArray( receiver.allIds )
                 }
                 if( prop === "filter" || prop === "length" || prop === "map"){
@@ -332,6 +331,7 @@ export default function PrimitiveParser(obj){
                 }
                 if( prop === "fromPath"){
                     return function(path, create = false){
+                        if( !path){return receiver}
                         let node = receiver                        
                         if( typeof(path) === "string"){
                             path = path.split('.')
@@ -413,7 +413,7 @@ export default function PrimitiveParser(obj){
                     if( prop === "allItems"){
                         return receiver.allIds.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
-                    if( prop === "uniqueAllItems"){
+                    if( prop === "uniqueAllItems" || prop === "allUniqueItems"){
                         return receiver.uniqueAllIds.map((d)=>obj.primitive(d)).filter((d)=>d)
                     }
                     if( prop === "uniqueItems"){

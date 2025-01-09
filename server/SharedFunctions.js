@@ -475,14 +475,23 @@ export async function getPrimitiveInputs(primitive){
     if( !Object.keys(primitive.primitives ?? {}).includes("inputs") ){
         return {}
     }
-    let inputMap = PrimitiveConfig.getInputMap(primitive)
+    return await getPrimitivePins( primitive, "inputs", "input")
+}
+export async function getPrimitiveOutputs(primitive){
+    if( !Object.keys(primitive.primitives ?? {}).includes("outputs") ){
+        return {}
+    }
+    return await getPrimitivePins( primitive, "outputs", "output")
+}
+export async function getPrimitivePins(primitive, mode, pinMode){
+    let inputMap = PrimitiveConfig.getPinMap(primitive, mode)
     let sourceIds = inputMap.map(d=>d.sourceId).filter((d,i,a)=>a.indexOf(d)===i) 
 
     const sourcePrimitives = await fetchPrimitives( sourceIds )
-    let categoryIds = [primitive.referenceId, ...sourcePrimitives.map(d=>d.referenceId)].filter((d,i,a)=>a.indexOf(d)===i) 
+    let categoryIds = [130,primitive.referenceId, ...sourcePrimitives.map(d=>d.referenceId)].filter((d,i,a)=>a.indexOf(d)===i) 
     const categories = await Category.find({id: {$in: categoryIds}})
 
-    const thisCategory = categories.find(d=>d.id === primitive.referenceId)
+    const thisCategory = categories.find(d=>d.id === (primitive.type === "flowinstance" ? 130 : primitive.referenceId))
 
 
     inputMap = inputMap.map(d=>{
@@ -491,13 +500,22 @@ export async function getPrimitiveInputs(primitive){
         return {
         ...d,
         sourcePrimitive,
-        inputMapConfig: thisCategory?.pins?.input?.[d.inputPin],
+        inputMapConfig: thisCategory?.pins?.[pinMode]?.[d.inputPin],
         sourcePinConfig: sourceCategory?.pins?.output?.[d.sourcePin]
     }})
 
 
-    let output =  PrimitiveConfig.translateInputMap(inputMap)
-    console.log(output)
+    const dynamicPins = PrimitiveConfig.getDynamicPins(primitive, await getConfig(primitive) )
+
+    let interim = PrimitiveConfig.alignInputAndSource(inputMap,  dynamicPins)
+    for(const d of interim){
+        if( d.sourceTransform === "child_list_to_string"){
+            d.sources = await getDataForImport( d.sourcePrimitive )
+        }
+    }
+
+
+    let output =  PrimitiveConfig.translateInputMap(interim)
     return output
 }
 
@@ -741,7 +759,7 @@ export async function primitiveDescendents(primitive, types, options={}){
             }
             if( item ){
                 Object.keys(item).forEach((key)=>{
-                    if( !(key === "imports" || key === "config" || key === "inputs")){
+                    if( !(key === "imports" || key === "config" || key === "outputs" || key === "inputs")){
                         const value = item[key]
                         unpack(value)
                     }
@@ -1312,13 +1330,14 @@ async function __OLD__filterItems(list, filters){
 export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}}, forceImport = false, first = true ){
     let fullList = []
 
+    let requesterInFlow
     if((source.type === "query" || source.type === "search") && !forceImport ){
         let list 
         
         if(source.type === "query"){
             let node = new Proxy(source.primitives, parser)
 
-            const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" ).map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
+            const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
             list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
             
             const viewFilters = getBaseFilterForView( source ).map(d=>{
@@ -1360,9 +1379,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
     const sources = await primitivePrimitives(source, 'primitives.imports', undefined, undefined)
 
     let hasFullDocument = false
-    /*for( const imp of sources){
-        fullList = fullList.concat(list)
-    }*/
+
     async function doImport(imp, idx){
         let requiresFullDocument = false
         const params = await getConfig( source, undefined, cache) 
@@ -1374,6 +1391,35 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                         requiresFullDocument = true
                     }
                 }
+            }
+        }
+        if( imp.type === "flow"){
+            if( requesterInFlow === undefined){
+                requesterInFlow = false
+                if( source.flowElement ){
+                    requesterInFlow = true
+                }else{
+                    const configParentId = Object.keys(source.parentPrimitives ?? {}).filter(d=>source.parentPrimitives[d].includes("primitives.config"))?.[0]
+                    console.log(`++ import from flow - config for item = ${configParentId}`)
+                    if( configParentId ){
+                        const configParent = await fetchPrimitive(configParentId)
+                        if( configParent?.flowElement ){
+                            requesterInFlow = true
+                            console.log(`++ IN FLOW`)
+                        }
+                    }
+                }
+            }
+            if( requesterInFlow ){
+                const instances = await primitiveChildren( imp, "flowinstance")
+                let list = []
+                for( const instance of instances){
+                    const outputs = await instances.getPrimitiveOutputs()
+                    if( outputs ){
+                        list.push( outputs )
+                    }
+                }
+                return uniquePrimitives(outputs)
             }
         }
 
@@ -2064,14 +2110,23 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     if( frameworkResult.success ){
         return frameworkResult.result
     }
-
-    if( primitive.type === "search" && actionKey !== "bdcollect" && actionKey !== "auto_cascade"){
-        return await QueryQueue().doQuery(primitive, options)
+    if( actionKey === "itp_test"){
+        let items = await getDataForImport( primitive )
+        return items
     }
-    if( actionKey === "d_test"){
-        const inputs = await getPrimitiveInputs( primitive )
-        return inputs
 
+    if( actionKey === "d_test"){
+        let items
+        if( options?.pins === "output"){
+            items = await getPrimitiveOutputs( primitive )
+        }else{
+            items = await getPrimitiveInputs( primitive )
+        }
+        return items
+
+    }
+    if( primitive.type === "search" && actionKey !== "d_test" && actionKey !== "bdcollect" && actionKey !== "auto_cascade"){
+        return await QueryQueue().doQuery(primitive, options)
     }
     if( actionKey === "new_query"){
         return await createSegmentQuery(primitive, options.queryData, options.importData)
@@ -2331,6 +2386,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         const source = options.source ? await fetchPrimitive( options.source ) : undefined
         const [items, toSummarize] = await getDataForProcessing(primitive, {...(category?.openai?.summarize?.source ?? options ?? {})}, source, {instance: options?.instance} )
         console.log(items.length, "items")
+
+        const primitiveInputs = await getPrimitiveInputs( primitive )
+
         if( items.length > 0){
 
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
@@ -2352,6 +2410,18 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
             }
+
+            if( primitiveInputs ){
+                for(const inp of Object.keys(primitiveInputs)){
+                    if( primitiveInputs[inp].data){
+                        config.prompt = config.prompt.replaceAll(`{${inp}}`, primitiveInputs[inp].data)
+                    }
+                }
+                console.log(config.prompt)
+            }
+
+
+
             
             let summary
             const toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)

@@ -132,7 +132,7 @@ let mainstore = MainStore()
         const canvasMargin = (view.noTitle || view.inFlow) ? [0,0,0,0] : [20,20,20,20]
 
         let indicators
-        if( primitiveToRender.processing?.flow){
+        if( view.primitive.flowElement){
             indicators = ()=>buildIndicators(primitiveToRender, undefined, undefined, myState)
         }
 
@@ -721,7 +721,9 @@ export default function BoardViewer({primitive,...props}){
                                         canvas.current.refreshFrame( board.id, renderView(board.primitive))
                                     }else if(info.startsWith('frames.') && info.endsWith('.showItems')){
                                         needRebuild = true
-                                    }else if(info.startsWith('procesing.') || info.startsWith('embed_')){
+                                    }else if(info.startsWith('processing.flow') ){
+                                        needRefresh = true
+                                    }else if(info.startsWith('processing.') || info.startsWith('embed_')){
                                         needRefresh = false
                                     }
                                 }
@@ -1387,6 +1389,7 @@ export default function BoardViewer({primitive,...props}){
                 if( addToFlow ){
                     return {
                         ...data,
+                        flowElement: true,
                         parent: addToFlow
                     }
 
