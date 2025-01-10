@@ -1826,7 +1826,6 @@ function MainStore (prims){
                             }
                             const excludedTypes = new Set(["segment", "category", "query", "report", "reportinstance"]);
 
-                            //if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "search" && receiver.type !== "summary"))){
                             if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "summary" && receiver.type !== "search"))){
                                 let fullList = []
                                 for( const source of receiver.primitives.imports.allItems){
@@ -2017,11 +2016,23 @@ function MainStore (prims){
                         }
                         return id
                     }
-                    if( prop === "inputs"){
-                        return receiver.pins("inputs", "input")
-                    }
                     if( prop === "outputs"){
-                        return receiver.pins("outputs", "output")
+                        if( receiver.type === "flow" || receiver.type === "flowinstance"){
+                            return receiver.fetchInputs(undefined, "outputs" , "output")
+                        }
+                        let outputMap = PrimitiveConfig.getOutputMap(receiver)
+                        const out = {}
+                        const c = {}
+                        for(const d of outputMap){
+                            let targetMap = c[d.targetId]
+                            if(!targetMap){
+                                const target = obj.primitive( d.targetId )
+                                targetMap = target.fetchInputs( receiver.id)
+                                c[d.targetId] = targetMap
+                            }
+                            out[d.outputPin] = targetMap[d.targetPin]
+                        }
+                        return out
                     }
                     if(prop === "inFlow"){
                         if( receiver.flowElement){
@@ -2033,9 +2044,12 @@ function MainStore (prims){
                         }
                         return false
                     }
-                    if( prop === "pins"){
-                        return (mode, pinMode)=>{
-                            let inputMap = PrimitiveConfig.getPinMap(receiver, mode)
+                    if( prop === "fetchInputs"){
+                        return (sourceId, mode = "inputs", pinMode = "input")=>{
+                            let inputMap = PrimitiveConfig.getInputMap(receiver, mode)
+                            if( sourceId ){
+                                inputMap = inputMap.filter(d=>d.sourceId === sourceId)
+                            }
                             
                             inputMap = inputMap.map(d=>{
                                 const sourcePrimitive = obj.primitive(d.sourceId)
@@ -2044,18 +2058,22 @@ function MainStore (prims){
                                     sourcePrimitive,
                                     inputMapConfig: receiver.type === "flowinstance" ? receiver.origin.metadata?.pins?.[pinMode]?.[d.inputPin] : receiver.metadata?.pins?.[pinMode]?.[d.inputPin],
                                     sourcePinConfig: sourcePrimitive.metadata.pins?.output?.[d.sourcePin]
-                                }})
+                            }})
                                 
-                                let interim = PrimitiveConfig.alignInputAndSource(inputMap,  PrimitiveConfig.getDynamicPins(receiver, receiver.getConfig, mode))
-                                for(const d of interim){
-                                    if( d.sourceTransform === "child_list_to_string"){
-                                        d.sources = d.sourcePrimitive.itemsForProcessing
-                                    }
+                            let interim = PrimitiveConfig.alignInputAndSource(inputMap,  PrimitiveConfig.getDynamicPins(receiver, receiver.getConfig, "inputs"))
+                            for(const d of interim){
+                                if( d.sourceTransform === "child_list_to_string"){
+                                    d.sources = d.sourcePrimitive.itemsForProcessing
                                 }
-                                let final = PrimitiveConfig.translateInputMap(interim)
-                                
-                                return final
+                            }
+                            let final = PrimitiveConfig.translateInputMap(interim)
+                            
+                            return final
                         }
+                    }
+
+                    if( prop === "inputs"){
+                        return receiver.fetchInputs(undefined)
                     }
                     if( prop === "originTask"){
                         let origin = receiver.origin

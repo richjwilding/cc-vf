@@ -343,6 +343,10 @@ export async function runFlowInstance( flowInstance, options = {}){
         logger.error(`Cant find parent flow for instance`, {flowInstance})
     }
     let newIteration = true
+    if( !processing?.flow?.last_run && options.continue){
+        logger.info(`Cant continue flow - no progress data`)
+        return
+    }
     let flowStarted = options.flowStarted ?? flowInstance.processing?.flow?.last_run?.started ?? flow.processing?.flow?.started
     if( options.force || !flowStarted){
         flowStarted = new Date().toISOString()

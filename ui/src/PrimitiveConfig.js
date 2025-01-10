@@ -625,21 +625,42 @@ const PrimitiveConfig = {
             }
         }
         return false
-    },getInputMap:(primitive)=>{
-        return PrimitiveConfig.getPinMap(primitive, "inputs")
-    },getOutputMap:(primitive)=>{
-        return PrimitiveConfig.getPinMap(primitive, "outputs")
-    },getPinMap:(primitive, pins)=>{
-        const input_list = Object.keys(primitive.primitives?.[pins] ?? {})
+    },getInputMap:(primitive, mode = "inputs")=>{
         const out = []
+        const input_list = Object.keys(primitive.primitives?.[mode] ?? {})
         for(const inp of input_list){
             const [sourcePin, inputPin] = inp.split("_")
-            const sourceIds = primitive.primitives[pins][inp]
+            const sourceIds = primitive.primitives[mode][inp]
             for(const sourceId of sourceIds){
                 out.push( {sourceId, sourcePin, inputPin} )
             }
         }
         return out
+        //return PrimitiveConfig.getPinMap(primitive, "inputs")
+    },getOutputMap:(primitive)=>{
+        const out = []
+        const pp = primitive._parentPrimitives ?? primitive.parentPrimitives ?? {}
+        const list = Object.keys(pp).reduce((a,d)=>{
+            const res = pp[d].filter(d=>d.startsWith("primitives.inputs."))
+            if(res.length > 0){
+                a[d] = res.map(d=>d.replace("primitives.inputs.",""))
+            }
+            return a
+        },{})
+        for(const targetId of Object.keys(list)){
+            for(const inp of list[targetId]){
+                const [outputPin, targetPin] = inp.split("_")
+                out.push( {targetId, targetPin, outputPin} )
+            }
+        }
+        return out
+        //return PrimitiveConfig.getPinMap(primitive, "outputs")
+    },getPinMap:(primitive, pins)=>{
+        if( pins === "inputs"){
+            return PrimitiveConfig.getInputMap(primitive)
+        }else if( pins === "outputs"){
+            return PrimitiveConfig.getOutputMap(primitive)
+        }
     },getDynamicPins:(primitive, config, mode = "inputs")=>{
         if( mode === "inputs"){
             if( primitive.type === "query" || primitive.type === "summary"){

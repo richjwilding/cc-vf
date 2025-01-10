@@ -528,9 +528,9 @@ getAverageColor(ctx, width, height) {
           if( ! this.queuedForRefresh){
             this.queuedForRefresh = true
             this.attrs.refreshCallback()
+            return
           }
         }
-    
   }
 
   destroy(){
@@ -556,6 +556,7 @@ getAverageColor(ctx, width, height) {
     }
     const width = this.getWidth();
     const height = this.getHeight();
+    this.lastRenderContext = context
     
     if( !((width > 0) && (height > 0))){
       return

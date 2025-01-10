@@ -7,6 +7,7 @@ import { exportKonvaToPptx } from './PptHelper';
 import MainStore from './MainStore';
 import { AvoidLib } from 'libavoid-js';
 import CustomImage from './CustomImage';
+import CustomText from './CustomText';
 
 Konva.autoDrawEnabled = false
 
@@ -285,7 +286,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         let nodes = frame.allNodes ?? frame.node.children
         for(const d of nodes){
 
-            let l = d.x()
+            let l = d.attrs.overrideX !== undefined ? d.attrs.overrideX : d.x()
             let t = d.y()
             let r = l + d.width() 
             let b = t + d.height() 
@@ -581,6 +582,58 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 frameBorder.width(maxX)
                 frameBorder.height(maxY)
                 frame.node.add(frameBorder)
+            }
+            if( options.pins ){
+                frame.pins = options.pins
+                const spacingY = 16
+                const size = 8
+                const midY = maxY / 2
+                const inputPinStart = midY - ((1 + Math.round(frame.pins.input.length / 2)) * spacingY)
+                const outputPinStart = midY - ((1 + Math.round(frame.pins.output.length / 2)) * spacingY)
+                frame.pins.input = frame.pins.input.map(d=>({
+                    ...d,
+                    output: false,
+                    x: 0,
+                    y: d.idx === 0 ? midY : inputPinStart + (d.idx * spacingY)
+                }))
+                frame.pins.output = frame.pins.output.map(d=>({
+                    ...d,
+                    output: true,
+                    x: maxX,
+                    y: d.idx === 0 ? midY : outputPinStart + (d.idx * spacingY)
+                }))
+                {
+                    [...frame.pins.input, ...frame.pins.output].forEach(d=>{
+                        const n = new Konva.Arc({
+                            angle: 180,
+                            x: d.x,
+                            y: d.y,
+                            rotation: d.output ? 270 : 90,
+                            name:'pin top_layer oob',
+                            outerRadius: size / 2,
+                            fill: d.idx === 0 ? '#333' : '#999',
+                            minRenderSize: 3,
+                        }) 
+                        const t = new CustomText({
+                            text: d.name,
+                            width: "auto",
+                            fontSize: 8,
+                            y: d.y - 4,
+                            minRenderSize: 20,
+                            x: d.output ? maxX + (size * 0.7) : 0
+                        })
+                        if(!d.output){
+                            t.x(-t.width() - (size * 0.7))
+                            t.attrs.overrideX = 0
+                        }
+                        d.node = n
+                        d.textNode = t
+                        frame.node.add(n)
+                        frame.node.add(t)
+                    })
+                }
+
+                
             }
 
             if( options.indicators ){
@@ -1084,7 +1137,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
             const item = myState.current.renderList.find(d=>d?.id === id)
             if( item.parentRender ){
-                console.log(`Aligning to parent`)
                 let {x:px, y:py, s:ps} = getFramePosition(item.parentRender)
                 x = ((x ?? 0) * ps) + px
                 y = ((y ?? 1) * ps) + py
@@ -1127,7 +1179,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
 
     function orderNestedFrames(node, start = true){
-        console.log(`Check reorder frame ${node.attrs.id}`)
         const children = getNestedFrames( node.attrs.id)
         //let nextZ = startZ ?? node.zIndex() + 1
         if( children.length > 0){
@@ -1159,6 +1210,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             const {items, title, ...options} = force ? newItems : item
 
             const frame = setupFrameForItems(id, title, items, x, y, s, {...options, parentRender: item.parentRender, forceRender: force})
+
             buildPositionCache(frame)
             finalizeImages(stageRef.current, {imageCallback: processImageCallback})
             alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
@@ -1303,6 +1355,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             return
         }        
         let nodes =  layerRef.current.children
+        let topLayer = []
         let scale = stageRef.current.scale().x
         x = x 
         y = y 
@@ -1375,6 +1428,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 let hidden = 0
                 const seen = new Set();
                 nodes = [];
+                topLayer = []
                 pagesToProcess.forEach(d => {
                     const [x, y] = d.split("-");
                     const n = frame.pages[x]?.[y];
@@ -1383,8 +1437,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const uniqueKey = item._id; // Assuming 'item' has a unique 'id'
                             if (!seen.has(uniqueKey)) {
                                 seen.add(uniqueKey);
-                                if( item.attrs.scaleFont || ((item.attrs.width * scale * frame.scale) > (item.attrs.minRenderSize ?? 8)) || item.attrs.name === "frame_outline"){
-                                    nodes.push(item);
+                                //if( item.attrs.scaleFont || ((item.attrs.width * scale * frame.scale) > (item.attrs.minRenderSize ?? 8)) || item.attrs.name === "frame_outline"){
+                                if( item.attrs.scaleFont || ((item.width() * scale * frame.scale) > (item.attrs.minRenderSize ?? 8)) || item.attrs.name === "frame_outline"){
+                                    if( item.attrs.name?.includes("top_layer")){
+                                        topLayer.push(item)
+                                    }else{
+                                        nodes.push(item);
+                                    }
                                 }else{
                                     hidden++
                                 }
@@ -1410,48 +1469,50 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 let ay = y - frame.node.attrs.y
                 let ay2 = (y2 - frame.node.attrs.y) 
 
-                for( const d  of nodes){
-                    let c = d.attrs
-                    let x1 = c.x 
-                    let y1 = c.y 
-                    let x2 = c.x + c.width
-                    let y2 = c.y + c.height
-                    if(  frame.scale !== 1){
-                        x1 *= frame.scale
-                        x2 *= frame.scale
-                        y1 *= frame.scale
-                        y2 *= frame.scale
-                    }
-                    let visible = true//c.scaleFont ? (x1 >= ax &&  x1 <= ax2 && (y2 + c.offsetY) >= ay && y2 <= ay2) : (x2 > ax &&  x1 < ax2 && y2 > ay && y1 < ay2)
-                    if(visible){
-                        if( d.attrs.scaleFont ){
-                            const iScale = Math.min(25, Math.max(1 / scale / frame.scale , 2))
-                            const w = Math.min( d.attrs.originWidth * iScale, frame.node.attrs.width * 1.25)
-                            const h =  (iScale * d.attrs.scaleFont) * 1.2
-                            d.children[1].fontSize( iScale * d.attrs.scaleFont )
-                            d.children[1].width( w )
-                            d.children[0].width( w )
-                            d.children[0].height( h )
-                            d.children[1].height( h )
-                            d.offsetY( h + 2)
-                            d.height( h )
-                            d.width( w )
+                for( const set of [nodes, topLayer]){
+                    for( const d  of set){
+                        let c = d.attrs
+                        let x1 = c.x 
+                        let y1 = c.y 
+                        let x2 = c.x + c.width
+                        let y2 = c.y + c.height
+                        if(  frame.scale !== 1){
+                            x1 *= frame.scale
+                            x2 *= frame.scale
+                            y1 *= frame.scale
+                            y2 *= frame.scale
                         }
-                        vis++
-                        if( enableNodePruning ){
-                            if( lastRenderCount === undefined || (d.attrs._vis !== lastRenderCount)){
-                                newThisRender.push(d)
-                                newlyRendered++
+                        let visible = true//c.scaleFont ? (x1 >= ax &&  x1 <= ax2 && (y2 + c.offsetY) >= ay && y2 <= ay2) : (x2 > ax &&  x1 < ax2 && y2 > ay && y1 < ay2)
+                        if(visible){
+                            if( d.attrs.scaleFont ){
+                                const iScale = Math.min(25, Math.max(1 / scale / frame.scale , 2))
+                                const w = Math.min( d.attrs.originWidth * iScale, frame.node.attrs.width * 1.25)
+                                const h =  (iScale * d.attrs.scaleFont) * 1.2
+                                d.children[1].fontSize( iScale * d.attrs.scaleFont )
+                                d.children[1].width( w )
+                                d.children[0].width( w )
+                                d.children[0].height( h )
+                                d.children[1].height( h )
+                                d.offsetY( h + 2)
+                                d.height( h )
+                                d.width( w )
                             }
-                            d.attrs._vis = myState.current.refreshCount
-                            
-                            if( d.attrs["_txc"] !== myState.current.transformCount){
-                                d._clearSelfAndDescendantCache('absoluteTransform')
-                                d.attrs["_txc"] = myState.current.transformCount
+                            vis++
+                            if( enableNodePruning ){
+                                if( lastRenderCount === undefined || (d.attrs._vis !== lastRenderCount)){
+                                    newThisRender.push(d)
+                                    newlyRendered++
+                                }
+                                d.attrs._vis = myState.current.refreshCount
+                                
+                                if( d.attrs["_txc"] !== myState.current.transformCount){
+                                    d._clearSelfAndDescendantCache('absoluteTransform')
+                                    d.attrs["_txc"] = myState.current.transformCount
+                                }
+                                activeNodes.push(d)
+                            }else{
+                                d.visible(visible)
                             }
-                            activeNodes.push(d)
-                        }else{
-                            d.visible(visible)
                         }
                     }
                 }

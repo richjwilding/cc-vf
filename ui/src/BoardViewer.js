@@ -89,9 +89,6 @@ function translateIndicatorState(step){
             }
         } 
     }
-    if( out.icon === "Eye"){
-        console.log(`Is eye`, step)
-    }
     return [out]
 }
 function _buildIndicators(primitive){
@@ -126,6 +123,7 @@ let mainstore = MainStore()
 
         const primitiveToRender = view.primitive.type === "element" ? view.primitive : (view.underlying ?? view.primitive)
 
+        const pins = {input: Object.values(view.inputPins), output: Object.values(view.outputPins) }
         const title = view.noTitle ? undefined : ()=>{
             return view.title ?? `${d.title} - #${d.plainId}${view.underlying ? ` (${primitiveToRender.plainId})` : ""}`
         }
@@ -181,12 +179,12 @@ let mainstore = MainStore()
                     }
                 }
             }
-            return {id: d.id, parentRender: view.parentRender, title, indicators, canChangeSize: "width", canvasMargin, items: render}
+            return {id: d.id, parentRender: view.parentRender, title, pins, indicators, canChangeSize: "width", canvasMargin, items: render}
         }else if( view.config === "cat_overview"){
             return {
                 id: d.id, 
                 parentRender: view.parentRender, 
-                title, 
+                pins, title, 
                 indicators, 
                 canChangeSize: "width", 
                 canvasMargin, 
@@ -194,19 +192,19 @@ let mainstore = MainStore()
             }
         }else if( view.config === "flow"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, parentRender: view.parentRender, indicators, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#fffbeb"}
+            return {id: d.id, parentRender: view.parentRender, indicators, pins, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#fffbeb"}
         }else if( view.config === "widget"){
             const data = view.renderData
             if( view.inFlow ){
                 data.basePrimitive = view.primitive
             }
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: "widget", data: data})
-            return {id: d.id, title,parentRender: view.parentRender, indicators, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
+            return {id: d.id, pins, title,parentRender: view.parentRender, indicators, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
         }else if( view.config === "report_set"){
 
 
             return {id: d.id, 
-                    title, 
+                    pins, title, 
                     canChangeSize: "width", 
                     indicators, 
                     canvasMargin, 
@@ -226,7 +224,7 @@ let mainstore = MainStore()
         }
         
         if( d.type === "query" && d.processing?.ai?.data_query){
-            return {id: d.id, parentRender: view.parentRender, title, indicators, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {config: "ai_processing",...stageOptions, ...renderOptions})}
+            return {id: d.id, parentRender: view.parentRender, pins, title, indicators, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {config: "ai_processing",...stageOptions, ...renderOptions})}
         }
 
         const canChangeSize = view?.viewConfig?.resizable 
@@ -235,7 +233,7 @@ let mainstore = MainStore()
         return {id: d.id ,
             parentRender: 
             view.parentRender, 
-            title, 
+            pins, title, 
             indicators, 
             canChangeSize, 
             items: (stageOptions)=>RenderSetAsKonva(
@@ -255,7 +253,7 @@ let mainstore = MainStore()
 
         }
 
-        return {id: d.id ,parentRender: view.parentRender, title, indicators, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
+        return {id: d.id ,parentRender: view.parentRender, pins, title, indicators, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
 
     }
 
@@ -271,6 +269,24 @@ let mainstore = MainStore()
         myState[stateId].isBoard = true
         const oldConfig = myState[stateId]?.config
 
+        function processPins(source, mode){
+            return [
+                {
+                    name: mode,
+                    idx: 0
+                },
+                ...source.map((d,i)=>({
+                    name: d.inputPin ?? d.outputPin,
+                    idx: i + 1
+                }))
+            ].reduce((a,c)=>{
+                a[c.name] = c
+                return a
+            }, {})
+        }
+
+        myState[stateId].inputPins = myState[stateId].inputPins ?? processPins(PrimitiveConfig.getInputMap( primitiveToPrepare), "imp_in" )
+        myState[stateId].outputPins = myState[stateId].outputPins ?? processPins(PrimitiveConfig.getOutputMap( primitiveToPrepare), "imp_out" )
 
         let widgetConfig = {}
         let renderType = primitiveToPrepare.type
@@ -566,14 +582,12 @@ let mainstore = MainStore()
                 }
                 const renderResult = SharedPrepareBoard(child, myState)
                 childChanged ||= renderResult !== false
-                console.log(`--- ${childChanged}`)
                 if( childChanged ){
                     boardsToRefresh.push(child.id)
                 }
                 didChange ||= (childChanged ?? true)
                 myState[child.id].parentRender = stateId
             }
-            console.log(`Flow children done`)
         }
         if( myState[stateId] && forceViewConfig){
             myState[stateId].renderConfigOverride = forceViewConfig.renderConfig
@@ -582,7 +596,6 @@ let mainstore = MainStore()
             myState[stateId].element = element
 
         }
-        console.log(oldConfig, myState[stateId].config)
         if( oldConfig !== myState[stateId].config){
             didChange = true
         }
@@ -896,7 +909,17 @@ export default function BoardViewer({primitive,...props}){
                             return {left: left.id, right: right.id}
                         }
                     }else if(right.primitives.inputs.allIds.includes(left.id)){
-                            return {left: left.id, right: right.id}
+                            const rel = right.primitives.paths(left.id,"inputs")[0]
+                            if(rel ){
+                                const pinNames = rel.substring(rel.lastIndexOf(".") + 1);
+                                const [leftPinName, rightPinName] = pinNames.split("_")
+                                const leftPin = myState[left.id].outputPins[leftPinName]?.idx
+                                const rightPin = myState[right.id].inputPins[rightPinName]?.idx
+                                console.log(leftPin, leftPinName, rightPin, rightPinName)
+                                if( leftPin !== undefined && rightPin !== undefined){
+                                    return {left: left.id, right: right.id, leftPin, rightPin}
+                                }
+                            }
                     }else{
                         const route = right.findImportRoute(left.id)
                         if( route.length > 0){
