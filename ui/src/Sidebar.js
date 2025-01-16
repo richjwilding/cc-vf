@@ -18,6 +18,7 @@ import CardGrid from './CardGrid'
 import { InputPopup } from './InputPopup'
 import QueryCard from './QueryCard'
 import SummaryCard from './SummaryCard'
+import UIHelper from './UIHelper'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -359,7 +360,7 @@ export function Sidebar({primitive, ...props}) {
             leaveTo="min-w-0 w-0"
 //            className={`${props.overlay ? "absolute right-0 z-50 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl`}>
             className={`absolute right-0 z-50 h-screen overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl 4xl:relative 4xl:shadow-none `}>
-        <div className='min-w-max'>
+        <div className='min-w-max @container'>
         <div className='max-w-[24rem] sm:max-w-[28rem] 5xl:min-w-[48rem]'>
             <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky z-50 top-0 bg-white">
                 <div className="flex items-start justify-between space-x-3">
@@ -385,17 +386,28 @@ export function Sidebar({primitive, ...props}) {
             {infoPane && infoPaneContent}
             {!infoPane && isMulti && !commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">Cant inspect selection</div> }            
             {!infoPane && isMulti && commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">{primitive.length} items selected</div> }
-            {!infoPane && !isMulti && (primitive.referenceParameters?.hasImg || primitive.metadata?.actions) && <div className='w-full flex'>
+            {!infoPane && !props.forFlow && !isMulti && (primitive.referenceParameters?.hasImg || primitive.metadata?.actions) && <div className='w-full flex'>
                 {primitive.referenceParameters?.hasImg  &&  <VFImage className="w-8 h-8 mx-2 object-contain my-auto" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} />}
                 {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} className='ml-auto m-2'/> }            
             </div>}
-            {!infoPane && !isMulti && primitive.type === "query" && <div className="pb-2 pl-4 pr-4 pt-4">
+            {!infoPane && !isMulti && !props.forFlow && primitive.type === "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <QueryCard primitive={primitive} showDetails={true}/>
             </div>}
             {!infoPane && !isMulti && showAsSummary && <div className="pb-2 pl-4 pr-4 pt-4">
                 <SummaryCard primitive={primitive} showDetails={true}/>
             </div>}
-            {!infoPane && !isMulti && !showAsSummary && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
+            {!infoPane && !isMulti && props.forFlow && <div className="pb-2 pl-4 pr-4 pt-4">
+                <span className="text-2xl font-bold text-gray-500">{primitive.configParent.title}</span>
+                <PrimitiveCard.Title primitive={primitive.configParent}/>
+                <div className='my-5 flex flex-col'>
+                    <p className="text-sm font-bold text-gray-500">Step instance details</p>
+                    <div className='border border-gray-200 rounded-md p-2 bg-gray-50 my-3'>
+                        <PrimitiveCard.OutputPins primitive={primitive}/>
+                    </div>
+                    <PrimitiveCard.Title primitive={primitive}/>
+                </div>
+            </div>}
+            {!infoPane && !isMulti && !props.forFlow && !showAsSummary && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
                 {primitive.type === "result" && !fulltext && primitive.referenceParameters?.url && <Panel.MenuButton title='View text' onClick={async ()=>setFullText((await primitive.getDocumentAsText())?.split(" ").slice(0,5000).join(" "))}/>}
                 {primitive.type === "result" && fulltext && <div className='p-3 border rounded-md text-sm'>{fulltext}</div>}
@@ -529,13 +541,13 @@ export function Sidebar({primitive, ...props}) {
                 >
                     {(isMulti ? `Delete ${primitive.length} items` : 'Delete this') + ` and ${nestedCount} nested items`}
                 </button>}
-                <button
+                {!props.forFlow && <button
                     type="button"
                     className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 "
                     onClick={()=>promptDelete()}
                 >
                     {isMulti ? `Delete ${primitive.length} items` : 'Delete'}
-                </button>
+                </button>}
             </div>}
     </div>
     </div>

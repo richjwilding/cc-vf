@@ -2044,6 +2044,26 @@ function MainStore (prims){
                         }
                         return false
                     }
+                    if(prop === "inputPinsWithStatus"){
+                        const pins = receiver._pins("input")
+                        return Object.keys(pins).reduce((a,pinName)=>{
+                            a[pinName] = {
+                                ...pins[pinName],
+                                connected: pinName === "imp_in" ? receiver.primitives.imports.allIds.length > 0 : Object.keys(receiver.primitives.inputs).some(d=>d.endsWith(`_${pinName}`))
+                            }
+                            return a
+                        },{})
+                    }
+                    if(prop === "outputPinsWithStatus"){
+                        const pins = receiver._pins("output")
+                        return Object.keys(pins).reduce((a,pinName)=>{
+                            a[pinName] = {
+                                ...pins[pinName],
+                                connected: pinName === "imp_out" ? Object.values(receiver._parentPrimitives ?? {}).some(d=>d.some(d=>d === "primitives.imports")) : Object.values(receiver._parentPrimitives).some(d=>d.some(d=>d.startsWith(`primitives.inputs.${pinName}_`)))
+                            }
+                            return a
+                        },{})
+                    }
                     if(prop === "inputPins"){
                         return receiver._pins("input")
                     }

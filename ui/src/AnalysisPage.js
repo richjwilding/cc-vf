@@ -47,7 +47,7 @@ export default function AnalysisPage({primitive, ...props}){
     }
 
     return <div 
-            className={`w-full relative p-6`}
+            className={`w-full relative p-6 overflow-y-scroll`}
         >
         <div className="mb-2 max-w-[1600px] mx-auto">
             <div className="w-full flex flex-col py">

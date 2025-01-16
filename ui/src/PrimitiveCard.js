@@ -44,6 +44,7 @@ import UIHelper from './UIHelper';
 import CollectionUtils from './CollectionHelper';
 import MarkdownEditor from './MarkdownEditor';
 import { roundCurrency } from './SharedTransforms';
+import { DescriptionDetails, DescriptionList, DescriptionTerm } from './@components/description-list';
 
 export const ExpandArrow = function(props) {
   return (
@@ -2370,6 +2371,61 @@ function CardForList({primitive, fields, ...props}){
         </div>
     </div>
 }
+function Outputs({primitive}){
+    const values = primitive.outputs
+    const outputPins = primitive.outputPinsWithStatus
+
+    let pins = Object.keys(primitive.outputPins).reduce((a,c)=>{a.push({...outputPins[c], id: c}); return a},[])
+    
+    if(outputPins){
+      let removeImport = true
+      if( outputPins.imp_out?.connected){
+
+        const primOuts = primitive.itemsForProcessing
+        if( primOuts.length > 0){
+          values.imp_out = {
+            config: "primitive",
+            data: primOuts
+          }
+          removeImport = false
+        }
+      }
+      if( removeImport){
+        pins = pins.filter(d=>d.id !== "imp_out")
+      }
+    }
+    
+    return RenderPins({primitive, values, pins})
+}
+function Inputs({primitive}){
+    const pins = primitive.outputPins
+    return RenderPins({primitive, pins})
+}
+function RenderPinValues({values, pin}){
+    const pinValue = values[pin.id]
+    if( pinValue ){
+        const renderAs = pinValue.config
+        if( renderAs === "string_list"){
+            return <p>{pinValue.data.join(", ")}</p>
+        }else if(renderAs === "string"){
+            return <p>{pinValue.data}</p>
+        }else if(renderAs === "primitive"){
+            return <div className='flex flex-col space-y-2'>
+                {pinValue.data.map(d=><PrimitiveCard primitive={d}/>)}
+              </div>
+        }
+    }
+    return <></>
+}
+function RenderPins({primitive, values, pins}){
+  return <DescriptionList>
+    {pins.map(d=><>
+        <DescriptionTerm>{d.name}</DescriptionTerm>
+        <DescriptionDetails>{RenderPinValues({values, pin: d})}</DescriptionDetails>
+    </>)}
+
+  </DescriptionList>
+};
 
 PrimitiveCard.ProcessingBase = ProcessingBase
 PrimitiveCard.Variant = Variant
@@ -2392,3 +2448,6 @@ PrimitiveCard.CardMenu = CardMenu
 PrimitiveCard.SmallMeta = SmallMeta
 PrimitiveCard.ImportList = ImportList
 PrimitiveCard.ListCard = CardForList
+PrimitiveCard.OutputPins = Outputs
+
+

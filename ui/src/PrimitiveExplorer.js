@@ -16,7 +16,6 @@ import { exportViewToPdf } from './ExportHelper';
 import DropdownButton from './DropdownButton';
 import { HeroIcon } from './HeroIcon';
 import { SearchPane } from './SearchPane';
-import ListGraph from './ListGraph';
 import InfiniteCanvas from './InfiniteCanvas';
 import HierarchyNavigator from './HierarchyNavigator';
 import CollectionUtils from './CollectionHelper';
@@ -1581,9 +1580,7 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                                             }>
                                             {viewConfig?.parameters?.showAsCounts 
                                             ? subList.length > 0 ? subList.length : ""
-                                            : viewConfig?.parameters?.showAsGraph 
-                                                ? <ListGraph data={columnExtents.map(d=>({name: (d?.label ?? d ?? "None"), value: list.filter(d2=>d2.column === (d?.idx ?? d)).length}))} width={renderProps.fixedWidth ?? "96rem"} height={renderProps.fixedHeight ?? renderProps.fixedWidth ?? "96rem"}/>
-                                                : viewConfig?.parameters?.showAsSegment
+                                            : viewConfig?.parameters?.showAsSegment
                                                     ? [primitive.primitives.allSegment.find(d=>d.doesImport( primitive.id, infoPane.filters))].map(segment=>{
 
                                                         if( segment ){

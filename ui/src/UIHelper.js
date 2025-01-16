@@ -12,7 +12,7 @@ import { PencilSquareIcon } from '@heroicons/react/24/outline'
 import { HeroIcon } from './HeroIcon'
 import { Disclosure, Transition } from '@headlessui/react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-
+import { DescriptionDetails, DescriptionList, DescriptionTerm } from './@components/description-list'
 
 function AxisPicker({className, options, name, title, type, small, disabled, autoFocus,'aria-label': ariaLabel,...props}){
     const [editing, setEditing] = useState(false)
@@ -288,6 +288,7 @@ MyDisclosure.Panel = MyDisclosurePanel
 
 
 UIHelper.OptionList = OptionList
+
 UIHelper.Dropdown = MyDropdown
 UIHelper.Panel = Panel
 UIHelper.Disclosure = MyDisclosure

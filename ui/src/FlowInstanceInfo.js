@@ -10,14 +10,14 @@ import FeedList from "./@components/Feed";
 
 export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     const [expand, setExpand] = useState(false)
-    const [showFeed, setShowFeed] = useState(false)
+    const [showFeed, setShowFeed] = useState(true)
 
     const bg = props.bg ?? "bg-white"
     const ring = bg.replace("bg-", "ring-")
     const activeList = []
     const padding = props.padding ?? "p-4"
 
-    const flowOutputPins = primitive.origin?.outputPins
+    const flowOutputPins = primitive?.origin?.outputPins ?? []
     const outputPins = Object.keys(primitive?.primitives.outputs ?? {})
     const outputs = outputPins.reduce((a,c)=>{
         const [pinSource, pinInput] = c.split("_")
@@ -31,7 +31,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     const [selectedOutputPin, setSelectedOutputPin] = useState(outputPins[0])
 
     console.log(outputs)
-    if( !inputPrimitive || !steps){
+    if( !primitive || !inputPrimitive || !steps){
         return <></>
     }
     let runningProgress = []
@@ -43,8 +43,8 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
         let progress
         let message
         const stepForInstance = primitive?.primitives.origin.allItems.find(d=>d.configParent?.id === step.id)
-        if(stepForInstance?.processing?.flow?.flowStarted === primitive?.processing?.flowStarted){
-            message = stepForInstance.processing.query?.message
+        if(stepForInstance && stepForInstance?.processing?.flow?.flowStarted === primitive?.processing?.flowStarted){
+            message = stepForInstance?.processing?.query?.message
             if( stepForInstance?.processing?.flow?.status === "complete" ){
                 status = "Done"
                 icon = <HeroIcon icon='FACheck' className='text-white w-4 h-4'/>
@@ -58,7 +58,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
             }
         }
         return {
-            status, iconBackground, icon, progress, message, title: step.title
+            status, iconBackground, icon, progress, message, title: step.title, primitive: stepForInstance
         }
     })
     console.log(stepsToProcess)
@@ -67,9 +67,10 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     return (<>
         <div className={`${bg} ${padding}`}>
             <span>Flow instance for {inputPrimitive.title}</span>
+            <PrimitiveCard.Title primitive={inputPrimitive} compact={true}/>
             <PrimitiveCard.Title primitive={primitive} compact={true}/>
         </div>
-        <div className={`${bg} ${padding} w-full ${props.hideProgressAt ? `hidden ${props.hideProgressAt}:flex flex-col` : ""}`}>
+        <div className={`${bg} ${padding} w-full ${props.hideProgressAt ? `hidden @4xl:flex flex-col` : ""}`}>
             <div className={`justify-between w-full relative h-min flex ${bg} `}>
                 <span aria-hidden="true" className={`absolute top-[50%] w-full h-0.5 bg-gray-200 z-0`} />
                 {stepsToProcess.map(step=>{
@@ -130,14 +131,14 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
             </div>
             <div className={`flex flex-col space-y-2 p-2 rounded-lg p-4 ${bg}`}>
                 <span className="text-gray-500 font-semibold text-sm">Input item</span>
-                <PrimitiveCard.Parameters primitive={inputPrimitive}/>
+                <PrimitiveCard.Parameters primitive={inputPrimitive} fullList={true}/>
             </div>
             <div className={`flex flex-col space-y-2 p-2 rounded-lg p-4 ${bg}`}>
                 <span className="text-gray-500 font-semibold text-sm">Outputs</span>
                 {outputs[selectedOutputPin].items.map(d=><PrimitiveCard primitive={d}/>)}
             </div>
             {showFeed && <div className={`flex flex-col space-y-2 p-4 rounded-lg p-4 ${bg}`}>
-                <FeedList items={stepsToProcess.map(d=>({...d, content: d.title, secondary: d.message}))}/>
+                <FeedList items={stepsToProcess.map(d=>({...d, content: d.title, secondary: d.message, onClick:()=>MainStore().sidebarSelect(d.primitive, {forFlow: true})}))}/>
             </div>}
         </div>
         }

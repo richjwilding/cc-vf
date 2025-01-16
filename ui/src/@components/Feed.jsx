@@ -11,9 +11,9 @@ export default function FeedList({items, ...props}) {
           <li key={event.id}>
             <div className={`relative ${eventIdx !== items.length - 1 ? "pb-8" : ""}`}>
               {eventIdx !== items.length - 1 ? (
-                <span aria-hidden="true" className="absolute left-4 top-4 -ml-px h-full w-0.5 bg-gray-200" />
+                <span aria-hidden="true" className="absolute left-3 top-3 -ml-px h-full w-0.5 bg-gray-200" />
               ) : null}
-              <div className="relative flex space-x-3">
+              <div className="relative flex space-x-3" onClick={event.onClick}>
                 <div>
                   <span
                     className={classNames(
@@ -24,7 +24,7 @@ export default function FeedList({items, ...props}) {
                     {event.icon}
                   </span>
                 </div>
-                <div className="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
+                <div className="flex min-w-0 flex-1 justify-between space-x-4 pt-[0.1em]">
                   <div>
                     <p className={`text-sm ${event.active ? "text-gray-800" : "text-gray-500"}`}>
                       {event.content}{' '}

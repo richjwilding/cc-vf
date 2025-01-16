@@ -1,6 +1,6 @@
 import { registerAction } from "./action_helper";
 import { getLogger } from "./logger";
-import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, getConfig, getFilterName, primitiveChildren, primitiveDescendents, primitiveParentsOfType, removeRelationship } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getFilterName, primitiveChildren, primitiveDescendents, primitiveParentsOfType, removeRelationship } from "./SharedFunctions";
 import { checkAndGenerateSegments, getItemsForQuery, getSegemntDefinitions } from "./task_processor";
 import PrimitiveParser from './PrimitivesParser';
 import FlowQueue from "./flow_queue";
@@ -9,13 +9,36 @@ import Primitive from "./model/Primitive";
 import { SIO } from "./socket";
 
 
-registerAction("new_flow_instance", undefined, async (primitive,a,options)=>{
+registerAction("new_flow_instance", undefined, async (primitive, a, options)=>{
     const inputType = options.type ?? "result"
     const inputReferenceId = options.referenceId ?? 35
     const inputSourceId = primitive.primitives.imports[0]
     if( inputSourceId ){
-        const inputSource = await fetchPrimitive( inputSourceId )
+        let inputSource = await fetchPrimitive( inputSourceId )
+        if( inputSource.type !== "segment"){
+            if( inputSource.type === "view" ){
+                inputSource = await fetchPrimitive( inputSource.primitives?.imports?.[0] )
+                if( inputSource.type !== "segment"){
+                    throw `Cant find segment - Dont know where to add for ${primitive.id} / ${primitive.plainId}`
+                }
+            }else{
+                throw `Dont know where to add for ${primitive.id} / ${primitive.plainId}`
+            }            
+        }
         console.log(`Will add ${inputType} (${inputReferenceId}) to ${inputSource.title}`)
+
+        const newPrim = await createPrimitive({
+            workspaceId: inputSource.workspaceId,
+            paths: ["origin"],
+            parent: inputSource.id,
+            data:{
+                type: inputType,
+                referenceId: inputReferenceId,
+                title: `New ${inputType}`,
+            }
+        })
+        await dispatchControlUpdate( newPrim.id, "title", `New ${inputType} (${newPrim.plainId})`)
+        await scaffoldWorkflow(primitive)
     }
 })
 
@@ -110,19 +133,6 @@ export async function scaffoldWorkflow( flow, options = {} ){
         }
     }
 
-    /*const flowInstanceIds = instanceList.map(d=>d.instance.id).filter(d=>d)
-    const fQuery = {
-        workspaceId: flow.workspaceId,
-        $or: flowInstanceIds.map(d=>{
-            return {
-                [`parentPrimitives.${d}`]: {$exists: true}
-            }
-        })
-
-    }
-    console.log(fQuery)
-    const flowInstanceItems = await fetchPrimitives(undefined, fQuery )
-    console.log(`got ${flowInstanceItems.length} children of flowInstances`)*/
 
     logger.info( "Flow instances:")
     const flowPrimitiveParser = new Proxy(flow.primitives ?? {}, PrimitiveParser())
@@ -262,14 +272,8 @@ async function alignPrimitiveRelationships( targetPrimitive, targetImports, rel,
     const mappedPP = (new Proxy(targetPrimitive.primitives ?? {}, PrimitiveParser())).fromPath(rel)
     const currentImports = mappedPP.uniqueAllIds
     const currentImportsWithPaths = currentImports.map(d=>({id:d, paths: mappedPP.paths(d).map(d=>rel + d)}))
-    console.log(rel)
-    console.log(mappedPP)
-    console.log(currentImports)
-    console.log(currentImportsWithPaths)
 
     function buildDelta(target, compare){
-        console.log(target)
-        console.log(compare)
         return target.reduce((a,d)=>{
             const current = compare.find(d2=>d2.id === d.id)
             if( current){
@@ -524,11 +528,7 @@ export async function runStep( step, options = {}){
     dispatchControlUpdate(step.id, "processing.flow", {status: "running", started: flowStarted, singleStep: options.singleStep})
     //if( newIteration ){
     //}
-    if( step.type === "search"){
-        await doPrimitiveAction(step, "run_search", {flowStarted, flow: true} )
-    }
-
-    {
+    if(false){
         logger.info(`Delaying for 20 seconds`)
         await new Promise((resolve)=>setTimeout(()=>resolve(), 20000))
         return
