@@ -6,39 +6,26 @@ import { useLinkClickHandler, useNavigate, useParams } from "react-router-dom";
 import Panel from './Panel';
 import { Tab, Transition } from '@headlessui/react'
 import {
-  PencilIcon,
   QuestionMarkCircleIcon,
 } from '@heroicons/react/20/solid'
-import { motion, AnimatePresence } from "framer-motion"
 import { PrimitivePopup } from './PrimitivePopup';
 import { MetricPopup } from './MetricPopup';
 import MainStore from './MainStore';
 import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon, GifIcon, ArrowPathIcon, ArrowsPointingInIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { formatDistance, subDays } from 'date-fns'
-import ContactPicker from './ContactPicker';
 import ResultViewer from './ResultViewer';
 import useDataEvent from './CustomHook';
-import OpenAIAnalysis from './OpenAIAnalysis';
 import MetricEditor from './MetricEditor';
-import AIProcessButton from './AIProcessButton';
 import { ComponentRow } from './ComponentRow';
 import AIStatusPopup from './AIStatusPopup';
 import { AssessmentCard } from './AssessmentCard';
-import PrimitiveExplorer from './PrimitiveExplorer'
 import CollectionViewer from './CollectionViewer';
-import CardGrid from './CardGrid';
-import DropdownButton from './DropdownButton';
 import ReportView from './ReportView';
 import EditableTextField from './EditableTextField';
-import HierarchyView from './HierarchyView';
 import PrimitiveConfig from './PrimitiveConfig';
 import VFTable from './VFTable';
-import CoCreatedLogo from './CoCreatedLogo';
-import PrimitiveReport from './PrimitiveReport';
-import PrimtiveReportViewer from './PrimitiveReportViewer';
 import MapViewer from './MapViewer';
 import BoardViewer from './BoardViewer';
-import HierarchyNavigator from './HierarchyNavigator';
 import AnalysisPage from './AnalysisPage';
 import ReportViewExporter from './ReportViewExporter';
 
@@ -109,7 +96,7 @@ export function PrimitivePage({primitive, ...props}) {
           return true
         }
       }
-      if( primitive.type === "board" || primitive.type==="working"){
+      if( primitive.type === "board" || primitive.type==="working" ){
         return true
       }
       return false
@@ -390,8 +377,7 @@ export function PrimitivePage({primitive, ...props}) {
       )
     }
   
-  //if( primitive?.type === "working" || (primitive?.type === "query" &&  ["aggregator", "iterator"].includes(primitive.metadata.type))  ){
-  if( primitive?.type === "working" || (primitive?.type === "query" )  ){
+  if( primitive?.type === "working"   ){
     return <AnalysisPage primitive={primitive}/>
   }
 

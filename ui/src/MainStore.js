@@ -2044,6 +2044,29 @@ function MainStore (prims){
                         }
                         return false
                     }
+                    if(prop === "inputPins"){
+                        return receiver._pins("input")
+                    }
+                    if(prop === "outputPins"){
+                        return receiver._pins("output")
+                    }
+                    if(prop === "_pins"){
+                        return (mode = "input")=>{
+                            const base = {
+                                ...(receiver.metadata.pins?.[mode] ?? {})
+                            }
+                            if( mode === "output" && receiver.type === "flow"){
+                                return base
+                            }
+                            return {
+                                [mode === "input" ? "imp_in" : "imp_out"]:{
+                                    name: `Imports ${mode}`,
+                                    types: ["primitive"]
+                                },
+                                ...base
+                            }
+                        }
+                    }
                     if( prop === "fetchInputs"){
                         return (sourceId, mode = "inputs", pinMode = "input")=>{
                             let inputMap = PrimitiveConfig.getInputMap(receiver, mode)
@@ -2427,6 +2450,9 @@ function MainStore (prims){
                         return receiver.parentPaths(parent, root)?.map((d)=>d.split('.').slice(-1)[0])
                     }
                 }
+                if( prop === "configParent"){
+                    return receiver.parentPrimitiveWithRelationship("config")?.[0]
+                }
                 if( prop === "getConfig"){
                     let out = {}
                     let category = receiver.metadata
@@ -2464,13 +2490,45 @@ function MainStore (prims){
                             }
                         }
                         return out
-                        
-                        /*const out = parent.primitives.paths( d.id )?.map((d)=>d.slice(1))
-                        if( root ){
-                            return out.filter((d)=>d.substr(0, root.length) == root)
-                        }
-                        return out*/
                     }
+                }
+                if( prop === "stepOrder" && receiver.type === "flow"){
+                    const steps = receiver.primitives.origin.allUniqueItems.filter(d=>d.type !== "flowinstance")
+                    console.log(`Got ${steps.length} steps`)
+                    let out = {}
+                    const toProcess = steps
+                    let stage = 0
+                    
+                    let addedThisLoop = 0
+                    do{
+                        const willPlace = {}
+                        addedThisLoop = 0
+                        for(const step of toProcess){
+                            if( out[step.id] !== undefined){
+                                continue
+                            }
+                            const inputsToCheck = [...step.primitives.imports.allUniqueItems, ...step.primitives.inputs.allUniqueItems].filter(d=>d.inFlow || d.type === "flowinstance")
+                            const canPlace = inputsToCheck.reduce((a,check)=>{
+                                let r = false
+                                if( check.type === "flowinstance"){
+                                    r = true
+                                }else if( out[ check.id ] !== undefined){
+                                    r = true
+                                }
+                                return a &&  r
+                            }, true)
+                            if( canPlace ){
+                                willPlace[step.id] = stage
+                                addedThisLoop++
+                            }
+                        }
+                        out = {
+                            ...out,
+                            ...willPlace
+                        }
+                        stage++
+                    }while( addedThisLoop > 0 )
+                    return out
                 }
                 if( prop in d){
                     return d[prop]

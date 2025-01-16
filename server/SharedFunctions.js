@@ -475,16 +475,34 @@ export async function getPrimitiveInputs(primitive){
     if( !Object.keys(primitive.primitives ?? {}).includes("inputs") ){
         return {}
     }
-    return await getPrimitivePins( primitive, "inputs", "input")
+    return await fetchPrimitiveInputs( primitive )
 }
 export async function getPrimitiveOutputs(primitive){
-    if( !Object.keys(primitive.primitives ?? {}).includes("outputs") ){
-        return {}
+    if( primitive.type === "flow" || primitive.type === "flowinstance"){
+        return fetchPrimitiveInputs(primitive, undefined, "outputs" , "output")
     }
-    return await getPrimitivePins( primitive, "outputs", "output")
+
+    let outputMap = PrimitiveConfig.getOutputMap(primitive)
+    const out = {}
+    const c = {}
+    for(const d of outputMap){
+        let targetMap = c[d.targetId]
+        if(!targetMap){
+            const target = await fetchPrimitive( d.targetId )
+            targetMap = await getPrimitiveInputs( target, primitive.id)
+            c[d.targetId] = targetMap
+        }
+        out[d.outputPin] = targetMap[d.targetPin]
+    }
+    return out
 }
-export async function getPrimitivePins(primitive, mode, pinMode){
-    let inputMap = PrimitiveConfig.getPinMap(primitive, mode)
+export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs", pinMode = "input"){
+    let inputMap = PrimitiveConfig.getInputMap(primitive, mode)
+
+    if( sourceId ){
+        inputMap = inputMap.filter(d=>d.sourceId === sourceId)
+    }
+
     let sourceIds = inputMap.map(d=>d.sourceId).filter((d,i,a)=>a.indexOf(d)===i) 
 
     const sourcePrimitives = await fetchPrimitives( sourceIds )

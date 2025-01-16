@@ -94,7 +94,8 @@ import clsx from 'clsx';
       onBlur={props.editable !== false ? stopEditing : undefined}
       placeholder={props.placeholder ?? props.default}
       className={clsx([
-            'place-items-center outline-none bg-white resize-none overflow-hidden',
+            'place-items-center outline-none resize-none overflow-hidden',
+            props.bg ?? "bg-white",
             props.border && props.border === "hover" ? "border border-zinc-950/5 rounded-md hover:border-zinc-950/10 hover:shadow-sm" : "",
             props.border && props.border !== "hover" ? "border border-zinc-950/10 rounded-md shadow-sm" : "",
             !props.compact && !editing ? "p-1 min-h-[2em]" : "",

@@ -814,13 +814,13 @@ async function doDataQuery( options ) {
                                                 try{
                                                     await addRelationship(id, newPrim.id, 'auto')
                                                 }catch(error){
-                                                    console.log(`Couldnt link in ${id} - >${newPrim.id} link`)
+                                                    console.log(`Couldnt link in ${id} - >${newPrim.id} auto`)
                                                 }
                                             }else{
                                                 try{
-                                                    await addRelationship(newPrim.id, id, 'link')
+                                                    await addRelationship(newPrim.id, id, 'source')
                                                 }catch(error){
-                                                    console.log(`Couldnt link in ${newPrim.id} - >${id} link`)
+                                                    console.log(`Couldnt link in ${newPrim.id} - >${id} source`)
                                                 }
                                             }
                                         }

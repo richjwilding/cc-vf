@@ -22,7 +22,6 @@ export async function processQueue(job, cancelCheck, extendJob){
             if( primitive){
                 if( job.data.mode === "query" ){
                     let embeddedTopic
-                    console.log(`GOT QUERY JOB ${primitive.id} / ${primitive.plainId}`)
                     const category = await Category.findOne({id: primitive.referenceId})
                     if( category === undefined){
                         throw `Cant find category ${primitive.referenceId} for ${primitive.id}`
@@ -217,6 +216,11 @@ export async function processQueue(job, cancelCheck, extendJob){
                         }
                         console.log(`Query source ${source.id} ${source.platform} ${source.type} - ${terms}`)
 
+                        const progressUpdate = async (data)=>{
+                            data.message = `Found ${data.totalCount} items / scanned ${data.scanned}\nCurrently term: ${data.term}`
+                            dispatchControlUpdate(primitive.id, job.data.field + ".progress", data , {track: primitive.id})
+                        }
+
                         const existingCheck = source.primaryField ? async (item)=>{
                             if( item ){
                                 if( !item[source.primaryField] ){
@@ -387,6 +391,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                             countPerTerm: config.countPerTerm, 
                             timeFrame: config.timeFrame, 
                             count: config.count ?? 50, 
+                            progressUpdate,
                             existingCheck, 
                             filterPre: mapFilter(source.filterPre), 
                             filterMid: mapFilter(source.filterMid), 
@@ -501,8 +506,13 @@ export async function processQueue(job, cancelCheck, extendJob){
                         }
                     }
 
+                    const totalCount = Object.values(primitive.primitives.origin ?? []).length
 
-                    dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+                    dispatchControlUpdate(primitive.id, job.data.field , {
+                        status: "complete",
+                        message: `Found ${totalCount} items`
+                    } , {track: primitive.id})
+                    //dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
                     console.log(`Finished ${primitive.id} / ${primitive.plainId}`)
                 }
             }
@@ -529,7 +539,7 @@ class QueryQueueClass extends BaseQueue{
     async doQuery(primitive, options = {}){
         const primitiveId = primitive.id
         const workspaceId = primitive.workspaceId
-        const field = "processing.ai.query"
+        const field = "processing.query"
         const data = {mode: "query", text:"Running query", ...options}
 
         await this.addJob(workspaceId, {id: primitiveId, ...data, field})

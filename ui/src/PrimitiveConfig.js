@@ -677,6 +677,19 @@ const PrimitiveConfig = {
             }
         }
         return {}
+    },canConnect:({input = {}, output = {}})=>{
+        if( input.config && output.config){
+            const toCheck = {
+                inputMapConfig: input.config[input.pin],
+                sourcePinConfig: output.config[output.pin]
+            }
+            console.log(toCheck)
+            const result = PrimitiveConfig.alignInputAndSource([toCheck])
+            return result[0]?.useConfig
+
+        }
+        return false
+
     },alignInputAndSource:(inputMap, dynamicPins)=>{
         let out = []
         for(const input of inputMap){
@@ -688,32 +701,29 @@ const PrimitiveConfig = {
             }
 
             if( imConfig ){
-                const source = input.sourcePrimitive
-                if( source ){
-                    const sourcePinConfig = input.sourcePinConfig
-                    if( sourcePinConfig ){
+                const sourcePinConfig = input.sourcePinConfig
+                if( sourcePinConfig ){
 
-                        let sourceTransform
-                        let useConfig = sourcePinConfig.types.map(d=>({config:d, position: imConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
-                        
-                        if( !useConfig ){
-                            if( sourcePinConfig.types.includes("string_list") && imConfig.types.includes("string")){
-                                sourceTransform = "list_to_string"
-                                useConfig = "string"
-                            }else if( sourcePinConfig.types.includes("children") && imConfig.types.includes("string")){
-                                sourceTransform = "child_list_to_string"
-                                useConfig = "string"
-                            }
+                    let sourceTransform
+                    let useConfig = sourcePinConfig.types.map(d=>({config:d, position: imConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
+                    
+                    if( !useConfig ){
+                        if( sourcePinConfig.types.includes("string_list") && imConfig.types.includes("string")){
+                            sourceTransform = "list_to_string"
+                            useConfig = "string"
+                        }else if( sourcePinConfig.types.includes("children") && imConfig.types.includes("string")){
+                            sourceTransform = "child_list_to_string"
+                            useConfig = "string"
                         }
+                    }
 
-                        out.push({
-                            ...input,
-                            useConfig,
-                            sourceTransform
-                        })
+                    out.push({
+                        ...input,
+                        useConfig,
+                        sourceTransform
+                    })
 
-                    }                
-                }
+                }                
             }
         }
         return out
@@ -728,20 +738,6 @@ const PrimitiveConfig = {
                 if( source ){
                     const sourcePinConfig = input.sourcePinConfig
                     if( sourcePinConfig ){
-
-                        /*let sourceTransform
-                        let useConfig = sourcePinConfig.types.map(d=>({config:d, position: imConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
-                        
-                        if( !useConfig ){
-                            if( sourcePinConfig.types.includes("string_list") && imConfig.types.includes("string")){
-                                sourceTransform = "list_to_string"
-                                useConfig = "string"
-                            }else if( sourcePinConfig.types.includes("children") && imConfig.types.includes("string")){
-                                sourceTransform = "child_list_to_string"
-                                useConfig = "primitive"
-                            }
-                        }*/
-                        
                         if( !out[input.inputPin]){
                             out[input.inputPin] = {
                                 config: input.useConfig,
@@ -873,7 +869,7 @@ export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings 
             }
         }
         if( nextR?.content ){
-            if( nextR?.type.match(/list/) ){
+            if( nextR?.type?.match(/list/) ){
                 let asArray = nextR.content ?? []
 
                 if( typeof(nextR.content) === "string"){

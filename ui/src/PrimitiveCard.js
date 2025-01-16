@@ -1410,9 +1410,9 @@ const Details = function({primitive, ...props}){
 
   
   return (
-        <Panel {...props} title={panelTitle} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} >
+        <Panel title={panelTitle} editToggle={setEditing} editing={editing} hideTitle={props.hideTitle} {...props} >
           <dl className={`mt-2 mx-2 divide-y divide-gray-200 ${props.hideTitle ? "" : "border-t"} border-b border-gray-200 relative py-2`}>
-            <Parameters primitive={primitive} editing={true} fullList={editing}/>
+            <Parameters primitive={primitive} editing={true} fullList={editing ?? props.fullList}/>
             {showParents && <Parameters primitive={primitive} editing={true} fullList={editing} showParents/>}
           </dl>
           {!props.hideFooter && 

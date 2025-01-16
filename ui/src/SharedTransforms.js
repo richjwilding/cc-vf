@@ -1,3 +1,7 @@
+
+export function classNames(...classes) {
+  return classes.filter(Boolean).join(' ')
+}
 export function roundCurrency(number){
     if(number === 0){
         return "$0"

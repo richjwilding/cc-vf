@@ -1722,12 +1722,14 @@ export async function queryGoogleSERP(keywords, options = {}){
     
             console.log(searchOptions, query)
 
+            let scanned = 0
             let currentIndex = 0;
             let concurrencyLimit = 5
             const activePromises = [];
 
             const processItem = async (item)=>{
                 if( count < target ){
+                    scanned++
 
                     if( options.filterPre && !(await options.filterPre({text: item.snippet, term: term})) ){
                         return
@@ -1793,6 +1795,14 @@ export async function queryGoogleSERP(keywords, options = {}){
                     }
                     count++
                     totalCount++
+                }
+                if( options.progressUpdate ){
+                    await options.progressUpdate({
+                        term,
+                        count,
+                        totalCount,
+                        scanned
+                    })
                 }
             }
 

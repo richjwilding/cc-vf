@@ -39,7 +39,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const enableFlipping = true
     const enableNodePruning = true
 
-    const scaleTriggers = {min: 0.1, max: 3}
+    const scaleTriggers = {min: 0.1, max: 6}
 
     const colors = {
         hover:{
@@ -474,8 +474,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         })
         if( positions.length > 0){
 
-            const maxX = Math.max(...positions.map(d=>d.r),0) + 30
-            const maxY = Math.max(...positions.map(d=>d.b),0) + 30
+            const maxX = Math.max(...positions.map(d=>d.r),0) + 60
+            const maxY = Math.max(...positions.map(d=>d.b),0) + 60
             
             const frame = myState.current.frames.find(d=>d.id === id)
             if( frame?.node ){
@@ -503,7 +503,84 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
                 }
             }
+            setupPins( frame )
+            removeRoutingForFrame(frame)
+            addRoutingForFrame(frame)
         }
+
+    }
+    function setupPins( frame, maxX, maxY ){
+        if( maxX === undefined ){
+            maxX = frame.node.attrs.width
+            maxY = frame.node.attrs.height
+        }
+        const spacingY = 16
+        const size = 8
+        const midY = maxY / 2
+        const inputPinStart = midY - ((1 + Math.round(Math.max(...frame.pins.input.map(d=>d.rIdx)) / 2)) * spacingY)
+        const outputPinStart = midY - ((1 + Math.round(Math.max(...frame.pins.output.map(d=>d.rIdx)) / 2)) * spacingY)
+        frame.pins.input = frame.pins.input.map(d=>({
+            ...d,
+            output: false,
+            data: {name: d.name, output: false},
+            dir: 4,
+            x: d.internal ? maxX : 0 ,
+            y: inputPinStart + (d.rIdx * spacingY)
+        }))
+        frame.pins.output = frame.pins.output.map(d=>({
+                ...d,
+                output: true,
+                data: {name: d.name, output: true},
+                dir: 8,
+                x: d.internal ? 0 : maxX,
+                y: outputPinStart + (d.rIdx * spacingY)
+        }))
+        
+        {
+            [...frame.pins.input, ...frame.pins.output].forEach(d=>{
+                let n = d.node
+                if( !n ){
+                    n = new Konva.Rect({
+                        width: size / 2,
+                        height: size,
+                        name:'pin top_layer',
+                        data: d.data,
+                        fill: d.rIdx === 0 ? '#333' : '#999',
+                        hoverFill: "red",
+                        minRenderSize: 3,
+                        id: `${frame.id}_${d.idx}`
+                    }) 
+                    d.node = n
+                }
+                n.attrs.expandedClick = true
+                frame.node.add(n)
+                n.position({x: d.x - (d.output ? 0 : size / 2 ), y: d.y - (size / 2)})
+
+                if( true || d.showLabel !== false){
+
+                    let t = d.textNode
+                    if( !t ){
+                        t = new CustomText({
+                            text: d.name,
+                            name:'top_layer',
+                            width: "auto",
+                            fontSize: 8,
+                            minRenderSize: 20,
+                        })
+                        d.textNode = t
+                    }
+                    frame.node.add(t)
+                    t.position({
+                        x: (d.output && !d.internal) ? maxX + (size * 0.7) : n.x() -t.width() - (size * 0.7),
+                        y: d.y - 4
+                    })
+                    if(!d.output && !d.internal){
+                        t.attrs.overrideX = 0
+                    }
+                }
+            })
+        }
+
     }
 
     function setupFrameForItems( id, title, items, x, y, s, options ){
@@ -583,57 +660,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 frameBorder.height(maxY)
                 frame.node.add(frameBorder)
             }
+            frame.node.width(maxX)
+            frame.node.height(maxY)
             if( options.pins ){
                 frame.pins = options.pins
-                const spacingY = 16
-                const size = 8
-                const midY = maxY / 2
-                const inputPinStart = midY - ((1 + Math.round(frame.pins.input.length / 2)) * spacingY)
-                const outputPinStart = midY - ((1 + Math.round(frame.pins.output.length / 2)) * spacingY)
-                frame.pins.input = frame.pins.input.map(d=>({
-                    ...d,
-                    output: false,
-                    x: 0,
-                    y: d.idx === 0 ? midY : inputPinStart + (d.idx * spacingY)
-                }))
-                frame.pins.output = frame.pins.output.map(d=>({
-                    ...d,
-                    output: true,
-                    x: maxX,
-                    y: d.idx === 0 ? midY : outputPinStart + (d.idx * spacingY)
-                }))
-                {
-                    [...frame.pins.input, ...frame.pins.output].forEach(d=>{
-                        const n = new Konva.Arc({
-                            angle: 180,
-                            x: d.x,
-                            y: d.y,
-                            rotation: d.output ? 270 : 90,
-                            name:'pin top_layer oob',
-                            outerRadius: size / 2,
-                            fill: d.idx === 0 ? '#333' : '#999',
-                            minRenderSize: 3,
-                        }) 
-                        const t = new CustomText({
-                            text: d.name,
-                            width: "auto",
-                            fontSize: 8,
-                            y: d.y - 4,
-                            minRenderSize: 20,
-                            x: d.output ? maxX + (size * 0.7) : 0
-                        })
-                        if(!d.output){
-                            t.x(-t.width() - (size * 0.7))
-                            t.attrs.overrideX = 0
-                        }
-                        d.node = n
-                        d.textNode = t
-                        frame.node.add(n)
-                        frame.node.add(t)
-                    })
-                }
-
-                
+                setupPins(frame, maxX, maxY)
             }
 
             if( options.indicators ){
@@ -645,10 +676,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 frame.node.add( indicators )
                 frame.indicators = indicators
             }
-            frame.node.width(maxX)
-            frame.node.height(maxY)
-            addRoutingForFrame( frame )
-            refreshLinks()
+            frame.routing = existing?.routing
+            if( addRoutingForFrame( frame ) ){
+                refreshLinks()
+            }
 
             if( options.parentRender ){
                 resizeNestedFrame( options.parentRender )
@@ -838,7 +869,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
 
     }
-    function addShapeToRouter(id, l,t,r,b){
+    function addShapeToRouter(id, l,t,r,b, pins = []){
         const Avoid = myState.current.routing.avoid
         let router = myState.current.routing.router
         const shapeRef = new Avoid.ShapeRef(router, 
@@ -847,58 +878,20 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 new Avoid.Point(r, b)
         ));
 
-
-        const topPin = new Avoid.ShapeConnectionPin(
-            shapeRef,
-            1,
-            0.5,
-            0,
-            true,
-            0,
-            Avoid.ConnDirTop 
-        );
-        const bottomPin = new Avoid.ShapeConnectionPin(
-            shapeRef,
-            1, // one central pin for each shape
-            0.5,
-            1,
-            true,
-            0,
-            Avoid.ConnDirBottom 
-        );
-        const leftPin = new Avoid.ShapeConnectionPin(
-            shapeRef,
-            1,
-            0,
-            0.5,
-            true,
-            0,
-            Avoid.ConnDirLeft 
-        );
-        const rightPin = new Avoid.ShapeConnectionPin(
-            shapeRef,
-            1, 
-            1,
-            0.5,
-            true,
-            0,
-            Avoid.ConnDirRight 
-        );
-        leftPin.setExclusive(false);
-        rightPin.setExclusive(false);
-        topPin.setExclusive(false);
-        bottomPin.setExclusive(false);
-        const inputPin = new Avoid.ShapeConnectionPin(
-            shapeRef,
-            2,
-            0,
-            0.5,
-            true,
-            0,
-            Avoid.ConnDirRight 
-        );
-        inputPin.setExclusive(false);
-        
+        for(const d of pins){
+            const pin = new Avoid.ShapeConnectionPin(
+                shapeRef,
+                d.idx,
+                d.x,
+                d.y,
+                true,
+                0,
+                d.dir ?? Avoid.ConnDirLeft
+            );
+            pin.setExclusive(false);
+            pin.setExclusive(false);
+        }
+            
         return shapeRef
     }
     function removeRoutingForFrame( frame ){
@@ -921,16 +914,51 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     function addRoutingForFrame( frame ){
         if( !myState.current.routing ){return}
         const fId = frame.id
-
         let position = framePosition(fId)?.scene
+
+        const pins = []
+        if( frame.pins.input ){
+            for(const d of frame.pins.input ){
+                pins.push({
+                    ...d,
+                    x: (d.internal ? (position.width - 2) : d.x) / position.width,
+                    y: d.y / position.height,
+                })
+            }
+        }else{
+            pins.push({
+                idx: 1,
+                x: 0,
+                y: 0.5,
+            })
+        }
+        if( frame.pins.output ){
+            for(const d of frame.pins.output ){
+                pins.push({
+                    ...d,
+                    x: (d.internal ? 1 : d.x) / position.width,
+                    y: d.y / position.height,
+                })
+            }
+        }else{
+            pins.push({
+                idx: 1,
+                x: 0,
+                y: 0.5
+            })
+        }
+        if( frame.routing){
+          //  console.log(`Check routing`)
+           // return false
+        }
         frame.routing = {
             [fId]: {
-                shape: addShapeToRouter( fId, position.l, position.t, position.r, position.b)
+                shape: addShapeToRouter( fId, position.l, position.t, position.r, position.b, pins)
             }
         }
 
         if( myState.current.baseLinks ){
-            for(const cell of frame.cells){
+            /*for(const cell of frame.cells){
                 if( myState.current.baseLinks.find(d=>d.left === fId && d.cell === cell.id) ){
                     const id = `${fId}:${cell.id}`
                     frame.routing[id] = {
@@ -938,8 +966,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         cell: cell
                     }
                 }
-            }
+            }*/
         }
+        return true
     }
     function getLinks( links ){
         return myState.current.baseLinks
@@ -984,7 +1013,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 AvoidLib.load('/images/libavoid.wasm').then(data=>{
                     const Avoid = AvoidLib.getInstance();
                     const router = new Avoid.Router(Avoid.OrthogonalRouting)
-                    router.setRoutingParameter(Avoid.shapeBufferDistance, 40);
+                    //router.setRoutingParameter(Avoid.shapeBufferDistance, 8);
+                    //router.setRoutingParameter(Avoid.idealNudgingDistance, 6);
+                    router.setRoutingOption(Avoid.performUnifyingNudgingPreprocessingStep, false);
+                    router.setRoutingOption(Avoid.improveHyperedgeRoutesMovingJunctions, false);
+                    router.setRoutingOption(Avoid.nudgeSharedPathsWithCommonEndPoint, false);
+                    
+                    
                     myState.current.routing = {
                         avoid: Avoid,
                         router: router,
@@ -1023,11 +1058,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 
                 if( left && right){
                     const id = `${leftName}~${target.right}` 
-                    let leftPin = 1
-                    let rightPin = 1
-                    if( target.leftPin === "input"){
-                        leftPin = 2
-                    }
+                    let leftPin = target.leftPin ?? 1
+                    let rightPin = target.rightPin ?? 1
+
                     if( !myState.current.routing.routerLinks.find(d=>d.id===id)){
                         const leftConnEnd = new Avoid.ConnEnd(left, leftPin)
                         const rightConnEnd = new Avoid.ConnEnd(right, rightPin)
@@ -1062,15 +1095,18 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
     }
     function updateFrameInRouter(d){
+        if( d.id === "pin" && !myState.current.dragging){
+            return
+        }
         const Avoid = myState.current.routing.avoid
         const router = myState.current.routing.router
-        let position = framePosition(d.id)?.scene
+        let position = framePosition(d.id)?.scene ?? {l: 0, r:2, t: 0, b: 2}
         position.r = position.r - position.l + d.x
         position.b = position.b - position.t + d.y
         position.l = d.x
         position.t = d.y
         
-        const ovrFrame = myState.current.frames.find(d2=>d2.id === d.id)
+        const ovrFrame = d.id === "pin" ? {routing: {pin: {shape: myState.current.dragging.shapeForPin}}} : myState.current.frames.find(d2=>d2.id === d.id)
         
         for( const ri in ovrFrame.routing){
             const r = ovrFrame.routing[ri]
@@ -1089,13 +1125,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
         }
     }
+
     function renderLink( avRoute ){
         const edge = myState.current.routing.routerLinks.find(d=>d.route?.g === avRoute)
         if( !edge){return}
         const route = edge.route.displayRoute()
         const points = []
-        for (let i = 0; i < route.size() ; i++) {
-            const { x, y } = route.get_ps(i);
+        const sz = route.size()
+        for (let i = 0; i < sz ; i++) {
+            const { x, y } = route.get_ps(edge.reverse ? sz - i - 1 : i);
             points.push(x)
             points.push(y)
         }
@@ -1821,7 +1859,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
                 [x, y] = convertStageCoordToScene(px, py )
-                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame"], true))
+                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame", "pin"], true))
                 const item = found[0]
                 if( !item ){
                     myState.current.panForDrag = true
@@ -1837,6 +1875,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
                     
                     const isFrame = item.attrs.name === "frame"
+                    const isPin = !isFrame && item.attrs.name?.includes("pin")
                     
                     let clone
                     let offsetForShadow = 10
@@ -1890,6 +1929,56 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         dx = x - minX
                         dy = y - minY
                         cloneScale = scale 
+                    }else if(isPin){
+                        const Avoid = myState.current.routing.avoid
+                        if( Avoid){
+
+                            const sourcePinName = item.attrs.id
+                            const [sourceItem, sourcePin] = sourcePinName.split("_")
+                            const shapeForPin = addShapeToRouter( "pin" , x, y, x + 2, y +2, [{idx: 1, x: 0.5, y:0.5, dir: 15}])
+                            const sourceFrame = myState.current.frames.find(d2=>d2.id === sourceItem)
+                            const sourceShape = sourceFrame.routing[sourceItem]?.shape
+                            const pinDef = [...sourceFrame.pins.input, ...sourceFrame.pins.output].find(d=>d.idx == sourcePin)
+
+                            const connectTo = pinDef.output ? "input" : "output"
+                            
+                            const leftConnEnd = new Avoid.ConnEnd(sourceShape, sourcePin)
+                            const rightConnEnd = new Avoid.ConnEnd(shapeForPin, 1)
+                            const connectorForPin = new Avoid.ConnRef(myState.current.routing.router);
+                            connectorForPin.setSourceEndpoint(leftConnEnd);
+                            connectorForPin.setDestEndpoint(rightConnEnd);
+                            connectorForPin.setCallback( renderLink, connectorForPin)
+                            
+                            myState.current.routing.routerLinks.push({
+                                id: "pin_drag",
+                                reverse: !pinDef.output,
+                                route: connectorForPin
+                            })
+
+                            const pinCache = []
+                            for(const frame of myState.current.frames){
+                                if(frame.pins){
+                                    for(const pin of frame.pins[connectTo]){
+                                        pinCache.push({
+                                            frame: frame.id,
+                                            pinId: pin.idx,
+                                            x: frame.node.attrs.x + pin.node.attrs.x + (pin.node.attrs.width / 2),
+                                            y: frame.node.attrs.y + pin.node.attrs.y + (pin.node.attrs.height / 2)
+                                        })
+                                    }
+                                }
+                            }
+                            
+                            myState.current.dragging = {
+                                connectTo,
+                                sourcePin: pinDef.name,
+                                sourceItem,
+                                shapeForPin,
+                                connectorForPin,
+                                pinCache
+                            }
+                            console.log( myState.current.dragging )
+                        }
                     }else{
                         cloneScale = item.scaleX() * cloneScale
                         clone = item.clone()                    
@@ -1915,33 +2004,36 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         dx = x - (item.parent?.attrs.x ?? 0) - (item.attrs.x * frameScale)
                         dy = y - (item.parent?.attrs.y ?? 0) - (item.attrs.y * frameScale)
                     }
+                    if( clone ){
 
-                    clone.scale({x: cloneScale, y:cloneScale})
-                    clone.setAttrs({
-                        x: offsetForShadow,
-                        y: offsetForShadow,                    
-                    })
-
-
-                    createDragging(clone, (dx * scale) + offsetForShadow, (dy * scale) + offsetForShadow, 8 )
-                    
-                    if( props.enableFrameSelection){
-                        myState.current.dragging.frameSelect = [item]
+                        
+                        clone.scale({x: cloneScale, y:cloneScale})
+                        clone.setAttrs({
+                            x: offsetForShadow,
+                            y: offsetForShadow,                    
+                        })
+                        
+                        
+                        createDragging(clone, (dx * scale) + offsetForShadow, (dy * scale) + offsetForShadow, 8 )
+                        myState.current.dragging.stage.children[0].add(clone)
+                        
+                        if( props.enableFrameSelection){
+                            myState.current.dragging.frameSelect = [item]
+                        }
+                        
+                        myState.current.dragging.sourceItem = item
+                        myState.current.dragging.isFrame = isFrame
+                        myState.current.dragging.startScale = scale
+                        myState.current.dragging.minX = minX
+                        myState.current.dragging.minY = minY
+                        myState.current.dragging.spx = px
+                        myState.current.dragging.spy = py
+                        myState.current.dragging.sox = myState.current.dragging.ox
+                        myState.current.dragging.soy = myState.current.dragging.oy
+                        myState.current.dragging.type = "primitive"
+                        myState.current.dragging.stage.batchDraw()
+                        myState.current.dragging.stage.container().style.transform = `translate(${px - myState.current.dragging.ox}px, ${py - myState.current.dragging.oy}px)`
                     }
-
-                    myState.current.dragging.sourceItem = item
-                    myState.current.dragging.isFrame = isFrame
-                    myState.current.dragging.startScale = scale
-                    myState.current.dragging.minX = minX
-                    myState.current.dragging.minY = minY
-                    myState.current.dragging.spx = px
-                    myState.current.dragging.spy = py
-                    myState.current.dragging.sox = myState.current.dragging.ox
-                    myState.current.dragging.soy = myState.current.dragging.oy
-                    myState.current.dragging.type = "primitive"
-                    myState.current.dragging.stage.children[0].add(clone)
-                    myState.current.dragging.stage.batchDraw()
-                    myState.current.dragging.stage.container().style.transform = `translate(${px - myState.current.dragging.ox}px, ${py - myState.current.dragging.oy}px)`
                     
                     
                 }
@@ -1952,6 +2044,93 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 let [px,py] = state.xy
                 px -= memo.x
                 py -= memo.y
+
+                if( myState.current.dragging.sourcePin  ){
+                    let [fx, fy] = convertStageCoordToScene(px, py)
+                    let ofx = fx, ofy = fy
+
+                    let threshold = 10
+                    let closestPin = myState.current.dragging.pinCache.reduce((a,c)=>{
+                        const distance = Math.sqrt( ((fx - c.x) ** 2) + ((fy - c.y) ** 2))
+                        if( distance < threshold){
+                            if( distance < a.d){
+                                a.d = distance
+                                a.pin = c
+                            }
+                        }
+                        return a
+                    }, {d: Infinity}).pin
+                    
+                    let revertPosition = undefined
+                    if( closestPin ){
+                        [fx, fy] =[closestPin.x, closestPin.y ]
+                    }
+                    
+                    let found = findTrackedNodesAtPosition( fx, fy, "pin" )?.[0]
+                    if( found){
+                        if( myState.current.dragging.lastFound !== found){
+                            const config = props.drag?.pin?.pin
+                            if( config?.droppable ){
+                                let canConnect
+                                const [otherItem, otherPinIdx] = found.attrs.id?.split("_")
+                                const otherFrame =  myState.current.frames.find(d2=>d2.id === otherItem)
+                                const otherPinDef = [...otherFrame.pins.input, ...otherFrame.pins.output].find(d=>d.idx == otherPinIdx)
+                                const otherPin = otherPinDef?.name
+                                if( otherItem && otherPin ){
+                                    if( myState.current.dragging.connectTo === "input"){
+                                        if( !otherPinDef.output || otherPinDef.internal){
+                                            myState.current.dragging.dropData = [myState.current.dragging.sourceItem, myState.current.dragging.sourcePin, otherItem, otherPin ]
+                                        }
+                                    }else{
+                                        if( otherPinDef.output && !otherPinDef.internal){
+                                            myState.current.dragging.dropData = [otherItem, otherPin, myState.current.dragging.sourceItem, myState.current.dragging.sourcePin]
+                                        }
+                                    }
+                                    
+                                    canConnect = myState.current.dragging.dropData ? config.droppable( ...myState.current.dragging.dropData ) : false
+                                    if( canConnect ){
+                                        doHighlight(found, "pin")
+                                    }else{
+                                        revertPosition = true
+                                    }
+                                    myState.current.dragging.lastFoundRevert = revertPosition
+                                }
+                            }
+                        }else{
+                            revertPosition = myState.current.dragging.lastFoundRevert
+                        }
+                    }else{
+                        clearHightlight("pin")
+                        myState.current.dragging.dropData = undefined
+                    }
+                    if( revertPosition === true){
+                        clearHightlight("pin")
+                        fx = ofx
+                        fy = ofy
+                    }
+                    myState.current.dragging.lastFound = found
+
+                    refreshLinksDuringDrag([
+                            {id: "pin", x: fx, y: fy}
+                        ])
+                    
+                    if( state.last ){
+                        myState.current.routing.routerLinks = myState.current.routing.routerLinks.filter(d=>d.id !== "pin_drag")
+                        myState.current.routing.router.deleteShape( myState.current.dragging.shapeForPin )
+                        myState.current.routing.router.deleteConnector( myState.current.dragging.connectorForPin )
+
+
+                        if( myState.current.dragging.dropData ){
+                            const config = props.drag?.pin?.pin
+                            if( config?.drop ){
+                                const dropped = config.drop( ...myState.current.dragging.dropData )
+                            }
+                        }
+
+                        myState.current.dragging = undefined
+                    }
+                    return memo
+                }
                 if( props.snapDistance ){
                     const [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
                     const snapX = computeDistance( myState.current.dragging.clone.attrs.id, fx, "x", props.snapDistance)
@@ -1978,6 +2157,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         ))                        
                     )
                 }
+            }
+            if(state.last){
+                myState.current.ignoreClick = props.ignoreAfterDrag || !myState.current.dragging
             }
             
             if( myState.current.dragging ){
@@ -2012,7 +2194,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 
                 if(state.last){
                     const scale = restoreScale()
-                    myState.current.ignoreClick = props.ignoreAfterDrag
                     if( myState.current.dragging.dropConfig && myState.current.dragging.dropZone && myState.current.dragging.startZone){
                         if( props.board ){
                             const startFrame = myState.current.dragging.startZone?.findAncestor('.frame')?.attrs.id
@@ -2141,7 +2322,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             }
                         }
 
-                        if( myState.current.dragging || myState.current.dragging?.isFrame ){
+                        if( (myState.current.dragging || myState.current.dragging?.isFrame) && !myState.current.dragging?.sourcePin ){
                             const adjScale = thisScale / myState.current.dragging.startScale 
                             myState.current.dragging.stage.scale({x:adjScale, y:adjScale})
                             myState.current.dragging.ox = myState.current.dragging.sox * adjScale
@@ -2177,8 +2358,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
       //              preventDefault: true,
                 },
                 drag:{
-                    delay: 150,
-                    threshold: 10,
+                    delay: 350,
+                    threshold: [10,10],
                     eventOptions: { 
                         passive: false,
     //                    
@@ -2223,9 +2404,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             let hasFound = false
             const checked = new Set()
             for(const frame of myState.current.frames){
-                const inFrame = frame.x <= px && frame.y <= py &&  (frame.x + (frame.node.attrs.width * frame.scale)) >= px && (frame.y + (frame.node.attrs.height * frame.scale)) >= py
-                if( inFrame ){
+                const inExapndedFrame = (frame.x - 5 ) <= px && (frame.y - 5) <= py &&  (frame.x + 5 + (frame.node.attrs.width * frame.scale)) >= px && (frame.y + 5 + (frame.node.attrs.height * frame.scale)) >= py
+                const inFrame = inExapndedFrame && (frame.x <= px && frame.y <= py &&  (frame.x + (frame.node.attrs.width * frame.scale)) >= px && (frame.y + (frame.node.attrs.height * frame.scale)) >= py)
+                if( inExapndedFrame ){
                     for(const d of frame.lastNodes){
+                        if( !inFrame && !d.attrs.expandedClick){
+                            continue
+                        }
                         let x = px - frame.node.attrs.x
                         let y = py - frame.node.attrs.y
                         x /= frame.scale
@@ -2275,11 +2460,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
         function addOverlay( node, label, operation, colors){
-            if( node.attrs?.name.includes("widget")){
-                for(const d of node.find('.hover_target')){
-                    if( d.attrs.hoverFill){
-                        d.attrs._originalFill = d.attrs.fill
-                        d.fill( d.attrs.hoverFill)
+            if( node.attrs?.name.includes("widget") || node.attrs?.name.includes("pin")){
+                const nodes = node.find ? node.find('.hover_target') : [node]
+                for(const d of nodes){
+                    if( d && !d.attrs.overlay_label || d.attrs.overlay_label === label ){
+                        if( !d.attrs._originalFill ){
+                            d.attrs._originalFill = d.attrs.fill
+                        }
+                        d.attrs.overlay_label = label
+                        d.fill( (label !== "select" ? d.attrs?.hoverFill : undefined) ?? colors[operation]?.fill )
                     }
                 }
                 return
@@ -2313,11 +2502,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
         }
         function removeOverlay( node, label, operation){
-            if( node.attrs?.name.includes("widget")){
-                for(const d of node.find('.hover_target')){
-                    if( d.attrs._originalFill){
-                        d.fill( d.attrs._originalFill)
-                        d._originalFill = undefined
+            if( node.attrs?.name.includes("widget") || node.attrs?.name.includes("pin")){
+                const nodes = node.find ? node.find('.hover_target') : [node]
+                for(const d of nodes){
+                    if( d && d.attrs.overlay_label === label){
+                        if( d.attrs._originalFill){
+                            d.fill( d.attrs._originalFill)
+                            d._originalFill = undefined
+                            d.attrs.overlay_label = undefined
+                        }
                     }
                 }
                 return
@@ -2378,6 +2571,16 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
             }
             stageRef.current.batchDraw()
+        }
+        function clearHightlight(type){
+            if( myState.current.hover?.[type] ){
+                let n = myState.current.hover[type]
+                leftNode(n, type)
+                myState.current.hover[type] = undefined
+
+                let canvas = layerRef.current.getCanvas()
+                n.drawScene( canvas )
+            }
         }
         function clearHightlights(){
             myState.current.hover ||= {}

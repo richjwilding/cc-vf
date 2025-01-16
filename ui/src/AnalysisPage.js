@@ -1,68 +1,84 @@
 import { useState } from "react";
-import CreateButton from "./CreateButton";
 import useDataEvent from "./CustomHook";
 import MainStore from "./MainStore";
-import MapViewer from "./MapViewer";
 import Panel from "./Panel";
 import { PrimitiveCard } from "./PrimitiveCard";
-import QueryCard from "./QueryCard";
-import GridLayout from 'react-grid-layout';
-import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from "@heroicons/react/24/outline";
-import DropdownButton from "./DropdownButton";
+import EditableTextField from "./EditableTextField";
+import FeedList from "./@components/Feed";
+import { HeroIcon } from "./HeroIcon";
+import {DescriptionList, DescriptionTerm, DescriptionDetails} from './@components/description-list'
+import { FlowInstanceInfo } from "./FlowInstanceInfo";
+import UIHelper from "./UIHelper";
 
 export default function AnalysisPage({primitive, ...props}){
+
+    const targetFlow = MainStore().primitive(941815)
+
     useDataEvent('relationship_update',primitive.id)
-    const [showSources, setShowSources] = useState(false)
-    const [showQuery, setShowQuery] = useState(true)
+    const inputSource = targetFlow?.primitives.imports.allUniqueItems[0]    
+    const inputPrimitives = (inputSource?.itemsForProcessing ?? []).sort((a,b)=>b.plainId - a.plainId)
 
-    const queryCategories = MainStore().categories().filter(d=>d.primitiveType === "query")
-    const showSidebar = !showQuery || !showSources
+    function createNewInstance(){
+        MainStore().doPrimitiveAction(targetFlow, "new_flow_instance", {
+            type: inputPrimitives[0]?.type,
+            referenceId: inputPrimitives[0]?.referenceId,
+        })
+    }
 
-        const pick = ()=>{
-          MainStore().globalPicker({
-            root: undefined,
-            callback:(pick)=>{
-                primitive.addRelationship(pick, `imports`)
-            },
-            type: "view"
-          })
+    let steps = [], flowInstances = []
+    targetFlow?.primitives.origin.allUniqueItems.forEach(d=>{
+        if(d.type === "flowinstance"){
+            flowInstances.push(d)
+        }else{
+            steps.push(d)
         }
-
+    })
+    
+    const stepOrder = targetFlow?.stepOrder ?? []
+    steps = steps.sort((a,b)=>{
+        if(stepOrder[a.id] === stepOrder[b.id]){
+            return (a.title ?? "").localeCompare(b.title ?? "")
+        }
+        return stepOrder[a.id] - stepOrder[b.id]
+    })
+    
+    if(!targetFlow){
+        return <></>
+    }
 
     return <div 
-            style={{gridTemplateColumns: [showSidebar ? "2.5rem" : undefined,showSources ? "480px" : undefined, showQuery ? "1fr" : undefined, "2fr"].filter(d=>d).join(" ")}}
-            className="w-full grow max-h-[calc(100vh_-_5em)] h-[calc(100vh_-_5em)] min-w-full max-w-full grid gap-2 p-2">
-        {showSidebar && <div className="flex flex-col w-full max-h-[inherit] p-0.5 space-y-2">
-            {!showSources && <DropdownButton noBorder icon={showSources ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>setShowSources(!showSources)} flat className={`ml-auto`}/>}
-            {!showQuery && <DropdownButton noBorder icon={showQuery ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>setShowQuery(!showQuery)} flat className={`ml-auto`}/>}
-        </div>}
-        {showSources && <div className="flex flex-col w-full max-h-[inherit] bg-white sm:rounded-lg shadow p-4 space-y-2">
-            <div className="flex space-x-2 justify-end">
-                <DropdownButton noBorder icon={<PlusIcon className="w-5 h-5"/>} onClick={pick} flat className={`ml-auto`}/>
-                <DropdownButton noBorder icon={showSources ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>setShowSources(!showSources)} flat className={`ml-auto`}/>
+            className={`w-full relative p-6`}
+        >
+        <div className="mb-2 max-w-[1600px] mx-auto">
+            <div className="w-full flex flex-col py">
+                <span className="text-2xl font-bold text-gray-500">Flow details</span>
+                <DescriptionList>
+                    <DescriptionTerm>Flow</DescriptionTerm>
+                    <DescriptionDetails>{targetFlow.title}</DescriptionDetails>
+                    <DescriptionTerm>Flow customization</DescriptionTerm>
+                    <DescriptionDetails>None</DescriptionDetails>
+                </DescriptionList>
             </div>
-            <PrimitiveCard.ImportList primitive={primitive}/>
-        </div>}
-        {showQuery &&<div className="flex flex-col w-full max-h-[inherit] bg-gray-50 sm:rounded-lg shadow p-4 space-y-4 @container">
-            <DropdownButton noBorder icon={showQuery ? <ChevronLeftIcon className="w-5 h-5"/> : <ChevronRightIcon className="w-5 h-5"/>} onClick={()=>setShowQuery(!showQuery)} flat className={`ml-auto`}/>
-                <div className="w-full justify-end flex">
-                    <CreateButton 
-                        small={true}
-                        parent={primitive}
-                        options={queryCategories.map(d=>({
-                            title: `New ${d.title}`,
-                            options: {
-                                resultCategory: d
-                            }
-                    }))}/>
-                </div>
-                <div className="w-full overflow-y-scroll space-y-4 p-1">
-                {primitive.primitives.allUniqueQuery.map(d=><QueryCard primitive={d}/>)}
-                </div>
-        </div>}
-        <div className="flex w-full max-h-[inherit] @container">
-            <MapViewer primitive={primitive}/>
+            <div className="text-2xl font-bold text-gray-500 mt-8 mb-2 flex place-items-center space-x-2">
+                <p>{flowInstances.length} flow instances</p>
+                <UIHelper.Button 
+                    title="Add new"
+                    action={createNewInstance}
+                />
+            </div>
+        </div>
+        <div className="rounded-md bg-white px-5 py-2 @container max-w-[1600px] mx-auto">
+            <div className="grid grid-cols-[250px_1fr_35px] @4xl:grid-cols-[350px_1fr_200px_35px] grid-row-[1.5rem_auto] w-full gap-y-[1px] overflow-y-scroll bg-gray-200">
+                <div className={`p-2 text-sm text-gray-500 bg-white font-semibold`}>Instance</div>
+                <div className={`p-2 text-sm text-gray-500 bg-white font-semibold hidden @4xl:block`}>Progress</div>
+                <div className={`p-2 text-sm text-gray-500 bg-white font-semibold`}>Status</div>
+                <div className={`p-2 text-sm text-gray-500 bg-white font-semibold`}></div>
+                
+                {inputPrimitives.map(input=>{
+                    const flowInstance = flowInstances.find(d=>d.itemsForProcessing.map(d=>d.id).includes(input.id))
+                    return <FlowInstanceInfo primitive={flowInstance} inputPrimitive={input} steps={steps} hideProgressAt="@4xl"/>
+                })}
+            </div>
         </div>
     </div>
-
 }

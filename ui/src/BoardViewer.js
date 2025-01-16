@@ -269,24 +269,52 @@ let mainstore = MainStore()
         myState[stateId].isBoard = true
         const oldConfig = myState[stateId]?.config
 
-        function processPins(source, mode){
-            return [
-                {
-                    name: mode,
-                    idx: 0
-                },
-                ...source.map((d,i)=>({
-                    name: d.inputPin ?? d.outputPin,
-                    idx: i + 1
+        let pinIdx = 1
+
+        function processPins(source){
+            return Object.keys(source ?? {}).map((d,i)=>({
+                    name: d,
+                    label: source[d].name,
+                    rIdx: i
                 }))
-            ].reduce((a,c)=>{
+            .reduce((a,c)=>{
+                c.idx = pinIdx
                 a[c.name] = c
+                pinIdx++
                 return a
             }, {})
         }
 
-        myState[stateId].inputPins = myState[stateId].inputPins ?? processPins(PrimitiveConfig.getInputMap( primitiveToPrepare), "imp_in" )
-        myState[stateId].outputPins = myState[stateId].outputPins ?? processPins(PrimitiveConfig.getOutputMap( primitiveToPrepare), "imp_out" )
+        myState[stateId].inputPins = myState[stateId].inputPins ?? processPins(primitiveToPrepare.inputPins)
+        if( !myState[stateId].outputPins ){
+            myState[stateId].outputPins = processPins(primitiveToPrepare.outputPins )
+
+            if( basePrimitive.type === "flow" ){
+                const tempOut = {}
+               for(const pin of Object.values(myState[stateId].inputPins)){
+                   let rIdx = Math.max(...Object.values(myState[stateId].outputPins).map(d=>d.rIdx)) + 1
+                    tempOut[pin.name] = {
+                        ...pin,
+                        internal: true,
+                        rIdx: pin.rIdx === 0 ? 0 : rIdx++,
+                        idx: pinIdx++
+                    }
+               }
+               for(const pin of Object.values(myState[stateId].outputPins)){
+                   let rIdx = Math.max(...Object.values(myState[stateId].inputPins).map(d=>d.rIdx)) + 1
+                    myState[stateId].inputPins[pin.name] = {
+                        ...pin,
+                        internal: true,
+                        rIdx: pin.rIdx === 0 ? 0 : rIdx++,
+                        idx: pinIdx++
+                    }
+               }
+               myState[stateId].outputPins = {
+                ...myState[stateId].outputPins,
+                ...tempOut
+               }
+            }
+        }   
 
         let widgetConfig = {}
         let renderType = primitiveToPrepare.type
@@ -766,8 +794,8 @@ export default function BoardViewer({primitive,...props}){
                                     }
                                 }
                             }
-                            myState.current.framesToUpdate = []
-                        }, fromRemote ? 2820 : 50)
+                            myState.current[listName] = []
+                        }, fromRemote ? 50:50)//4820 : 50)
                     }
                 }
             })
@@ -903,11 +931,33 @@ export default function BoardViewer({primitive,...props}){
                         }
                         if( left.type === "flow" ){
                             if(right.primitives.imports.allIds.includes(left.id)){
-                                return {left: left.id, right: right.id, leftPin: "input"}
-                            }
+                                const leftPin = myState[left.id].outputPins.int_imp?.idx
+                                const rightPin = myState[right.id].inputPins.imp_in?.idx
+                                return {left: left.id, right: right.id, leftPin, rightPin }
+                            }                       
                         }else{
-                            return {left: left.id, right: right.id}
+                            const leftPin = myState[left.id].outputPins.imp_out?.idx
+                            const rightPin = myState[right.id].inputPins.imp_in?.idx
+                            return {left: left.id, right: right.id, leftPin, rightPin }
                         }
+                    }else if( left.type === "flow" && right.primitives.imports.allIds.includes(left.id)){
+                        const leftPin = myState[left.id].outputPins.output?.idx
+                        const rightPin = myState[right.id].inputPins.imp_in?.idx
+                        return {left: left.id, right: right.id, leftPin, rightPin }
+                    }else if( right.type === "flow" && right.primitives.outputs.allIds.includes(left.id)){
+                        const rel = right.primitives.paths(left.id,"outputs")[0]
+                        if(rel ){
+                            const pinNames = rel.substring(rel.lastIndexOf(".") + 1);
+                            const [leftPinName, rightPinName] = pinNames.split("_")
+                            const leftPin = myState[left.id].outputPins[leftPinName]?.idx
+                            const rightPin = myState[right.id].inputPins[rightPinName]?.idx
+                            console.log(leftPin, leftPinName, rightPin, rightPinName)
+                            if( leftPin !== undefined && rightPin !== undefined){
+                                return {left: left.id, right: right.id, leftPin, rightPin}
+                            }
+                        }
+
+
                     }else if(right.primitives.inputs.allIds.includes(left.id)){
                             const rel = right.primitives.paths(left.id,"inputs")[0]
                             if(rel ){
@@ -951,8 +1001,10 @@ export default function BoardViewer({primitive,...props}){
                                     }
                                 }
                             }
+                            const leftPin = myState[left.id].outputPins.imp_out?.idx
+                            const rightPin = myState[right.id].inputPins.imp_in?.idx
 
-                            return {left: left.id, right: right.id}
+                            return {left: left.id, right: right.id, leftPin, rightPin}
 
 
                         }else{
@@ -1047,10 +1099,76 @@ export default function BoardViewer({primitive,...props}){
         }
         canvas.current.refreshFrame( board.id, renderView(board.primitive))
     }
+    function disconnectActivePin(){
+        if( myState.activePin ){
+            let clearList
+            const primitiveForPin = mainstore.primitive(myState.activePin.frameId)
+            if( myState.activePin.name === "imp_in"){
+                primitiveForPin.primitives.imports.uniqueAllItems.map(d=>{
+                    clearList = [{
+                            parent: primitiveForPin,
+                            target: d,
+                            rel: "imports"
+                        }]
+                })
+            }else{
+                if( myState.activePin.output){
+                    clearList = Object.keys(primitiveForPin._parentPrimitives ?? {}).map(d=>{
+                        let matches = primitiveForPin._parentPrimitives[d].map(d=>d === `primitives.imports` ||  d.startsWith(`primitives.outputs.${myState.activePin.name}_`) || d.startsWith(`primitives.inputs.${myState.activePin.name}_`) ? d : undefined).filter(d=>d)
+                        if(matches.length > 0){
+                            return matches.map(rel=>{
+                                return {
+                                    parent: mainstore.primitive(d),
+                                    target: primitiveForPin,
+                                    rel: rel.slice(11)
+                                }
+                            })
+                        }
+                    }).flat(Infinity).filter(d=>d)
+                }else{
+                    clearList = [
+                        ...Object.keys(primitiveForPin.primitives.inputs ?? {}).filter(d=>d.endsWith(`_${myState.activePin.name}`)).map(r=>{
+                            return primitiveForPin.primitives.inputs[r].uniqueAllItems.map(d=>{
+                                return {
+                                    parent: primitiveForPin,
+                                    target: d,
+                                    rel: "inputs." + r
+                                }
+                            })}),
+                        ...Object.keys(primitiveForPin.primitives.outputs ?? {}).filter(d=>d.endsWith(`_${myState.activePin.name}`)).map(r=>{
+                            return primitiveForPin.primitives.outputs[r].uniqueAllItems.map(d=>{
+                                return {
+                                    parent: primitiveForPin,
+                                    target: d,
+                                    rel: "outputs." + r
+                                }
+                            })}),
+                    ].flat(Infinity).filter(d=>d)
+                }
+            }
+            if( clearList ){
+                for(const d of clearList){
+                    d.parent.removeRelationship(d.target, d.rel)
+                    //console.log(`Remove relation ${d.rel} from parent ${d.parent.plainId} to ${d.target.plainId}`)
+                }
+            }
+        }
+    }
+
+    function setActivePin(pin){
+        myState.activePin = pin
+        //if( myState.activeBoardId !== pin.frameId)
+        {
+            setActiveBoard( [pin.frameId] )
+        }
+    }
 
     function setActiveBoard(e){
         const id = e?.[0]
         myState.activeBoardId = id
+        if( id !== myState.activePin?.frameId){
+            myState.activePin = undefined
+        }
         if( id ){
             myState.activeBoard = myState[id]
             if(true || !myState[id].axisOptions ){
@@ -1661,6 +1779,7 @@ export default function BoardViewer({primitive,...props}){
             {myState.activeBoard?.config === "widget" && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}
             <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />
             {myState.activeBoard && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
+            {myState.activePin && <DropdownButton noBorder icon={<HeroIcon icon='FALinkBreak' className='w-5 h-5'/>} onClick={disconnectActivePin} flat placement='left-start' />}
         </div>}
         <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>
             <InfiniteCanvas 
@@ -1668,10 +1787,11 @@ export default function BoardViewer({primitive,...props}){
                             board
                             background="#fdfdfd"
                             ref={setCanvasRef}
-                            ignoreAfterDrag={false}
+                            ignoreAfterDrag={true}
                             highlights={{
                                 "primitive":"border",
                                 "cell":"background",
+                                "pin":"background",
                                 "widget":"background"
                             }}
                             rerender={(frame, primitiveId)=>{
@@ -1681,6 +1801,78 @@ export default function BoardViewer({primitive,...props}){
                             enableFrameSelection
                             updateWatchList={updateWatchList}
                             drag={{
+                                pin:{
+                                    pin: {
+                                        drop: (sourceId, sourcePin, targetId, targetPin)=>{
+                                            const sourcePrimitive = mainstore.primitive(sourceId)
+                                            const targetPrimitive = mainstore.primitive(targetId)
+
+
+                                            
+                                            if( sourcePrimitive && targetPrimitive){
+                                                const isInternalFlowPin = (sourcePrimitive.inFlow && targetPrimitive.type === "flow")
+                                                if( sourcePrimitive.inFlow && !targetPrimitive.inFlow && !isInternalFlowPin){
+                                                    return false
+                                                }
+                                                const inputPins = isInternalFlowPin ? targetPrimitive.outputPins : targetPrimitive.inputPins
+                                                const canConnect = PrimitiveConfig.canConnect({
+                                                    input: {
+                                                        config: inputPins,
+                                                        pin: targetPin
+                                                    },
+                                                    output:{
+                                                        config: sourcePrimitive.outputPins,
+                                                        pin: sourcePin
+                                                    }
+
+                                                })
+                                                const baseRel = isInternalFlowPin ? "outputs" : "inputs"
+                                                if( canConnect ){
+                                                    let rel
+                                                    if( targetPin === "imp_in"){
+                                                        rel = "imports"
+                                                    }else{
+                                                        rel = `${baseRel}.${sourcePin}_${targetPin}`
+                                                    }
+                                                    targetPrimitive.addRelationship( sourcePrimitive, rel)
+                                                    console.log(`Will connect target ${targetPrimitive.plainId} to source ${sourcePrimitive.plainId} at ${rel}`)
+                                                    return true
+                                                }
+                                            }
+
+
+
+                                        },
+                                        droppable: (sourceId, sourcePin, targetId, targetPin)=>{
+                                            if( sourceId === targetId ){
+                                                return false
+                                            }
+                                            const sourcePrimitive = mainstore.primitive(sourceId)
+                                            const targetPrimitive = mainstore.primitive(targetId)
+                                            if( sourcePrimitive && targetPrimitive){
+                                                const isInternalFlowPin = (sourcePrimitive.inFlow && targetPrimitive.type === "flow")
+                                                if( sourcePrimitive.inFlow && !targetPrimitive.inFlow && !isInternalFlowPin){
+                                                    return false
+                                                }
+                                                const inputPins = isInternalFlowPin ? targetPrimitive.outputPins : targetPrimitive.inputPins
+                                                const canConnect = PrimitiveConfig.canConnect({
+                                                    input: {
+                                                        config: inputPins,
+                                                        pin: targetPin
+                                                    },
+                                                    output:{
+                                                        config: sourcePrimitive.outputPins,
+                                                        pin: sourcePin
+                                                    }
+
+                                                })
+                                                console.log(canConnect)
+                                                return canConnect
+                                            }
+                                            return false
+                                        }
+                                    }
+                                },
                                 "primitive": {
                                     cell:{
                                         start: undefined,
@@ -1745,6 +1937,9 @@ export default function BoardViewer({primitive,...props}){
                                     }
                                 },
                                 onClick:{
+                                    pin: (ids, frameId, {name, output})=>{
+                                        setActivePin({frameId, name, output})
+                                    },
                                     frame: (id)=>setActiveBoard(id),
                                     primitive:(id)=>mainstore.sidebarSelect(id),
                                     canvas:(id)=>setCollectionPaneInfo(),
@@ -1830,6 +2025,9 @@ export default function BoardViewer({primitive,...props}){
                                     multiple: true
                                 },
                                 "primitive":{
+                                    multiple: false
+                                },
+                                "pin":{
                                     multiple: false
                                 },
                                 "cell":{

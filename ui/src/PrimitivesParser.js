@@ -472,7 +472,7 @@ export default function PrimitiveParser(obj){
                                     childrenIds.push( ...Object.values(target.auto ) )
                                 }
                             }else if(direct_only){
-                                const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "ref" && d!== "config" && d !=="inputs")
+                                const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "ref" && d!== "config" && d !=="inputs" && d !=="link")
                                 childrenIds = [...new Set(keys.map(d => receiver[d].uniqueAllIds).flat())];
                             }else{
                                 //childrenIds = receiver.uniqueAllIds

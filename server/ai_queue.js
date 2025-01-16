@@ -1288,10 +1288,10 @@ export async function processQueue(job){
                                     const toAdd = linkIds.filter(d=>!existingLinks.includes(d))
                                     
                                     if( toRemove.length > 0 ){
-                                        await removeRelationshipFromMultiple( primitive.id, toRemove, "link")
+                                        await removeRelationshipFromMultiple( primitive.id, toRemove, "source")
                                     }
                                     if( toAdd.length > 0 ){
-                                        await addRelationshipToMultiple( primitive.id, toAdd, "link")
+                                        await addRelationshipToMultiple( primitive.id, toAdd, "source")
                                     }
                                     result = result.plain
                                 }

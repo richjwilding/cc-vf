@@ -5,7 +5,19 @@ import { checkAndGenerateSegments, getItemsForQuery, getSegemntDefinitions } fro
 import PrimitiveParser from './PrimitivesParser';
 import FlowQueue from "./flow_queue";
 import Category from "./model/Category";
+import Primitive from "./model/Primitive";
+import { SIO } from "./socket";
 
+
+registerAction("new_flow_instance", undefined, async (primitive,a,options)=>{
+    const inputType = options.type ?? "result"
+    const inputReferenceId = options.referenceId ?? 35
+    const inputSourceId = primitive.primitives.imports[0]
+    if( inputSourceId ){
+        const inputSource = await fetchPrimitive( inputSourceId )
+        console.log(`Will add ${inputType} (${inputReferenceId}) to ${inputSource.title}`)
+    }
+})
 
 registerAction("run_step", undefined, async (p,a,o)=>FlowQueue().runStep(p,{...o, singleStep: true}))
 registerAction("run_flow", {id: "flow"}, async (p,a,o)=>FlowQueue().runFlow(p,o))
@@ -343,13 +355,14 @@ export async function runFlowInstance( flowInstance, options = {}){
         logger.error(`Cant find parent flow for instance`, {flowInstance})
     }
     let newIteration = true
-    if( !processing?.flow?.last_run && options.continue){
+    if( !flowInstance.processing?.flow?.last_run && options.continue){
         logger.info(`Cant continue flow - no progress data`)
         return
     }
     let flowStarted = options.flowStarted ?? flowInstance.processing?.flow?.last_run?.started ?? flow.processing?.flow?.started
     if( options.force || !flowStarted){
         flowStarted = new Date().toISOString()
+
     }
     if( flowInstance.processing?.flow?.started === flowStarted ){
         logger.info(`Flow instance already started for this iteration`)
@@ -357,6 +370,22 @@ export async function runFlowInstance( flowInstance, options = {}){
     }else{
         await dispatchControlUpdate(flowInstance.id, "processing.flow", {status: "running", started: flowStarted})
         flowInstance = await fetchPrimitive( flowInstance.id )
+
+        const instanceSteps = await getFlowInstanceSteps(flowInstance)
+        const toSet = {       
+            "processing.flow":{
+                started: flowStarted,
+                status: "waiting"
+            }
+        }
+        await Primitive.updateMany(
+            {
+                _id: {$in: instanceSteps.map(d=>d.id)}
+            },
+            { $set: toSet
+            }            
+        )
+        SIO.notifyPrimitiveEvent(flowInstance, {data: instanceSteps.map(d=>({type: "set_fields", primitiveId: d.id, fields: toSet}))})
     }
     logger.info(`Running flow instance ${flowInstance.id} @ ${flowInstance.processing?.flow?.started} (${flowStarted})`)
     logger.info(`Looking for next steps to run`)
@@ -495,18 +524,20 @@ export async function runStep( step, options = {}){
     dispatchControlUpdate(step.id, "processing.flow", {status: "running", started: flowStarted, singleStep: options.singleStep})
     //if( newIteration ){
     //}
+    if( step.type === "search"){
+        await doPrimitiveAction(step, "run_search", {flowStarted, flow: true} )
+    }
+
+    {
+        logger.info(`Delaying for 20 seconds`)
+        await new Promise((resolve)=>setTimeout(()=>resolve(), 20000))
+        return
+    }
 
     if( step.type === "categorizer"){
         await doPrimitiveAction(step, "run_categorizer", {flowStarted, flow: true} )
 
     }
-    /*
-    {}
-        logger.info(`Delaying for 120 seconds`)
-        await new Promise((resolve)=>setTimeout(()=>resolve(), 120000))
-    }
-    return
-*/
     if( step.type === "actionrunner"){
         const config = await getConfig( step )
         if( config?.action ){

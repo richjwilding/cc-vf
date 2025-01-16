@@ -240,15 +240,15 @@ export default function SummaryCard({primitive, ...props}){
         summary = <MarkdownEditor ref={summaryRef} initialMarkdown={primitive.referenceParameters?.summary }/>
     }
 
-    return  <div className="w-full bg-white rounded-md shadow flex flex-col p-2">
+    return  <div className="w-full bg-white flex flex-col p-2">
                 <div className="flex justify-between place-items-center">
-                    <PrimitiveCard variant={false} primitive={primitive} compact showEdit disableHover editing className='w-full place-items-center !bg-transparent'/>
+                    <PrimitiveCard variant={false} primitive={primitive} compact showEdit disableHover editing className='w-full !bg-transparent'/>
                 </div>
-                <Panel collapsable open={false} className="!mt-0 ml-1" title="Settings" titleClassName='flex w-fit text-xs text-gray-500' arrowClass="text-gray-500 ml-0.5 w-4 h-4">
+                {props.showSetting && <Panel collapsable open={false} className="!mt-0 ml-1" title="Settings" titleClassName='flex w-fit text-xs text-gray-500' arrowClass="text-gray-500 ml-0.5 w-4 h-4">
                     <div className="w-full flex-col text-xs my-2 space-y-1 shrink-0">
                         <PrimitiveCard.Parameters primitive={primitive} hidden='summary' editing leftAlign compactList className="text-xs text-slate-500" fullList />
                     </div>
-                </Panel>
+                </Panel>}
                     <div className="w-full flex space-x-2 justify-end">
                         {results.length > 0 && <SmallButton icon={ClipboardIcon} action={()=>copyToClipboard(summaryRef)}/>}
                         <AIProcessButton active='rebuild_summary'  primitive={primitive} />

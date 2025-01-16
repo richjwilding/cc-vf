@@ -4,9 +4,9 @@ import QueueDocument from "../document_queue";
 import { getLogger } from "../logger";
 import Category from "../model/Category";
 import QueryQueue from "../query_queue";
-import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
 import { aggregateItems, compareItems, iterateItems, lookupEntity, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
-import { baseURL, cleanURL } from "./SharedTransforms";
+import { baseURL, cleanURL, markdownToSlate } from "./SharedTransforms";
 const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
 
 
@@ -265,4 +265,52 @@ registerAction( "run_categorizer", undefined, async (primitive, action, options,
         }
     }
 
+})
+registerAction( "split_summary", {id: "summary"}, async (primitive, action, options = {}, req)=>{
+    try{
+        let done = false
+        const text = primitive.referenceParameters.summary
+        //const struct = markdownToSlate(text)
+        const lines = text.split("\n").filter(d=>d.match(/^\s*-+\s/)).map(d=>d.replace(/s*-+\s+/,"").trim()).filter(d=>d)
+        const originId = primitiveOrigin( primitive )
+        const originRel = primitive.parentPrimitives[originId]
+        const segments = await findParentPrimitivesOfType(primitive, "segment")
+
+
+        console.log(lines) 
+        console.log(segments.map(d=>d.plainId))
+        for(const d of lines ){
+            let match = d.match(/\*\*(.*?)\*\*\s*:?\s*(.*)/)
+            let title = match?.[1]
+            let overview = match?.[2]
+            const newData = {
+                workspaceId: primitive.workspaceId,
+                parent: originId,
+                paths: originRel,
+                data:{
+                    title: title ?? d,
+                    referenceParameters:{
+                        summary: d
+                    },
+                    type: primitive.type,
+                    referenceId: primitive.referenceId
+                }
+            }
+            const newPrim = await createPrimitive( newData )
+            if( newPrim ){
+                done = true
+                for(const segment of segments){
+                    const segmentRel = primitive.parentPrimitives[segment.id]
+                    for(const rel of segmentRel){
+                        await addRelationship(segment.id, newPrim.id, rel)
+                    }
+                }
+            }
+        }
+        if( done ){
+            await removePrimitiveById( primitive.id )
+        }
+    }catch(e){
+        logger.error(e)
+    }
 })

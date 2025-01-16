@@ -467,11 +467,11 @@ export function Sidebar({primitive, ...props}) {
                     <PrimitiveCard primitive={task}  showState={true} showDetails="panel" showUsers="panel" showLink={true}/>
                 </div>}
             </div>}
-            {(metadata?.sidebar?.showRefs || PrimitiveConfig.sidebar[primitive.type]?.showRefs) && (primitive.primitives.ref?.allIds.length + primitive.primitives.link?.allIds.length)> 0 && 
+            {(metadata?.sidebar?.showRefs || PrimitiveConfig.sidebar[primitive.type]?.showRefs) && (primitive.primitives.ref?.allIds.length + primitive.primitives.link?.allIds.length + primitive.primitives.source?.allIds.length)> 0 && 
                 <div className="pb-2 pl-4 pr-4 pt-4">
                     <Panel title="References" collapsable={true} open={true} major>
                         <CardGrid   
-                            list={MainStore().uniquePrimitives( [...primitive.primitives.ref.allItems, ...primitive.primitives.link.allItems])} 
+                            list={MainStore().uniquePrimitives( [...primitive.primitives.ref.allItems, ...primitive.primitives.link.allItems, ...primitive.primitives.source.allItems])} 
                             className='p-2'
                             columnConfig={{"sm":1}}
                             cardProps={{
