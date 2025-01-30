@@ -377,7 +377,7 @@ export function PrimitivePage({primitive, ...props}) {
       )
     }
   
-  if( primitive?.type === "working"   ){
+  if( primitive?.type === "working"  || primitive?.type === "flow"  ){
     return <AnalysisPage primitive={primitive}/>
   }
 

@@ -1,7 +1,7 @@
 import { SIO } from './socket';
 import { getDocumentAsPlainText, importDocument, locateQuote, removeDocument } from "./google_helper";
 import Primitive from "./model/Primitive";
-import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getConfig, getDataForImport, getDataForProcessing, getFilterName, getNestedValue, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
+import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getConfig, getDataForImport, getDataForProcessing, getFilterName, getNestedValue, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
 import Category from "./model/Category";
 import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
 import ContentEmbedding from "./model/ContentEmbedding";
@@ -454,10 +454,12 @@ async function doDataQuery( options ) {
 
                 const parentForScope = options.parentForScope //(await primitiveParentsOfType(primitive, "working"))?.[0]
 
-                const doingExtracts = primitive.referenceParameters?.extract
+                const config = await getConfig( primitive )
+
+                const doingExtracts = config?.extract
 
 
-                const resultCategoryId =  doingExtracts ? primitive.referenceParameters?.extract : options.resultCategoryId 
+                const resultCategoryId =  doingExtracts ? config?.extract : options.resultCategoryId 
                 const resultSet = doingExtracts ?  (await findResultSetForType( primitive, "evidence")) : (await findResultSetForCategoryId( primitive, resultCategoryId))
                 if( resultSet === undefined ){
                     throw "No resultCategoryId specified"
@@ -468,7 +470,7 @@ async function doDataQuery( options ) {
                 const serachScope = [{workspaceId: primitive.workspaceId}]
                 
                 const scope = options.scope ?? primitive.primitives?.params?.scope?.[0] ?? parentForScope?.primitives?.params?.scope?.[0] ?? (Object.keys(parentForScope?.primitives ?? {}).includes("imports") ? parentForScope.id : (Object.keys(primitive?.primitives ?? {}).includes("imports") ? primitive.primitives.imports[0] : undefined))
-                const referenceCategoryFilter = options.referenceCategoryFilter ?? primitive.referenceParameters?.referenceCategoryFilter ?? parentForScope?.referenceParameters?.referenceCategoryFilter
+                const referenceCategoryFilter = options.referenceCategoryFilter ?? config?.referenceCategoryFilter ?? parentForScope?.referenceParameters?.referenceCategoryFilter
 
                 let items, scopeNode
                 if( scope  ){
@@ -487,7 +489,7 @@ async function doDataQuery( options ) {
 
                         
 
-                        if( primitive.referenceParameters.group || thisCategory.type === "iterator" ){
+                        if( config.group || thisCategory.type === "iterator" ){
                         //if(  thisCategory.type === "iterator" ){
                             console.log(`Will go via groups - have ${interim.length} to do`)
                             /*for(const d of interim){
@@ -528,7 +530,7 @@ async function doDataQuery( options ) {
                         items = items?.filter(d=>asArray.includes(d.referenceId))
                     }
                 }
-                if( primitive.referenceParameters.onlyNew ){
+                if( config.onlyNew ){
                     console.log(`Filtering for only new items on ${primitive.plainId} (${items.length})`)
                     const existing = await primitiveChildren(primitive)
                     const linked = existing.map(d=>d.primitives?.link).flat().filter(d=>d)
@@ -556,6 +558,26 @@ async function doDataQuery( options ) {
                 }
                 let query = (await getConfig(primitive))?.query //|| primitive.title
                 console.log(`GOT QUERY ${query}`)
+                
+                let parentInputs = {}
+                const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
+                if( configParentId ){
+                    const configParent = await fetchPrimitive( configParentId )
+                    parentInputs = await getPrimitiveInputs( configParent )
+                }
+
+                const primitiveInputs = await getPrimitiveInputs( primitive )
+                const mergedInputs = {
+                    ...parentInputs,
+                    ...primitiveInputs
+                }
+
+                if( mergedInputs ){
+                    for(const inp of Object.keys(mergedInputs)){
+                        query = query.replaceAll(`{${inp}}`, mergedInputs[inp].data)
+                    }
+                }
+
                 if( scope ){
                     if( scopeNode?.type === "segment"){
                         console.log(`WILL GET FROM SEGMENT ${scopeNode.plainId}`)
@@ -585,8 +607,8 @@ async function doDataQuery( options ) {
                     }
 
                 }
-                else if( primitive.referenceParameters?.sections){
-                    metadata = primitive.referenceParameters?.sections.reduce((a,d )=>{
+                else if( config?.sections){
+                    metadata = config?.sections.reduce((a,d )=>{
                         const [key,value] = d.split(":")
                         a[key] = `a ${key} field containing ${value}`
                         return a
@@ -596,14 +618,14 @@ async function doDataQuery( options ) {
                 let results
                 if( query && query.trim().length > 0 ){
 
-                    if( primitive.referenceParameters.fullText ){
+                    if( config.fullText ){
                         console.log(`Will use full text`)
                         results = {success: true, allItems: true }
 
                     }else{
                         results = await processPromptOnText( query,{
                             opener: `You have access to a database of many thousands of text fragments and must answer questions or complete tasks using information in the database.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases. Here is a task or question:`,
-                            prompt: `Build a list of ${primitive.referenceParameters?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
+                            prompt: `Build a list of ${config?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
                             output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
                             engine: "gpt4p",
                             debug: true,
@@ -624,20 +646,20 @@ async function doDataQuery( options ) {
                     let parts = doingExtracts ? Object.values(metadata).join(", ") : metadataItems.filter(d=>metadata[d]).map(d=>metadata[d].prompt ?? metadata[d]).join(", ")?.trim() 
                     let extraFields = parts.length > 0 ? " for each part of your answer also include " + parts : ""
 
-                    if( primitive.referenceParameters.extracts ){
+                    if( config.extracts ){
                         extraFields = " for each part of your answer also include "
-                        extraFields += primitive.referenceParameters.extracts.map(extract=>
+                        extraFields += config.extracts.map(extract=>
                             `a '${extract.field}' field containing ${extract.prompt}`
                         ).join(", ") + "."
-                        metadataItems = primitive.referenceParameters.extracts.map(d=>d.field)
+                        metadataItems = config.extracts.map(d=>d.field)
                     }
                     const prompts = results.output?.[0]?.prompts
                     console.log(prompts)
                     if( prompts || results.allItems){
                         let fragmentList
 
-                        const quote = primitive.referenceParameters?.quote ?? true
-                        const targetWords = doingExtracts ? "no more than 30 words" : primitive.referenceParameters?.words ?? "3 paragraphs each of 100-200 words and in a plain string format with appropriately escaped linebreaks"
+                        const quote = config?.quote ?? true
+                        const targetWords = doingExtracts ? "no more than 30 words" : config?.words ?? "3 paragraphs each of 100-200 words and in a plain string format with appropriately escaped linebreaks"
                         
                         const includeBasicFields = !doingExtracts
 
@@ -650,10 +672,10 @@ async function doDataQuery( options ) {
                         ].filter(d=>d).join("") + "."
 
                         if( prompts ){
-                            const threshold_min = primitive.referenceParameters?.thresholdMin ?? 0.85
-                            const threshold_seek = primitive.referenceParameters?.thresholdSeek ?? 0.005
-                            const searchTerms = primitive.referenceParameters?.candidateCount ?? 1000
-                            const scanRatio = primitive.referenceParameters?.scanRatio ?? 0.15
+                            const threshold_min = config?.thresholdMin ?? 0.85
+                            const threshold_seek = config?.thresholdSeek ?? 0.005
+                            const searchTerms = config?.candidateCount ?? 1000
+                            const scanRatio = config?.scanRatio ?? 0.15
                             let fragments = await fetchFragmentsForTerm(prompts, {searchTerms, scanRatio, threshold_seek, threshold_min, serachScope})
                             const oldCount = fragments.length
                             fragments = fragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i)
@@ -755,7 +777,7 @@ async function doDataQuery( options ) {
                             }else{
                                 final = results.output
                             }
-                            if( !doingExtracts && (options.consolidate || primitive.referenceParameters.consolidate)){
+                            if( !doingExtracts && (options.consolidate || config.consolidate)){
                                 const partials = JSON.stringify(final.filter(d=>d.answered).map(d=>({partial: d.answer, ids: d.ids})))
                                 console.log(`Consolidating.....`, partials)
                                 const results = await processPromptOnText(partials ,{

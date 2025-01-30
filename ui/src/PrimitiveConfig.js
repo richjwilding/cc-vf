@@ -36,6 +36,16 @@ const heatMapPalette = [
             "#f03b20",
             "#bd0026"
         ]
+    },{
+        title: "Green",
+        name: "green",
+        colors:[
+            "#ecfdf5",
+            "#a4f4cf",
+            "#5ee9b5",
+            "#00bc7d",
+            "#007a55"
+        ]
     },
     {
         title: "Ice Blue",
@@ -138,6 +148,10 @@ const PrimitiveConfig = {
             needCategory:false,
             defaultReferenceId: 39
         },
+        "page": {
+            needCategory:true,
+            defaultReferenceId: 140
+        },
         "flow": {
             needCategory:true,
             defaultReferenceId: 130
@@ -210,7 +224,8 @@ const PrimitiveConfig = {
         "flow",
         "flowinstance",
         "categorizer",
-        "action"
+        "action",
+        "page"
     ],
     pageview:{
         "board":{
@@ -664,8 +679,8 @@ const PrimitiveConfig = {
     },getDynamicPins:(primitive, config, mode = "inputs")=>{
         if( mode === "inputs"){
             if( primitive.type === "query" || primitive.type === "summary"){
-                if( config?.prompt ){
-                    const matches = config.prompt.match(/\{([^}]+)\}/g);
+                if( config?.prompt ?? config?.query){
+                    const matches = (config.prompt ?? config.query).match(/\{([^}]+)\}/g);
                     const dynamicNames =  matches ? matches.map(match => match.slice(1, -1)) : [];
                     return dynamicNames.reduce((a,c)=>{
                         a[c] = {
@@ -674,6 +689,14 @@ const PrimitiveConfig = {
                         return a
                     }, {})
                 }
+            }else if( primitive.type === "flow"){
+                return primitive.referenceParameters?.controlPins
+            }else if( primitive.type === "page"){
+                return primitive.referenceParameters?.inputPins
+            }
+        }else{
+            if( primitive.type === "flow"){
+                return primitive.referenceParameters?.outputPins 
             }
         }
         return {}
@@ -701,29 +724,54 @@ const PrimitiveConfig = {
             }
 
             if( imConfig ){
-                const sourcePinConfig = input.sourcePinConfig
-                if( sourcePinConfig ){
-
-                    let sourceTransform
-                    let useConfig = sourcePinConfig.types.map(d=>({config:d, position: imConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
-                    
-                    if( !useConfig ){
-                        if( sourcePinConfig.types.includes("string_list") && imConfig.types.includes("string")){
-                            sourceTransform = "list_to_string"
-                            useConfig = "string"
-                        }else if( sourcePinConfig.types.includes("children") && imConfig.types.includes("string")){
-                            sourceTransform = "child_list_to_string"
-                            useConfig = "string"
-                        }
+                let sourcePinConfig = input.sourcePinConfig
+                if( input.sourcePin === "impout" || (input.sourcePin === "impin" && (input.sourcePrimitive?.type === "flow" || input.sourcePrimitive?.type === "flowinstance"))){
+                    if( input.inputMapConfig?.types?.includes("primitive")){
+                        out.push({
+                            ...input,
+                            useConfig: "primitive",
+                            sourcePinConfig: {
+                                name:"Imports",
+                                types:['primitive']
+                            },
+                            sourceTransform: "imports"
+                        })
+                    }else{
+                        out.push({
+                            ...input,
+                            useConfig: "string",
+                            sourcePinConfig: {
+                                name:"Imports",
+                                source: "BY_TYPE",
+                                types:['primitive']
+                            },
+                            sourceTransform: "filter_imports"
+                        })
                     }
+                }else{
+                    if( sourcePinConfig ){
 
-                    out.push({
-                        ...input,
-                        useConfig,
-                        sourceTransform
-                    })
+                        let sourceTransform
+                        let useConfig = sourcePinConfig.types.map(d=>({config:d, position: imConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
+                        
+                        if( !useConfig ){
+                            if( sourcePinConfig.types.includes("string_list") && imConfig.types.includes("string")){
+                                sourceTransform = "list_to_string"
+                                useConfig = "string"
+                            }else if( sourcePinConfig.types.includes("children") && imConfig.types.includes("string")){
+                                sourceTransform = "child_list_to_string"
+                                useConfig = "string"
+                            }
+                        }
 
-                }                
+                        out.push({
+                            ...input,
+                            useConfig,
+                            sourceTransform
+                        })
+
+                    }                
+                }
             }
         }
         return out
@@ -749,31 +797,62 @@ const PrimitiveConfig = {
                             }
                         }
                         if(input.useConfig === "primitive"){
-                            out[input.inputPin].data.push( source)
+                            if( input.sources ){
+                                out[input.inputPin].data = out[input.inputPin].data.concat( input.sources )
+                            }else{
+                                out[input.inputPin].data.push( source)
+                            }
                         }else{
-                            const sourceField = input.sourcePinConfig.source
-
-                            let sources = input.sources ?? [source] 
-
-                            let sourceData = sources.map(d=>(sourceField === "title" ? d.title : PrimitiveConfig.decodeParameter(d.referenceParameters, sourceField.replace(/^param./,"")) )).flat(Infinity)
-                            if( input.useConfig === "object_list"){
-                                out[input.inputPin].data = out[input.inputPin].data.concat( sourceData )
-                            }else if(input.useConfig === "string_list"){
-                                out[input.inputPin].data = out[input.inputPin].data.concat( sourceData )
-                            }else if(input.useConfig === "string"){
-
-
-                                if( Array.isArray(sourceData)){
-                                    sourceData = sourceData.map(d=>{
-                                        let tx = (d ?? "").trim()
-                                        if( sourceData.length > 1 && !tx.endsWith(".")){
-                                            tx = tx + ".  "
+                            let sourceField = input.sourcePinConfig.source.replace(/^param./,"")
+                            function extractDataFromSource( sources){
+                                let result = []
+                                let sourceData = sources.map(d=>{
+                                    if(sourceField === "title"){
+                                        return d.title
+                                    }
+                                    let sf = sourceField
+                                    if( sf === "BY_TYPE"){
+                                        if( d.type === "summary"){
+                                            sf = "summary"
+                                        }else if(d.type === "result"){
+                                            sf = "description"
                                         }
-                                        return tx
-                                    }).join("")
+                                    }
+                                    return PrimitiveConfig.decodeParameter(d.referenceParameters, sf)
+                                }).flat(Infinity)
+                                if( input.useConfig === "object_list"){
+                                    result = result.concat( sourceData )
+                                }else if(input.useConfig === "string_list"){
+                                    result = result.concat( sourceData )
+                                }else if(input.useConfig === "string"){
+                                    if( Array.isArray(sourceData)){
+                                        sourceData = sourceData.map(d=>{
+                                            let tx = (d ?? "").trim()
+                                            if( sourceData.length > 1 && !tx.endsWith(".") && tx){
+                                                tx = tx + ".  "
+                                            }
+                                            return tx
+                                        }).join("")
+                                    }
+                                    result = sourceData
                                 }
-
-                                out[input.inputPin].data =  sourceData
+                                return result
+                            }
+                            if( input.sourceBySegment ){
+                                out[input.inputPin].data = []
+                                out[input.inputPin].dataBySegment = {}
+                                for(const d of Object.keys(input.sourceBySegment)){
+                                    const results = extractDataFromSource(input.sourceBySegment[d] )
+                                    out[input.inputPin].dataBySegment[d] = results
+                                    if( input.useConfig === "string"){
+                                        out[input.inputPin].data = (out[input.inputPin].data.length === 0 ? "" : ".  ") + results
+                                    }else{
+                                        out[input.inputPin].data = out[input.inputPin].data.concat(results)
+                                    }
+                                }
+                            }else{
+                                let sources = input.sources ?? [source] 
+                                out[input.inputPin].data = extractDataFromSource( sources )
                             }
                         }
                     }

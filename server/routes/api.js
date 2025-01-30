@@ -21,11 +21,40 @@ var ObjectId = require('mongoose').Types.ObjectId;
 const parser = PrimitiveParser()
 var router = express.Router();
 
+async function userCanAccessPrimitive(primitive, req, res){
+    if( typeof(primitive) === "string"){
+        const realPrim = await fetchPrimitive(primitive, {workspaceId: {$in: req?.user?.workspaceIds ?? []}})
+        if( realPrim === undefined ){
+            res.status(401).json({message: "Permission denied"})
+            return false
+        }
+        return true
+    }
+    if( req.user ){
+        if( req.user.workspaceIds ){
+            if( req.user.workspaceIds.includes(primitive.workspaceId)){
+                return true
+            }
+        }
+    }
+    res.status(401).json({message: "Permission denied"})
+    return false
+}
+
 router.get('/', async function(req, res, next) {
     res.json({up: true})
 })
 router.get('/image/:id', async function(req, res, next) {
     const id = req.params.id
+
+
+    /*
+    const primitive = await fetchPrimitive(id, {workspaceId: {$in: req?.user?.workspaceIds ?? []}})
+    if( !primitive ){
+        res.status(401).json({message: "Permission denied"})
+        return
+    }*/
+
     const bucketName = 'cc_vf_images'
     const storage = new Storage({
         projectId: process.env.GOOGLE_PROJECT_ID,
@@ -71,7 +100,7 @@ router.get('/avatarImage/:id', async function(req, res, next) {
         res.status(501).json({message: "Error", error: error})
     }
 })
-router.get('/enrichContact', async function(req, res, next) {
+/*router.get('/enrichContact', async function(req, res, next) {
     const contactId = req.query.contactId
     try {
         const contact = await Contact.findOne({_id:  new ObjectId(contactId)})
@@ -191,7 +220,7 @@ router.get('/enrichContact', async function(req, res, next) {
         res.json({error: err.message})
     }
 
-})
+})*/
 router.get('/users', async function(req, res, next) {
 
     try {
@@ -431,7 +460,7 @@ router.get('/primitives', async function(req, res, next) {
       }
 
 })
-
+/*
 
 router.post('/remove_metric', async function(req, res, next) {
     let data = req.body
@@ -552,12 +581,16 @@ router.post('/primitive/:id/set_user', async function(req, res, next) {
       } catch (err) {
         res.json(400, {error: err.message})
     }
-})
+})*/
 
 router.post('/set_field', async function(req, res, next) {
     let data = req.body
     console.log(`${data.receiver} - ${data.field} = ${data.value}`)
     let result
+
+    if( !await userCanAccessPrimitive(data.receiver, req, res) ){
+        return
+    }
 
 
     try {
@@ -570,6 +603,9 @@ router.post('/set_field', async function(req, res, next) {
 })
 router.post('/move_relationship', async function(req, res, next) {
     let data = req.body
+    if( !await userCanAccessPrimitive(data.receiver, req, res) ){
+        return
+    }
 
     try {
         const fromPath = flattenPath( data.from )
@@ -608,6 +644,7 @@ router.post('/move_relationship', async function(req, res, next) {
         res.json(400, {error: err.message})
     }
 })
+
 router.post('/add_contact', async function(req, res, next) {
     let data = req.body
     console.log(data)
@@ -625,6 +662,9 @@ router.post('/add_contact', async function(req, res, next) {
 
 router.post('/remove_primitive', async function(req, res, next) {
     let data = req.body
+    if( !await userCanAccessPrimitive(data.id, req, res) ){
+        return
+    }
     console.log(`API: remove_primitive ${data.id}`)
 
     try {
@@ -657,7 +697,9 @@ router.post('/add_primitive', async function(req, res, next) {
 
 router.post('/set_relationship', async function(req, res, next) {
     let data = req.body
-    console.log(data)
+    if( !await userCanAccessPrimitive(data.receiver, req, res) ){
+        return
+    }
 
     try {
         const path = flattenPath( data.path )
@@ -701,7 +743,11 @@ router.post('/primitive/:id/action/:action', async function(req, res, next) {
     console.log( primitiveId, action, options)
     try{
         let result
-        const primitive = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
+        const primitive = await fetchPrimitive(primitiveId)
+
+        if( !await userCanAccessPrimitive(primitive, req, res) ){
+            return
+        }
 
         if( primitive){
             try{
@@ -736,8 +782,11 @@ router.get('/primitive/:id/queryPrimitives', async function(req, res, next) {
         if( value && value.trim() > ""){
 
             let list = []
-                const primitive = await Primitive.findOne({"_id": new ObjectId( primitiveId)})
-            const parent = parentId && await Primitive.findOne({"_id": new ObjectId(parentId)})
+            const primitive = await fetchPrimitive(primitiveId)
+            if( !await userCanAccessPrimitive(primitive, req, res) ){
+                return
+            }
+            const parent = parentId && await await fetchPrimitive(parentId)
             if( parent ){
                 list = await primitiveDescendents(parent, types)
             }else{
@@ -802,6 +851,9 @@ router.get('/primitive/:id/queryPrimitives', async function(req, res, next) {
 router.get('/primitive/:id/getDocument', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id
+    if( !await userCanAccessPrimitive(primitiveId, req, res) ){
+        return
+    }
     console.log( primitiveId )
     try{
         const remoteReadStream = await getDocument( primitiveId, req )
@@ -817,6 +869,9 @@ router.get('/primitive/:id/getDocumentTokenCount', async function(req, res, next
     let data = req.body
     const primitiveId = req.params.id
     console.log( primitiveId )
+    if( !await userCanAccessPrimitive(primitiveId, req, res) ){
+        return
+    }
     try{
         const result = await getDocumentAsPlainText( primitiveId, req )
 
@@ -833,6 +888,9 @@ router.get('/primitive/:id/getDocumentAsPlainText', async function(req, res, nex
     const primitiveId = req.params.id
     const force = req.query.force
     console.log( primitiveId )
+    if( !await userCanAccessPrimitive(primitiveId, req, res) ){
+        return
+    }
     try{
         const result = await getDocumentAsPlainText( primitiveId, req, undefined, undefined, force )
         res.json({success: true, result: result?.plain, encoded: result?.data})
@@ -845,6 +903,9 @@ router.post('/primitive/:id/findQuote', async function(req, res, next) {
     const primitiveId = req.params.id
     const quote = req.body.quote
     console.log( primitiveId, quote )
+    if( !await userCanAccessPrimitive(primitiveId, req, res) ){
+        return
+    }
     try{
         const extract = await getDocumentAsPlainText( primitiveId, req, undefined, true )
         const highlights = extract.data ? locateQuote(quote, extract.data) : undefined
@@ -858,6 +919,9 @@ router.get('/primitive/:id/discover', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id
     let success = true
+    if( !await userCanAccessPrimitive(primitiveId, req, res) ){
+        return
+    }
 
     try{
         const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
@@ -875,6 +939,9 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
     const primitiveId = req.params.id
     const qIds = req.query.questionIds ? [req.query.questionIds].flat() : undefined
     let out = []
+    if( !await userCanAccessPrimitive(primitiveId, req, res) ){
+        return
+    }
     try{
         const prim = await Primitive.findOne({_id:  new ObjectId(primitiveId)})
         await QueueDocument().processQuestions(prim, {qIds: qIds}, req)

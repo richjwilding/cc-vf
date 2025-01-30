@@ -1043,6 +1043,7 @@ function MainStore (prims){
                 state = undefined, 
                 extraFields = {}, 
                 parent = undefined, 
+                flowElement = undefined,
                 workspaceId = undefined, 
                 parentPath = undefined, 
                 categoryId = undefined, 
@@ -1101,6 +1102,7 @@ function MainStore (prims){
                 title: title,
                 type: type,
                 state: state,
+                flowElement,
                 workspaceId: workspaceId,
                 primitives: {},
                 referenceId: categoryId,
@@ -1798,7 +1800,7 @@ function MainStore (prims){
                         if( receiver.referenceParameters?.importConfig ){
                             const idsToLookup = [], frags = []
                             receiver.referenceParameters.importConfig.forEach(d=>{
-                                return d.filters.forEach( d=>{
+                                return d.filters?.forEach( d=>{
                                     if( d.type === "parent"){
                                         idsToLookup.push(d.value)
                                     }else if(d.type === "title" || d.type === "parameter"){
@@ -1832,11 +1834,21 @@ function MainStore (prims){
                                     if( id && source.id !== id){
                                         continue
                                     }
-                                    if( source.type === "flow"){
-                                        if( !receiver.inFlow){
-                                            const instances = source.primitives.origin.allUniqueFlowInstance
-                                            return uniquePrimitives(instances.flatMap(d=>d.outputs.output?.data).filter(d=>d))
+                                    if( source.type === "flow" && !receiver.inFlow){
+                                        const instances = source.primitives.origin.allUniqueFlowInstance
+                                        const address = source.primitives.outputs.paths(receiver.id)[0]
+                                        if( address ){
+                                            const [outputPin, inputPin] = address.slice(1).split("_")
+                                            return uniquePrimitives(instances.flatMap(d=>d.outputs[outputPin]?.data).filter(d=>d))
                                         }
+                                        return uniquePrimitives(instances.flatMap(d=>d.outputs.output?.data).filter(d=>d))
+                                    }else if( source.inFlow && !receiver.inFlow){
+                                        const address = source.primitives.outputs.paths(receiver.id)[0]
+                                        if( address ){
+                                            const [outputPin, inputPin] = address.slice(1).split("_")
+                                            return source.outputs[outputPin]?.data ?? []
+                                        }
+                                        return source.itemsForProcessing
                                     }
                                     let list = []
                                     let node = source.primitives
@@ -1904,11 +1916,18 @@ function MainStore (prims){
                                     fullList = fullList.concat(list) 
                                 }
                                 if(receiver.type === "view"  && !options.ignoreFinalViewFilter){
-                                    const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
+                                    let viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
+                                    if( viewFilters.length === 0 && receiver.inFlow){
+                                        if( receiver.configParent  ){
+                                            viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver.configParent )
+                                        }
+                                    }
                                     fullList = uniquePrimitives(fullList)
                                     fullList = receiver.filterItems(fullList, viewFilters)
                                 }
                                 return uniquePrimitives(fullList)
+                            }else if(receiver.type === "summary"){
+                                return [receiver]
                             }else{
                                 let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs" ).map(d=>receiver.primitives[d].allIds).flat()
                                 let list = []
@@ -2045,41 +2064,55 @@ function MainStore (prims){
                         return false
                     }
                     if(prop === "inputPinsWithStatus"){
-                        const pins = receiver._pins("input")
+                        const pins = receiver.inputPins
                         return Object.keys(pins).reduce((a,pinName)=>{
                             a[pinName] = {
                                 ...pins[pinName],
-                                connected: pinName === "imp_in" ? receiver.primitives.imports.allIds.length > 0 : Object.keys(receiver.primitives.inputs).some(d=>d.endsWith(`_${pinName}`))
+                                connected: pinName === "impin" ? receiver.primitives.imports.allIds.length > 0 : Object.keys(receiver.primitives.inputs).some(d=>d.endsWith(`_${pinName}`))
                             }
                             return a
                         },{})
                     }
                     if(prop === "outputPinsWithStatus"){
-                        const pins = receiver._pins("output")
+                        const pins = receiver.outputPins
                         return Object.keys(pins).reduce((a,pinName)=>{
                             a[pinName] = {
                                 ...pins[pinName],
-                                connected: pinName === "imp_out" ? Object.values(receiver._parentPrimitives ?? {}).some(d=>d.some(d=>d === "primitives.imports")) : Object.values(receiver._parentPrimitives).some(d=>d.some(d=>d.startsWith(`primitives.inputs.${pinName}_`)))
+                                connected: pinName === "impout" ? Object.values(receiver._parentPrimitives ?? {}).some(d=>d.some(d=>d === "primitives.imports")) : Object.values(receiver._parentPrimitives).some(d=>d.some(d=>d.startsWith(`primitives.inputs.${pinName}_`)))
                             }
                             return a
                         },{})
                     }
                     if(prop === "inputPins"){
-                        return receiver._pins("input")
+                        let dynamicPinSource = receiver
+                        if(receiver.type === "flowinstance"){
+                            dynamicPinSource = receiver.origin
+                        }else if( !receiver.flowElement ){
+                            dynamicPinSource = receiver.configParent ?? receiver
+                        }
+                        return {
+                            ...receiver._pins("input"),
+                            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs")
+                        }
                     }
                     if(prop === "outputPins"){
-                        return receiver._pins("output")
+                        const dynamicPinSource = receiver.type === "flowinstance" ? receiver.origin : receiver
+                        return {
+                            ...receiver._pins("output"),
+                            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "outputs")
+                        }
+
                     }
                     if(prop === "_pins"){
                         return (mode = "input")=>{
                             const base = {
-                                ...(receiver.metadata.pins?.[mode] ?? {})
+                                ...(receiver.metadata?.pins?.[mode] ?? {})
                             }
                             if( mode === "output" && receiver.type === "flow"){
                                 return base
                             }
                             return {
-                                [mode === "input" ? "imp_in" : "imp_out"]:{
+                                [mode === "input" ? "impin" : "impout"]:{
                                     name: `Imports ${mode}`,
                                     types: ["primitive"]
                                 },
@@ -2095,17 +2128,58 @@ function MainStore (prims){
                             }
                             
                             inputMap = inputMap.map(d=>{
-                                const sourcePrimitive = obj.primitive(d.sourceId)
+                                let sourcePrimitive = obj.primitive(d.sourceId)
+                                let sourcePinConfig = sourcePrimitive.metadata?.pins?.output?.[d.sourcePin]
+
+                                if( sourcePrimitive.type === "flow" || sourcePrimitive.type === "flowinstance"){
+                                    const flow = sourcePrimitive.type === "flow" ? sourcePrimitive : sourcePrimitive.findParentPrimitives({type: ["flow"]})[0]
+
+                                    if( flow.referenceParameters?.controlPins?.[d.sourcePin]){
+                                        sourcePrimitive = flow
+                                        sourcePinConfig = {
+                                            ...flow.referenceParameters?.controlPins?.[d.sourcePin],
+                                            source: `param.${d.sourcePin}`
+                                        }                                        
+                                    }
+                                }
                                 return {
                                     ...d,
                                     sourcePrimitive,
-                                    inputMapConfig: receiver.type === "flowinstance" ? receiver.origin.metadata?.pins?.[pinMode]?.[d.inputPin] : receiver.metadata?.pins?.[pinMode]?.[d.inputPin],
-                                    sourcePinConfig: sourcePrimitive.metadata.pins?.output?.[d.sourcePin]
+                                    sourcePinConfig,
+                                    inputMapConfig: receiver.type === "flowinstance" ? receiver.origin.metadata?.pins?.[pinMode]?.[d.inputPin] : receiver.metadata?.pins?.[pinMode]?.[d.inputPin]
                             }})
-                                
-                            let interim = PrimitiveConfig.alignInputAndSource(inputMap,  PrimitiveConfig.getDynamicPins(receiver, receiver.getConfig, "inputs"))
+
+                            //const dynamicPinSource = receiver.type === "flowinstance" ? receiver.origin : receiver
+                            let dynamicPinSource = receiver
+                            if(receiver.type === "flowinstance"){
+                                dynamicPinSource = receiver.origin
+                            }else if( !receiver.flowElement ){
+                                dynamicPinSource = receiver.configParent ?? receiver
+                            }
+                            let dynamicPins = dynamicPinSource.type === "query" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "page" ? PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs") : {}
+
+                            if( (receiver.type === "flow" || receiver.type === "flowinstance") && mode === "outputs"){
+                                dynamicPins = {
+                                    ...dynamicPins,
+                                    ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "outputs")
+                                }
+                            }
+
+                            let interim = PrimitiveConfig.alignInputAndSource(inputMap,  dynamicPins)
+
                             for(const d of interim){
-                                if( d.sourceTransform === "child_list_to_string"){
+                                if( d.sourceTransform === "imports"){
+                                    d.sources = d.sourcePrimitive.itemsForProcessing
+                                }else if( d.sourceTransform === "filter_imports"){
+                                    const itp = d.sourcePrimitive.itemsForProcessing
+                                    const sourceSegments = uniquePrimitives(itp.flatMap(d=>d.findParentPrimitives({type: ["segment"]})))
+                                    d.sourceBySegment = sourceSegments.reduce((a,d)=>{
+                                        const desc = d.filterDescription
+                                        a[desc] ||= []
+                                        a[desc] = a[desc].concat( itp.filter(d2=>Object.keys(d2._parentPrimitives ?? {}).includes(d.id)))
+                                        return a
+                                    }, {})
+                                }else if( d.sourceTransform === "child_list_to_string"){
                                     d.sources = d.sourcePrimitive.itemsForProcessing
                                 }
                             }
@@ -2474,27 +2548,115 @@ function MainStore (prims){
                     return receiver.parentPrimitiveWithRelationship("config")?.[0]
                 }
                 if( prop === "getConfig"){
-                    let out = {}
-                    let category = receiver.metadata
-                    if( category ){
-                        for(const p of Object.keys(category.parameters ?? {})){
-                            if( category.parameters[p].default ){
-                                out[p] = category.parameters[p].default
+                    return receiver._getConfigWithFields( )
+                }
+                if( prop === "_getConfigWithFields"){
+                    return (requiredFields, doneFields = new Set() )=>{
+                        const localConfig = {}
+
+                        const inputsConfig = {}
+                        if( requiredFields == undefined){
+                            requiredFields = new Set([
+                                ...Object.keys(receiver.referenceParameters ?? {}),
+                                ...Object.keys(receiver.metadata?.parameters ?? {})
+                                ])                            
+                        }
+
+                        Object.keys(receiver.referenceParameters).forEach(field => {
+                            if( !doneFields.has( field ) ){
+                                localConfig[field] = receiver.referenceParameters[field]
+                                requiredFields.delete(field)
+                                doneFields.add(field)
+                            }
+                        });
+                        
+                        if( requiredFields.size > 0){
+                            const overrides = []
+                            const connectedInputs = Object.keys(receiver.primitives.inputs).map(d=>d.split("_")[1])
+                            Object.keys(receiver.metadata?.pins?.input ?? {}).forEach((d=>{
+                                if( receiver.metadata.pins.input[d]?.override && connectedInputs.includes(d) && !doneFields.has(d)){
+                                    console.log(`Override ${d} for ${receiver.plainId}`)
+                                    overrides.push({
+                                        input:d,
+                                        param:receiver.metadata.pins.input[d]?.override
+                                    })
+                                } 
+                            }))
+                            if( overrides.length > 0){
+                                const inputs = receiver.inputs
+                                for(const d of overrides ){
+                                    if( inputs[d.input] && inputs[d.input].data !== undefined){
+                                        if( typeof( inputs[d.input].data) !== "string" || inputs[d.input].data.trim().length > 0){
+                                            inputsConfig[d.param] = inputs[d.input].data
+                                            requiredFields.delete(d.param)
+                                            doneFields.add(d.param)
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
-                    const configParent = receiver.parentPrimitiveWithRelationship("config")?.[0]
-                    if( configParent ){
-                        out = {
-                            ...out,
-                            ...(configParent.getConfig ?? {})
+
+                        const base = receiver.getConfigWithoutOverrides( requiredFields, doneFields )
+
+                        
+                        return {
+                            ...base,
+                            ...inputsConfig,
+                            ...localConfig,
                         }
                     }
+                }
+                if( prop === "getConfigWithoutOverrides"){
+                    return (requiredFields, doneFields = new Set() )=>{
+                        if( !requiredFields ){
+                            requiredFields = new Set( Object.keys(receiver.metadata?.parameters ?? {}))
+                        }
+                        const { referenceId, referenceParameters } = receiver;
+                    
+                        const category = receiver.metadata
+                        let categoryConfig = {} 
+                    
 
-                    return {
-                        ...out,
-                        ...(receiver.referenceParameters ?? {})
-                    }    
+                        for(const cKey of  [
+                            ...Object.keys(receiver.referenceParameters ?? {}),
+                            ...Object.keys(receiver.metadata?.parameters ?? {})
+                        ]){
+                            if( !doneFields.has(cKey)){
+                                requiredFields.add(cKey)
+                            }
+
+                        }
+
+                        for(const p of Object.keys(category?.parameters ?? {})){
+                            if(  category.parameters[p].default && !doneFields.has(p) ){
+                                categoryConfig[p] = category.parameters[p].default
+                                requiredFields.delete(p)
+                                doneFields.add(p)
+                            }
+                        }
+                    
+                        const localConfig = referenceParameters || {};
+                    
+                        let parentConfig = {};
+                        //if (requiredFields.size > 0) {
+                            const configParent = receiver.configParent
+                            if( configParent ){
+                                parentConfig = configParent._getConfigWithFields(requiredFields, doneFields)
+                                Object.keys(parentConfig).forEach(field => {
+                                    requiredFields.delete(field)
+                                    doneFields.add(field)
+                                });
+                            }
+                        //}
+                    
+                        return {
+                            ...categoryConfig,
+                            ...parentConfig,
+                            ...localConfig,
+                        };
+                    }
+
+
                 }
                 if( prop === "parentPaths"){
                     return function( parent, root ){

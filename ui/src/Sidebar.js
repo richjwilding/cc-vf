@@ -396,7 +396,7 @@ export function Sidebar({primitive, ...props}) {
             {!infoPane && !isMulti && showAsSummary && <div className="pb-2 pl-4 pr-4 pt-4">
                 <SummaryCard primitive={primitive} showDetails={true}/>
             </div>}
-            {!infoPane && !isMulti && props.forFlow && <div className="pb-2 pl-4 pr-4 pt-4">
+            {!infoPane && !isMulti && props.forFlow && <div className="pb-2 pl-4 pr-4 pt-4 " >
                 <span className="text-2xl font-bold text-gray-500">{primitive.configParent.title}</span>
                 <PrimitiveCard.Title primitive={primitive.configParent}/>
                 <div className='my-5 flex flex-col'>
@@ -406,6 +406,17 @@ export function Sidebar({primitive, ...props}) {
                     </div>
                     <PrimitiveCard.Title primitive={primitive}/>
                 </div>
+                <button
+                    type="button"
+                    className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                    onClick={()=>{
+                        const flowInstance = primitive.findParentPrimitives({type: ["flowinstance"]})[0]
+                        MainStore().doPrimitiveAction( flowInstance, "run_flowinstance_from_step", {from: primitive.id, force: true})
+                        
+                    }}
+                >
+                    Run from here
+                </button>
             </div>}
             {!infoPane && !isMulti && !props.forFlow && !showAsSummary && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>

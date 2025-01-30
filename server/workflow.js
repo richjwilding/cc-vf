@@ -42,6 +42,7 @@ registerAction("new_flow_instance", undefined, async (primitive, a, options)=>{
     }
 })
 
+registerAction("run_flowinstance_from_step", undefined, async (p,a,o)=>FlowQueue().runFlowInstance(p,{...o, force: true, fromStep: o.from}))
 registerAction("run_step", undefined, async (p,a,o)=>FlowQueue().runStep(p,{...o, singleStep: true}))
 registerAction("run_flow", {id: "flow"}, async (p,a,o)=>FlowQueue().runFlow(p,o))
 registerAction("run_flow_instance", {id: "flowinstance"}, async (p,a,o)=>FlowQueue().runFlowInstance(p,{...o, force: true}))
@@ -250,9 +251,14 @@ export async function scaffoldWorkflow( flow, options = {} ){
                                             }
                                         })
                                     }
-                                        
-                                    
-                                    targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters, paths} )
+                                    if( rel.startsWith("axis") && originalImportStep.type === "categorizer"){
+                                        const internalId = mappedImportStep.instance.primitives?.origin?.[0]
+                                        logger.debug(` - Instance target is categroizer - redirecting to nested primitive ${internalId}`)
+
+                                        targetImports.push({id: internalId, filters: mappedFilters, paths} )
+                                    }else{
+                                        targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters, paths} )
+                                    }
                                 }else{
                                     throw `Importing from something other than flow or step id = ${importId} - possibly nested segemnt??`
                                 }
@@ -374,8 +380,55 @@ export async function runFlowInstance( flowInstance, options = {}){
     }else{
         await dispatchControlUpdate(flowInstance.id, "processing.flow", {status: "running", started: flowStarted})
         flowInstance = await fetchPrimitive( flowInstance.id )
-
         const instanceSteps = await getFlowInstanceSteps(flowInstance)
+        let stepsToWait = instanceSteps.map(d=>d.id)
+        const stepsToUpdate = []
+        if( options.fromStep ){
+            const fromStep = instanceSteps.find(d=>d.id === options.fromStep)
+            const track = new Set()
+            function followStep( step ){
+                stepsToUpdate.push(step.id)
+                const thisStepParents = Object.keys(step.parentPrimitives ?? {}).filter(d=>step.parentPrimitives[d].includes('primitives.imports') || step.parentPrimitives[d].some(d=>d.startsWith('primitives.inputs')))
+                const dependants = instanceSteps.filter(d=>thisStepParents.includes(d.id))
+                for(const d of dependants){
+                    if(!track.has(d.id)){
+                        track.add(d.id)
+                        followStep(d)
+                    }
+                }
+            }
+            followStep( fromStep )
+
+            const stepsAsDone = stepsToWait.filter(d=>!stepsToUpdate.includes(d))
+
+            logger.debug(`Found ${stepsAsDone.length} steps to mark as complete`)
+            for(const d of stepsAsDone){
+                logger.debug(` - D ${instanceSteps.find(d2=>d2.id === d).plainId}`)
+            }
+            for(const d of stepsToUpdate){
+                logger.debug(` - U${instanceSteps.find(d2=>d2.id === d).plainId}`)
+            }
+
+            const toSet = {       
+                "processing.flow":{
+                    started: flowStarted,
+                    status: "complete"
+                }
+            }
+            await Primitive.updateMany(
+                {
+                    _id: {$in: stepsAsDone}
+                },
+                { 
+                    $set: toSet
+                }            
+            )
+            SIO.notifyPrimitiveEvent(flowInstance, {data: stepsAsDone.map(d=>({type: "set_fields", primitiveId: d, fields: toSet}))})
+
+            stepsToWait = stepsToUpdate
+            
+        }
+        console.log(`Found ${stepsToWait.length} steps to mark as waiting`)
         const toSet = {       
             "processing.flow":{
                 started: flowStarted,
@@ -384,12 +437,14 @@ export async function runFlowInstance( flowInstance, options = {}){
         }
         await Primitive.updateMany(
             {
-                _id: {$in: instanceSteps.map(d=>d.id)}
+                _id: {$in: stepsToWait}
             },
-            { $set: toSet
+            { 
+                $set: toSet
             }            
         )
-        SIO.notifyPrimitiveEvent(flowInstance, {data: instanceSteps.map(d=>({type: "set_fields", primitiveId: d.id, fields: toSet}))})
+        SIO.notifyPrimitiveEvent(flowInstance, {data: stepsToWait.map(d=>({type: "set_fields", primitiveId: d, fields: toSet}))})
+        
     }
     logger.info(`Running flow instance ${flowInstance.id} @ ${flowInstance.processing?.flow?.started} (${flowStarted})`)
     logger.info(`Looking for next steps to run`)
@@ -409,6 +464,7 @@ export async function runFlowInstance( flowInstance, options = {}){
         iteration = (flowInstance.processing?.flow?.last_run?.iteration ?? 0) + 1
         if( iteration > 3){
             logger.info(`Tried ${iteration} attempts to run steps ${thisRun.join(", ")} - failing`)
+            await dispatchControlUpdate(flowInstance.id, "processing.flow.last_run", null)
             return
         }
         logger.debug(`Steps same as previous iteration - retrying iteration ${iteration}`)
@@ -468,7 +524,7 @@ async function shouldStepRun( step, flowInstance ){
         needReason = "not_executed"
     }
 
-    if( need ){
+    if(true || need ){
         can = true
         canReason = "all_ready"
 
@@ -492,7 +548,7 @@ async function shouldStepRun( step, flowInstance ){
                         }
                     }
                     const importPrimValid = (imp.id === flowInstance.id) || (imp.processing?.flow?.started === flowStarted && (flowStarted !== undefined) && imp.processing?.flow?.status === "complete")
-                    //logger.debug(`Checking status of import step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
+                    logger.debug(`Checking status of import step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
                     can = can && importPrimValid
                 }
             }
@@ -529,16 +585,15 @@ export async function runStep( step, options = {}){
     //if( newIteration ){
     //}
     if(false){
-        logger.info(`Delaying for 20 seconds`)
-        await new Promise((resolve)=>setTimeout(()=>resolve(), 20000))
+        logger.info(`Delaying for 10 seconds`)
+        await new Promise((resolve)=>setTimeout(()=>resolve(), 10000))
         return
     }
 
     if( step.type === "categorizer"){
         await doPrimitiveAction(step, "run_categorizer", {flowStarted, flow: true} )
 
-    }
-    if( step.type === "actionrunner"){
+    }else if( step.type === "actionrunner"){
         const config = await getConfig( step )
         if( config?.action ){
             await doPrimitiveAction(step, "run_runner", {action: config.action, flowStarted, newIteration, flow: true, force: options.singleStep})

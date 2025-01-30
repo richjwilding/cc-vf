@@ -1212,12 +1212,16 @@ export async function processQueue(job){
                 //const [items, toSummarize] = await getDataForProcessing(primitive, {}, undefined, {config})
                 const items = await getDataForImport( primitive, undefined, true)
                 let data 
-                if( config.field === "title"){
-                    data = items.map(d=>d.title)
+                if( items.length === 0 ){
+                    data =["No data - just look at the prompt"]
                 }else{
-                    let field = config.field?.startsWith("param.") ? config.field.slice(6) : config.field
-                    data = items.map(d=>decodePath(d.referenceParameters, field))
-                } 
+                    if( config.field === "title"){
+                        data = items.map(d=>d.title)
+                    }else{
+                        let field = config.field?.startsWith("param.") ? config.field.slice(6) : config.field
+                        data = items.map(d=>decodePath(d.referenceParameters, field))
+                    } 
+                }
                 let prompt = config.prompt
                 
                 const response = await processPromptOnText( data, {
@@ -1354,8 +1358,9 @@ export async function processQueue(job){
             }
             if( job.data.mode === "mark_categories" || job.data.mode === "categorize" ){
                 try{
-                    const source = await Primitive.findOne({_id: job.data.targetId})
-                    if( !source ){
+
+                    const sources = await fetchPrimitives(job.data.targetId)
+                    if( !sources.length === 0  ){
                         return
                     }
                     let scope = job.data.action.scope
@@ -1373,9 +1378,14 @@ export async function processQueue(job){
                         console.log(`Shifted scope by pivot to ${scope.length}`)
                         scope = scope.flat().map(d=>d.id)
                     }
+                    let list = [], data = []
+                    for(const source of sources){
+                        let [_list, _data] = await getDataForProcessing(primitive, job.data.action, source)
+                        console.log(`got ${list.length} / ${data.length} from ${source.id} - ${source.title}`)
+                        list = list.concat(_list)
+                        data = data.concat(_data)
+                    }
 
-                    let [list, data] = await getDataForProcessing(primitive, job.data.action, source)
-                    console.log(`got ${list.length} / ${data.length} from ${source.id} - ${source.title}`)
                     if( job.data.action.scope ){
                         data = data.filter((d,i)=>scope.includes(list[i].id))
                         list = list.filter((d,i)=>scope.includes(d.id))
@@ -1891,29 +1901,31 @@ export async function processQueue(job){
                                         catId++
                                     }
                                 }else{
-                                    let types = targetConfig?.mark?.type
-                                    let focus = primitive.referenceParameters?.focus ?? targetConfig?.mark?.theme ??primitive.referenceParameters?.cat_theme
-                                    let literal = primitive.referenceParameters?.literal
-                                    const complex = primitive.referenceParameters?.complex ?? action.complex ?? false
-                                    const theme = (primitive.referenceParameters?.cat_theme && primitive.referenceParameters?.cat_theme.trim().length > 0 ? primitive.referenceParameters?.cat_theme : undefined ) ?? action?.theme 
-                                    
-                                    console.log(`Compexity = ${complex} (${primitive.referenceParameters?.complex} / ${action.complex})`)
+                                    const config = await getConfig(primitive)
 
-                                    let runInBatch = (primitive.referenceParameters?.field ?? action.field) !== "context"
+                                    let types = targetConfig?.mark?.type
+                                    let focus = config?.focus ?? targetConfig?.mark?.theme ??config?.cat_theme
+                                    let literal = config?.literal
+                                    const complex = config?.complex ?? action.complex ?? false
+                                    const theme = (config?.cat_theme && config?.cat_theme.trim().length > 0 ? config?.cat_theme : undefined ) ?? action?.theme 
+                                    
+                                    console.log(`Compexity = ${complex} (${config?.complex} / ${action.complex})`)
+
+                                    let runInBatch = (config?.field ?? action.field) !== "context"
 
                                     categoryAlloc = await categorize(data, categoryList, {
                                         workspaceId: primitive.workspaceId,
                                         usageId: primitive.id,
                                         functionName: complex ? "categorize_complex" : "categorize_basic",
-                                        matchPrompt:primitive.referenceParameters?.matchPrompt, 
-                                        evidencePrompt:primitive.referenceParameters?.evidencePrompt, 
-                                        engine:  primitive.referenceParameters?.engine || action.engine,
+                                        matchPrompt:config?.matchPrompt, 
+                                        evidencePrompt:config?.evidencePrompt, 
+                                        engine:  config?.engine || action.engine,
                                         complex: complex,
                                         theme,
                                         literal,
                                         batch: runInBatch ? 50 : 1,
                                         no_num: !runInBatch,
-                                        rationale: primitive.referenceParameters?.rationale ?? action.rationale ?? false,
+                                        rationale: config?.rationale ?? action.rationale ?? false,
                                         types: types,
                                         focus: focus,
                                         debug: true,
@@ -1928,7 +1940,7 @@ export async function processQueue(job){
 
                                     const categoryAllocations = {}
 
-                                    const thresholdName = primitive.referenceParameters?.thresholds ?? action.thresholds ?? "standard"
+                                    const thresholdName = config?.thresholds ?? action.thresholds ?? "standard"
                                     let thresholds ={
                                         "standard": ["likely", "clear" ,"somewhat"],
                                         "high": ["likely", "clear"],
@@ -1976,8 +1988,10 @@ export async function processQueue(job){
                                         console.log( `${d.plainId} ${d.title} -> ${items ? items.length : 0}`)
                                         await addRelationshipToMultiple(d.id, items, "ref", d.workspaceId )
                                     }
-                dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
-                dispatchControlUpdate(job.data.targetId, job.data.field , null)
+                                    dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+                                    if( !Array.isArray(job.data.targetId)){
+                                        dispatchControlUpdate(job.data.targetId, job.data.field , null)
+                                    }
                                     return
                                 }
 
@@ -2037,7 +2051,9 @@ export async function processQueue(job){
                     console.log(error)
                 }
                 dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
-                dispatchControlUpdate(job.data.targetId, job.data.field , null)
+                if( !Array.isArray(job.data.targetId)){
+                    dispatchControlUpdate(job.data.targetId, job.data.field , null)
+                }
             }
     }
         

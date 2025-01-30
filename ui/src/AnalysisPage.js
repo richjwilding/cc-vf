@@ -12,7 +12,7 @@ import UIHelper from "./UIHelper";
 
 export default function AnalysisPage({primitive, ...props}){
 
-    const targetFlow = MainStore().primitive(941815)
+    const targetFlow = primitive.type === "flow" ? primitive : MainStore().primitive(941815)
 
     useDataEvent('relationship_update',primitive.id)
     const inputSource = targetFlow?.primitives.imports.allUniqueItems[0]    
@@ -55,8 +55,7 @@ export default function AnalysisPage({primitive, ...props}){
                 <DescriptionList>
                     <DescriptionTerm>Flow</DescriptionTerm>
                     <DescriptionDetails>{targetFlow.title}</DescriptionDetails>
-                    <DescriptionTerm>Flow customization</DescriptionTerm>
-                    <DescriptionDetails>None</DescriptionDetails>
+                    <PrimitiveCard.ControlPins primitive={targetFlow}/>
                 </DescriptionList>
             </div>
             <div className="text-2xl font-bold text-gray-500 mt-8 mb-2 flex place-items-center space-x-2">
@@ -68,9 +67,8 @@ export default function AnalysisPage({primitive, ...props}){
             </div>
         </div>
         <div className="rounded-md bg-white px-5 py-2 @container max-w-[1600px] mx-auto">
-            <div className="grid grid-cols-[250px_1fr_35px] @4xl:grid-cols-[350px_1fr_200px_35px] grid-row-[1.5rem_auto] w-full gap-y-[1px] overflow-y-scroll bg-gray-200">
+            <div className="grid grid-cols-[250px_minmax(0,1fr)_35px] @4xl:grid-cols-[350px_minmax(0,1fr)_35px] grid-row-[1.5rem_auto] w-full gap-y-[1px] overflow-y-scroll bg-gray-200">
                 <div className={`p-2 text-sm text-gray-500 bg-white font-semibold`}>Instance</div>
-                <div className={`p-2 text-sm text-gray-500 bg-white font-semibold hidden @4xl:block`}>Progress</div>
                 <div className={`p-2 text-sm text-gray-500 bg-white font-semibold`}>Status</div>
                 <div className={`p-2 text-sm text-gray-500 bg-white font-semibold`}></div>
                 

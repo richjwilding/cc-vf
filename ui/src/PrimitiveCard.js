@@ -654,14 +654,14 @@ let mainstore = MainStore()
         return <MarkdownEditor 
                   initialMarkdown={item.value} 
                   onChange={props.callback ? props.callback : (value)=>{
-                      return props.primitive.setParameter(item.key, value)
+                      return props.primitive.setParameter(item.key, value, undefined, item.forceUpdate)
                   }}
           />
       }else if( item.type === "prompt"){
         return <MarkdownEditor 
                   initialMarkdown={item.value} 
                   onChange={props.callback ? props.callback : (value)=>{
-                      return props.primitive.setParameter(item.key, value)
+                      return props.primitive.setParameter(item.key, value, undefined, item.forceUpdate)
                   }}
           />
       }else if( item.type === "url"){
@@ -1153,6 +1153,23 @@ const Parameters = function({primitive, ...props}){
 
   let potentialTarget = fieldsBeingProcessed(primitive)
 
+  if( props.showTitles !== false && !props.includeTitle){
+          return <DescriptionList inContainer={true}>
+            {details.map((item, idx)=>(
+              <>
+              <DescriptionTerm  inContainer={true}>
+                  {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
+                </DescriptionTerm>
+                <DescriptionDetails inContainer={true}>
+                  {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
+                    ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
+                    : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+                  }
+                </DescriptionDetails>
+              </>))}
+          </DescriptionList>
+  }
+
   return <div 
         style={{
           gridTemplateColumns: props.showTitles === undefined || props.showTitles === true ? "minmax(min-content, 7rem) 1fr" : "1fr"
@@ -1174,7 +1191,7 @@ const Parameters = function({primitive, ...props}){
         </>}
         {details.map((item, idx)=>(
           <>
-            {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
+           {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
             {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
               ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
               : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
@@ -1182,29 +1199,6 @@ const Parameters = function({primitive, ...props}){
           </>))}
   </div>
 
-  return (
-    details.map((item, idx)=>(
-      <div 
-      tabIndex={-1}
-        key={idx} 
-       // onClick={listEditable ? ()=>setEditing(idx) : undefined}
-       // onKeyDown={listEditable ? (e)=>listKeyHandler(e,idx) : undefined}
-        className={[
-          "flex text-sm place-items-start",
-          props.compactList ? "" : "py-2",
-          true ? "hover:bg-gray-50 hover:outline-indigo-500" : "",
-          props.className || ""
-        ].join(" ")}
-        >
-        {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
-        {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
-          ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
-          : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
-        }
-        {props.inline && (idx < (details.length - 1)) && <p className='pl-1 text-slate-400'>•</p> }
-      </div>
-    )))
-  
 }
 const fieldsBeingProcessed = function(primitive){
 
@@ -2379,11 +2373,11 @@ function Outputs({primitive}){
     
     if(outputPins){
       let removeImport = true
-      if( outputPins.imp_out?.connected){
+      if( outputPins.impout?.connected){
 
         const primOuts = primitive.itemsForProcessing
         if( primOuts.length > 0){
-          values.imp_out = {
+          values.impout = {
             config: "primitive",
             data: primOuts
           }
@@ -2391,7 +2385,7 @@ function Outputs({primitive}){
         }
       }
       if( removeImport){
-        pins = pins.filter(d=>d.id !== "imp_out")
+        pins = pins.filter(d=>d.id !== "impout")
       }
     }
     
@@ -2400,6 +2394,32 @@ function Outputs({primitive}){
 function Inputs({primitive}){
     const pins = primitive.outputPins
     return RenderPins({primitive, pins})
+}
+function ControlPins({primitive}){
+  if( primitive.type !== "flow"){
+    return <></>
+  }
+    const pins = primitive.getConfig?.controlPins ?? {}
+    return Object.keys(pins).map(pinName=>{
+      const d = pins[pinName]
+      let control = <p>Not available</p>
+      if( d.types?.includes("string")){
+        control = RenderItem({
+          primitive,
+          item:{
+            type: d.format ?? "long_string",
+            value: primitive.referenceParameters?.[pinName],
+            key: pinName,
+            forceUpdate: true
+          }
+        })
+                      
+      }
+      return <>
+              <DescriptionTerm>{d.name}</DescriptionTerm>
+              <DescriptionDetails>{control}</DescriptionDetails>
+            </>
+    })
 }
 function RenderPinValues({values, pin}){
     const pinValue = values[pin.id]
@@ -2418,10 +2438,10 @@ function RenderPinValues({values, pin}){
     return <></>
 }
 function RenderPins({primitive, values, pins}){
-  return <DescriptionList>
+  return <DescriptionList inContainer={true}>
     {pins.map(d=><>
-        <DescriptionTerm>{d.name}</DescriptionTerm>
-        <DescriptionDetails>{RenderPinValues({values, pin: d})}</DescriptionDetails>
+        <DescriptionTerm inContainer={true}>{d.name}</DescriptionTerm>
+        <DescriptionDetails inContainer={true}>{RenderPinValues({values, pin: d})}</DescriptionDetails>
     </>)}
 
   </DescriptionList>
@@ -2449,5 +2469,6 @@ PrimitiveCard.SmallMeta = SmallMeta
 PrimitiveCard.ImportList = ImportList
 PrimitiveCard.ListCard = CardForList
 PrimitiveCard.OutputPins = Outputs
+PrimitiveCard.ControlPins = ControlPins
 
 

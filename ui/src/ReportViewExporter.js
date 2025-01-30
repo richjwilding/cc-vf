@@ -57,7 +57,7 @@ export default function ReportViewExporter({primitive, ...props}){
 
 
         targetList = primitive.primitives.imports.main.allItems
-        if( targetList.length > 0 && targetList[0].type === "query"){
+        if( targetList.length > 0 && (targetList[0].type === "query" || targetList[0].type === "summary")){
             targetList = targetList.flatMap(d=>d.primitives.origin.allSummary)
         }
     }
@@ -527,7 +527,8 @@ export default function ReportViewExporter({primitive, ...props}){
                                 frameMove: (d)=>{
                                         const expand = primitive.frames?.[d.id]?.expand ?? {}
                                         const width = primitive.frames?.[d.id]?.width
-                                        primitive.setField(`frames.${d.id}`, {x: d.x, y: d.y, s: d.s, width, expand })
+                                        const height = primitive.frames?.[d.id]?.height
+                                        primitive.setField(`frames.${d.id}`, {x: d.x, y: d.y, s: d.s, width, height, expand })
                                 },
                                 onClick:{
                                     frame: (id)=>{

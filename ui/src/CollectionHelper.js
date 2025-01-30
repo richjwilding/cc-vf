@@ -501,9 +501,10 @@ class CollectionUtils{
                             }
                         }
                     }
-                    const flowinstances = uniquePrimitives(nodes.map(d=>d.findParentPrimitives({type:"flowinstance"})).flat())
+                    //const flowinstances = uniquePrimitives(nodes.map(d=>d.findParentPrimitives({type:"flowinstance"})).flat())
+                    const flowinstances = uniquePrimitives(nodes.flatMap(d=>d.parentPrimitives)).filter(d=>d.type === "flowinstance")
                     if( flowinstances.length > 0 ){
-                        out.push( {type: 'title', title: `Flow instance`,  passType: "title"})
+                        out.push( {type: 'title', title: `Flow instance`,  category: flowinstances[0].metadata, passType: "title", access: count + 1, relationship: [...path, "origin"]})
                     }
 
                     const questions = uniquePrimitives(uniquePrimitives(nodes.map(d=>d.parentPrimitives).flat()).filter(d=>d.type === "prompt").map(d => d.origin))

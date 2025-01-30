@@ -128,7 +128,7 @@ function IconButton({options, name, title, type, tooltip, icon, small, action, .
         href={props.href} 
         title={tooltip}
         className={[
-            'text-xs ml-0.5 py-0.5 px-1 shrink-0 grow-0 self-center rounded-full  font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+            'text-xs flex place-items-center justify-center p-1 shrink-0 grow-0 self-center rounded-full group font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
             "bg-white text-gray-400"
         ].join(" ")}
         onClick={(e)=>{

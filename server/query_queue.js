@@ -1,6 +1,6 @@
 import QueueManager from './queue_manager'; 
 import Primitive from "./model/Primitive";
-import { addRelationship, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, fetchPrimitive, findResultSetForCategoryId, getDataForProcessing, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParents, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
+import { addRelationship, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, fetchPrimitive, findResultSetForCategoryId, getConfig, getDataForProcessing, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParents, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { findCompanyLIPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
@@ -10,7 +10,7 @@ import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleSchola
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
 import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, querySubredditWithBrightData, queryTiktokWithBrightData } from './brightdata';
-import { queryInstagramPostsByRapidAPI } from './rapid_helper';
+import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
 
 
@@ -28,7 +28,8 @@ export async function processQueue(job, cancelCheck, extendJob){
                     }
 
                     const asTitle = !primitive.referenceParameters?.useTerms && !primitive?.referenceParameters.hasOwnProperty("terms") && primitive.title
-                    let baseTerms = asTitle ? primitive.title : primitive.referenceParameters?.terms
+                    let config = await getConfig( primitive )
+                    let baseTerms = asTitle ? primitive.title : config.terms
 
                     let origin
                     
@@ -41,26 +42,25 @@ export async function processQueue(job, cancelCheck, extendJob){
 
                     const parentSearch = (await primitiveParentsOfType( primitive, "search"))?.[0]
 
-                    const {topic:topicFromInput, ...inputsForSearch} = await getPrimitiveInputs( primitive )
-                    let config = {}
+                    //const {topic:topicFromInput, ...inputsForSearch} = await getPrimitiveInputs( primitive )
                     
-                    if( primitive.referenceParameters ){
+                   /* if( primitive.referenceParameters ){
                         for(const k of Object.keys(primitive.referenceParameters)){
                             if( primitive.referenceParameters[k] !== undefined){
                                 config[k] = primitive.referenceParameters[k]
                             }
                         }
-                    }
+                    }*/
                     
                     for(const k of Object.keys(category.parameters)){
-                        if(config[k] === undefined && k !== "title"){
+                        /*if(config[k] === undefined && k !== "title"){
                             config[k] = category.parameters[k].default
                         }
                         if( parentSearch ){
                             if( parentSearch.referenceParameters?.[k] !== undefined){
                                 config[k] = parentSearch.referenceParameters?.[k]      
                             }
-                        }
+                        }*/
                         if( config[k] && category.parameters[k].type === "options"){
                             config[k] = config[k].map(d=>category.parameters[k].options.find(d2=>d2.id === d))
                         }
@@ -87,7 +87,8 @@ export async function processQueue(job, cancelCheck, extendJob){
                                             let url = new URL(value)
                                             value = url.origin
                                         }catch(e){
-                                            console.log(`Not valid url`)
+                                            console.log(`Not valid url - skipping search`)
+                                            return
                                         }
                                     }
                                     console.log(value)
@@ -96,6 +97,20 @@ export async function processQueue(job, cancelCheck, extendJob){
                             }
                         }
                     }
+                    let missing = []
+                    for(const k of Object.keys(category.parameters)){
+                        if( category.parameters[k].optional === false ){
+                            if( config[k] === undefined ){
+                                missing.push(k)
+                            }
+                        }
+                    }
+                    if( missing.length > 0){
+                        console.log(`Missing required parameter(s): ${missing.join(", ")}`)
+                        return
+                    }
+                    console.log(config)
+                    /*
                     if( parentSearch ){
                         const asTitle = !parentSearch.referenceParameters?.useTerms && !parentSearch?.referenceParameters.hasOwnProperty("terms") && parentSearch.title
                         baseTerms = asTitle ? parentSearch.title : parentSearch.referenceParameters?.terms
@@ -104,15 +119,14 @@ export async function processQueue(job, cancelCheck, extendJob){
                     }
                     if( !baseTerms){
                         baseTerms = inputsForSearch.terms.data.join(",")
+                    }*/
+                   
+                    if( Array.isArray(baseTerms) ){
+                        baseTerms = baseTerms.join(",")
                     }
+                   
 
-                    let topic = primitive.referenceParameters?.topic?.trim()
-                    if( parentSearch ){
-                        topic = parentSearch.referenceParameters?.topic?.trim()
-                    }
-                    if( !topic ){
-                        topic = topicFromInput?.data
-                    }
+                    let topic = config.topic?.trim()
                     if( !topic  ){
                         const realOrigin = await fetchPrimitive(primitiveOrigin( parentSearch ?? primitive ) )
                         if( realOrigin?.type === "board" ){
@@ -126,8 +140,6 @@ export async function processQueue(job, cancelCheck, extendJob){
                             topic = task.referenceParameters?.topics?.trim()
                         }
                     }
-                    console.log(config)
-                    console.log(topic)
 
                     const nestCandidates = category.nestedSearch
                     if( nestCandidates && ! parentSearch ){
@@ -431,6 +443,9 @@ export async function processQueue(job, cancelCheck, extendJob){
                         }
                         if( source.platform === "instagram" ){
                             await queryInstagramPostsByRapidAPI( primitive, terms, callopts)
+                        }
+                        if( source.platform === "linkedin_rapid" ){
+                            await queryLinkedInCompaniesByRapidAPI( primitive, terms, callopts)
                         }
                         if( source.platform === "youtube" ){
                             await queryYoutube( terms, callopts) 

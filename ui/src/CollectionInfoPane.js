@@ -163,7 +163,7 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
 
 }
 
-export default function CollectionInfoPane({board, frame, underlying, primitive, filters, ...props}){
+export default function CollectionInfoPane({board, frame, underlying, primitive, filters, localItems, ...props}){
     const [activeTab, setActiveTab] = useState(mainstore.category(tabs.find(d=>d.initial)))
     const [showDetails, setShowDetails] = useState(false)
     const [hideNull, setHideNull] = useState(frame?.referenceParameters?.explore?.hideNull)
@@ -203,7 +203,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             </div>
 
     if( frame?.type === "actionrunner" ){
-        const inputCategories = primitiveForContent.itemsForProcessing.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d))
+        const inputCategories = primitiveForContent.itemsForProcessing.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d)).filter(d=>d)
 
         const actions = inputCategories.map(d=>d.actions).flat()
         const actionOptions = actions.filter(d=>d.actionRunner).map(d=>({
@@ -242,7 +242,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
     }else  if( frame?.type === "search" ){
         const searchCategoryIds = frame.metadata.resultCategoryId ?? frame.metadata.parameters?.sources?.options?.map(d=>d.resultCategoryId ) ?? []
         const searchResultCategory = mainstore.category( searchCategoryIds[0] )
-        const searchResults = primitiveForContent.primitives.descendants.filter(d=>searchCategoryIds.includes(d.referenceId))
+        const searchResults = primitiveForContent.primitives.strictDescendants.filter(d=>searchCategoryIds.includes(d.referenceId))
 
         content = <div className="flex flex-col pb-2 px-3">
                     {activeInfo}
@@ -292,9 +292,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 </div>
 
     }else if( frame ){
-
-
-        const list = filters ? primitiveForContent.itemsForProcessingWithFilter(filters) : primitiveForContent.itemsForProcessing
+        const list = localItems ?? (filters ? primitiveForContent.itemsForProcessingWithFilter(filters) : primitiveForContent.itemsForProcessing)
         const viewConfigs = frame.type === "flow" ? frame.primitives.origin.allFlowinstance.sort((a,b)=>a.plainId - b.plainId).map((d,i)=>(
             {
                 id: i,

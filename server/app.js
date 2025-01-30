@@ -202,7 +202,7 @@ app.get('/api/status', (req, res) => {
     }
 })
 
-var ensureAuthenticated = async function(req, res, next) {
+/*var ensureAuthenticated = async function(req, res, next) {
     if( ['/login', '/manifest.json', '/logo192.png'].includes(req?.originalUrl) ){
         return next()
     }
@@ -215,43 +215,117 @@ var ensureAuthenticated = async function(req, res, next) {
     if( req.originalUrl?.slice(0,8) === '/images/' ){
         return next()
     }
-    if (req.isAuthenticated()){
-        
-        let user = await User.find({email: req.user.email})
-        if( user && user.length > 0){
-            return next();
-        }else{
-            try{
-                const auth = new google.auth.OAuth2();
-                auth.setCredentials({ access_token: req.user.accessToken });
+    if (req.isAuthenticated()) {
+        if (!req.session.user) {
+            console.log(`LOADING USER FROM DATABASE`)
+            // Load user data from the database
+            const user = await User.findOne({ email: req.user.email });
 
-                const papi = google.people({version: 'v1', auth})
-                const data = await papi.people.get({
-                    resourceName: 'people/me',
-                    personFields: 'emailAddresses,names,photos'})
-                if( data.data ){
+            if (user) {
+                req.session.user = {
+                    email: user.email,
+                    workspaceIds: user.workspaces,
+                    name: user.name,
+                    avatarUrl: user.avatarUrl,
+                };
+            } else {
+                try {
+                    const auth = new google.auth.OAuth2();
+                    auth.setCredentials({ access_token: req.user.accessToken });
 
-                    const userInfo = {
-                        name: data.data.names ? data.data.names[0].displayName : "Unknown",
-                        avatarUrl: data.data.photos ? data.data.photos[0].url : undefined,
-                        email: req.user.email,
-                        //accessToken: req.user.accessToken
+                    const papi = google.people({ version: 'v1', auth });
+                    const data = await papi.people.get({
+                        resourceName: 'people/me',
+                        personFields: 'emailAddresses,names,photos',
+                    });
+
+                    if (data.data) {
+                        const userInfo = {
+                            name: data.data.names ? data.data.names[0].displayName : "Unknown",
+                            avatarUrl: data.data.photos ? data.data.photos[0].url : undefined,
+                            email: req.user.email,
+                        };
+
+                        const query = { email: req.user.email };
+                        const options = { upsert: true, new: true, setDefaultsOnInsert: true };
+                        const user = await User.findOneAndUpdate(query, userInfo, options);
+
+                        req.session.user = {
+                            email: user.email,
+                            workspaceIds: user.workspaces,
+                            name: user.name,
+                            avatarUrl: user.avatarUrl,
+                        };
                     }
-                    let query = {email: req.user.email};
-                    let options = {upsert: true, new: true, setDefaultsOnInsert: true};
-                    let user = await User.findOneAndUpdate(query, userInfo, options);
-
+                } catch (err) {
+                    console.error(err);
                 }
-            }catch(err){
-                console.log(err)
             }
-            return next();
+        }else{
+            console.log(`REUSING USER FROM SESSION`)
+
         }
-    } 
-    else{
+
+        // Attach session user data to the request
+        req.user = req.session.user;
+        return next();
+    }else{
         res.redirect('/login')
     }
-}
+}*/
+
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+
+var ensureAuthenticated = async function (req, res, next) {
+    const publicUrls = ['/login', '/manifest.json', '/logo192.png'];
+    const staticPrefixes = ['/static/css/', '/static/js/', '/images/'];
+
+    // Skip authentication for public URLs
+    if (publicUrls.includes(req?.originalUrl) || staticPrefixes.some(prefix => req.originalUrl.startsWith(prefix))) {
+        return next();
+    }
+
+    if (req.isAuthenticated()) {
+        // Check if user data is already cached in the session
+        if (req.session.user) {
+            const now = Date.now();
+
+            // Check if cached user data is still valid
+            if (now - req.session.user.lastFetched < CACHE_DURATION) {
+                req.user = req.session.user.data;
+                return next();
+            }
+        }
+
+        // If no cached data or cache expired, fetch fresh user data
+        try {
+            const user = await User.findOne({ email: req.user.email });
+
+            if (user) {
+                // Cache user data in the session with a timestamp
+                req.session.user = {
+                    data: {
+                        email: user.email,
+                        workspaceIds: user.workspaces,
+                        name: user.name,
+                        avatarUrl: user.avatarUrl,
+                    },
+                    lastFetched: Date.now(),
+                };
+
+                req.user = req.session.user.data;
+                return next();
+            } else {
+                res.redirect('/login');
+            }
+        } catch (err) {
+            console.error('Error fetching user:', err);
+            res.redirect('/login');
+        }
+    } else {
+        res.redirect('/login');
+    }
+};
 
 SIO.setAuthentication(session)
 

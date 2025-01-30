@@ -735,7 +735,7 @@ async function site_discovery(primitive, options){
 }
 
 export async function processQueue(job, cancelCheck){
-    let primitive = await Primitive.findOne({_id: job.data.id})
+    let primitive = await fetchPrimitive({_id: job.data.id})
     const options = job.data.options
     if( primitive){
         try{

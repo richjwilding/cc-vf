@@ -166,6 +166,16 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         stageRef.current.batchDraw()
 
     }
+    function selectFrame( frameId ){
+        const ids = myState.current?.selected?.frame?.map(d=>d.attrs.id)
+        if( !ids || ids.length > 1 || ids[0]!== frameId){
+            destroyFrameSelect()
+            const frame = getFrame( frameId)
+            if( frame ){
+                createFrameSelect( frame.node )
+            }
+        }
+    }
 
     useImperativeHandle(ref, () => {
         return {
@@ -176,6 +186,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             framePosition,
             frameList,
             updateIndicators,
+            selectFrame,
             frameData,
             stageNode: ()=>stageRef.current,
             size: ()=>[myState.current.width,myState.current.height],
@@ -318,6 +329,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         frame.maxCol = maxCol
         frame.maxRow  = maxRow
     }
+    function getFrame(id){
+        return myState.current.frames.find(d=>d.id === id)
+    }
     function updateIndicators(id, indicators){
         const frame = myState.current.frames.find(d=>d.id === id)
         if( frame?.indicators ){
@@ -361,8 +375,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             y:0,
             width: 1000,
             height: 10,
-            fill: options.bgFill ?? "#fcfcfc",
-            cornerRadius: 10,
+            fill: options.frameless ? "transparent" : options.bgFill ?? "#fcfcfc",
+            cornerRadius: options.frameless ? undefined : 10,
             strokeScaleEnabled: false,
             visible: props.board,
             stroke: undefined,
@@ -380,7 +394,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             cornerRadius: 10,
             strokeScaleEnabled: false,
             visible: props.board,
-            stroke: "#b8b8b8",
+            stroke: options.frameless ? "transparent" : "#b8b8b8",
             name:"frame_outline",
             id: `frame`,
         }) 
@@ -447,7 +461,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
 
     function resizeNestedFrame( id ){
-        
+        const frame = myState.current.frames.find(d=>d.id === id)
         const children = getNestedFrames(id).map(d=>{
             const frame = myState.current.frames.find(d2=>d.id === d2.id)
             if( frame ){
@@ -460,24 +474,67 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }).filter(d=>d)
         const positions = children.map(d=>{
             const rp = getRelativeFramePosition( d.id)
-            const w = d.node.width() * rp.s
-            const h = d.node.height() * rp.s
+            const nodeWidth = d.node.width() 
+            const nodeHeight = d.node.height() 
+            const w = nodeWidth * rp.s
+            const h = nodeHeight * rp.s
             return {
                 id: d.id,
+                frame: d.frame,
                 x: rp.x,
                 y: rp.y,
                 w,
                 h,
                 b: rp.y + h,
-                r: rp.x + w
+                r: rp.x + w,
+                nodeWidth,
+                nodeHeight
             }
         })
+
+        if( !frame?.resizeForChildren){
+            const fw = frame.node.width()
+            const fh = frame.node.height()
+            for(const child of positions){
+                const s = frame.node.scaleX() / child.frame.node.scaleX() 
+                
+                let vw = child.r > fw ? Math.max((fw - child.x) * s,0) : undefined
+                let vh = child.b > fh ? Math.max((fh - child.y) * s,0) : undefined
+                let x = 0
+                let y = 0
+                if( child.x < 0){
+                    x = -(child.x  * s)
+                    vw = (vw ?? child.nodeWidth) - x
+                }
+                if( child.y < 0){
+                    y = -(child.y * s)
+                    vh = (vh ?? child.nodeHeight) - y
+                }
+                if( vw === undefined && vh ===undefined ){
+                    child.frame.node.clipWidth(undefined)
+                    child.frame.node.clipHeight(undefined)
+                    console.log(child.frame.node)
+                }else{
+                    child.frame.node.clip({
+                        x,
+                        y,
+                        width: vw ?? child.nodeWidth,
+                        height: vh ?? child.nodeHeight
+                    })
+                }
+
+            }
+
+
+            orderNestedFrames(frame.node)
+            return
+        }
+        
         if( positions.length > 0){
 
             const maxX = Math.max(...positions.map(d=>d.r),0) + 60
             const maxY = Math.max(...positions.map(d=>d.b),0) + 60
             
-            const frame = myState.current.frames.find(d=>d.id === id)
             if( frame?.node ){
                 const frameBorder = frame.border
                 if( frame.bg){
@@ -506,6 +563,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             setupPins( frame )
             removeRoutingForFrame(frame)
             addRoutingForFrame(frame)
+            buildPositionCache(frame)
         }
 
     }
@@ -524,8 +582,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             output: false,
             data: {name: d.name, output: false},
             dir: 4,
-            x: d.internal ? maxX : 0 ,
-            y: inputPinStart + (d.rIdx * spacingY)
+            x: d.internal ? (maxX - 1)  : 1,
+            y: inputPinStart + (d.rIdx * spacingY) 
         }))
         frame.pins.output = frame.pins.output.map(d=>({
                 ...d,
@@ -533,6 +591,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 data: {name: d.name, output: true},
                 dir: 8,
                 x: d.internal ? 0 : maxX,
+                //x: d.internal ? (1/maxX) : ((maxX - 1) / maxX) ,
                 y: outputPinStart + (d.rIdx * spacingY)
         }))
         
@@ -593,14 +652,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             removeRoutingForFrame( existing )
             myState.current.frames = myState.current.frames.filter(d=>d.id !== id) 
         }
-        const frame = createFrame({id: id, x, y, s, bgFill: options.bgFill})
+        const frame = createFrame({id: id, x, y, s, bgFill: options.bgFill, frameless: options.frameless})
         if( frame ){
             const frameBorder = frame.border//node.find('#frame')?.[0]
             let framePadding = [0,0,0,0]
             
-            if( props.board){
+            if( props.board ){
                 framePadding = options.canvasMargin ?? [5,5,5,5]
-                if( title ){
+                if( !options.frameless && title ){
 
                     const label = new Konva.Group({
                         x:0,
@@ -649,6 +708,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             frame.allNodes = frame.node.children
             frame.canChangeSize = options.canChangeSize
             frame.canvasMargin = framePadding
+            frame.resizeForChildren = options.resizeForChildren
             
             if( frame.bg){
                 frame.bg.width(maxX)
@@ -663,7 +723,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             frame.node.width(maxX)
             frame.node.height(maxY)
             if( options.pins ){
-                frame.pins = options.pins
+                frame.pins = options.pins 
                 setupPins(frame, maxX, maxY)
             }
 
@@ -680,6 +740,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             if( addRoutingForFrame( frame ) ){
                 refreshLinks()
             }
+            
 
             if( options.parentRender ){
                 resizeNestedFrame( options.parentRender )
@@ -917,35 +978,38 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         let position = framePosition(fId)?.scene
 
         const pins = []
-        if( frame.pins.input ){
-            for(const d of frame.pins.input ){
+        if( frame.pins ){
+
+            if( frame.pins.input ){
+                for(const d of frame.pins.input ){
+                    pins.push({
+                        ...d,
+                        x: (d.internal ? (position.width - 2) : d.x) / position.width,
+                        y: d.y / position.height,
+                    })
+                }
+            }else{
                 pins.push({
-                    ...d,
-                    x: (d.internal ? (position.width - 2) : d.x) / position.width,
-                    y: d.y / position.height,
+                    idx: 1,
+                    x: 0,
+                    y: 0.5,
                 })
             }
-        }else{
-            pins.push({
-                idx: 1,
-                x: 0,
-                y: 0.5,
-            })
-        }
-        if( frame.pins.output ){
-            for(const d of frame.pins.output ){
+            if( frame.pins.output ){
+                for(const d of frame.pins.output ){
+                    pins.push({
+                        ...d,
+                        x: (d.internal ? 1 : d.x) / position.width,
+                        y: d.y / position.height,
+                    })
+                }
+            }else{
                 pins.push({
-                    ...d,
-                    x: (d.internal ? 1 : d.x) / position.width,
-                    y: d.y / position.height,
+                    idx: 1,
+                    x: 0,
+                    y: 0.5
                 })
             }
-        }else{
-            pins.push({
-                idx: 1,
-                x: 0,
-                y: 0.5
-            })
         }
         if( frame.routing){
           //  console.log(`Check routing`)
@@ -1222,10 +1286,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( children.length > 0){
             for(const d of children){
                 const frame = myState.current.frames.find(d2=>d.id === d2.id)
-                const node = frame.node
-                console.log(`Setting ${node.attrs.id} to top`)
-                node.moveToTop()
-                orderNestedFrames(node, false)
+                if( frame ){
+                    const node = frame.node
+                    console.log(`Setting ${node.attrs.id} to top`)
+                    node.moveToTop()
+                    orderNestedFrames(node, false)
+                }
             }
         }
         if( start ){
@@ -1247,7 +1313,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             const {x, y, s} = getFramePosition(id)
             const {items, title, ...options} = force ? newItems : item
 
-            const frame = setupFrameForItems(id, title, items, x, y, s, {...options, parentRender: item.parentRender, forceRender: force})
+            const frame = setupFrameForItems(id, title, items, x, y, s, {...options, resizeForChildren: item.resizeForChildren, parentRender: item.parentRender, forceRender: force})
 
             buildPositionCache(frame)
             finalizeImages(stageRef.current, {imageCallback: processImageCallback})
@@ -1769,6 +1835,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         })
         frameRef.current.append(container)
 
+
         const w = clone.x() + ((clone.width() + shadow)* clone.scale().x)
         const h = clone.y() + ((clone.height() + shadow )* clone.scale().y)
 
@@ -1860,7 +1927,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                 [x, y] = convertStageCoordToScene(px, py )
                 let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame", "pin"], true))
-                const item = found[0]
+                let item = found[0]
                 if( !item ){
                     myState.current.panForDrag = true
                     return panHandler(state)
@@ -1874,8 +1941,23 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         props.callbacks?.viewportWillMove(myState.current.viewport)
                     }
                     
-                    const isFrame = item.attrs.name === "frame"
-                    const isPin = !isFrame && item.attrs.name?.includes("pin")
+                    let isPrimitive = item.attrs.name?.includes( "primitive")
+                    let isFrame = item.attrs.name === "frame"
+                    let isPin = !isFrame && item.attrs.name?.includes("pin")
+
+                    if( isPrimitive ){
+                        if( props.drag?.primitive?.start ){
+                            const parentFrame = item.findAncestor(".frame")
+                            if( parentFrame ){
+                                const dragTarget = props.drag.primitive.start( item.attrs.id, parentFrame?.attrs.id )
+                                if( dragTarget === "frame_parent"){
+                                    item = parentFrame
+                                    isFrame = true
+                                    isPrimitive = false
+                                }
+                            }
+                        }
+                    }
                     
                     let clone
                     let offsetForShadow = 10
@@ -1913,6 +1995,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             thisClone.find('.frame_label')?.[0]?.destroy()
                             thisClone.find('#frame')?.[0]?.stroke('#999')
                             item.visible(false)
+                            thisClone.clip({
+                                x: undefined,
+                                y: undefined,
+                                width: undefined,
+                                height: undefined
+                            })
                             clones.push( thisClone)
                         }
                         for(const d of clones){
@@ -2012,6 +2100,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             x: offsetForShadow,
                             y: offsetForShadow,                    
                         })
+                        clone.find('.frame_outline').forEach(d=>d.stroke("#b8b8b8"))
+                        clone.find('.frame_bg').forEach(d=>d.fill("white"))
                         
                         
                         createDragging(clone, (dx * scale) + offsetForShadow, (dy * scale) + offsetForShadow, 8 )
@@ -2348,6 +2438,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         myState.current.wasPanning = true
                       //  state.event.preventDefault()
                       panHandler(state)
+                      if( props.events?.wheel?.passive === false){
+                          state.event.preventDefault()
+                      }
 
                     }
                 }
@@ -2366,6 +2459,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
     
                 },
+                wheel:{
+                    eventOptions: { 
+                        passive: props.events?.wheel?.passive !== false
+                        //preventDefault: true,d
+                    }
+                },
                 pinch: {
                     from: ()=>{
                         let [translateX, translateY, initialScale] = restoreTransform()
@@ -2376,17 +2475,19 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         let min = 0.03
                         if( props.board ){
                             let minX, maxX, minY, maxY
-                            myState.current.frames.forEach(frame=>{
-                                let fl = frame.x
-                                let ft = frame.y
-                                let fr = (frame.x + (frame.node.attrs.width * frame.scale))
-                                let fb = (frame.y + (frame.node.attrs.height * frame.scale))
-                                if( minX == undefined || fl < minX){ minX = fl}
-                                if( minY == undefined || ft < minY){ minY = ft}
-                                if( maxX == undefined || fr > maxX){ maxX = fr}
-                                if( maxY == undefined || fb > maxY){ maxY = fb}
-                            })
-                            min = Math.min( 0.03, myState.current.width / (maxX- minX) / 2,  myState.current.height / (maxY - minY) / 2 )
+                            if( myState.current.frames){
+                                myState.current.frames.forEach(frame=>{
+                                    let fl = frame.x
+                                    let ft = frame.y
+                                    let fr = (frame.x + (frame.node.attrs.width * frame.scale))
+                                    let fb = (frame.y + (frame.node.attrs.height * frame.scale))
+                                    if( minX == undefined || fl < minX){ minX = fl}
+                                    if( minY == undefined || ft < minY){ minY = ft}
+                                    if( maxX == undefined || fr > maxX){ maxX = fr}
+                                    if( maxY == undefined || fb > maxY){ maxY = fb}
+                                })
+                                min = Math.min( 0.03, myState.current.width / (maxX- minX) / 2,  myState.current.height / (maxY - minY) / 2 )
+                            }
                         }
                         const max = props.board ? 5 / Math.min(1, ...Object.values(props.framePositions ?? {}).map(d=>d.s ?? 1)) : 8
                         return { min, max }
@@ -2990,7 +3091,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 touchAction: "none"
             }}
             onClick={(e)=>{e.stopPropagation()}}
-            className='rounded-md  overflow-hidden w-full h-full' 
+            className='overflow-hidden w-full h-full' 
             >
                {stage} 
                {Children.map(props.children, (child, index) => attachRefs(child, index))}

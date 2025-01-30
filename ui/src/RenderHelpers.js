@@ -896,12 +896,14 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
                 if( node ){
                     node.remove()
                     node.attrs.placeholder = options.placeholder !== false
-                    node.children.forEach(d=>{
-                        if(d.className === "CustomImage"|| d.className === "CustomText"){
-                            d.attrs.refreshCallback = options.imageCallback
-                        }
-                        
-                    })
+                    if(node.children){
+                        node.children.forEach(d=>{
+                            if(d.className === "CustomImage"|| d.className === "CustomText"){
+                                d.attrs.refreshCallback = options.imageCallback
+                            }
+                            
+                        })
+                    }
                 }
             }
             if( !node ){
@@ -1030,11 +1032,19 @@ registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})
             const sectionNames = options.field.slice(8).split("_")
             text = ""
             for(const sectionName of sectionNames ){
-                const section = primitive.referenceParameters.structured_summary?.filter(d=>d.heading.toLowerCase() === sectionName.toLowerCase()).map(d=>d.content).filter(d=>d).join("\n").trim()
+                const section = primitive.referenceParameters.structured_summary?.filter(d=>d.heading.toLowerCase() === sectionName.toLowerCase()).map(d=>{
+                    return [
+                        d.content,
+                        ...(d.subsections ?? []).map(d=>d.content)
+                    ]
+                }).flat().filter(d=>d).join("\n").trim()
                 if( sectionNames.length > 1){
                     text += `**${sectionName}**: `
+                    if(section.match(/^\s*-+\s+/)){
+                        text += "\n"
+                    }
                 }
-                text += section + "\n"
+                text += section + "\n\n"
             }
             text = text.trim()
             if( options.format === "bold"){
@@ -1557,6 +1567,10 @@ function addHeader( title, options ={}){
 
 }
 
+registerRenderer( {type: "categoryId", id: 138, configs: "set_grid"}, (primitive, options = {})=>{
+    const config = {itemWidth: 600, minColumns: 1, spacing: [2,2], itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    return baseGridRender(options, config)
+})
 registerRenderer( {type: "categoryId", id: 109, configs: "set_grid"}, (primitive, options = {})=>{
     const config = {itemWidth: 600, minColumns: 1, spacing: [2,2], itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     return baseGridRender(options, config)
@@ -1852,8 +1866,16 @@ registerRenderer( {type: "default", configs: "set_overview"}, (primitive, option
     let y = config.padding[0]
 
 
+    let rankBy = primitive.renderConfig?.rank 
     let items = options.list
-    const maxScale = items.map(d=>d.referenceParameters.funding).reduce((a,c)=>c > a ? c : a, 0)
+    if( rankBy){
+        if( rankBy === "title"){
+            items = items.sort((a,b)=>(a.title ?? "").localeCompare(b.title ?? ""))
+        }else{
+            items = items.filter(d=>d.referenceParameters?.[rankBy]).sort((a,b)=>b.referenceParameters[rankBy] - a.referenceParameters[rankBy])
+        }
+
+    }
 
     let renderList = config.count ? items.slice(0, config.count) : items
     for( const d of renderList ){
@@ -1892,11 +1914,12 @@ registerRenderer( {type: "default",  configs: "overview"}, (primitive, options =
 
 
     const g = new Konva.Group({
+        id: primitive.id,
         x: (options.x ?? 0),
         y: (options.y ?? 0),
         width: config.width,
         height: config.height,
-        name:"inf_track primitive"
+        name:"inf_track primitive "
     })
     if( g ){
         const r = new Konva.Rect({
@@ -2068,7 +2091,8 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
         y: (options.y ?? 0),
         width: config.width,
         height: config.height,
-        name:"inf_track primitive"
+        name:"inf_track primitive",
+        id: primitive.id
     })
     if( g ){
         const r = new Konva.Rect({
@@ -2171,8 +2195,20 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primiti
     let y = config.padding[0]
     const fullHeight = config.itemSize + config.itemPadding[0] + config.itemPadding[2]
 
-    const items = options.list.filter(d=>d.referenceParameters?.funding).sort((a,b)=>b.referenceParameters.funding - a.referenceParameters.funding)
+    let items = options.list
+    
+    let rankBy = primitive.renderConfig.rank 
+    if( rankBy){
+        if( rankBy === "title"){
+            items = items.sort((a,b)=>(a.title ?? "").localeCompare(b.title ?? ""))
+        }else{
+            items = items.filter(d=>d.referenceParameters?.[rankBy]).sort((a,b)=>b.referenceParameters[rankBy] - a.referenceParameters[rankBy])
+        }
+
+    }
     const maxScale = items.map(d=>d.referenceParameters.funding).reduce((a,c)=>c > a ? c : a, 0)
+
+    
 
     for( const d of items ){
         const node = RenderPrimitiveAsKonva( d, {
@@ -2554,6 +2590,50 @@ function baseSocialMedia(primitive, options){
     return g
 }
 
+export function renderPlainObject(renderOptions = {}){
+    const {id, x = 0, y = 0, width, height, type, text, ...options} = {width: 128, height: 128, ...renderOptions}
+    const g = new Konva.Group({
+        id: id,
+        x,
+        y,
+        width,
+        height,
+        name:"inf_track primitive"
+    })
+    if( options.fill || options.line || options.lineStyle){
+        const r = new Konva.Rect({
+            x: 0,
+            y: 0,
+            width,
+            height,
+            fill: options.fill,
+            stroke: options.line,
+            stroke: options.lineStyle,
+        })
+        g.add(r)
+    } 
+    if( text){
+        const padding = options.padding ?? [0,0,0,0]
+        const t = new CustomText({
+            x: padding[3],
+            y: padding[1],
+            width: width - padding[3] - padding[1],
+            height: height - padding[2] - padding[0],
+            lineHeight: options.lineHeight ?? 1.2,
+            text,
+            withMarkdown: true,
+            fontFamily: options.fontFamily,
+            refreshCallback: options.imageCallback
+        })
+        g.add(t)
+    } 
+    return g
+
+}
+
+registerRenderer( {type: "categoryId", id: 138, configs: "default"}, function renderFunc(primitive, options = {}){
+    return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.summary})
+})
 registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function renderFunc(primitive, options = {}){
     return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.snippet ?? primitive.text})
 })
@@ -3154,6 +3234,22 @@ registerRenderer( {type: "type", id: "flow", configs: "default"}, (primitive, op
     })
     return g
 })
+registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, options = {})=>{
+    const config = {width: 1920, height: 1080, ...options}
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: config.x,
+        y: config.y,
+        width: config.width,
+        height: config.height,
+        onClick: options.onClick,
+        minRenderSize : 0,
+        name:"inf_track inf_keep",
+        //name:"inf_track action_primitive inf_keep"
+    })
+    return g
+})
+
 
 registerRenderer( {type: "type", id: "actionrunner", configs: "default"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, typeText: "Action", typeIcon: <HeroIcon icon='FARun'/>}))
 registerRenderer( {type: "type", id: "summary", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Summary", typeIcon: <HeroIcon icon='FARun'/>}))

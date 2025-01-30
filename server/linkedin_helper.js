@@ -706,6 +706,7 @@ export async function fetchCompanyHeadcount( primitive ){
         }
         const query = new URLSearchParams({ 
             "url": targetProfile,
+            linkedin_employee_count:"include",
             "use_cache":"if-present"
         }).toString()
         const url = `https://nubela.co/proxycurl/api/linkedin/company/employees/count?${query}`
@@ -725,7 +726,7 @@ export async function fetchCompanyHeadcount( primitive ){
         }
         const data = await response.json();
         if( data ){
-            await dispatchControlUpdate( primitive.id, "referenceParameters.employee_count", data.linkdb_employee_count)
+            await dispatchControlUpdate( primitive.id, "referenceParameters.employee_count", data.linkedin_employee_count ?? data.linkdb_employee_count)
         }
     }catch(error){
         console.log(`Error in fetchCompanyHeadcount`)

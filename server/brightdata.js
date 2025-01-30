@@ -86,6 +86,43 @@ const bdExtractors = {
             }
         }
     },
+    "trustpilot_review":{
+        datasetId: "gd_lm5zmhwd2sni130",
+        id: (data)=>data.id,
+        excludeIds:async ()=>{},
+        data:  (data)=>{
+            const date = moment(data.review_date).format('DD MMM YY')
+
+            return {
+                title: data.review_title,
+                referenceId: 139,
+                referenceParameters:{
+                   "company_name": data["company_name"],
+                    "review_id": data["review_id"],
+                    "review_date": date,
+                    "review_rating": data["review_rating"],
+                    "review_content": data["review_content"],
+                    "is_verified_review": data["is_verified_review"],
+                    "review_date_of_experience": data["review_date_of_experience"],
+                    "reviewer_location": data["reviewer_location"],
+                    "reviews_posted_overall": data["reviews_posted_overall"],
+                    "review_useful_count": data["review_useful_count"],
+                    "reviewer_name": data["reviewer_name"],
+                    "company_logo": data["company_logo"],
+                    "url": data["url"],
+                    "company_rating_name": data["company_rating_name"],
+                    "company_overall_rating": data["company_overall_rating"],
+                    "company_total_reviews": data["company_total_reviews"],
+                    "is_verified_company": data["is_verified_company"],
+                    "company_about": data["company_about"],
+                    "company_email": data["company_email"],
+                    "company_id": data["company_id"],
+                    "company_website": data["company_website"],
+                    "review_url": data["review_url"]
+                }
+            }
+        }
+    },
     "glassdoor_review":{
         datasetId: "gd_l7j1po0921hbu0ri1z",
         id: (data)=>data.review_id,

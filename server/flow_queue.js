@@ -38,6 +38,7 @@ class FlowQueueClass extends BaseQueue {
                 console.log(`Flow instance ${primitive.plainId} finished step`)
                 const update = {
                     ...primitive.processing?.flow,
+                    completed: (new Date()).toISOString(),
                     status: "complete"
                 }
                 await dispatchControlUpdate(primitive.id, "processing.flow", update)

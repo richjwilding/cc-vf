@@ -44,7 +44,7 @@ export default function Popup({metric, primitive,...props}) {
             <Dialog.Panel 
               onDoubleClick={(e)=>e.stopPropagation()}
               className={[
-                "min-w-[14em] mx-auto  transform rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 transition-all",
+                "min-w-[14em] mx-auto  transform rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 transition-all @container",
                 props.width === undefined ? "max-w-2xl" : props.width,
                 props.padding === undefined ? "p-6" : props.padding,
                 ].join(" ")}>

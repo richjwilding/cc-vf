@@ -1,7 +1,7 @@
 import { combineGroupsToChunks, extractSentencesAndKeywords, fetchFragmentsForTerm, groupNeighboringSentences } from "./DocumentSearch";
 import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
-import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
+import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
 import { getLogger } from "./logger";
@@ -32,18 +32,21 @@ function getAllCombinations(axisValues) {
     }, [[]]);
   }
 
-export async function getSegemntDefinitions( primitive, customAxis ){
+export async function getSegemntDefinitions( primitive, customAxis, config ){
+    if( !config ){
+        config = await getConfig( primitive )
+    }
     let axis = []
     if( customAxis ){
         axis = customAxis
     }else{
-        if( primitive.referenceParameters?.explore?.axis ){//primitive.type === "view" ){
-            if( primitive.referenceParameters?.explore?.axis?.column){
-                const d = primitive.referenceParameters?.explore?.axis?.column
+        if( config?.explore?.axis ){//primitive.type === "view" ){
+            if( config?.explore?.axis?.column){
+                const d = config?.explore?.axis?.column
                 axis.push( {sourcePrimId: primitive.primitives?.axis?.column?.[0], ...d} )
             }
-            if( primitive.referenceParameters?.explore?.axis?.row){
-                const d = primitive.referenceParameters?.explore?.axis?.row
+            if( config?.explore?.axis?.row){
+                const d = config?.explore?.axis?.row
                 axis.push( {sourcePrimId: primitive.primitives?.axis?.row?.[0], ...d} )
             }
         }
@@ -169,20 +172,17 @@ export async function getSegemntDefinitions( primitive, customAxis ){
 }
 
 export async function checkAndGenerateSegments( parent, primitive, options = {} ){
-    const config = {
-        target: "descend"
-    }
-    
     const out = []
     const currentSegments = await primitiveChildren( parent, "segment")
     const checked = currentSegments.reduce((a,d)=>{a[d.id] = false; return a}, {})
     let customAxis 
+    const config = await getConfig( primitive )
 
-    if( primitive.referenceParameters?.axis ){
-        customAxis = Object.values(primitive.referenceParameters.axis  ?? {}).filter(d=>d)
+    if( config?.axis ){
+        customAxis = Object.values(config.axis  ?? {}).filter(d=>d)
     }
-    if( primitive.referenceParameters?.segments ){
-        const targetSegments = primitive.referenceParameters?.segments
+    if( config?.segments ){
+        const targetSegments = config?.segments
         if( targetSegments && Array.isArray(targetSegments)){
             logger.debug(`Checking segments at ${parent.id} / ${parent.plainId}`)
             logger.debug( `Got ${targetSegments.length} segments to create / check - currently have ${currentSegments.length}`)
@@ -227,7 +227,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
 
     }else{
         let targetSegmentConfig
-        if( (primitive.referenceParameters?.by_axis === false) && (!options.by_axis)){
+        if( (config?.by_axis === false) && (!options.by_axis)){
             targetSegmentConfig = [
                 {
                     id: parent.id
@@ -1556,7 +1556,7 @@ export async function summarizeWithQuery( primitive ){
     try{
 
         const primitiveConfig = await getConfig(primitive)
-        const [items, toSummarize] = await getDataForProcessing(primitive, {...primitiveConfig})
+        const [items, toSummarize] = await getDataForProcessing(primitive, {...primitiveConfig}, undefined, {forceImport: true})
         if( items.length > 0){
             
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
@@ -1578,19 +1578,13 @@ export async function summarizeWithQuery( primitive ){
             }
             
             const toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
-            if( false ){
-                const primitive = await fetchPrimitive("673710caa842fdc733a86777")
-                const finances = await doPrimitiveAction(primitive, "convert_financials", {})
-                if( finances){
-                    toProcess.push(`Finance information (values in thousands USD)\n${finances}`)
-                }
-            }
+            
             let revised
             if( primitiveConfig.revised_query ){
                 console.log(`--- Checking revised structure from config`)
                 revised = primitiveConfig.revised_query.structure
 
-                if( (primitiveConfig.revised_query.cache !== config.prompt) && (primitiveConfig.revised_query.cache === primitiveConfig.prompt)){
+                if( revised.task.includes("{focus}") || revised.task.includes("{segment}") || revised.output.includes("{focus}") || revised.output.includes("{segment}") ||((primitiveConfig.revised_query.cache !== config.prompt) && (primitiveConfig.revised_query.cache === primitiveConfig.prompt))){
                     console.log(`--- Revised structure has local mods - reapplying`)
                     revised.task = revised.task.replaceAll('{focus}', segmentName)
                     revised.task = revised.task.replaceAll('{segment}', segmentName)
@@ -1604,6 +1598,32 @@ export async function summarizeWithQuery( primitive ){
                 revised = await reviseUserRequest(config.prompt)
             }
             
+
+            let parentInputs = {}
+            const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
+            if( configParentId ){
+                const configParent = await fetchPrimitive( configParentId )
+                parentInputs = await getPrimitiveInputs( configParent )
+            }
+
+            const primitiveInputs = await getPrimitiveInputs( primitive )
+            const mergedInputs = {
+                ...parentInputs,
+                ...primitiveInputs
+            }
+
+            if( mergedInputs ){
+                for(const inp of Object.keys(mergedInputs)){
+                    if( segmentName && mergedInputs[inp].dataBySegment){
+                        if( mergedInputs[inp].dataBySegment[segmentName]){
+                            console.log(`---- WILL USE SEGMENT ${segmentName} portion of input ${inp}`)
+                            revised.task = revised.task.replaceAll(`{${inp}}`, mergedInputs[inp].dataBySegment[segmentName])
+                        }
+                    }else if( mergedInputs[inp].data){
+                        revised.task = revised.task.replaceAll(`{${inp}}`, mergedInputs[inp].data)
+                    }
+                }
+            }
 
             
             const results = await summarizeMultiple( toProcess,{

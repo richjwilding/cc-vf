@@ -1,10 +1,12 @@
 import { registerAction } from "../action_helper"
 import QueueAI from "../ai_queue";
 import QueueDocument from "../document_queue";
+import { decodeBase64ImageToStorage, uploadDataToBucket } from "../google_helper";
 import { getLogger } from "../logger";
 import Category from "../model/Category";
+import { generateImage } from "../openai_helper";
 import QueryQueue from "../query_queue";
-import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
 import { aggregateItems, compareItems, iterateItems, lookupEntity, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
 import { baseURL, cleanURL, markdownToSlate } from "./SharedTransforms";
 const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
@@ -87,12 +89,16 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
         logger.info(`Got ${childSearches.length} existing searches`)
         if( list.length > 0){
             
+            const searchCategory = await Category.findOne({id: primitive.referenceId})
+            let itemCategoryId = searchCategory?.actingOn
             
-            const itemCategoryIds = list.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
-            const itemCategoryId = itemCategoryIds[0]
-            if( itemCategoryIds.length > 1){
-                logger.error(`Target list for search has multiple categories - using first ${itemCategoryId}`)
-                list = list.filter(d=>d.referenceId === itemCategoryId)
+            if( !itemCategoryId){
+                const itemCategoryIds = list.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
+                itemCategoryId = itemCategoryIds[0]
+                if( itemCategoryIds.length > 1){
+                    logger.error(`Target list for search has multiple categories - using first ${itemCategoryId}`)
+                    list = list.filter(d=>d.referenceId === itemCategoryId)
+                }
             }
             const itemCategory = await Category.findOne({id: itemCategoryId})
             const searchSet = itemCategory.resultCategories.find((d)=>d.searchCategoryIds?.includes(primitive.referenceId))
@@ -150,7 +156,13 @@ registerAction( "custom_query", undefined, async (primitive, action, options = {
     //const parentForScope = (await primitiveParentsOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
     let parentForScope 
     
-    if( options.flow ){
+    if( primitive.flowElement){
+        return
+    }
+    let configParent = await getConfigParent( primitive )
+    const config = await getConfig(primitive)
+
+    if( options.flow || configParent?.flowElement ){
         const prevStepId = primitive.primitives?.imports?.[0]
         if( !prevStepId ){
             throw `Nothing to import from in custom_query flow ${primitive.id}`
@@ -173,7 +185,7 @@ registerAction( "custom_query", undefined, async (primitive, action, options = {
         await iterateItems( parentForScope, primitive, options )
     }else  if( thisCategory.type === "lookup"){
         await resourceLookupQuery( parentForScope, primitive, options )
-    }else if( primitive.referenceParameters.useAxis && !options?.scope){
+    }else if( config.useAxis && !options?.scope){
         await queryByAxis( parentForScope, primitive, options )                
     }else{
         await QueueDocument().doDataQuery( primitive, {...action, ...options})
@@ -183,7 +195,7 @@ registerAction( "run_categorizer", undefined, async (primitive, action, options,
     console.log(`******\nIN RUN CATEGORIZER\n******`, options)
     const category = await Category.findOne({id: primitive.referenceId})
     if( options.flow ){
-        const targetId = primitive.primitives?.imports?.[0]
+        const targetId = primitive.primitives?.imports
         if( category.mode === "assign"){
             let targetCategoryObject = (await primitiveChildren(primitive, "category"))?.[0]
             let inputs = await getPrimitiveInputs( primitive )
@@ -196,6 +208,13 @@ registerAction( "run_categorizer", undefined, async (primitive, action, options,
                 }else if( inputs.categories.config === "object_list"){
                     realignCategoriesToInput = true
                     categoryData = inputs.categories.data
+                }else if( inputs.categories.config === "string"){
+                    realignCategoriesToInput = true
+                    categoryData = inputs.categories.data.split(/[,.\n]/).map(d=>d.trim()).filter(d=>d).map(d=>{
+                        return {
+                            title: d
+                        }
+                    })
                 }
                 if( realignCategoriesToInput && categoryData){
                     let categoiesToAdd = categoryData
@@ -220,7 +239,7 @@ registerAction( "run_categorizer", undefined, async (primitive, action, options,
                     const toAdd = categoryData.filter(d=>existingCategories.find(d2=>d2.title === d.title) == undefined)
                     const toDelete = existingCategories.filter(d=>categoryData.find(d2=>d2.title === d.title) == undefined)
                     const toUpdate = categoryData.reduce((a,d)=>{
-                        const titleMatch = existingCategories.find(d2=>d2.title === d.title && d2.referenceParameters.description !== d.description)
+                        const titleMatch = existingCategories.find(d2=>d2.title === d.title && d2.referenceParameters?.description !== d.description)
                         if( titleMatch ){
                             a.push({
                                 existing: titleMatch,
@@ -265,6 +284,16 @@ registerAction( "run_categorizer", undefined, async (primitive, action, options,
         }
     }
 
+})
+registerAction( "generate_image", {id: 138, type: "categoryId"}, async (primitive, action, options = {}, req)=>{
+    const prompt = primitive.referenceParameters.summary
+    const response = await generateImage( prompt, {size: "wide" })
+    //await uploadDataToBucket( response.data, primitive.id, 'published_images', tag)
+    console.log(response)
+    if( response.success){
+        dispatchControlUpdate(primitive.id, "referenceParameters.hasImg", true)
+        await uploadDataToBucket(response.data, primitive.id, "cc_vf_images")
+    }
 })
 registerAction( "split_summary", {id: "summary"}, async (primitive, action, options = {}, req)=>{
     try{
