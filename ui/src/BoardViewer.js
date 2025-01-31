@@ -13,6 +13,9 @@ import FilterPane from "./FilterPane";
 import CollectionInfoPane from "./CollectionInfoPane";
 import useDataEvent from "./CustomHook";
 import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
+import Konva from "konva";
+                
+const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "frame_label", "background", "view", "pin", "pin_label", "indicators"]
 
 function dropZoneToAxis(id){
     return id.split('-')
@@ -1285,6 +1288,13 @@ export default function BoardViewer({primitive,...props}){
                 myState[id].axisOptions = CollectionUtils.axisFromCollection( myState[id].primitiveList ? myState[id].primitiveList : source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
                 //myState[id].axisOptions = CollectionUtils.axisFromCollection( source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
             }
+
+            myState.menuOptions = {
+                showAddChild: myState.activeBoard.config !== "widget" && myState.activeBoard.primitive.type !== "element" && myState.activeBoard.primitive.type !== "page",
+                showAxis: myState.activeBoard.config !== "widget" && myState.activeBoard.primitive.type !== "element" && myState.activeBoard.primitive.type !== "page",
+                showClone: myState.activeBoard.type === "query" || myState.activeBoard.primitive.type === "view" || myState.activeBoard.primitive.type === "element",
+            }
+
             handleViewChange(true)
             setCollectionPaneInfo({
                 frame: myState.activeBoard.primitive, 
@@ -1294,6 +1304,7 @@ export default function BoardViewer({primitive,...props}){
             })
         }else{
             myState.activeBoard = undefined
+            myState.menuOptions = {}
             hideMenu()
         }
     }
@@ -1774,7 +1785,7 @@ export default function BoardViewer({primitive,...props}){
 
                     const padding = [bounds[0],0,bounds[0], 0]
 
-                    await exportKonvaToPptx( root.node, pptx, {offsetForFrame: [root.canvasMargin[3], root.canvasMargin[0]], master: "MASTER_SLIDE", removeNodes: ["frame_outline", "frame_bg", "frame_label", "background", "view"],  scale: 1 / pxToInch / root.node.attrs.scaleX, padding} )
+                    await exportKonvaToPptx( root.node, pptx, {offsetForFrame: [root.canvasMargin[3], root.canvasMargin[0]], master: "MASTER_SLIDE", removeNodes:IGNORE_NODES_FOR_EXPORT,  scale: 1 / pxToInch / root.node.attrs.scaleX, padding} )
                     root.node.children = temp
                 }
                 pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
@@ -1787,7 +1798,7 @@ export default function BoardViewer({primitive,...props}){
                 const temp = root.node.children
                 root.node.children = root.allNodes
             
-                await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: ["frame_outline", "frame_bg", "frame_label", "background", "view"], fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
+                await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: IGNORE_NODES_FOR_EXPORT, fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
                 root.node.children = temp
             }else if(byCell){
                 const frames = canvas.current.getSelection("frame")
@@ -1799,7 +1810,7 @@ export default function BoardViewer({primitive,...props}){
 
                     const cells = root.node.find('.primitive')
                     for(const cell of cells){
-                        await exportKonvaToPptx( cell, pptx, {removeNodes: ["frame_outline", "frame_bg",  "background", "view"],  padding: [3, 1, 0.25, 1]} )
+                        await exportKonvaToPptx( cell, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [3, 1, 0.25, 1]} )
                     }
 
                     root.node.children = temp
@@ -1809,12 +1820,40 @@ export default function BoardViewer({primitive,...props}){
             }else{
                 const frames = canvas.current.getSelection("frame")
                 const pptx = createPptx()
-                for(const d of frames){
-                    const root = canvas.current.frameData( d.attrs.id )
-                    const temp = root.node.children
-                    root.node.children = root.allNodes
-                    await exportKonvaToPptx( root.node, pptx, {removeNodes: ["frame_outline", "frame_bg",  "background", "view"],  padding: [3, 1, 0.25, 1]} )
-                    root.node.children = temp
+                for(const d of frames){                    
+                    const childFrames = Object.values(myState).filter(d2=>d2?.parentRender === d.attrs.id).map(d=>canvas.current.frameData(d.id)).filter(d=>d)
+                    if( childFrames.length > 0){
+                        const aggNode = new Konva.Group({
+                            x: d.x(),
+                            y: d.y(),
+                            width: d.width() * d.scaleX(),
+                            height: d.height() * d.scaleY()
+                        })
+                        for(const root of childFrames){
+                            root.temp = root.node.children
+                            root.node.x( root.x - d.x() )
+                            root.node.y( root.y - d.y() )
+                            root.node.children = root.allNodes
+                            root.oldParent = root.node.parent
+                            aggNode.add( root.node )
+                        }
+                        await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [0,0,0,0]} )
+                        for(const root of childFrames){
+                            root.node.x( root.x )
+                            root.node.y( root.y )
+                            root.oldParent.add( root.node )
+                            root.node.children = root.temp
+                            delete root["temp"]
+                            delete root["oldParent"]
+                        }
+
+                    }else{
+                        const root = canvas.current.frameData( d.attrs.id )
+                        const temp = root.node.children
+                        root.node.children = root.allNodes
+                        await exportKonvaToPptx( root.node, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [3, 1, 0.25, 1]} )
+                        root.node.children = temp
+                    }
                 }
                 pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
             }
@@ -1942,11 +1981,11 @@ export default function BoardViewer({primitive,...props}){
             </div>}
         </div>
         {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
-            {myState.activeBoard?.config !== "widget" && <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-            {myState.activeBoard?.config !== "widget" && <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-            {myState.activeBoard?.config === "widget" && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}
+            {myState.menuOptions?.showAxis && <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+            {myState.menuOptions?.showAxis && <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+            {myState.menuOptions?.showAddChild && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}
             <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />
-            {myState.activeBoard && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
+            {myState.menuOptions?.showClone  && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
             {myState.activePin && <DropdownButton noBorder icon={<HeroIcon icon='FALinkBreak' className='w-5 h-5'/>} onClick={disconnectActivePin} flat placement='left-start' />}
         </div>}
         <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>

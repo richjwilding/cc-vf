@@ -621,7 +621,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     if( !t ){
                         t = new CustomText({
                             text: d.name,
-                            name:'top_layer',
+                            name:'top_layer pin_label',
                             width: "auto",
                             fontSize: 8,
                             minRenderSize: 20,

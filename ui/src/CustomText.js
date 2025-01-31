@@ -57,6 +57,7 @@ function getDummyContext() {
         return dummyContext;
     }
     dummyContext = Util.createCanvasElement().getContext(CONTEXT_2D);
+    dummyContext.textBaseline = MIDDLE
     return dummyContext;
 }
   function normalizeFontFamily(fontFamily) {
@@ -133,6 +134,7 @@ class CustomText extends Text {
           text: line,
           width: metrics.width,
           ascent: metrics.ascent,
+          descent: metrics.descent,
           y: y,
           bold: bold,
           large: large,
@@ -144,7 +146,7 @@ class CustomText extends Text {
   setFont
   _getTextStats(text) {
       const metrics = getDummyContext().measureText(text)
-      return {width: metrics.width, ascent: metrics.actualBoundingBoxAscent}
+      return {width: metrics.width, ascent: metrics.actualBoundingBoxAscent, descent: metrics.actualBoundingBoxDescent}
   }
 
     _MDtryToAddEllipsisToLastLine() {
@@ -163,7 +165,7 @@ class CustomText extends Text {
         //lastLine.width = this._getTextWidth(lastLine.text);
         this.textArr.splice(this.textArr.length - 1, 1);
         this._addMDTextLine(lastLine.text + ELLIPSIS, 
-                            {width:lastLine.width, ascent: lastLine.ascent},
+                            {width:lastLine.width, ascent: lastLine.ascent, descent: lastLine.descent},
                             lastLine.indent, 
                             lastLine.y, 
                             lastLine.bold,

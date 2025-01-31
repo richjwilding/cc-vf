@@ -159,8 +159,12 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
 
         if (konvaNode instanceof Konva.Text) {
 
+            const kFontSize =konvaNode.fontSize()
+            const kLargeFontSize = kFontSize * 1.5
             const fontSize = konvaNode.fontSize() * fontScale * thisScale
             const largeFontSize = (konvaNode.fontSize() * 1.5) * fontScale * thisScale
+            const LINE_MULT_FACTOR = 0.823
+            const lineSpacingMultiple = konvaNode.lineHeight() * LINE_MULT_FACTOR
 
             //indent,large, bold
             if( konvaNode.className === "CustomText"){
@@ -173,7 +177,11 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 console.log(konvaNode.textArr)
                 let tIdx = 0
                 let bulletNeedsFlushing = false
+                let lastSegment, startSegment, latchSegment, lastFontSize
                 for( const d of konvaNode.textArr){
+                    if( agg.length === 0){
+                        startSegment = d
+                    }
                     let flush = false
                     let markEndList = d.lastInParagraph
                     if( d.bullet ){
@@ -213,31 +221,50 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         flush = true
                     }
                     spacingBefore = 0
-                    spacingAfter = largeFontSize * 0.2
+                    spacingAfter = 0
+                    //spacingAfter = largeFontSize * 0.2
                     if( lastEndList) {
-                        spacingBefore = largeFontSize * 0.5
+                      //  spacingBefore = largeFontSize * 0.5
                     }
+                    const useFontSize = (lastLarge ?  largeFontSize : fontSize)
+                    
                     if( flush ){
+                        if(latchSegment && startSegment){
+                            /*spacingBefore = (
+                                    (startSegment.y - ((startSegment.large ? largeFontSize : fontSize) /2 * lineSpacingMultiple)) - 
+                                    (latchSegment.y + ((latchSegment.large ? largeFontSize : fontSize) /2 * lineSpacingMultiple) )
+                                ) * fontScale * thisScale*/
+
+                            //const topCurrent = (startSegment.y - ((startSegment.large ? kLargeFontSize : kFontSize) * 0.75 * lineSpacingMultiple))
+                            //const bottomPrevious = (latchSegment.y + ((latchSegment.large ? kLargeFontSize : kFontSize) * 0.25 * lineSpacingMultiple) )
+
+                            const bottomTextCurrent = startSegment.y + ((startSegment.large ? kLargeFontSize : kFontSize) / 2)
+                            const topCurrent = bottomTextCurrent - ((startSegment.large ? kLargeFontSize : kFontSize) * 0.76 * konvaNode.lineHeight())
+
+                            const bottomTextPrevious = latchSegment.y + ((latchSegment.large ? kLargeFontSize : kFontSize) / 2)
+                            const bottomPrevious = bottomTextPrevious + ((latchSegment.large ? kLargeFontSize : kFontSize) * 0.24 * konvaNode.lineHeight())
+
+                            spacingBefore = (topCurrent - bottomPrevious) * fontScale * thisScale * lineSpacingMultiple * 0.98
+                            spacingBefore = spacingBefore.toFixed(3)
+                        }
                         if( lastLarge ){
-                            spacingAfter = largeFontSize * 0.05
-                            //spacingAfter = 0
+                         //   spacingAfter = largeFontSize * 0.05
                         }
                         if( agg.length ){
                             if( lastIndent ){
-                                spacingBefore = fontSize * 0.2
+                                //spacingBefore = fontSize * 0.2
                                 if( indentLevel === 0){
-                               //     markEndList = true
                                 }
                             }
                             let options = {
                                     paraSpaceBefore: spacingBefore,
                                     paraSpaceAfter: spacingAfter,
                                     bold: lastBold || lastLarge,
-                                    fontSize: (lastLarge ?  largeFontSize : fontSize).toFixed(3),
+                                    fontSize: useFontSize.toFixed(3),
                                     breakLine: lastEndList ? true : false 
                                 }
                             if( bulletNeedsFlushing && lastIndent ){
-                                options.bullet = {indent: (fontScale * 10).toFixed(3)}
+                                options.bullet = {indent: (fontScale * konvaNode.fontSize() * 0.4).toFixed(3)}
                                 options.indentLevel = lastIndent 
                             }
                             stack.push({
@@ -246,14 +273,22 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                                 options
                             })
                             agg = []
+                            const tf = d.large ? largeFontSize : fontSize
+                            startSegment = d
+                            latchSegment = undefined
                             console.log(stack.slice(-1)[0].text, stack.slice(-1)[0].options)
                             bulletNeedsFlushing = d.bullet
                         }
                     }
+                    if( !latchSegment && lastSegment){
+                        latchSegment = lastSegment
+                    }
+                    lastSegment = d
                     agg.push(d.text)
                     lastBold = d.bold
                     lastIndent = indentLevel
                     lastLarge = d.large
+                    lastFontSize = useFontSize
                     lastBullet = d.bullet
                     lastWasLastInPara = d.lastInParagraph
                     lastEndList = markEndList
@@ -268,7 +303,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             breakLine: lastEndList ? true : false 
                         }
                     if( (lastBullet ?? bulletNeedsFlushing) && lastIndent ){
-                        options.bullet = {indent: (fontScale * 10).toFixed(3)}
+                        options.bullet = {indent: (fontScale * konvaNode.fontSize() * 0.4).toFixed(3)}
                         options.indentLevel = lastIndent 
                     }
                     stack.push({
@@ -290,7 +325,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     w: rw,
                     h: rh,
                     bold: konvaNode.fontStyle() === "bold",
-                    lineSpacingMultiple: konvaNode.lineHeight() * 0.866,
+                    lineSpacingMultiple,//0.866,
                     italic: konvaNode.fontStyle() === "italic",
                     fontFace: konvaNode.fontFamily() + (konvaNode.fontStyle() === "light" ? " light" : ""),
                     align: hasIndents ? undefined : konvaNode.align(),
@@ -309,7 +344,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     w: rw,
                     h: rh,
                     bold: konvaNode.fontStyle() === "bold",
-                    lineSpacingMultiple: konvaNode.lineHeight() * 0.866,
+                    lineSpacingMultiple,
                     italic: konvaNode.fontStyle() === "italic",
                     fontFace: konvaNode.fontFamily() + (konvaNode.fontStyle() === "light" ? " light" : ""),
                     align: konvaNode.align(),
@@ -432,29 +467,8 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             if( konvaNode.fillLinearGradientStartPoint && konvaNode.fillLinearGradientEndPoint){
                 const stops = konvaNode.fillLinearGradientColorStops()
                 if(stops ){
-
                     gradientFill = {type:'gradient', stops: [{ pos: 0, color:'C1F15E' }, { pos: 62, color:'90BA3F' }, { pos: 100, color:'7FA03E'}],
                             linearAngle: 90, linearScaled: false}
-
-/*                    gradientFill = {
-                        type: 'gradient',
-                        stops: [
-                            { pos: stops[0] * 100, color: stops[1].slice(1)},
-                            { pos: stops[2] * 100, color: stops[3].slice(1)},
-                        ]
-                    };
-                    gradientFill = {
-                        type: "linearGradient",
-                        stops: [
-                            { position: 0, color: '000000', transparency: 10 },
-                            { position: 100, color: '333333', transparency: 50 },
-                        ],
-                        angle: 45,
-                        scaled: 1,
-                        rotWithShape: false,
-                        tileRect: { t: 0, r: 0.5, b: 0.25, l: 1 },
-                        flip: 'xy',
-                    }*/
                 }
             }
 
