@@ -702,7 +702,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
             }
 
-            const rendered = items({imageCallback: processImageCallback, amimCallback: animationCallback, x: framePadding[3], y: framePadding[0]})
+            const rendered = items({imageCallback: processImageCallback, amimCallback: animationCallback, x: framePadding[3], y: framePadding[0], utils: options.utils})
             framePadding = rendered?.attrs?.canvasMargin ?? framePadding
 
             const root = convertItems( rendered, frame.node)

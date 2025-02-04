@@ -15,6 +15,8 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     const [showFeed, setShowFeed] = useState(true)
     const myState = useRef({})
 
+    myState.renderSubPages = true
+
     const bg = props.bg ?? "bg-white"
     const ring = bg.replace("bg-", "ring-")
     const activeList = []
@@ -97,6 +99,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
                 <div className="flex h-full w-full max-h-[min(70vh,_50rem)] min-h-inherit relative border rounded-lg border-gray-200 overflow-hidden mb-2"><InfiniteCanvas
                         primitive={primitive}
                         board
+                        
                         //bounds="slide"
                         //ref={canvas}
                         //background="#f9fafb"

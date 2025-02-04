@@ -114,6 +114,65 @@ function _buildIndicators(primitive){
     ]
 }
 
+function prepareSubBoards( d ){
+    
+    if( d.type !== "page"){
+        return []
+    }
+    let configPage = d.configParent ?? d
+    let page = d 
+    
+    const tempState = {}
+    tempState[configPage.id] = {
+        id: configPage.id, 
+        primitive: configPage,
+        underlying: page
+    }
+
+    return configPage.primitives.origin.allUniqueElement.map(d=>{
+        const {x,y,s, ..._renderConfigOverride} = configPage.frames?.[d.id] ?? {x: 0, y: 0, s: 1}
+
+        const {x:sx, y:sy, ...renderConfigOverride}= mainstore.primitive(941814).frames?.[d.id] ?? {}
+
+        tempState[d.id] = {
+            id: d.id, 
+            primitive: d, 
+            renderConfigOverride,
+            page: configPage,
+        }
+        SharedPrepareBoard( d, tempState)
+        return {
+            x,
+            y,
+            s,
+            state: tempState[d.id]
+        }
+    })
+
+    //return SharedPrepareBoard(d, tempState )
+}
+function renderSubBoard(d, stageOptions){
+    if( d.state?.primitive){
+
+        const tempState = {
+            [d.state.primitive.id]: d.state,
+        }
+        const output = SharedRenderView( d.state.primitive, {}, tempState)
+        if( output?.items ){
+            const rendered = output.items(stageOptions)
+            rendered.scale({x: d.s, y: d.s})
+            if( rendered){
+                return {
+                    x: d.x,
+                    y: d.y,
+                    rendered
+                }
+            }
+        }
+    }
+    return undefined
+}
+
 let mainstore = MainStore()
     function SharedRenderView(d, primitive, myState){
         const view = myState[d.id]
@@ -211,7 +270,18 @@ let mainstore = MainStore()
             }
         }else if( view.config === "page"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, parentRender: view.parentRender, indicators, pins, frameless, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "white"}
+            return {
+                id: d.id, 
+                parentRender: view.parentRender, 
+                indicators, 
+                pins, 
+                frameless, 
+                utils: myState.renderSubPages ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
+                title, 
+                canChangeSize: true, 
+                canvasMargin: [0,0,0,0], 
+                items: render, 
+                bgFill: "white"}
         }else if( view.config === "flow"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
             return {id: d.id, parentRender: view.parentRender, resizeForChildren: true, indicators, pins, frameless, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#ffffef"}
@@ -275,7 +345,7 @@ let mainstore = MainStore()
 
         }
 
-        return {id: d.id ,parentRender: view.parentRender, pins, frameless, title, indicators, canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
+        return {id: d.id ,parentRender: view.parentRender, pins, frameless, title, indicators, utils: {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard},canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
 
     }
 
@@ -293,10 +363,9 @@ let mainstore = MainStore()
 
         if( d.type === "element" ){
             const pagePrimitive = myState[stateId].page
-            const pageState = myState[pagePrimitive.id]
+            const pageState = pagePrimitive ? myState[pagePrimitive.id] : undefined
             let inputs
-            if( pageState?.flowInstance){
-                const flowInstance = pageState.flowInstance
+            if( pageState?.underlying){
                 const pageInstance = pageState.underlying
                 const pageOutputs = pageState.primitive.primitives.outputs
                 const pins = Object.keys(pageOutputs ?? {}).filter(d2=>pageOutputs[d2].allIds.includes(d.id)).map(d=>d.split("_")[0])
@@ -307,6 +376,21 @@ let mainstore = MainStore()
 
                     if( pageInputs[pins[0]].config === "primitive"){
                         // Do Ancestors
+                        if( config.source_items){
+                            let changed = false
+                            do{
+                                changed = false
+                                inputs = uniquePrimitives( inputs.map(d=>{
+                                    if( d.referenceId === 82 || d.type == "summary" || d.type === "query"){
+                                        changed = true
+                                        return [d.primitives.source.allItems,d.primitives.link.allItems].flat()
+                                    }else{
+                                        return d
+                                    }
+                                }).flat(Infinity))
+                            }while(changed)
+
+                        }
                         myState[stateId].originalList = inputs
                         if( config.ancestor){
                             const rel = config.ancestor
@@ -1370,7 +1454,7 @@ export default function BoardViewer({primitive,...props}){
                                     rel: "outputs." + r
                                 }
                             })}),
-                    ].flat(Infinity).filter(d=>d)
+                    ].flat(Infinity).filter(d=>d )
                 }
             }
             if( clearList ){

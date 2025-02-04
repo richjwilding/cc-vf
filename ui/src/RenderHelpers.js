@@ -1567,6 +1567,10 @@ function addHeader( title, options ={}){
 
 }
 
+registerRenderer( {type: "type", id: "page", configs: "set_grid"}, (primitive, options = {})=>{
+    const config = {itemWidth: 1920, itemHeight: 1080, minColumns: 1, spacing: [20,20], itemPadding: [0,0,0,0], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    return baseGridRender(options, config)
+})
 registerRenderer( {type: "categoryId", id: 138, configs: "set_grid"}, (primitive, options = {})=>{
     const config = {itemWidth: 600, minColumns: 1, spacing: [2,2], itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     return baseGridRender(options, config)
@@ -1691,6 +1695,7 @@ function baseGridRender( options, config){
                 placeholder: options.placeholder !== false,
                 toggles: options.toggles,
                 imageCallback: options.imageCallback,
+                utils: options.utils,
                 ...options.extras
             })
         }else{
@@ -1837,7 +1842,13 @@ registerRenderer( {type: "default", configs: "set_export_finances"}, (primitive,
     return g
 })
 registerRenderer( {type: "default", configs: "set_overview"}, (primitive, options = {})=>{
-    const config = {width: 300, spacing: 10,/*height: 1400,count: 4,*/ itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
+    return renderBaselineOverviewSet( primitive, options)
+})
+registerRenderer( {type: "categoryId", id: 34, configs: "set_overview"}, (primitive, options = {})=>{
+    return renderBaselineOverviewSet( primitive, {...options, renderConfig: {...(options.renderConfig ?? {}), width: 600}})
+})
+function renderBaselineOverviewSet(primitive, options){
+    const config = {width: 300, spacing: 10, itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
     if( primitive.renderConfig?.count){
         config.count = primitive.renderConfig?.count
     }
@@ -1898,7 +1909,7 @@ registerRenderer( {type: "default", configs: "set_overview"}, (primitive, option
     }
 
     return g
-})
+}
 registerRenderer( {type: "default",  configs: "overview"}, (primitive, options = {})=>{
     
     const config = {width: 300, padding: [10,10,10,10], fontSize: 10, leftSize: 150, maxScale: 100, parameter: "funding", ...options}
@@ -1972,6 +1983,76 @@ registerRenderer( {type: "default",  configs: "overview"}, (primitive, options =
     }
     return g
 
+
+})
+registerRenderer( {type: "categoryId", id: 34, configs: "overview"}, (primitive, options = {})=>{
+    const config = {width: 600, height: 40, padding: [2,2,2,2], fontSize: 12, ...options}
+    if( options.getConfig){
+        return config
+    }
+    const g = new Konva.Group({
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height,
+        name:"inf_track primitive"
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.width,
+        height: config.height,
+        fill: 'white',
+        name:"background"
+    })
+    g.add(r)
+
+    let ox =  config.padding[3]
+    let oy =  config.padding[0]
+
+
+    const logo = imageHelper( `/api/image/${primitive.id}`, {
+        x: ox,
+        y: oy,
+        size: config.height - config.padding[0] - config.padding[2],
+        center: true,
+        imageCallback: options.imageCallback,
+        placeholder: options.placeholder !== false,
+        maxScale: 1,
+        scaleRatio: 2
+    })
+    g.add( logo )
+
+    let tx = ox + config.height
+    const title = new CustomText({
+        fontSize: config.fontSize,
+        fontStyle:"bold",
+        text: primitive.title,
+        y: oy + config.padding[0] + (config.fontSize / 2),
+        x: tx,
+        width: config.width - tx - config.padding[1],
+        height: config.fontSize,
+        wrap: false,
+        ellipsis: true,
+        refreshCallback: options.imageCallback
+    })
+    const sub = new CustomText({
+        fontSize: config.fontSize - 2,
+        fontStyle:"light",
+        text: primitive.referenceParameters?.url,
+        y: oy + config.padding[0] + (config.fontSize / 2) + title.height(),
+        x: tx,
+        width: config.width - tx - config.padding[1],
+        url: primitive.referenceParameters?.url,
+        height: config.fontSize,
+        wrap: false,
+        ellipsis: true,
+        refreshCallback: options.imageCallback
+    })
+
+    g.add(title);
+    g.add(sub);
+    return g
 
 })
 registerRenderer( {type: "categoryId", id: 44, configs: "overview"}, (primitive, options = {})=>{
@@ -3286,9 +3367,55 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
         height: config.height,
         onClick: options.onClick,
         minRenderSize : 0,
-        name:"inf_track inf_keep",
+        name:"inf_track _inf_keep",
+        clipX:0,
+        clipY:0,
+        clipWidth:config.width,
+        clipHeight:config.height
         //name:"inf_track action_primitive inf_keep"
     })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.width,
+        height: config.height,
+        stroke: '#555',
+        fill:"white",
+        name:"background"
+    })
+    g.add(r)
+
+
+    if( options.utils?.prepareBoards){
+        const subboards = options.utils.prepareBoards( primitive )
+        const subrenders = subboards.map(d=>options.utils.renderBoard(d, {imageCallback: options.imageCallback, amimCallback: options.amimCallback}))
+        console.log(`----------\n\Fetching subboards\n\n------------------`)
+        console.log(g)
+        let i = 0
+        for(const sub of subrenders){
+            const ss = sub.rendered.scaleX()
+            const sw = (sub.rendered.width() * ss)
+            const sh = (sub.rendered.height() * ss)
+            const r = sub.x + sw
+            const b = sub.y + sh
+            const cl = Math.max( -sub.x / ss, 0)
+            const ct = Math.max( -sub.y / ss, 0)
+            const cw = r > config.width ? config.width - cl - sub.x : config.width
+            const ch = b > config.height ? config.height - ct - sub.y : config.height
+            sub.rendered.x(sub.x)
+            sub.rendered.y(sub.y)
+            sub.rendered.name('inf_track')
+            sub.rendered.clip({
+                x: cl,
+                y: ct,
+                width: cw / ss,
+                height: ch /ss
+            })
+            g.add(sub.rendered)
+            i++
+        }
+    }
+
     return g
 })
 
@@ -3918,6 +4045,7 @@ export function renderMatrix( primitive, list, options ){
                 referenceId: referenceIds[0], 
                 placeholder: options.placeholder !== false, 
                 imageCallback: options.imageCallback,
+                utils: options.utils,
                 toggles: toggleMap,
     }
     if( asCounts ){

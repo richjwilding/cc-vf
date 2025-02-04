@@ -312,13 +312,6 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     })
                 }
                 console.log(stack)
-                if( konvaNode.parent?.attrs?.name?.includes("primitive")){
-                    if( window.pptlinks){
-                        if( window.pptlinks[konvaNode.parent?.attrs.id]){
-                     //       stack[0].options.hyperlink = {slide: window.pptlinks[konvaNode.parent?.attrs.id]}
-                        }
-                    }
-                }
                 slide.addText(stack, {
                     x: rx,
                     y: ry,
@@ -334,6 +327,22 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     fontSize: fontSize.toFixed(3),
                     color: toHex(konvaNode.fill()),
                 });
+                if( konvaNode.attrs?.url){
+                    slide.addShape(pptx.shapes.RECTANGLE, {
+                        x: rx,
+                        y: ry,
+                        w: rw,
+                        h: rh,
+                        hyperlink: {url: konvaNode.attrs.url}
+                    })
+                    
+                    /*
+                    if( window.pptlinks){
+                        if( window.pptlinks[konvaNode.parent?.attrs.id]){
+                            stack[0].options.hyperlink = {slide: window.pptlinks[konvaNode.parent?.attrs.id]}
+                        }
+                    }*/
+                }
             }else{
 
                 let text = konvaNode.textArr.reduce((a,d)=>a + (d.lastInParagraph ? d.text + "\n" : d.text + " "), "")

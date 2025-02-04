@@ -797,10 +797,14 @@ const PrimitiveConfig = {
                             }
                         }
                         if(input.useConfig === "primitive"){
-                            if( input.sources ){
-                                out[input.inputPin].data = out[input.inputPin].data.concat( input.sources )
+                            if( source.type === "page"){
+                                    out[input.inputPin].data.push( source )
                             }else{
-                                out[input.inputPin].data.push( source)
+                                if( input.sources ){
+                                    out[input.inputPin].data = out[input.inputPin].data.concat( input.sources )
+                                }else{
+                                    out[input.inputPin].data.push( source)
+                                }
                             }
                         }else{
                             let sourceField = input.sourcePinConfig.source.replace(/^param./,"")

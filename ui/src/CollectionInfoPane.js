@@ -1,7 +1,7 @@
 import { ArrowPathIcon, ArrowRightCircleIcon, ChevronLeftIcon, ChevronRightIcon, MagnifyingGlassIcon, PlayIcon, PlusIcon } from "@heroicons/react/20/solid"
 import Panel from "./Panel"
 import MainStore from "./MainStore"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { PrimitiveTable } from "./PrimitiveTable"
 import NewPrimitivePanel from "./NewPrimitivePanel"
 import { HeroIcon } from "./HeroIcon"
@@ -176,6 +176,13 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
     useDataEvent("relationship_update set_parameter set_field delete_primitive", [board?.id, frame?.id, primitive?.id].filter(d=>d))
 
     let newPrimitiveCallback = props.newPrimitiveCallback
+
+
+    useEffect(()=>{
+        setActiveView( frame?.referenceParameters?.explore?.view ?? 0 )
+        setHideNull( frame?.referenceParameters?.explore?.hideNull )
+
+    }, [frame?.id])
 
     function updateFrame(){
         if( props.updateFrameExtents && frame){
@@ -526,7 +533,13 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             return  <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
                         <UIHelper.Panel title="View configuration" icon={<FontAwesomeIcon icon={["fal","tags"]} />}>
                             <div className="p-2 text-sm space-y-2">
-                                <UIHelper.OptionList title="View Mode" options={viewConfigs} onChange={(id)=>updateViewMode(viewConfigs.findIndex(d=>d.id === id))} value={viewConfigs[activeView]?.id}  zIndex={50}/>
+                                <UIHelper.OptionList 
+                                    title="View Mode" 
+                                    options={viewConfigs} 
+                                    onChange={(id)=>updateViewMode(viewConfigs.findIndex(d=>d.id === id))} 
+                                    value={viewConfigs[activeView]?.id} 
+                                    zIndex={50}
+                                    />
                                 <div className='w-full text-lg overflow-y-scroll sapce-y-2 max-h-[50vh]'>
                                     {viewConfig && (!viewConfig.config || viewConfig.config.length === 0) && <p className='text-sm text-gray-500 text-center'>No settings</p>}
                                     {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d=><UIHelper {...viewConfig.config[d]} value={frame.renderConfig?.[d]} zIndex={50} onChange={async (v)=>{await frame.setField(`renderConfig.${d}`, v); updateFrame()}}/>)}
