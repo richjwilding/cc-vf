@@ -2591,7 +2591,20 @@ function baseSocialMedia(primitive, options){
 }
 
 export function renderPlainObject(renderOptions = {}){
-    const {id, x = 0, y = 0, width, height, type, text, ...options} = {width: 128, height: 128, ...renderOptions}
+    const { 
+        id, 
+        x = 0, 
+        y = 0, 
+        width = 128, 
+        height = 128, 
+        type, 
+        text, 
+        fontFamily = "Poppins", 
+        ...options 
+    } = { 
+        ...renderOptions 
+    };
+
     const g = new Konva.Group({
         id: id,
         x,
@@ -2612,7 +2625,7 @@ export function renderPlainObject(renderOptions = {}){
         })
         g.add(r)
     } 
-    if( text){
+    if( type === "text"){
         const padding = options.padding ?? [0,0,0,0]
         const t = new CustomText({
             x: padding[3],
@@ -2622,10 +2635,39 @@ export function renderPlainObject(renderOptions = {}){
             lineHeight: options.lineHeight ?? 1.2,
             text,
             withMarkdown: true,
-            fontFamily: options.fontFamily,
+            fontFamily: fontFamily,
+            fontSize: options.fontSize,
+            fontStyle: options.fontStyle,
             refreshCallback: options.imageCallback
         })
         g.add(t)
+    } 
+    if( type === "structured_text"){
+        let y = 0
+        const padding = options.padding ?? [0,0,0,0]
+        for(const block of text){
+            for(const section of block){
+                const thisText = flattenStructuredResponse([section], [section])
+                const lineHeight = options.lineHeight ?? 1.2
+                const fontSize = section.fontSize ?? options.fontSize ?? 16
+                const fontStyle = section.fontStyle ?? options.fontStyle
+                const t = new CustomText({
+                    x: padding[3],
+                    y: padding[1] + y,
+                    width: width - padding[3] - padding[1],
+                    //height: height - padding[2] - padding[0],
+                    lineHeight,
+                    text: thisText,
+                    withMarkdown: true,
+                    fontFamily: section.fontFamily ?? fontFamily,
+                    fontStyle,
+                    fontSize,
+                    refreshCallback: options.imageCallback
+                })
+                g.add(t)
+                y += t.height() + (fontSize * lineHeight)
+            }
+        }
     } 
     return g
 

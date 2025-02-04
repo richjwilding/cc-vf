@@ -260,7 +260,11 @@ export async function scaffoldWorkflow( flow, options = {} ){
                                         targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters, paths} )
                                     }
                                 }else{
-                                    throw `Importing from something other than flow or step id = ${importId} - possibly nested segemnt??`
+                                    if( mappedStep.instance.type === "page"){
+                                        logger.debug(`Importing from something other than flow or step id = ${importId} - currently in page, assume element?`)
+                                    }else{
+                                        throw `Importing from something other than flow or step id = ${importId} - possibly nested segemnt??`
+                                    }
                                 }
                             }
                         }

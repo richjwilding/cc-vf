@@ -1,4 +1,4 @@
-import MainStore from "./MainStore"
+import MainStore, { uniquePrimitives } from "./MainStore"
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ClipboardDocumentIcon, DocumentArrowDownIcon, FunnelIcon, MagnifyingGlassIcon, PlusIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { HeroIcon } from './HeroIcon';
@@ -301,28 +301,95 @@ let mainstore = MainStore()
                 const pageOutputs = pageState.primitive.primitives.outputs
                 const pins = Object.keys(pageOutputs ?? {}).filter(d2=>pageOutputs[d2].allIds.includes(d.id)).map(d=>d.split("_")[0])
                 if( pins.length > 0){
+                    const config = basePrimitive.getConfig
                     let pageInputs = pageInstance.inputs
-                    const inputs = pins.flatMap(pin=>pageInputs[pin]?.data ?? [])
+                    let inputs = pins.flatMap(pin=>pageInputs[pin]?.data ?? [])
+
+                    if( pageInputs[pins[0]].config === "primitive"){
+                        // Do Ancestors
+                        myState[stateId].originalList = inputs
+                        if( config.ancestor){
+                            const rel = config.ancestor
+                            inputs = uniquePrimitives( inputs.flatMap(d=>d.relationshipAtLevel(rel,rel.length)) )
+                            if( inputs[0]?.type === "flowinstance"){
+                                inputs = uniquePrimitives(inputs.flatMap(d=>d.itemsForProcessing))
+                            }
+                        }
+                    }
+
+                    const format = {
+                        fontSize: config?.fontSize,
+                        fontStyle: config?.fontStyle,
+                        fontFamily: config?.fontFamily,
+                        heading: config?.heading,
+                    }
                     if( inputs.length === 1){
                         if( pageInputs[pins[0]].config === "primitive"){
 
-                            //myState[stateId].primitive = inputs[0]
-                            renderType = "view"
-                            myState[stateId].primitiveList = inputs
-                            renderType = "view"
-                            //myState[stateId].config = "full"
+                            if( basePrimitive.getConfig.extract === "content"){
+                              
+                                if( inputs[0]?.type === "summary"){
+                                    const summaries = inputs.map(d=>{
+                                        let base = d.referenceParameters.structured_summary ?? []
+                                        return base.map(section=>{
+                                            if( basePrimitive.referenceParameters?.sections?.[section.heading]?.show !== false ){
+                                                return {
+                                                    ...section,
+                                                    heading: basePrimitive.referenceParameters?.sections?.[section.heading]?.heading === false ? undefined : section.heading,
+                                                    fontSize: basePrimitive.referenceParameters?.sections?.[section.heading]?.fontSize,
+                                                    fontStyle: basePrimitive.referenceParameters?.sections?.[section.heading]?.fontStyle
+
+                                                }
+                                            }
+                                            return undefined
+                                        }).filter(d=>d)
+                                    })
+                                    myState[stateId].object = {
+                                        type: "structured_text",
+                                        text: summaries,
+                                            ...format
+                                    } 
+                                    myState[stateId].primitiveList = inputs
+                                }else{
+                                    myState[stateId].object = {
+                                        type: "text",
+                                        text: inputs.map(d=>d.title ?? d.referenceParameters[basePrimitive?.renderConfig?.field]),
+                                            ...format
+                                    } 
+                                }
+                                myState[stateId].config = "plain_object"
+                                myState[stateId].primitive = basePrimitive
+                                renderType = "plain_object"
+                            }else{
+
+                                renderType = "view"
+                                myState[stateId].primitiveList = inputs
+                                renderType = "view"
+                            }
                         }else{
                             myState[stateId].object = {
                                 type: "text",
-                                text: inputs[0]
+                                text: inputs[0],
+                                ...format
                             } 
                             myState[stateId].config = "plain_object"
                             myState[stateId].primitive = basePrimitive
                             renderType = "plain_object"
                         }
                     }else{
-                        myState[stateId].primitiveList = inputs
-                        renderType = "view"
+                        if( basePrimitive.getConfig.extract === "content"){
+                                myState[stateId].object = {
+                                    type: "text",
+                                    text: inputs.map(d=>d.context),
+                                        ...format
+                                } 
+                                myState[stateId].config = "plain_object"
+                                myState[stateId].primitive = basePrimitive
+                                renderType = "plain_object"
+                        }else{
+                            myState[stateId].primitiveList = inputs
+                            renderType = "view"
+                        }
                     }
                 }
 
@@ -855,6 +922,7 @@ export default function BoardViewer({primitive,...props}){
                             myState.current[timerName] = undefined
                             for( const {frameId, event, info} of  myState.current[listName]){
                                 let needRefresh = true
+                                let refreshBoards = []
                                 let needRebuild = ((event === "set_field" || event === "set_parameter") && info === "referenceParameters.explore.view")
 
                                 if( event === "set_field" && info && typeof(info)==="string"){
@@ -869,8 +937,31 @@ export default function BoardViewer({primitive,...props}){
                                         needRefresh = false
                                     }
                                 }
+                                if(event === "set_field" || event === "set_parameter" ){
+                                    const board = myState[frameId]
+                                    if( board.primitive.type === "element"){
+                                        needRebuild = true
+                                    }
+                                }
                                 if( event === "relationship_update" || needRebuild){
-                                    needRefresh = prepareBoard( myState[frameId].primitive )
+                                    const framePrimitive = myState[frameId].primitive
+                                    let doFrame = true
+                                    if( framePrimitive.type === "page"){
+                                        ids.filter(d=>d !== frameId).map(d=>myState[d]).forEach(other=>{
+                                            if( other && other.primitive.type === "element"){
+                                                needRefresh = prepareBoard( other.primitive )
+                                                if( needRefresh ){
+                                                    refreshBoards.push( other.id )
+                                                    needRebuild = true
+                                                }
+                                                doFrame = false
+                                            }
+                                        })
+
+                                    }
+                                    if( doFrame ){
+                                        needRefresh = prepareBoard( framePrimitive )
+                                    }
                                     if( !needRefresh){
                                         console.log(`Cancelled refresh - no changes on ${myState[frameId]?.primitive.plainId}`)
                                     }
@@ -880,7 +971,7 @@ export default function BoardViewer({primitive,...props}){
                                     console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}`)
                                     forceUpdateLinks()
 
-                                    const refreshBoards = Array.isArray(needRefresh) ? needRefresh : [frameId]
+                                    refreshBoards = [...refreshBoards, ...(Array.isArray(needRefresh) ? needRefresh : [frameId])]                                    
 
                                     if( needRebuild ){
                                         console.log(`With rebuild`)
@@ -1211,6 +1302,30 @@ export default function BoardViewer({primitive,...props}){
         }
         canvas.current.refreshFrame( board.id, renderView(board.primitive))
     }
+    async function createElementFromActivePin(){
+        const pin = myState.activePin
+        if( pin ){
+            const frame = myState[pin.frameId]
+            const parent = frame.primitive
+            const pinDef = frame.primitive.referenceParameters?.inputPins[pin.name]
+            if( pinDef ){
+                console.log(pinDef)
+                const newPrim = await MainStore().createPrimitive({
+                    title: `Element for ${parent.title}`,
+                    type: "element",
+                    parent: parent,
+                    parentPath: `outputs.${pin.name}_impin`,
+                    workspaceId: primitive.workspaceId
+                })
+                if( newPrim ){
+                    await mainstore.waitForPrimitive( newPrim.id )
+                    await newPrim.addRelationshipAndWait( parent, "imports")
+                    const position = canvas.current.framePosition(frame.id).scene
+                    addBoardToCanvas( newPrim, position)
+                }
+            }
+        }
+    }
     function disconnectActivePin(){
         if( myState.activePin ){
             let clearList
@@ -1269,7 +1384,8 @@ export default function BoardViewer({primitive,...props}){
 
     function setActivePin(pin){
         myState.activePin = pin
-        //if( myState.activeBoardId !== pin.frameId)
+        const frame = myState[pin.frameId]
+        myState.createFromActivePin = frame.primitive.type === "page" && frame.primitive.referenceParameters?.inputPins[pin.name]
         {
             setActiveBoard( [pin.frameId] )
         }
@@ -1300,7 +1416,8 @@ export default function BoardViewer({primitive,...props}){
                 frame: myState.activeBoard.primitive, 
                 underlying: myState.activeBoard.underlying, 
                 board: primitive,
-                localItems: myState[id].primitiveList
+                localItems: myState[id].primitiveList,
+                originalList: myState[id].originalList
             })
         }else{
             myState.activeBoard = undefined
@@ -1374,8 +1491,8 @@ export default function BoardViewer({primitive,...props}){
                     updateMenuPosition(canvas.current.framePosition(myState.activeBoardId)?.viewport )
                     if( menu.current ){
                         menu.current.style.visibility = "unset"
-                        rowButton.current?.refocus()
-                        colButton.current?.refocus()
+                        rowButton.current?.refocus && rowButton.current?.refocus()
+                        colButton.current?.refocus && colButton.current?.refocus()
                     }
                 }, instant ? 0 : 300)
             }
@@ -1387,6 +1504,11 @@ export default function BoardViewer({primitive,...props}){
             position = findSpace()
         }
         myState[d.id] = {id: d.id}
+        if( d.type === "element"){
+            myState[d.id].inPage = true
+            myState[d.id].page = myState[d.origin.id]
+            myState[d.id].parentRender = d.origin.id
+        }
         prepareBoard( d )
 
         if( position ){
@@ -1980,13 +2102,14 @@ export default function BoardViewer({primitive,...props}){
                 <CollectionInfoPane {...collectionPaneInfo} newPrimitiveCallback={createNewQuery} createNewView={addBlankView} updateFrameExtents={updateExtents}/>
             </div>}
         </div>
-        {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
+        {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-40 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
             {myState.menuOptions?.showAxis && <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
             {myState.menuOptions?.showAxis && <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
             {myState.menuOptions?.showAddChild && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}
             <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />
             {myState.menuOptions?.showClone  && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
             {myState.activePin && <DropdownButton noBorder icon={<HeroIcon icon='FALinkBreak' className='w-5 h-5'/>} onClick={disconnectActivePin} flat placement='left-start' />}
+            {myState.createFromActivePin && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={createElementFromActivePin} flat placement='left-start' />}
         </div>}
         <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>
             <InfiniteCanvas 

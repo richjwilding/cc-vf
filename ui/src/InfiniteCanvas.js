@@ -74,7 +74,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const layerRef = useRef()
     const lineLayerRef = useRef()
     const myState = useRef({renderList: props.render})
+    const [fontsReady, setFontsReady] = useState(false)
 
+    if( !fontsReady ){
+        document.fonts.ready.then(() => {
+            setFontsReady(true)
+          });
+    }
 
     /*
     useEffect(()=>{
@@ -1081,7 +1087,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     //router.setRoutingParameter(Avoid.idealNudgingDistance, 6);
                     router.setRoutingOption(Avoid.performUnifyingNudgingPreprocessingStep, false);
                     router.setRoutingOption(Avoid.improveHyperedgeRoutesMovingJunctions, false);
-                    router.setRoutingOption(Avoid.nudgeSharedPathsWithCommonEndPoint, false);
+                    //router.setRoutingOption(Avoid.nudgeSharedPathsWithCommonEndPoint, false);
                     
                     
                     myState.current.routing = {
@@ -1331,6 +1337,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         myState.current.renderList = props.render
         myState.current.baseLinks = props.frameLinks
         myState.current.framePositions = props.framePositions
+        if( !layerRef.current ){
+            return
+        }
         var ctx = layerRef.current.getContext()._context;
         ctx.textRendering = "optimizeSpeed";
         
@@ -1407,7 +1416,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
             }
         }
-    },[props.update, props.primitive.id, props.renderList])
+    },[props.update, props.primitive.id, props.renderList, fontsReady])
 
     function zoomToExtents(){
         if( myState.current?.frames ){
@@ -3084,6 +3093,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         listening={false}
                     />
                 </Stage>
+
+                if( !fontsReady){
+                    return <></>
+                }
 
         return <div 
             ref={frameRef}

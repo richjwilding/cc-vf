@@ -792,14 +792,14 @@ export async function addRelationship(receiver, target, path, skipParent = false
             }
         },{
             new: true,
-            projection: { _id: 1, workspaceId: 1, primitives: 1, flowElement: 1, type: 1}
+            projection: { _id: 1, workspaceId: 1, primitives: 1, plainId: 1, flowElement: 1, type: 1}
         })
 
     const check = await Primitive.findOne({
             "_id": new ObjectId(target),
             deleted: {$exists: false}
         },{
-            _id: 1, workspaceId: 1, primitives: 1,  flowElement: 1, type: 1
+            _id: 1, workspaceId: 1, primitives: 1,  flowElement: 1, type: 1, plainId: 1
         })
     if( !check){
         await doRemovePrimitiveLink( receiver, target, path )

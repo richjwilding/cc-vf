@@ -197,9 +197,13 @@ _setTextData() {
     this.fontCache = this._getContextFont()
 
   if( this.fontStyle() === "light"){
-    this.standardFont = this._getContextFont({style: "normal", weight: 200})
+    this.standardFont = this._getContextFont({style: "normal", weight: 300})
     this.boldFont = this._getContextFont({style: "normal", weight: 500})
     this.headlineFont = this._getContextFont({style: "normal", weight: 500, size: this.fontSize() * 1.5 })
+  }else if( this.fontStyle() === "bold"){
+    this.standardFont = this._getContextFont({style: "normal", weight: 600})
+    this.boldFont = this._getContextFont({style: "normal", weight: 900})
+    this.headlineFont = this._getContextFont({style: "normal", weight: 900, size: this.fontSize() * 1.5 })
   }else{
     this.standardFont = this._getContextFont({weight: "normal"})
     this.boldFont = this._getContextFont({weight: "bold"})

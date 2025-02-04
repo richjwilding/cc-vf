@@ -131,6 +131,33 @@ let mainstore = MainStore()
               }
             }
           }}/>)}</div>
+      }else if( item.type === "axis_parent"){
+        const axis = CollectionUtils.axisFromCollection( props.items ?? [props.primitive], props.primitive )
+        const options = [{id: null, title: "None"}, ...axis.filter(d=>d.category && d.type === "title").map(d=>{
+          return {
+            id: d.relationship?.join("|"),
+            title: d.title
+          }
+        })]
+
+        return <PrimitiveCard.RenderItem 
+            item={{
+                value: props.primitive.referenceParameters?.[item.key]?.join("|"),
+                type:"option_list",
+                options
+            }}
+            callback={(v)=>{
+              if( props.callback ){
+                props.callback( v )
+              }else{
+                if( props.primitive && item.key){
+                  props.primitive.setParameter( item.key, v === null ? null : v.split("|"), false, true  )
+                }
+              }
+            }}
+        />
+
+
       }else if( item.type === "primitive"){
         let base
 
@@ -582,9 +609,36 @@ let mainstore = MainStore()
               </svg>
               {item.type === "scale" && <p className='top-0 left-0 absolute text-center font-sm pt-0.5 w-full' style={{color: color}}>{item.value}</p>}
           </div>
+      }else if( item.type === "internal_parent_pin"){
+        let options = []
+        let current = ""
+        const page = props.primitive.origin
+        if( page ){
+            const pins = page.inputPins 
+            options = Object.keys(pins).map(d=>({id: d, title: pins[d].name})).filter(d=>d.id !== "impin")
+
+            const outputs = page.primitives.outputs
+            current = Object.keys(outputs).find(d=>outputs[d].includes( props.primitive.id ))?.split("_")?.[0]
+        }
+
+        return <PrimitiveCard.RenderItem 
+
+            item={{
+                value: current,
+                type:"option_list",
+                options
+            }}
+            callback={(v)=>{
+                const outputs = page.primitives.outputs
+                const existing = Object.keys(outputs).find(d=>outputs[d].includes( props.primitive.id ))
+                page.removeRelationship(props.primitive,`outputs.${existing}`)
+                page.addRelationship(props.primitive, `outputs.${v}_impin`)
+            }}
+        />
+
       }else if( item.type === "option_list"){
         return (<MyCombo 
-                  items={item.options.map((d)=>{return {id: d, title: d}})}
+                  items={item.options.map((d)=>{return (typeof(d) === "object" && d !== null) ? d : {id: d, title: d}})}
                   selectedItem={item.value}
                   multiple={props.primitive?.metadata?.parameters?.[item.key]?.multi}
                   className={props.leftAlign ? '' : 'ml-auto'}
@@ -1109,6 +1163,7 @@ const Parameters = function({primitive, ...props}){
     const hide = [props.hidden].flat()
     fields = fields.filter((d)=>!hide.includes(d))
   }
+  
   let details = fields.map((k)=>{
     let config = parameters[k]
     if( !config ){
@@ -1136,6 +1191,23 @@ const Parameters = function({primitive, ...props}){
     }
     return {...config, value: val, autoId: source[`${k}Id`], key: k}
   })
+    
+  details = details.filter((item)=>{
+    if( item.condition){
+      const pass = Object.keys(item.condition).reduce((a,c)=>{
+        let cVal =  item.condition[c] 
+        let invert = false
+        if( cVal[0] === "!"){
+          cVal = cVal.slice(1)
+          invert = true
+        }
+        const r = primitive.referenceParameters?.[c] === cVal
+        return a && (r ^ invert)
+      }, true)
+      return pass
+    }
+    return true
+  }) 
 
   if( props.fullList ){
     if( !props.showExtra ){
@@ -1163,7 +1235,7 @@ const Parameters = function({primitive, ...props}){
                 <DescriptionDetails inContainer={true}>
                   {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
                     ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
-                    : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+                    : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} items={props.items} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
                   }
                 </DescriptionDetails>
               </>))}
@@ -1194,7 +1266,7 @@ const Parameters = function({primitive, ...props}){
            {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
             {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
               ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
-              : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+              : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} items={props.items} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
             }
           </>))}
   </div>

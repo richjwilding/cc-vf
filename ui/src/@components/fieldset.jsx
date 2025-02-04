@@ -51,7 +51,8 @@ export function Label({ className, ...props }) {
       {...props}
       className={clsx(
         className,
-        'select-none text-base/6 text-zinc-950 data-[disabled]:opacity-50 sm:text-sm/6 dark:text-white'
+        'select-none text-base/6 text-zinc-950 data-[disabled]:opacity-50 dark:text-white',
+        props.small ? "text-sm/6 sm:text-xs/6" : "sm:text-sm/6"
       )}
     />
   )

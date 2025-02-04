@@ -23,6 +23,10 @@ import SearchSet from "./SearchSet"
 import { heatMapPalette } from './RenderHelpers';
 import { QueryPane } from "./QueryPane"
 import { Badge, BadgeButton } from "./@components/badge"
+import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list"
+import { Field, FieldGroup, Label } from "./@components/fieldset"
+import { CheckboxField, Checkbox } from "./@components/checkbox"
+import { Input } from './@components/input'
 
 // Add the icons to the library
 
@@ -226,7 +230,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                             }}
                         />
                     </div>
-                    <div className="px-3 py-2 text-gray-500 text-sm">
+                    {false && <div className="px-3 py-2 text-gray-500 text-sm">
                         <UIHelper.Panel title="Show inputs" narrow>
                             <div className="border p-2 rounded-md">
                                 <PrimitiveCard.ImportList primitive={frame}/>
@@ -237,8 +241,9 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                 </div>
                             </div>
                         </UIHelper.Panel>
-                    </div>
+                    </div>}
                 </div>
+
     }else  if( frame?.type === "search" ){
         const searchCategoryIds = frame.metadata.resultCategoryId ?? frame.metadata.parameters?.sources?.options?.map(d=>d.resultCategoryId ) ?? []
         const searchResultCategory = mainstore.category( searchCategoryIds[0] )
@@ -517,17 +522,8 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 </>
         }
 
-
-
-
-
-        content = <>
-        <div className="p-3 space-y-4">
-            {activeInfo}
-            {frame.type === "summary" && <SummaryCard primitive={frame}/>}
-            
-                <div className="space-y-2">
-                    <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
+        function viewConfigPanel(){
+            return  <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
                         <UIHelper.Panel title="View configuration" icon={<FontAwesomeIcon icon={["fal","tags"]} />}>
                             <div className="p-2 text-sm space-y-2">
                                 <UIHelper.OptionList title="View Mode" options={viewConfigs} onChange={(id)=>updateViewMode(viewConfigs.findIndex(d=>d.id === id))} value={viewConfigs[activeView]?.id}  zIndex={50}/>
@@ -538,7 +534,9 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                             </div>
                         </UIHelper.Panel>
                     </div>
-                    <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
+        }
+        function categoryPanel(){
+                return <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
                         <UIHelper.Panel title="Categories" icon={<FontAwesomeIcon icon={["fal","tags"]} />}>
                             <PrimitiveCard.Categories primitive={frame} scope={filters ? list.map(d=>d.id) : undefined} directOnly hidePanel className='pb-2 w-full h-fit'/>
                             <div type="button"
@@ -549,14 +547,158 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                             <UIHelper.Button title="Axis" action={()=>mainstore.doPrimitiveAction(frame,"define_axis")}/>
                         </UIHelper.Panel>
                     </div>
-                    <div className="space-y-2">
+        }
+        function filterPanel(){
+            return <div className="space-y-2">
                         <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
                             <UIHelper.Panel title="Filters" icon={<FontAwesomeIcon icon={["fal", "filter"]} />}>
                                         {filterPane}
                             </UIHelper.Panel>
                         </div>
                     </div>
+        }
+
+
+        function elementSourcePane(){
+            let options = []
+            let current = ""
+            const page = frame.findParentPrimitives({type: "page"})[0]
+            if( page ){
+                const pins = page.inputPins 
+                options = Object.keys(pins).map(d=>({id: d, title: pins[d].name})).filter(d=>d.id !== "impin")
+
+                const outputs = page.primitives.outputs
+                current = Object.keys(outputs).find(d=>outputs[d].includes( frame.id ))?.split("_")?.[0]
+            }
+        
+
+            return <PrimitiveCard.RenderItem 
+
+                item={{
+                    value: current,
+                    type:"option_list",
+                    options
+                }}
+                callback={(v)=>{
+                    const outputs = page.primitives.outputs
+                    const existing = Object.keys(outputs).find(d=>outputs[d].includes( frame.id ))
+                    page.removeRelationship(frame,`outputs.${existing}`)
+                    page.addRelationship(frame, `outputs.${v}_impin`)
+                }}
+            />
+        }
+        
+
+
+
+        content = <>
+        <div className="p-3 space-y-4">
+            {activeInfo}
+            {frame.type === "summary" && <SummaryCard primitive={frame}/>}
+
+
+            {frame.type === "element" && <div className="space-y-2">
+                <div className="border rounded-md bg-gray-50">
+                    <div onClick={()=>setShowDetails(!showDetails)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">
+                        <p className="font-medium ">{frame.metadata.title} details</p>
+                        <ChevronRightIcon strokeWidth={2} className={`ml-auto w-5 h-5 ${showDetails ? '-rotate-90 transform' : ''}`}/>
+                    </div>
+                    {showDetails && <>
+                        <div className="p-2 ">
+                            <PrimitiveCard.Parameters primitive={frame} items={props.originalList ?? list} editing leftAlign compactList className="text-xs text-slate-500" fullList />
+                            <div className="py-2 text-gray-500 text-sm">
+                                    <UIHelper.Panel title="Sections" narrow>
+                                    {(()=>{
+                                        if( list[0]?.type === "summary"){
+                                            const sections = list.flatMap(d=>d.referenceParameters.structured_summary?.map(d=>d.heading)).filter((d,i,a)=>d && a.indexOf(d)===i) 
+                                            if( sections.length > 0){
+                                                return <div className="px-2 py-1 flex flex-col space-y-2 text-gray-500 @container">
+                                                            <DescriptionList inContainer={true}>
+                                                                {sections.map((d,i)=>{
+                                                                    const show = frame.referenceParameters?.sections?.[d]?.show !== false
+                                                                    const includeHeading = frame.referenceParameters?.sections?.[d]?.heading !== false
+                                                                    const fontSize = frame.referenceParameters?.sections?.[d]?.fontSize ?? ""
+                                                                    const fontStyle = frame.referenceParameters?.sections?.[d]?.fontStyle ?? ""
+                                                                    return (
+                                                                    <>
+                                                                        <DescriptionTerm inContainer={true}>{d}</DescriptionTerm>
+                                                                        {!show && <div className="grid grid-cols-1 text-base/6 text-sm/6 @xl:!grid-cols-[min(40%,theme(spacing.40))_auto] py-2">
+                                                                                <p>Include</p>
+                                                                                    <Checkbox
+                                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.${d}.show`, true)}}
+                                                                                    />
+                                                                                </div>
+                                                                        }
+                                                                        {show && <DescriptionDetails inContainer={true} className="-mt-2">
+                                                                            <DescriptionList inContainer={true}>
+                                                                                <DescriptionTerm inContainer={true}>Include</DescriptionTerm>
+                                                                                <DescriptionDetails inContainer={true}>
+                                                                                    <Checkbox 
+                                                                                        checked={true} 
+                                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.${d}.show`, false)}}
+                                                                                        />
+                                                                                </DescriptionDetails>
+                                                                                <DescriptionTerm inContainer={true}>Include heading</DescriptionTerm>
+                                                                                <DescriptionDetails inContainer={true}>
+                                                                                    <Checkbox 
+                                                                                        checked={includeHeading} 
+                                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.${d}.heading`, !includeHeading)}}
+                                                                                        />
+                                                                                </DescriptionDetails>
+                                                                                <DescriptionTerm inContainer={true}>Font size</DescriptionTerm>
+                                                                                <DescriptionDetails inContainer={true}>
+                                                                                    <PrimitiveCard.RenderItem 
+                                                                                            item={{
+                                                                                                type:"number",
+                                                                                                value:fontSize
+                                                                                            }}
+                                                                                            callback={(value)=>{
+                                                                                                let size
+                                                                                                if( isNaN(value)){
+                                                                                                    size = null
+                                                                                                }else{                                                                                                    
+                                                                                                    size = Math.min(Math.max(1,value), 144)
+                                                                                                }
+                                                                                                frame.setField(`referenceParameters.sections.${d}.fontSize`, size)
+                                                                                                return true
+                                                                                            }}
+                                                                                        />
+                                                                                </DescriptionDetails>
+                                                                                <DescriptionTerm inContainer={true}>Font style</DescriptionTerm>
+                                                                                <DescriptionDetails inContainer={true}>
+                                                                                        <PrimitiveCard.RenderItem 
+                                                                                            item={{
+                                                                                                type:"option_list",
+                                                                                                options:["light","normal","bold","italic"],
+                                                                                                value:fontStyle
+                                                                                            }}
+                                                                                            callback={(v)=>frame.setField(`referenceParameters.sections.${d}.fontStyle`, v)}
+                                                                                        />
+                                                                                </DescriptionDetails>
+                                                                            </DescriptionList>
+                                                                        </DescriptionDetails>}
+                                                                    </>
+                                                                    )})}
+                                                            </DescriptionList>
+                                                        </div>
+                                            }
+                                        }
+                                        return <></>
+                                    })()}
+                                    </UIHelper.Panel>
+                            </div>
+                        </div>
+                        <div className="text-xs px-3 pb-3 text-gray-600">#{frame.plainId}</div>
+                    </>
+                    }
                 </div>
+            </div>}
+            
+            <div className="space-y-2">
+                {(["query","view","flow"].includes(frame.type) || (frame.type === "element" && frame.getConfig.extract === "items")) && viewConfigPanel()}
+                {["query","view"].includes(frame.type) && categoryPanel()}
+                {["query","view"].includes(frame.type) && filterPanel()}
+            </div>
             
             {!filters && (frame.type === "view" || frame.type === "action" || frame.type === "summary") && 
                 <div className="space-y-2">
@@ -569,7 +711,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                             <div className="p-2 ">
                                 <PrimitiveCard.Parameters primitive={frame} includeTitle editing leftAlign compactList className="text-xs text-slate-500" fullList />
                             </div>
-                            <div className="px-3 py-2 text-gray-500 text-sm">
+                            {false && <div className="px-3 py-2 text-gray-500 text-sm">
                                 <UIHelper.Panel title="Show inputs" narrow>
                                     <div className="border p-2 rounded-md">
                                         <PrimitiveCard.ImportList primitive={frame}/>
@@ -580,7 +722,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                         </div>
                                     </div>
                                 </UIHelper.Panel>
-                            </div>
+                            </div>}
                         </>
                         }
                     </div>
@@ -602,7 +744,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         </div>
                         {showDetails && <div className="p-2 ">
                             <PrimitiveCard.Parameters primitive={frame} includeTitle editing leftAlign compactList className="text-xs text-slate-500" fullList showExtra/>
-                            <div className="pt-4 pb-2 text-gray-500 text-sm">
+                            {false && <div className="pt-4 pb-2 text-gray-500 text-sm">
                                 <UIHelper.Panel title="Show inputs" narrow>
                                     <div className="border p-2 rounded-md">
                                         <PrimitiveCard.ImportList primitive={frame}/>
@@ -613,7 +755,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                         </div>
                                     </div>
                                 </UIHelper.Panel>
-                            </div>
+                            </div>}
                         </div>}
                     </div>
                 </div>
