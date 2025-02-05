@@ -1995,7 +1995,8 @@ registerRenderer( {type: "categoryId", id: 34, configs: "overview"}, (primitive,
         y: (options.y ?? 0),
         width: config.width,
         height: config.height,
-        name:"inf_track primitive"
+        name:"inf_track primitive",
+        id: primitive.id
     })
     const r = new Konva.Rect({
         x: 0,
@@ -2692,6 +2693,7 @@ export function renderPlainObject(renderOptions = {}){
         y,
         width,
         height,
+        id: options.ids?.[0],
         name:"inf_track primitive"
     })
     if( options.fill || options.line || options.lineStyle){
@@ -3404,7 +3406,7 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
             const ch = b > config.height ? config.height - ct - sub.y : config.height
             sub.rendered.x(sub.x)
             sub.rendered.y(sub.y)
-            sub.rendered.name('inf_track')
+            sub.rendered.name('inf_track primitive')
             sub.rendered.clip({
                 x: cl,
                 y: ct,

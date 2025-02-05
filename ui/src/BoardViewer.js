@@ -430,6 +430,7 @@ let mainstore = MainStore()
                                     })
                                     myState[stateId].object = {
                                         type: "structured_text",
+                                        ids: inputs.map(d=>d.id),
                                         text: summaries,
                                             ...format
                                     } 
@@ -437,6 +438,7 @@ let mainstore = MainStore()
                                 }else{
                                     myState[stateId].object = {
                                         type: "text",
+                                        ids: inputs.map(d=>d.id),
                                         text: inputs.map(d=>d.title ?? d.referenceParameters[basePrimitive?.renderConfig?.field]),
                                             ...format
                                     } 
@@ -453,6 +455,7 @@ let mainstore = MainStore()
                         }else{
                             myState[stateId].object = {
                                 type: "text",
+                                ids: inputs.map(d=>d.id),
                                 text: inputs[0],
                                 ...format
                             } 
@@ -464,6 +467,7 @@ let mainstore = MainStore()
                         if( basePrimitive.getConfig.extract === "content"){
                                 myState[stateId].object = {
                                     type: "text",
+                                    ids: inputs.map(d=>d.id),
                                     text: inputs.map(d=>d.context),
                                         ...format
                                 } 
