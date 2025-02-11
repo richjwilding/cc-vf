@@ -5,28 +5,22 @@ import { useEffect, useState } from "react"
 import { PrimitiveTable } from "./PrimitiveTable"
 import NewPrimitivePanel from "./NewPrimitivePanel"
 import { HeroIcon } from "./HeroIcon"
-import QueryCard from "./QueryCard"
 import { PrimitiveCard } from "./PrimitiveCard"
 import AIProcessButton from "./AIProcessButton"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
-import { main } from "@popperjs/core"
 import SummaryCard from "./SummaryCard"
 import EditableTextField from "./EditableTextField"
 import useDataEvent from "./CustomHook"
-import DropdownButton from "./DropdownButton"
 import UIHelper from "./UIHelper"
 import HierarchyNavigator from "./HierarchyNavigator"
 import CollectionUtils from "./CollectionHelper"
 import TooggleButton from "./ToggleButton"
 import PrimitiveConfig from "./PrimitiveConfig"
 import SearchSet from "./SearchSet"
-import { heatMapPalette } from './RenderHelpers';
 import { QueryPane } from "./QueryPane"
-import { Badge, BadgeButton } from "./@components/badge"
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list"
-import { Field, FieldGroup, Label } from "./@components/fieldset"
 import { CheckboxField, Checkbox } from "./@components/checkbox"
-import { Input } from './@components/input'
+import { TrashIcon } from "@heroicons/react/24/outline"
 
 // Add the icons to the library
 
@@ -109,6 +103,22 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
                                 outline 
                                 icon={<HeroIcon icon='FAAddView' className='w-5 h-5'/>}
                                 onClick={props.createNewView ? ()=>props.createNewView(38, actionAnchor.id, props.filters, {referenceId: itemCategory.id, pivot: props.pivotRelationship, descend: props.pivotRelationship ? false : undefined}) : undefined}
+                            />
+                            <UIHelper.Button 
+                                tooltip="Delete items"
+                                outline 
+                                icon={<TrashIcon className='w-5 h-5'/>}
+                                onClick={()=>{
+                                    mainstore.promptDelete({
+                                        prompt: `Delete ${items.length} items?`,
+                                        handleDelete:async ()=>{
+                                            for(const d of items){
+                                                await mainstore.removePrimitive(d)
+                                            }
+                                            return true
+                                        }                                        
+                                    })
+                                }}
                             />
                         </div>
                         <div className="relative">
@@ -296,7 +306,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         <button
                             type="button"
                             className="flex space-x-2 place-items-center justify-center w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                            onClick={()=>mainstore.doPrimitiveAction(frame, "query")}
+                            onClick={()=>mainstore.doPrimitiveAction(frame, "run_search")}
                         >
                             <ArrowPathIcon className="h-4 w-4" aria-hidden="true" /><p>Search</p>
                     </button>
@@ -395,7 +405,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             }
         }
         const addCategory = (target)=>{
-            const baseCategories = [54, 53,55,33, 90, 120]
+            const baseCategories = [54, 90]
             MainStore().globalCategoryPicker({
                     categoryIds: baseCategories,
                     callback:async (d)=>{
@@ -551,7 +561,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
         function categoryPanel(){
                 return <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
                         <UIHelper.Panel title="Categories" icon={<FontAwesomeIcon icon={["fal","tags"]} />}>
-                            <PrimitiveCard.Categories primitive={frame} scope={filters ? list.map(d=>d.id) : undefined} directOnly hidePanel className='pb-2 w-full h-fit'/>
+                            <PrimitiveCard.Categories primitive={frame} scope={filters ? list.map(d=>d.id) : undefined} /*directOnly*/ hidePanel className='pb-2 w-full h-fit'/>
                             <div type="button"
                             className="flex my-2 font-medium grow-0 bg-white hover:bg-gray-100 hover:shadow-sm hover:text-gray-600 justify-center ml-2 p-1 rounded-full shrink-0 text-xs text-gray-400 "
                             onClick={()=>addCategory(frame)}> 
@@ -713,7 +723,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 {["query","view"].includes(frame.type) && filterPanel()}
             </div>
             
-            {!filters && (frame.type === "view" || frame.type === "action" || frame.type === "summary") && 
+            {!filters && (frame.type === "view" || frame.type === "action" || frame.type === "summary" || frame.type === "categorizer") && 
                 <div className="space-y-2">
                     <div className="border rounded-md bg-gray-50">
                         <div onClick={()=>setShowDetails(!showDetails)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">

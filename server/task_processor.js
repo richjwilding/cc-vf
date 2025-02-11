@@ -8,7 +8,7 @@ import { getLogger } from "./logger";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
 import { analyzeListAgainstTopics, buildEmbeddings, processPromptOnText, summarizeMultiple } from "./openai_helper";
-import { findEntries, removeEntries, reviseUserRequest } from "./prompt_helper";
+import { findEntries, modiftyEntries, removeEntries, reviseUserRequest } from "./prompt_helper";
 
 const parser = PrimitiveParser()
 
@@ -764,7 +764,7 @@ export async function comapreToPeers( parent, activeSegment, primitive, options 
             output: structured ? "Generate a n new output for the segment im interested in in a json object with a field called 'new_segment'. The field must be in the same structure as the input for this segment - including nested subsections - but with the relevant content fields updated where necessary - add a 'omit' field to any subsections which should be removed from this segment. Ensure you consider and include every entry in the input array - and every nested subsection of this segment."
                     : "Provide the output as a json object with a field called 'summary' containing the new summary as a string with suitable linebreaks to deliniate sections",
 //            output: "Provide the output as a json object with a field called 'summary' containing the new summary as a markdown string in the format specified",
-            engine: "gpt4p",
+            engine: config.engine ?? "gpt4p",
             markdown: true,//config.markdown, 
             temperature: config.temperature ?? primitive.referenceParameters?.temperature,
             heading: true,//config.heading,
@@ -1595,7 +1595,7 @@ export async function summarizeWithQuery( primitive ){
             }
             if(!revised){
                 console.log(`--- Revised structure not present - building`)
-                revised = await reviseUserRequest(config.prompt)
+                revised = await reviseUserRequest(config.prompt, primitiveConfig)
             }
             
 
@@ -1640,12 +1640,12 @@ export async function summarizeWithQuery( primitive ){
                 heading: primitiveConfig.heading,
                 wholeResponse: true,
                 scored: primitiveConfig.scored,
+                engine: primitiveConfig.engine ?? "gpt-4o",
                 debug: true, 
                 debug_content:true
             })
 
 
-            console.log(results?.summary?.structure)
             if( results?.summary?.structure ){
                 let nodeStruct = revised.structure
                 let nodeResult = results?.summary?.structure
@@ -1655,7 +1655,6 @@ export async function summarizeWithQuery( primitive ){
                     
                     if( validated ){
                         nodeResult = validated.response
-                        console.log(`Set to post validation`, validated)
                     }
                 }
 
@@ -1663,18 +1662,29 @@ export async function summarizeWithQuery( primitive ){
                 let out = flattenStructuredResponse( nodeResult, nodeStruct, primitiveConfig.heading !== false)
 
 
-                const idsForSections = extractFlatNodes(nodeResult).map(d=>typeof(d.ids) === "string" ? d.ids.split(",").map(d=>parseInt(d)) : d.ids)
-                const allIds = idsForSections.flat().filter((d,i,a)=>a.indexOf(d) === i)
-                const mappedPrimitives = allIds.map(d=>items[d])
+                modiftyEntries( nodeResult, "ids", entry=>{
+                    const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>parseInt(d)) : entry.ids
+                    const remapped = ids.map(d=>{
+                        const primitive = items[d]
+                        if( primitive){
+                            return primitive.id
+                        }else{
+                            logger.error(`--- Referenced item out of bounds:`)
+                            logger.error(entry)
+                        }
+                    }).filter(d=>d)
+                    return remapped
+                } )
+                const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
+                const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
 
 
-                console.log(out)
-                return {plain:out, structured: nodeResult, sourcePrimitives: mappedPrimitives}
+                return {plain:out, structured: nodeResult, sourceIds: allIds}
             }
             
         }
     }catch(error){
-        console.log(error)
+        logger.error(error)
     }
     return ""
 }

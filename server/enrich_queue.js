@@ -554,7 +554,7 @@ async function site_discovery_short(primitive, options){
             console.log(`Skipping discovery fro ${primitive.id}`)
             return
         }
-        let urls = await site_discovery(primitive, {...options, onlyURLs: true, limit: options.count ?? 6})
+        let urls = await site_discovery(primitive, {...options, onlyURLs: true, spread: true, limit: options.count ?? 3})
         if( !urls || urls.length === 0 ){
             return
         }
@@ -590,7 +590,6 @@ async function site_discovery_short(primitive, options){
             })
             console.log(results)
             if( results.success ){
-                console.log("here")
                 for(const field of ["description","offerings", "customers", "capabilities","offering_keywords","capability_keywords","location"]){
                     const v = results.output?.[0]?.[field]
                     if(v){
@@ -647,10 +646,6 @@ async function site_discovery(primitive, options){
                     let urlList //= await extractURLsFromPage( url, {otherDomains: false, markers: false} )
                     urlList = urlList ?? (await extractURLsFromPageAlternative( url, {otherDomains: false, markers: false} ))
                     urlList = urlList ?? (await extractURLsFromPageAlternative( url, {otherDomains: true, markers: false} ))
-                    urlList = urlList ?? (await extractURLsFromPageAlternative( url, {otherDomains: false, markers: false}, {'js_render': 'true'} ))
-                    urlList = urlList ?? (await extractURLsFromPageAlternative( url, {otherDomains: true, markers: false}, {'js_render': 'true'} ))
-                    urlList = urlList ?? (await extractURLsFromPageAlternative( url, {otherDomains: false, markers: false}, {'js_render': 'true','premium_proxy': 'true','proxy_country': 'us'} ))
-                    urlList = urlList ?? (await extractURLsFromPageAlternative( url, {otherDomains: true, markers: false}, {'js_render': 'true','premium_proxy': 'true','proxy_country': 'us'} ))
                     
                     if( categories && urlList && urlList.length > 0){
                         console.log(`Got url list of ${urlList.length}`)
@@ -674,13 +669,15 @@ async function site_discovery(primitive, options){
                             console.log(`Sending ${urlMap.length} candidates`)
                             
                             const result = await categorize( urlMap, catList.map(d=>d.description),{
+                                workspaceId: primitive.workspaceId,
+                                functionName: "site_discovery_urls",
                                 longType: "items containing two fieds - a url of a weblink and the descriptive text for the link",
                                 matchPrompt: `For each item you must assess the best match with a category from the supplied list using information from the weblink and/or descriptive text, or determine if there is a not a strong match. Ignore any links that are most likely about shopping, purchasing, delivery, ecommerce listing or other ecommerce activities`,
                                 engine: "gpt4o-mini",
                                 numerical: true,
                                 // maxTokens: 80000,
-                                debug_content: true,
-                                debug: true
+                                debug_content: false,
+                                debug: false
                             })
                             if( result ){
                                 for(const d of result){
@@ -709,8 +706,17 @@ async function site_discovery(primitive, options){
                     console.log(`done - now have ${urlsToParse.length} urls`)
                     const limit = options.limit ?? 60
                     if( urlsToParse.length > limit ){
-                        console.log(`TRUNCATING TO FIRST ${limit} URLs`)
-                        urlsToParse = urlsToParse.slice(0,limit)
+                        if( options.spread){
+                            console.log(`Limiting with type applied`)
+                            const counts = {};
+                            urlsToParse = urlsToParse.filter(item => {
+                                counts[item.categoryId] = (counts[item.categoryId] || 0) + 1;
+                                return counts[item.categoryId] <= limit;
+                            });
+                        }else{
+                            console.log(`TRUNCATING TO FIRST ${limit} URLs`)
+                            urlsToParse = urlsToParse.slice(0,limit)
+                        }
                     }
                     if( options.onlyURLs ){
                         return urlsToParse

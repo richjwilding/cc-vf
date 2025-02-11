@@ -65,6 +65,7 @@ const session = cookieSession({
 })
 
 app.use(session)
+app.use(express.json({ limit: "50mb" }));
 
 // register regenerate & save after the cookieSession middleware initialization
 app.use(function(request, response, next) {
@@ -373,7 +374,7 @@ if (process.env.NODE_ENV === 'production') {
         etag: false,
         setHeaders: (res, path) => {
             if (express.static.mime.lookup(path) === 'text/html') {
-            res.setHeader('Cache-Control', 'public, max-age=0');
+                res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
             }
         }
 

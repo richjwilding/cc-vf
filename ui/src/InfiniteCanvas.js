@@ -8,6 +8,7 @@ import MainStore from './MainStore';
 import { AvoidLib } from 'libavoid-js';
 import CustomImage from './CustomImage';
 import CustomText from './CustomText';
+import RoundedArrow from './RoundedArrow';
 
 Konva.autoDrawEnabled = false
 
@@ -1218,7 +1219,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             link.pointerLength( pw )
             link.pointerWidth( pw )
         }else{
-            link = new Konva.Arrow({
+            link = new RoundedArrow({
                 id: edge.id,
                 points: allPoints,
                 stroke: '#b6b6b6',
@@ -1327,6 +1328,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             orderNestedFrames(frame.node)
             resizeNestedFrame( id )
             refreshLinks()
+                if( myState.current.frameSelect ){
+                    if( myState.current.frameSelect.node.attrs.id === id ){
+                        clearSelection()                    
+                        destroyFrameSelect()
+                        createFrameSelect( frame.node )
+                    }
+                }
             stageRef.current.batchDraw()
         }else{
             addFrame(newItems)

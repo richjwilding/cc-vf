@@ -181,6 +181,7 @@ let mainstore = MainStore()
 
         if( view.widgetConfig){
             renderOptions.widgetConfig = view.widgetConfig
+
         }
 
         const primitiveToRender = view.primitive.type === "element" ? view.primitive : (view.underlying ?? view.primitive)
@@ -541,13 +542,14 @@ let mainstore = MainStore()
         }   
 
         let widgetConfig = {}
+        const showItems = basePrimitive.findParentPrimitives({type: basePrimitive.inFlow ? "flow" : "board"})[0]?.frames?.[stateId]?.showItems
         
-        if( myState[stateId].inFlow ){
+        if( true || myState[stateId].inFlow ){
 
             if( primitiveToPrepare.type=== "query"){
                 let useQuery = basePrimitive.referenceId === 81 
 
-                widgetConfig.showItems = myState[stateId].showItems
+                widgetConfig.showItems = showItems
                 widgetConfig.title = basePrimitive.title
                 widgetConfig.icon = <HeroIcon icon='FARobot'/>
                 widgetConfig.items = "results"
@@ -557,7 +559,7 @@ let mainstore = MainStore()
                 didChange = true
             }else if( primitiveToPrepare.type=== "action"){
 
-                widgetConfig.showItems = myState[stateId].showItems
+                widgetConfig.showItems = showItems
                 widgetConfig.title = basePrimitive.title
                 widgetConfig.icon = <HeroIcon icon='FARobot'/>
                 widgetConfig.items = "results"
@@ -565,7 +567,7 @@ let mainstore = MainStore()
                 myState[stateId].widgetConfig = widgetConfig
                 didChange = true
             }else if( primitiveToPrepare.type=== "summary"){
-                widgetConfig.showItems = myState[stateId].showItems
+                widgetConfig.showItems = showItems
                 widgetConfig.title = basePrimitive.title
                 widgetConfig.icon = <HeroIcon icon='FARobot'/>
                 widgetConfig.count = primitiveToPrepare.itemsForProcessing.length
@@ -741,7 +743,8 @@ let mainstore = MainStore()
                 }
             }
 
-            const showItems = d.frames?.[stateId]?.showItems
+            let childChanged = myState[stateId].showItems !== showItems
+            myState[stateId].showItems = showItems
             myState[stateId].primitive = basePrimitive
             myState[stateId].list = [{column: undefined, row: undefined, primitive: primitiveToPrepare}]
             myState[stateId].columns = [{idx: undefined, label: ''}]
@@ -754,7 +757,6 @@ let mainstore = MainStore()
             }
             myState[stateId].toggles = {}
             
-            let childChanged = myState[stateId].showItems !== showItems
             didChange ||= childChanged
         }else if( renderType === "actionrunner" || renderType === "categorizer" ){
             const items = primitiveToPrepare.itemsForProcessing
@@ -990,6 +992,12 @@ export default function BoardViewer({primitive,...props}){
 
     useDataEvent("relationship_update set_parameter set_field delete_primitive set_title", undefined, (ids, event, info, fromRemote)=>{
         if( myState.current.watchList  ){
+            if( ids.length === 1 && ids[0] === primitive.id){
+                const frameUpdate = info.match(/frames\.(.+)\.(.+)/)
+                if( frameUpdate && frameUpdate[2] === "showItems"){
+                    ids = [frameUpdate[1]]
+                }
+            }
             myState.current.framesToUpdate = myState.current.framesToUpdate || []
             myState.current.framesToUpdateForRemote = myState.current.framesToUpdateForRemote || []
             Object.keys(myState.current.watchList).forEach(frameId=>{
@@ -1009,6 +1017,9 @@ export default function BoardViewer({primitive,...props}){
                         myState.current[timerName] = setTimeout(()=>{
                             myState.current[timerName] = undefined
                             for( const {frameId, event, info} of  myState.current[listName]){
+                                if( !myState[frameId] ){
+                                    continue
+                                }
                                 let needRefresh = true
                                 let refreshBoards = []
                                 let needRebuild = ((event === "set_field" || event === "set_parameter") && info === "referenceParameters.explore.view")
@@ -1168,7 +1179,7 @@ export default function BoardViewer({primitive,...props}){
 
     const [boards,  renderedSet] = useMemo(()=>{
         console.log(`--- REDO BOARD RENDER ${primitive?.id}, ${update}`)
-        const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueQuery,...primitive.primitives.allUniqueSearch,...primitive.primitives.allUniqueFlow,...primitive.primitives.allUniqueAction]
+        const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueCategorizer,...primitive.primitives.allUniqueQuery,...primitive.primitives.allUniqueSearch,...primitive.primitives.allUniqueFlow,...primitive.primitives.allUniqueAction]
         
         for(const d of boards){
             if(!myState[d.id] ){
@@ -1493,10 +1504,27 @@ export default function BoardViewer({primitive,...props}){
                 //myState[id].axisOptions = CollectionUtils.axisFromCollection( source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
             }
 
+            let addToView = false
+            if( myState.activeBoard.primitive.type === "view" ){
+                if( myState.activeBoard.primitive.primitives.imports.allIds.length === 0){
+                    addToView = {view: myState.activeBoard.primitive, segment: undefined}
+                }else{
+                    if( myState.activeBoard.primitive.primitives.imports.allIds.length === 1){
+                        const source = myState.activeBoard.primitive.primitives.imports.allItems[0]
+                        if( source.type === "segment"){
+                            if(source.primitives.imports.allIds.length === 0){
+                                addToView = {view: myState.activeBoard.primitive, segment: source}
+                            }
+                        }
+                    }
+                }
+            }
+
             myState.menuOptions = {
-                showAddChild: myState.activeBoard.config !== "widget" && myState.activeBoard.primitive.type !== "element" && myState.activeBoard.primitive.type !== "page",
+                showAddChild: myState.activeBoard.primitive.type !== "element" && myState.activeBoard.primitive.type !== "page",
                 showAxis: myState.activeBoard.config !== "widget" && myState.activeBoard.primitive.type !== "element" && myState.activeBoard.primitive.type !== "page",
                 showClone: myState.activeBoard.type === "query" || myState.activeBoard.primitive.type === "view" || myState.activeBoard.primitive.type === "element",
+                addToView
             }
 
             handleViewChange(true)
@@ -1727,7 +1755,7 @@ export default function BoardViewer({primitive,...props}){
             title: `New ${category.primitiveType}`,
             categoryId: category.id,
             type: category.primitiveType,
-            flowElement: true,
+            flowElement: createInFlow !== false,
             referenceParameters: {
                 ...(importPrimitive ? {target: "items", importConfig: [{id: importPrimitive.id, filters: filter}]} : {}),
                 target: "items",
@@ -1846,28 +1874,38 @@ export default function BoardViewer({primitive,...props}){
 
     }
     window.getTest = getOrCreateSuitableView
-    function pickNewItem(){
-       // addBlankView()
 
+    function addToView(){
+        if( myState.menuOptions?.addToView ){
+            const config = myState.menuOptions.addToView
+            const target = config.segment ?? config.view
+            const categoryList = [config.view.referenceParameters.referenceId].flat().filter(d=>d)
+            pickNewItem( {categoryList, addTo: config})
 
+        }
+    }
 
+    function pickNewItem(options = {}){
         const addToFlow = (myState.activeBoard && myState.activeBoard.primitive?.type === "flow") ? myState.activeBoard.primitive : undefined
         const addToPage = (myState.activeBoard && myState.activeBoard.primitive?.type === "page") ? myState.activeBoard.primitive : undefined
 
-       let categoryList
 
-       if( addToPage ){
-        categoryList = [89]
-       }else{
-           categoryList = [
-               38, 130, 140, 118, 135, 109, 136, 137,
-               ...mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
-               ...(addToFlow ? [131,132,133,81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id)),
-            ].flat()
+        let {categoryList, addTo} = options
+
+       if(!categoryList  ){
+           if( addToPage ){
+               categoryList = [89]
+            }else{
+                categoryList = [
+                    38, 130, 140, 118, 135, 109, 136, 137,132,133,
+                    ...mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
+                    ...(addToFlow ? [131,81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id)),
+                ].flat()
+            }
         }
 
         mainstore.globalNewPrimitive({
-            title: addToFlow ? `Add to ${addToFlow.title} flow` : "Add to board",
+            title: addTo ? `Add to ${addTo.view.title} (#${addTo.view.plainId})` : (addToFlow ? `Add to ${addToFlow.title} flow` : "Add to board"),
             categoryId: categoryList,
             parent: primitive,
             beforeCreate:async (data)=>{
@@ -1882,30 +1920,54 @@ export default function BoardViewer({primitive,...props}){
                         ...data,
                         parent: addToPage
                     }
-
+                }else if( addTo ){
+                    console.log(addTo)
+                    let targetSegment = addTo.segment
+                    if( !targetSegment){
+                        console.log(`Need to source create segment for view`)
+                        const result = await MainStore().createPrimitive({
+                            title: `Segment for View ${addTo.view.plainId}`,
+                            type: "segment",
+                            parent: primitive,
+                            workspaceId: primitive.workspaceId
+                        })
+                        if( result ){
+                            targetSegment = await mainstore.waitForPrimitive( result.id )
+                            await addTo.view.addRelationshipAndWait( targetSegment, "imports")
+                        }
+                    }
+                    if( !targetSegment ){
+                        return false
+                    }
+                    return {
+                        ...data,
+                        parent: targetSegment
+                    }
                 }else{
-                    if( data.type === "entity" || data.type === "result"){
-                        console.log(`Entity selected - need to add to manual segment`)
-                        let segment = primitive.primitives.manual.allUniqueSegment[0]
-                        if( !segment ){
-                            console.log(`Manual doesnt exist - creating`)
-                            const result = await MainStore().createPrimitive({
-                                title: `Manual segment for Board ${primitive.plainId}`,
-                                type: "segment",
-                                parent: primitive,
-                                parentPath: "manual",
-                                workspaceId: primitive.workspaceId
-                            })
-                            segment = await mainstore.waitForPrimitive( result.id )
-                        }
-                        if( segment ){
-                            console.log(`Got manual segment`)
-                            return {
-                                ...data,
-                                parent: segment
+                    if( !addTo ){
+                        if( data.type === "entity" || data.type === "result"){
+                            console.log(`Entity selected - need to add to manual segment`)
+                            let segment = primitive.primitives.manual.allUniqueSegment[0]
+                            if( !segment ){
+                                console.log(`Manual doesnt exist - creating`)
+                                const result = await MainStore().createPrimitive({
+                                    title: `Manual segment for Board ${primitive.plainId}`,
+                                    type: "segment",
+                                    parent: primitive,
+                                    parentPath: "manual",
+                                    workspaceId: primitive.workspaceId
+                                })
+                                segment = await mainstore.waitForPrimitive( result.id )
                             }
+                            if( segment ){
+                                console.log(`Got manual segment`)
+                                return {
+                                    ...data,
+                                    parent: segment
+                                }
+                            }
+                            throw "Cant add to board - couldnt find manual segment"
                         }
-                        throw "Cant add to board - couldnt find manual segment"
                     }
                 }
                 return data
@@ -2178,7 +2240,7 @@ export default function BoardViewer({primitive,...props}){
         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
             <div className='p-3 flex place-items-start space-x-2 '>
                     <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
-                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={pickNewItem} flat placement='left-start' />
+                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>pickNewItem()} flat placement='left-start' />
                     <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
                     {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
                     {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false,true)} flat placement='left-start' />}
@@ -2191,6 +2253,7 @@ export default function BoardViewer({primitive,...props}){
             </div>}
         </div>
         {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-40 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
+            {myState.menuOptions?.addToView && <DropdownButton noBorder icon={<PlusIcon className='w-5 h-5'/>} onClick={addToView} flat placement='left-start' />}
             {myState.menuOptions?.showAxis && <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
             {myState.menuOptions?.showAxis && <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
             {myState.menuOptions?.showAddChild && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}

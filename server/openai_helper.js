@@ -183,8 +183,7 @@ export async function summarizeMultiple(list, options = {} ){
     if( !options.allow_infer){
         finalPrompt += `\n\nRegardless of any prior instructions, you MUST ONLY use the data I provided to you to write your answer - you MUST NOT use your own knowledge.\nOmit any section where the data i provided is not relevant to task - simply writing  "No relevant data for task" instead`
     }
-    //finalPrompt =  finalPrompt + (options.allow_infer ? "" : `.  Use only the information i have provided to produce the summary - you must not make reference to it (e.g avoid phrases like 'the text suggests', 'the provided text includes' and similar)`)
-    const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **text**\n" :""}indented list item:- text\ndouble indented list item:-- text\ntriple indented list item:--- text\ntable headers: |cell|cell| (ensure you start and finish with a | character - empty cells should be ||)\n               |----|----|\ntable rows: |cell|cell| (ensure you start and finish with a | character - empty cells should be || \n Do not use any other markdown. Ensure you mark the end of paragraphs and list items with a new line character but do not do double newlines as that ruins the formatting. Do not define the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string without any formatting."
+    const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **text**\n" :""}indented list item:- text\ndouble indented list item:-- text\ntriple indented list item:--- text\ntable headers: |cell|cell| (ensure you start and finish with a | character - empty cells should be ||)\n               |----|----|\ntable rows: |cell|cell| (ensure you start and finish with a | character - empty cells should be || \n Do not use any other markdown. Ensure you mark the end of paragraphs and list items with a new line character but do not do double newlines as that ruins the formatting. Do not define the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string using any formatting specified above"
     
     let outputFields, wholeResponse = options.wholeResponse
     if( options.output){
@@ -711,6 +710,8 @@ function tokensForModel(model){
         defaultTokens = 80000
     }else if( model === "gpt4o" ){
         defaultTokens = 80000
+    }else if( model === "o3-mini" ){
+        defaultTokens = 120000
     }else if( model === "gpt3" || model === "gpt3t"){
         defaultTokens = 12000
     }
@@ -839,6 +840,9 @@ async function processInChunk( list, pre, post, options = {} ){
         lastTokensCount = currentCount
         console.log(`Sending ${startIdx} -> ${endIdx} (${currentCount})`)
         content = (options.contentPrefix ? options.contentPrefix : "") + content + (options.postfix ? "\n" + options.postfix : "")
+        if( options.markup){
+            content = `<${options.markup}>\n${content}\n</${options.markup}>`
+        }
         const messages = [
             pre,
             {"role": "user", "content": content},
@@ -962,6 +966,12 @@ async function __executeAI(messages, options = {}){
         sleepBase = 20000
         output = 16384
     }
+    if( options.engine === "o3-mini" ){
+        model = "o3-mini"
+        sleepBase = 20000
+        output = 80000
+        response_format = { type: "json_object" }
+    }
     if( options.engine === "gpt4" ){
         model = "gpt-4-0613"
         sleepBase = 20000
@@ -983,7 +993,6 @@ async function __executeAI(messages, options = {}){
     const request = async ()=>{
         try{
             response = await openai.chat.completions.create({
-                //model: options.engine === "gpt4" ?  : "gpt4" ? "gpt-4-1106-preview" "gpt-3.5-turbo-16k",                
                 model: model,
                 response_format,
                 temperature: options.temperature || 0.7,
@@ -1069,7 +1078,9 @@ async function executeAI(messages, options = {}){
     let model = "gpt-4o-2024-08-06"
     let output = 16384
     let response_format = options.schema ? { "type": "json_schema", "json_schema": options.schema } : { type: "json_object" }
+    let max_tokens = "max_tokens"
 
+    let temperature = options.temperature || 0.7
     if( options.engine === "gpt4o-mini" ){
         model = "gpt-4o-mini"
         sleepBase = 20000
@@ -1092,16 +1103,31 @@ async function executeAI(messages, options = {}){
         response_format = undefined
         output = 1536
     }
+    if( options.engine === "o3-mini" ){
+        model = "o3-mini"
+        sleepBase = 20000
+        output = 80000
+        temperature = undefined
+        max_tokens = "max_completion_tokens"
+        response_format = { type: "json_object" }
+        messages = messages.map(d=>{
+            return {
+                ...d,
+                role: d.role === "system" ? "developer" : d.role
+            }
+        })
+    }
     console.log(`Executing ${model}`)
+    
 
     try {
         // Directly call the OpenAI API method with built-in retry logic
         response = await openai.chat.completions.create({
             model: model,
             response_format,
-            temperature: options.temperature || 0.7,
+            temperature,
             messages: messages,
-            max_tokens: output,
+            [max_tokens]: output,
         });
     } catch (thisErr) {
         err = thisErr; // Capture the error for returning meaningful information
@@ -1112,7 +1138,7 @@ async function executeAI(messages, options = {}){
         return {
             success: false,
             status: err?.response?.status || 500,
-            error: err?.response?.data?.error?.message || "UNKNOWN",
+            error: err?.response?.data?.error?.message ?? err?.error?.message ??  "UNKNOWN",
             instructions: messages,
         };
     }
@@ -1121,6 +1147,7 @@ async function executeAI(messages, options = {}){
     if (response.choices?.[0]?.finish_reason === "length") {
         return { error: true, token_limit: true };
     }
+    recordUsage( {workspace: options.workspaceId, functionName: options.functionName, usageId: options.usageId, api: "open_ai", data: response})
 
     let answers = response.choices?.[0]?.message?.content;
     
@@ -1176,7 +1203,7 @@ export  async function categorize(list, categories, options = {} ){
     if( options.complex){
         instructions += `Return your results in a JSON object with the following structure:{a:[{c: <<category id as provided to you - e.g 0>>,s: <<assessment score of item for this category>>,r:<<5 word rationale for the score for this category>>},...<<assessments for each and every remaining category - there should be ${categories.length} in total>>] }`
     }else{
-        instructions += `Return your results in a JSON object with the following structure: {a:[{c: <<id of category, as provided to you, with highest score>>,s: <<assessment score associated with the catgeory with the highest score>,r:<<5 word rationale for score for winning category>>}]}`
+        instructions += `Return your results in a JSON object with the following structure: {a:[{c: <<id of category, as provided to you, with highest score>>,s: <<assessment score associated with the catgeory with the highest score>,r:<<15 word rationale for score for winning category>>}]}`
     }
     const interim = await processInChunk( list, 
             [
@@ -1242,7 +1269,7 @@ export  async function __categorize(list, categories, options = {} ){
                     {
                         c: <<category id as provided to you - e.g 0>>,
                         s: <<assessment score of item for this category>>,
-                        r:<<5 word rationale for the score for this item for this category>>,
+                        r:<<15 word rationale for the score for this item for this category>>,
                     },
                     ...<<assessments for each and every remaining category - there should be ${categories.length} in total>>
                 ] 

@@ -822,6 +822,24 @@ const PrimitiveConfig = {
                                             sf = "description"
                                         }
                                     }
+                                    if( sf === "summary"){
+                                        if( typeof(input.inputMapConfig.section)=== "string" && input.inputMapConfig.section.trim().length > 0 ){
+                                            if( d.referenceParameters.structured_summary){
+                                                const subsection = d.referenceParameters.structured_summary.find(d=>d.heading === input.inputMapConfig.section)
+                                                if( subsection ){
+                                                    if( imConfig.types.includes("string_list") && subsection.content && subsection.type.includes("list")){
+                                                        return subsection.content.match(/"[^"]*"|[^,\n]+/g)
+                                                            .map(d => d.trim().replace(/^\s*-\s*/, "")) 
+                                                            .map(d => d.replace(/^"(.*)"$/, (_, capture) => capture))
+                                                            .map(d=>d.trim())
+                                                            .join(",")
+                                                    }
+                                                    return flattenStructuredResponse( subsection)
+                                                }
+                                            }
+                                            return ""
+                                        }
+                                    }
                                     return PrimitiveConfig.decodeParameter(d.referenceParameters, sf)
                                 }).flat(Infinity)
                                 if( input.useConfig === "object_list"){

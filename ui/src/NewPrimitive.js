@@ -173,6 +173,9 @@ export default function NewPrimitive({...props}) {
         }
         if( props.beforeCreate ){
             data = await props.beforeCreate(data)
+            if( !data ){
+                return
+            }
         }
 
         const primitive = await MainStore().createPrimitive(data)

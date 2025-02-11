@@ -2,8 +2,6 @@ import MainStore from './MainStore';
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState } from 'react';
 import { ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ClipboardDocumentIcon, DocumentArrowDownIcon, FunnelIcon, MagnifyingGlassIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { PrimitiveCard } from './PrimitiveCard';
-//import html2canvas from 'html2canvas';
-//import MiroExporter from './MiroExporter'; 
 import Panel from './Panel';
 import {useGesture, usePinch} from '@use-gesture/react'
 import { useLayoutEffect } from 'react';
@@ -12,7 +10,6 @@ import MyCombo from './MyCombo';
 import TooggleButton from './ToggleButton';
 import { renderMatrix, roundCurrency } from './RenderHelpers';
 import SegmentCard, { itemsForGraph, projectData } from './SegmentCard';
-import { exportViewToPdf } from './ExportHelper';
 import DropdownButton from './DropdownButton';
 import { HeroIcon } from './HeroIcon';
 import { SearchPane } from './SearchPane';
@@ -1349,7 +1346,6 @@ const PrimitiveExplorer = forwardRef(function PrimitiveExplorer({primitive, ...p
                     <div key='export' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-50 right-4 bottom-4 p-0.5 flex flex-col place-items-start space-y-2'>
                         <DropdownButton noBorder icon={<ArrowUpTrayIcon className='w-5 h-5 '/>} 
                         items={[
-                            {'title': "Export to PDF", icon: <DocumentArrowDownIcon className='w-5 h-5 mx-1'/>, action: ()=>exportViewToPdf(gridRef.current)},
                             experiment && {'title': "Export to PPTX", icon: <DocumentArrowDownIcon className='w-5 h-5 mx-1'/>, action: ()=> canvas.current ? canvas.current.exportToPptx() : undefined },
                             {'title': "Copy to clipboard", icon: <ClipboardDocumentIcon className='w-5 h-5 mx-1'/>, action: copyToClipboard},
                         ]} 

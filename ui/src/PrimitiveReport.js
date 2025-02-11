@@ -1,11 +1,8 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { Stage, Layer, Rect, Text, Transformer, Group, Image, Line } from 'react-konva';
 import MainStore from './MainStore';
-import useImage from 'use-image';
-import useDataEvent from './CustomHook';
 import { exportKonvaToPptx } from './PptHelper';
 import Konva from 'konva';
-import CustomText from './CustomText';
 import { renderElementContent, renderScene } from './ReportRenderer';
 
 let showBoundingBox = true

@@ -146,11 +146,9 @@ async function getQueueObject(type) {
 
 
             await asyncLocalStorage.run(new Map(), async () => {
-                console.log(`RESET CHILD WAITING on ${job.id}`)
                 if(queueObject.default().resetChildWaiting){
                     children = await queueObject.default().resetChildWaiting(queueName, job.id)
                 }
-                console.log(`RESET CHILD WAITING - DONE on ${job.id}`)
                 const store = asyncLocalStorage.getStore();
                 store.set('parentJob', job);
                 console.log(`---- ${queueName} set parentJob to ${job.id}`)
@@ -187,8 +185,20 @@ async function getQueueObject(type) {
                         throw new WaitingChildrenError();
                     }
                 }
+                const reschedule = result?.reschedule
+                if( reschedule ){
+                    if( job.parent ){
+                        const parentQueueName = job.parent.queueKey.slice(5)
+                        logger.info(`Job requested reschedule ${job.id} of parent ${job.parent.id} / ${parentQueueName}`);
+                        await result.reschedule( {id: job.parent.id, queueName: parentQueueName})
+                    }else{
+                        logger.info(`Job requested reschedule ${job.id} without parent`);
+                        await result.reschedule({id: undefined, queueName: undefined})
+                    }
+                    result = "Reschedule requested"
+                }
                 logger.info(`===> Sending endJob message ${job.id}`, { type: workerData.type });
-                parentPort.postMessage({ result, success: true, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
+                parentPort.postMessage({ /*result,*/ success: true, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
             });
             
         } catch (error) {

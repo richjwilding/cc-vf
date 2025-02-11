@@ -84,40 +84,26 @@ class QueueManager {
                                 this.setQueueActivity(message.queueName, true);
                                 
 
-                                const parentJobId = this.getParentJobId()
-                                const parentJobObject = await this.getParentJob( parentJobId )
-                                if( parentJobObject ){
-                                    logger.info("================\n================\n================\nExtended parent job lock\n================\n================\n================")
-                                    parentJobObject.updateProgress(1); 
-
-
+                                const job = await this.getJobFromQueue( {
+                                    queueName: message.queueName,
+                                    id: message.jobId
+                                })
+                                if( !job){
+                                    logger.error(`Cant find job object`)
                                 }
-                                
-
-                                /*let parentJob
-                                const store = asyncLocalStorage.getStore();
-                                if (store && store.has('parentJob')) {
-                                    parentJob = store.get('parentJob');
-                                }
-                                if( parentJob ){
-                                    logger.info("Updating parent queue")
-                                    
-                                    const [qId, qType] = parentJob.queueName.split("-")
-                                    const qo = getQueueObject(qType)
-                                    
-                                    const q = qo.getQueue(qId)
-                                    if( q ){
-                                        const parentJobObject = await q.getJob(parentJob.id);
-                                        if( parentJobObject ){
-                                            logger.info("================\n================\n================\nExtended parent job lock\n================\n================\n================")
-                                            parentJobObject.updateProgress(1); 
-                                        }else{
-                                            logger.error("Couldnt find parent job")
-                                        }
+                                if( job?.parent ){
+                                    const parentJobObject = await this.getJobFromQueue( {
+                                        queueName: job.parent.queueKey.slice(5),
+                                        id: job.parent.id
+                                    } )
+                                    if( parentJobObject ){
+                                        logger.info("================\n================\n================\nExtended parent job lock\n================\n================\n================")
+                                        parentJobObject.updateProgress(1); 
                                     }else{
-                                        logger.error("Couldnt find parent queue", {qId, qType})
+                                        logger.error(`Cant find parent job`, job.parent)
+
                                     }
-                                }*/
+                                }
                                 await this.sendNotification(
                                     message.jobId,{
                                         started: true
@@ -295,30 +281,26 @@ class QueueManager {
             logger.error(`Got no notify methos for ${this.type}`)
         }
     }
-    getParentJobId(){
-        let parentJobId
-        const store = asyncLocalStorage.getStore();
-        if (store && store.has('parentJob')) {
-            parentJobId = store.get('parentJob');
-        }
-        return parentJobId
-    }
-    async getParentJob(parentJob){
-        parentJob = parentJob ?? this.getParentJobId()
-        if( parentJob ){
-            const [qId, qType] = parentJob.queueName.split("-")
-            const qo = getQueueObject(qType)
-            const q = qo.getQueue(qId)
-            if( q ){
-                const parentJobObject = await q.getJob(parentJob.id);
-                if( parentJobObject ){
-                    return parentJobObject
+    async getJobFromQueue(job){
+        try{
+
+            if( job ){
+                const [qId, qType] = job.queueName.split("-")
+                const qo = this.getQueueObject(qType)
+                const q = await qo._queue.getQueue(qId)
+                if( q ){
+                    const jobObject = await q.getJob(job.id);
+                    if( jobObject ){
+                        return jobObject
+                    }else{
+                        logger.error("Couldnt find job")
+                    }
                 }else{
-                    logger.error("Couldnt find parent job")
+                    logger.error("Couldnt find queue", {qId, qType})
                 }
-            }else{
-                logger.error("Couldnt find parent queue", {qId, qType})
             }
+        }catch(error){
+            logger.error("Error in getJobQueue",error)
         }
     }
     getQueueObject(queueType){
@@ -361,9 +343,14 @@ class QueueManager {
 
         
                 let parentJob
-                const store = asyncLocalStorage.getStore();
-                if (store && store.has('parentJob')) {
-                    parentJob = store.get('parentJob');
+                if( options.parent ){
+                    parentJob = options.parent
+                    logger.debug(`Overriding parent info`, parentJob)
+                }else{
+                    const store = asyncLocalStorage.getStore();
+                    if (store && store.has('parentJob')) {
+                        parentJob = store.get('parentJob');
+                    }
                 }
 
                 const jobOptions = {
@@ -381,9 +368,9 @@ class QueueManager {
                         id: parentJob.id,
                         queueName: parentJob.queueName
                     }
+                    
+                    logger.debug(`Parent job ${parentJob.id} in ${parentJob.queueName} asked for addjob on ${this.type} - request ${requestId}`, jobData)
                 }
-    
-                logger.debug(`Parent job ${parentJob.id} in ${parentJob.queueName} asked for addjob on ${this.type} - request ${requestId}`, jobData)
     
                 try{
                     parentPort.postMessage(jobOptions);

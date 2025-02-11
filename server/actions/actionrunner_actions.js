@@ -132,9 +132,11 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                                 
                                 logger.info(` --- Created child search ${childSearch.id} / ${childSearch.plainId} found for ${d.id} / ${d.plainId}`)
                                 //const res = await doPrimitiveAction(childSearch, "do_search" )
-                                await QueryQueue().doQuery(childSearch)
-                                console.log(`do_search dispatched for ${childSearch.id}`)
                             }
+                        }
+                        if( childSearch ){
+                            await QueryQueue().doQuery(childSearch)
+                            console.log(`do_search dispatched for ${childSearch.id}`)
                         }
                         
                     }catch(e){
@@ -210,9 +212,19 @@ registerAction( "run_categorizer", undefined, async (primitive, action, options,
                     categoryData = inputs.categories.data
                 }else if( inputs.categories.config === "string"){
                     realignCategoriesToInput = true
-                    categoryData = inputs.categories.data.split(/[,.\n]/).map(d=>d.trim()).filter(d=>d).map(d=>{
+                    let lines 
+                    if( inputs.categories.data.includes("\n") ){
+                        lines = inputs.categories.data.split("\n")
+                    }else if( inputs.categories.data.includes(".") ){
+                        lines = inputs.categories.data.split(".")
+                    }else{
+                        lines = inputs.categories.data.split(",")
+                    }
+                    categoryData = lines.map(d=>d.trim()).filter(d=>d).map(d=>{
+                        const [title, description] = d.split(":")
                         return {
-                            title: d
+                            title,
+                            description
                         }
                     })
                 }

@@ -8,6 +8,10 @@ import ContentEmbedding from "./model/ContentEmbedding";
 import PrimitiveParser from "./PrimitivesParser";
 import { fetchFragmentsForTerm } from "./DocumentSearch";
 import { BaseQueue } from './base_queue';
+import { assessContextForPrompt } from './prompt_helper';
+import { getLogger } from './logger.js';
+
+const logger = getLogger('document_queue', "debug"); // Debug level for moduleA
 
 const parser = PrimitiveParser()
 
@@ -539,7 +543,72 @@ async function doDataQuery( options ) {
                     console.log(`Filtered scepe to ${items.length} without results`)
                 }
                 if(items){
-                    const ids = items?.map(d=>d.id)
+                    let ids = items?.map(d=>d.id)
+
+                    /*const reject = [
+                        "67a5fdd5bdf98485e993d27d",
+                        "67a5fdd4bdf98485e993d277",
+                        "67a34dbb6a8099ad72a0ad23",
+                        "67a34db96a8099ad72a0ad0e",
+                        "67a34d806a8099ad72a0ac53",
+                        "67a34d346a8099ad72a0ab47",
+                        "67a34d326a8099ad72a0ab2c",
+                        "67a34d326a8099ad72a0ab2a",
+                        "67a34d2e6a8099ad72a0aafe",
+                        "67a34d286a8099ad72a0aadf",
+                        "67a34d246a8099ad72a0aab5",
+                        "67a34d1b6a8099ad72a0aa3d",
+                        "67a34d1b6a8099ad72a0aa37",
+                        "67a34b016a8099ad72a0a34d",
+                        "67a34adc6a8099ad72a0a2a0",
+                        "67a34abe6a8099ad72a0a236",
+                        "67a34ab96a8099ad72a0a1de",
+                        "67a34ab86a8099ad72a0a1d8",
+                        "67a34ab76a8099ad72a0a1cb",
+                        "67a34aaf6a8099ad72a0a168",
+                        "67a34aaa6a8099ad72a0a107",
+                        "67a34aa86a8099ad72a0a0ef",
+                        "67a34aa56a8099ad72a0a0cb",
+                        "67a34aa46a8099ad72a0a0bc",
+                        "67a34aa46a8099ad72a0a0b2",
+                        "67a34a806a8099ad72a0a01c",
+                        "67a34a736a8099ad72a09fd0",
+                        "67a34a706a8099ad72a09fa5",
+                        "67a3479d5599e2d4b66362b3",
+                        "67a3479b5599e2d4b663628f",
+                        "67a347955599e2d4b6636231",
+                        "67a347955599e2d4b663622f",
+                        "67a347935599e2d4b6636214",
+                        "67a347925599e2d4b6636204",
+                        "67a346fa5599e2d4b6636145",
+                        "67a346ec5599e2d4b6636102",
+                        "67a346de5599e2d4b66360ac",
+                        "67a346db5599e2d4b6636097",
+                        "67a346d15599e2d4b6636039",
+                        "67a346d15599e2d4b6636032",
+                        "67a346d15599e2d4b663602e",
+                        "67a346d05599e2d4b663602a",
+                        "67a346d05599e2d4b6636023",
+                        "67a3468a5599e2d4b6635f72",
+                        "67a3461f5599e2d4b6635dde",
+                        "67a345fa5599e2d4b6635cc3",
+                        "67a345e75599e2d4b6635c25",
+                        "67a345e65599e2d4b6635c1d",
+                        "67a345e45599e2d4b6635c01",
+                        "67a345e25599e2d4b6635bdd",
+                        "67a345e15599e2d4b6635bd4",
+                        "67a345dd5599e2d4b6635bb9",
+                        "67a345da5599e2d4b6635b8b",
+                        "67a345da5599e2d4b6635b89",
+                        "67a345d45599e2d4b6635b41",
+                        "67a345d25599e2d4b6635b17",
+                        "67a345d15599e2d4b6635b0d",
+                        "67a345d15599e2d4b6635b06",
+                        "67a345d15599e2d4b6635b03"
+                    ]
+                    ids = ids.filter(d=>!reject.includes(d))*/
+
+
                     serachScope.push({foreignId: {$in: ids}})
                     console.log(`Constrained to ${ids.length} items`)
                     if( ids.length === 0){
@@ -556,8 +625,9 @@ async function doDataQuery( options ) {
                         await removePrimitiveById( old.id )
                     }
                 }
-                let query = (await getConfig(primitive))?.query //|| primitive.title
+                let query = config.query 
                 console.log(`GOT QUERY ${query}`)
+
                 
                 let parentInputs = {}
                 const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
@@ -590,6 +660,12 @@ async function doDataQuery( options ) {
                         }
                     }
                 }
+
+                let contextCheck
+                if( config.contextCheck){
+                    contextCheck = await assessContextForPrompt( query )
+                }
+
                 let metadata
                 if( doingExtracts){
                     console.log(`Will extract ${extractTargetCategory.title}`)
@@ -618,16 +694,18 @@ async function doDataQuery( options ) {
                 let results
                 if( query && query.trim().length > 0 ){
 
-                    if( config.fullText ){
+                    if( config.fullText && !config.contextCheck){
                         console.log(`Will use full text`)
                         results = {success: true, allItems: true }
 
                     }else{
                         results = await processPromptOnText( query,{
+                            workspaceId: primitive.workspaceId,
+                            functionName: "query-terms",
                             opener: `You have access to a database of many thousands of text fragments and must answer questions or complete tasks using information in the database.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases. Here is a task or question:`,
                             prompt: `Build a list of ${config?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
                             output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
-                            engine: "gpt4p",
+                            engine: config.engine ?? "gpt-4o",
                             debug: true,
                             debug_content: true,
                             field: "result"
@@ -667,7 +745,7 @@ async function doDataQuery( options ) {
                             `Return the result in a json object called "answer" which is an array containing every part of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found`,
                             includeBasicFields ? `, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in ${targetWords}` : undefined,
                             quote ? `, a 'quote' field containing text used from the fragments (verbatim and in full so i have the complete context)` : undefined,
-                            `, a 'ids' field containing the id numbers of the text fragments (as given to you) used to produce this specific part of the answer (include no more than 10 numbers), and a 'count' field indicating the total number of text fragments used in this part of the answer.`,
+                            `, a 'ids' field containing the id numbers of every text fragment(s) (as given to you) used to produce this specific part of the answer.`,
                             (extraFields ?? "").length > 0 ? extraFields : undefined
                         ].filter(d=>d).join("") + "."
 
@@ -689,13 +767,137 @@ async function doDataQuery( options ) {
                             fragmentList = fragmentList.sort((a,b)=>a.part - b.part).map(d=>({...d.toJSON(), id: d.foreignId}))
                         }
 
+                        
+                        if( contextCheck ){
+                            logger.info(`Need to check context of documents with filter:\n${contextCheck.context_prompt}`)
+                            const sourceInfo = fragmentList.reduce((a,c)=>{
+                                a[c.id] ||= {parts: new Set()}
+                                a[c.id].parts.add( c.part)
+                                return a
+                            }, {})
 
+                            const partCount = await ContentEmbedding.aggregate([
+                                { 
+                                  $match: { foreignId: { $in: Object.keys(sourceInfo) } }
+                                },
+                                { 
+                                  $group: { 
+                                    _id: "$foreignId", 
+                                    maxPart: { $max: "$part" } 
+                                  } 
+                                }
+                              ]);
+                            partCount.forEach(d=>{
+                                if( sourceInfo[d._id]){
+                                    sourceInfo[d._id].maxPart = d.maxPart + 1
+                                    if( sourceInfo[d._id].maxPart === 1){
+                                        sourceInfo[d._id].mode = "keep"
+                                    }else{
+                                        if( sourceInfo[d._id].maxPart > 10 ){
+                                            sourceInfo[d._id].mode = 10
+                                        }else{
+                                            sourceInfo[d._id].mode = "full"
+                                        }
+                                    }
+                                }
+                            })
+
+                            logger.debug(`${Object.keys(sourceInfo).length} documents for ${fragmentList.length} fragments`)
+                            async function inspectForContext( id ){
+                                let sourceFragments = await ContentEmbedding.find({foreignId: id},{foreignId:1, part:1, text: 1})
+                                let fragmentsForScan = sourceInfo[id].mode === "start" ? sourceFragments.filter(d=>d.part < sourceInfo[id].mode) : sourceFragments
+                                let source  = fragmentsForScan.sort((a,b)=>a.part - b.part).map(d=>d.text).join("\n")
+                                console.log(`${id} => ${sourceFragments.length} / ${fragmentsForScan.length} / ${source.length}`)
+
+                                const relevanceCheck = await processPromptOnText( source,{
+                                    workspaceId: primitive.workspaceId,
+                                    functionName: "query-context",
+                                    opener: `here is some data from a docuemnt: <document>`,
+                                    prompt: `</document>\n${contextCheck.context_prompt}`,
+                                    output: `Return your response in a json object called 'assessment' with the following structure:
+                                        {
+                                            relevance:[how relevant the document is - one of: high, medium-high, medium, medium-low, or low]
+                                            rationale:[a 30 word summary of your assessment]
+                                        }`.replaceAll(/\s+/g," "),
+                                    engine: "gpt4o-mini",
+                                    debug: false,
+                                    debug_content: false,
+                                    field: "assessment"
+                                })
+                                if( config.fullText ){
+                                    sourceInfo[id].fragments = sourceFragments.sort((a,b)=>a.part - b.part)
+                                }
+
+                                if( relevanceCheck.success ){
+                                    sourceInfo[id].relevance = relevanceCheck.output[0]?.relevance
+                                    sourceInfo[id].rationale = relevanceCheck.output[0]?.rationale
+                                }
+                            }
+                            const forInspection = config.fullText ? Object.keys(sourceInfo) : Object.keys(sourceInfo).filter(d=>sourceInfo[d].mode !== "keep")
+                            console.log(`Inspecting ${forInspection.length}`)
+
+                            await executeConcurrently( forInspection, inspectForContext)
+                            
+                            Object.keys(sourceInfo).forEach(d=>{
+                                logger.debug(`${d} => ${sourceInfo[d].parts.size} parts used of ${sourceInfo[d].maxPart} [${sourceInfo[d].mode}] ${sourceInfo[d].relevance} ${sourceInfo[d].rationale}`)
+                            })
+                            for(const score of ["low", "medium-low","medium","medium-high","high"]){
+                                logger.debug(`${score}: ${Object.values(sourceInfo).filter(d=>d.relevance === score).length}`)
+                            }
+                            const toRemove = ["low", "medium-low","medium"]
+                            const removeIds = new Set(forInspection.filter(d=>toRemove.includes(sourceInfo[d].relevance)))
+                            logger.info(`Will remove ${removeIds.size} documents`)
+
+
+                            if( config.fullText ){
+                                const sourceIds = Object.keys(sourceInfo).filter(d=>!removeIds.has(d) )
+                                console.log(`For full doc, will construct ${sourceIds.length} documents`)
+                                fragmentList = sourceIds.map(id=>{
+                                    if( sourceInfo[id].mode === "full" || sourceInfo[id].mode === "keep"){
+                                        const text = sourceInfo[id].fragments.map(d=>d.text).join("\n").replaceAll("\n"," ").replaceAll(/\s+/g," ")
+                                        return {
+                                            id: id,
+                                            text
+                                        }
+                                    }else{
+                                        const BZ = 5
+                                        const fragmentSets = Object.values([...(new Set(sourceInfo[id].parts))].reduce((a,c)=>{
+                                            let startId = Math.max(Math.floor((c - BZ) / BZ) * BZ,0)
+    
+                                            if (startId > BZ && (c - startId < (BZ / 2))) {
+                                                startId -= BZ;
+                                            }
+                                        
+                                            if(!a[startId]){
+                                                const s = startId
+                                                a[startId]=[s, s + (BZ * 2)- 1]
+                                            }
+                                            return a
+                                        },{}))
+                                        console.log(fragmentSets)
+                                        return fragmentSets.map(bracket=>{
+                                            const text = sourceInfo[id].fragments.slice(bracket[0], bracket[1]).map(d=>d.text).join("\n").replaceAll("\n"," ").replaceAll(/\s+/g," ")
+                                            return {
+                                                id: id,
+                                                text
+                                            }
+                                        })
+
+                                        
+                                    }
+                                }).flat(Infinity)
+                                console.log(`Rebuilt fragment list to full doc`)
+
+                            }else{
+                                fragmentList = fragmentList.filter(d=>!removeIds.has(d.id) )
+                                console.log(`Filtered to ${fragmentList.length} for relevance`)
+                            }
+                        }
+                        //const identicalFragments = Object.values(Object.values(fragmentList).reduce((a,c)=>{a[c.score]||=[];a[c.score].push(c);return a},{})).filter(d=>d.length >1)
                         const fragmentText = fragmentList.map(d=>d.text)
 
 
-
-
-                        const results = await processPromptOnText( fragmentText,{
+                        /*const results = await processPromptOnText( fragmentText,{
                             opener:  doingExtracts ? "Here is a list of numbered items to process" : `Here is a list of numbered text fragments you can use to answer a question `,
                             prompt: `Using only the information explcitly provided in the text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer.`,
                             output: outPrompt,
@@ -706,96 +908,30 @@ async function doDataQuery( options ) {
                             batch:  doingExtracts ? 20 : undefined, 
                             idField: "ids",
                             debug: true,
-                           debug_content: false,
+                           debug_content: true,
+                            field: "answer"
+                        })*/
+                        const results = await processPromptOnText( fragmentText,{
+                            workspaceId: primitive.workspaceId,
+                            functionName: "query-runquery",
+                            opener:  doingExtracts ? "Here is a list of numbered items to process" : `Here is a list of numbered text fragments you can Here is a task i will ask you to perform:<task>${query}</task>\n<fragments>`,
+                            prompt: `</fragments>\nInstructions:\n1) Review the provided data and filter out anything that is not relevant to the task\n2) Using only the information explicitly provided in the filtered text fragments answer the complete the task above. Ensuring you use all relevant information i've provided to give a comprehensive answer`,
+                            output: outPrompt,
+                            no_num: false,
+                            maxTokens: 40000,
+                            temperature: 1,
+                            markPass: true,
+                            batch:  doingExtracts ? 20 : undefined, 
+                            engine: config.engine ?? "gpt-4o",
+                            idField: "ids",
+                            debug: true,
+                           debug_content: true,
                             field: "answer"
                         })
-                        //console.log(results.output)
                         console.log(`For ${options.inheritValue} for ${results.output?.length} for ${fragmentList.length}`)
                         if( results.success && Array.isArray(results.output)){
                             results.output = results.output.filter(d=>d.answered)
-                            let final
-                            const needsCompact = !doingExtracts && options.compact && results.output.map(d=>d._pass).filter((d,i,a)=>a.indexOf(d)===i).length > 1
-                            if( needsCompact ){
-                                final = []
-                                console.log(`Need to dedupe multi-pass answer`)
-                                const toProcess = results.output.map((d,idx)=>JSON.stringify({
-                                    id: idx,
-                                    title: d.title,
-                                    pass: d._pass,
-                                    description: d.answer
-                                }))
-
-                                const compact = await processPromptOnText( toProcess,{
-                                    opener: `here is a json array containing the results from a query.`,
-                                    prompt: `Analyze the entries to identify groups of entries which can be combined together based upon the similarity of topics as detailed in the 'description' and 'title' fields. Combine only those entries that are very similar, ensuring that nuances of different entries are kept.  Only combine entries that have a different 'pass' field and ensure any entry that is combined is combined with the best fitting other entries.`,
-                                    output: `Generate a new json object with a field called 'output' which is an object with a 'existing' field containing an array of ids of the entries that are not being combined, and a 'new' field containing a list of new entries with each entry containing a 'description' field with a new description that combines all of the descriptions of the entries that are being combined to make the new entry, an 'overview' field containing a summary of new description in no more than 20 words, and an 'ids' field containing the ids of the original entries that have been merged into the new entry.  Ensure that all entries from the original list are included in the either the existing field or in one of the new entries.`,
-                                    engine: "gpt4p",
-                                    no_num: false,
-                                    temperature:1,
-                                    maxTokens: 80000,
-                                    markPass: true,
-                                    field: 'output',
-                                    debug: true,
-                                    debug_content: false,
-                                })
-                                if( compact.success && compact.output){
-                                    const updates = compact.output[0]
-                                    if(updates.existing){
-                                        for( const id of updates.existing){
-                                            final.push( results.output[id] )
-                                        }
-                                    }
-                                    if(updates.new){
-                                        for( const remap of updates.new){
-                                            if( remap.ids ){
-                                                const merge = remap.ids.map(id=>results.output[id] )
-                                                let keys = merge.map(d=>Object.keys(d)).flat().filter((d,i,a)=>a.indexOf(d)===i)
-                                                keys = keys.filter(d=>metadataItems.includes(d))
-                                                keys.push("ids")
-
-
-                                                const mappedSub = keys.reduce((a,c)=>{
-                                                    const allItems = merge.map(d=>d[c]).flat().filter(d=>d)
-                                                    a[c] = allItems.filter((d,i,a)=>d instanceof Object ? true : a.findIndex(d2=>isNaN(d) ? d.toLowerCase() === d2.toLowerCase() : d === d2)===i)
-                                                    return a
-                                                },{})
-
-                                                const item = {
-                                                    answer: remap.description,
-                                                    overview: remap.overview,
-                                                    ...mappedSub
-                                                }
-                                                final.push( item )
-                                            }
-                                        }
-                                    }
-                                    console.log(`Have ${final.length} after merge`)
-                                }else{
-                                    throw "Error consolidating items"
-                                }
-
-                            }else{
-                                final = results.output
-                            }
-                            if( !doingExtracts && (options.consolidate || config.consolidate)){
-                                const partials = JSON.stringify(final.filter(d=>d.answered).map(d=>({partial: d.answer, ids: d.ids})))
-                                console.log(`Consolidating.....`, partials)
-                                const results = await processPromptOnText(partials ,{
-                                    opener: `Here is a JOSN structure holding partial responses to a question - each partial includes a 'partal' string and a list of ids in 'ids'`,
-                                    prompt: `Consolidate the partial responses based on the questions or topics they are answering to produce an answer to following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer but be concise in your phrasing and the level of detail.`,
-                                    output: `Return the result in a json object called "answer" which is an array containing one or more parts of your answer.  If the task stupulates a single summary, paragraph (or equivalent) then there shoud be only one part. Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was present in the partials, an 'answer' field containing a consolidated and comprehensive answer from those partials in the format specified above, and an 'ids' field containing a consolidated list of ids from the partials used to form the consolidated answer`,
-                                    engine: "gpt4p",
-                                    no_num: false,
-                                    maxTokens: 60000,
-                                    temperature: 1,
-                                    markPass: true,
-                                    idField: "ids",
-                                    debug: true,
-                                    field: "answer"
-                                })
-                                final = results.output?.filter(d=>d.answered)
-
-                            }
+                            let final = results.output
 
                             for( const d of final){
                                 console.log(`--- Consolidating`)

@@ -130,9 +130,9 @@ class BDQueueClass extends BaseQueue{
             text:"Awaiting results", 
             ...options
         }
-        const delay = (reschedule ? 45 : 2) * 1000
+        const delay = (reschedule ? 45 : 0.5) * 1000
 
         console.log(`Schedule checkin in ${delay / 1000}s`)
-        await this.addJob(workspaceId, {id: primitiveId, ...data, field}, { delay, reschedule })
+        await this.addJob(workspaceId, {id: primitiveId, ...data, field}, { delay, reschedule, parent: options.parent })
     }
 }

@@ -1,4 +1,4 @@
-import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findPrimitiveOriginParent, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
+import { addRelationship, addRelationshipToMultiple, buildContext, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findPrimitiveOriginParent, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
@@ -1215,11 +1215,18 @@ export async function processQueue(job){
                 if( items.length === 0 ){
                     data =["No data - just look at the prompt"]
                 }else{
-                    if( config.field === "title"){
-                        data = items.map(d=>d.title)
+                    if( config.field === "context" || !config.field){
+                        data = []
+                        for(const d of items){
+                            data.push( await buildContext(d))
+                        }
                     }else{
-                        let field = config.field?.startsWith("param.") ? config.field.slice(6) : config.field
-                        data = items.map(d=>decodePath(d.referenceParameters, field))
+                        if( config.field === "title"){
+                            data = items.map(d=>d.title)
+                        }else{
+                            let field = config.field?.startsWith("param.") ? config.field.slice(6) : config.field
+                            data = items.map(d=>decodePath(d.referenceParameters, field))
+                        }
                     } 
                 }
                 let prompt = config.prompt
@@ -1273,7 +1280,7 @@ export async function processQueue(job){
                                     console.log(`--- Finding config parent`)
                                     const configParent = await getConfigParentForTerm(primitive, "prompt")
                                     if( configParent ){
-                                        const revised = await reviseUserRequest(config.prompt)
+                                        const revised = await reviseUserRequest(config.prompt, config)
                                         const toStore = {
                                             structure: revised,
                                             cache: config.prompt
@@ -1286,16 +1293,16 @@ export async function processQueue(job){
                                 result = await summarizeWithQuery(primitive)
                                 if( result ){
                                     dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
-                                    const linkIds = result.sourcePrimitives?.map(d=>d.id) ?? []
-                                    const existingLinks = primitive.primitives.link ?? []
+                                    const linkIds = result.sourceIds ?? []
+                                    const existingLinks = primitive.primitives.source ?? []
                                     const toRemove = existingLinks.filter(d=>!linkIds.includes(d))
                                     const toAdd = linkIds.filter(d=>!existingLinks.includes(d))
                                     
                                     if( toRemove.length > 0 ){
-                                        await removeRelationshipFromMultiple( primitive.id, toRemove, "source")
+                                        await removeRelationshipFromMultiple( primitive.id, toRemove, "source", primitive.workspaceId)
                                     }
                                     if( toAdd.length > 0 ){
-                                        await addRelationshipToMultiple( primitive.id, toAdd, "source")
+                                        await addRelationshipToMultiple( primitive.id, toAdd, "source", primitive.workspaceId)
                                     }
                                     result = result.plain
                                 }
@@ -1359,28 +1366,41 @@ export async function processQueue(job){
             if( job.data.mode === "mark_categories" || job.data.mode === "categorize" ){
                 try{
 
+                    const primitiveConfig = await getConfig(primitive)
+
                     const sources = await fetchPrimitives(job.data.targetId)
                     if( !sources.length === 0  ){
                         return
                     }
                     let scope = job.data.action.scope
 
-                    if( primitive.referenceParameters?.pivot){
+                    if( primitiveConfig?.pivot){
                         const scopePrims = await fetchPrimitives( scope )
                         scope = []
                         for( const d of scopePrims){
-                            const p = await primitiveListOrigin( [d], primitive.referenceParameters.pivot, undefined, "ALL")
+                            const p = await primitiveListOrigin( [d], primitiveConfig.pivot, undefined, "ALL")
                             if( p ){
                                 scope.push( p)
                             }
                         }
-                        //scope = await multiPrimitiveAtOrginLevel( await fetchPrimitives( scope ), primitive.referenceParameters.pivot, "ALL")
+                        //scope = await multiPrimitiveAtOrginLevel( await fetchPrimitives( scope ), primitiveConfig.pivot, "ALL")
                         console.log(`Shifted scope by pivot to ${scope.length}`)
                         scope = scope.flat().map(d=>d.id)
                     }
-                    let list = [], data = []
+                    let list = [], data = [], redoContext = false
                     for(const source of sources){
-                        let [_list, _data] = await getDataForProcessing(primitive, job.data.action, source)
+                        const action = job.data.action ?? {}
+                        let configSource
+                        if( job.data.action.scope ){
+                            configSource = await getConfig(primitive)
+                            if( configSource.field === "context"){
+
+                                logger.debug(`Override context field for scope`)
+                                configSource.field = "title"
+                                redoContext = true
+                            }
+                        }
+                        let [_list, _data] = await getDataForProcessing(primitive, action, source, {config: configSource})
                         console.log(`got ${list.length} / ${data.length} from ${source.id} - ${source.title}`)
                         list = list.concat(_list)
                         data = data.concat(_data)
@@ -1393,6 +1413,15 @@ export async function processQueue(job){
                             throw "MISMATCH ON FILTER FOR SCOPE"
                         }
                         console.log(`Filtered to ${list.length} for scope`)
+                        if( redoContext ){
+                            data = []
+                            const refIds = list.map(d=>d.referenceId)
+                            const refCats = await Category.find({id: {$in: refIds}})
+                            logger.debug(`Building context for ${list.length} items / ${refCats.length} categories`)
+                            for(const d of list){
+                                data.push(await buildContext(d, refCats.find(d2=>d2.id === d.referenceId)))
+                            }
+                        }
                     }
                     const targetCatIds = list.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
                     if( targetCatIds.length > 1){
@@ -1401,7 +1430,7 @@ export async function processQueue(job){
                     const targetCatgeory = await Category.findOne({id: targetCatIds[0]})
                     let targetConfig
                     if( targetCatgeory ){
-                        const parts = primitive.referenceParameters?.field?.split(".") ?? ["title"]
+                        const parts = primitiveConfig?.field?.split(".") ?? ["title"]
                         const lastField = parts.pop()
                         targetConfig = targetCatgeory.ai?.categorize?.[lastField]
                     }
@@ -1414,8 +1443,8 @@ export async function processQueue(job){
                                 let catData
                                 let itemType
                                 if( targetCatgeory ){
-                                    if( primitive.referenceParameters?.field ){
-                                        const field = primitive.referenceParameters?.field?.match(/param\.(.+)/)?.[1]
+                                    if( primitiveConfig?.field ){
+                                        const field = primitiveConfig?.field?.match(/param\.(.+)/)?.[1]
                                         if( field && targetCatgeory.parameters[field] ){
                                             itemType = targetCatgeory.parameters[field].description
                                         }
@@ -1424,16 +1453,16 @@ export async function processQueue(job){
                                     }
                                     console.log(`Type = ${itemType}`)
                                 }
-                                let literal = primitive.referenceParameters?.literal
+                                let literal = primitiveConfig?.literal
                                 if( action.alternative){
-                                    let types = itemType ?? primitive.referenceParameters?.types ?? action.aiConfig?.[primitive.referenceParameters?.field]?.types ??  "problem statement"
+                                    let types = itemType ?? primitiveConfig?.types ?? action.aiConfig?.[primitiveConfig?.field]?.types ??  "problem statement"
                                     const task = await primitiveTask( primitive)
-                                    const theme = (primitive.referenceParameters?.cat_theme && primitive.referenceParameters?.cat_theme.trim().length > 0 ? primitive.referenceParameters?.cat_theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics
-                                    const minClusters = primitive.referenceParameters?.count || action.count || 8
+                                    const theme = (primitiveConfig?.cat_theme && primitiveConfig?.cat_theme.trim().length > 0 ? primitiveConfig?.cat_theme : undefined ) ?? action?.theme ?? task?.referenceParameters?.topics
+                                    const minClusters = primitiveConfig?.count || action.count || 8
                                     const result = await analyzeForClusterPhrases( data, {
-                                        //type:primitive.referenceParameters?.listType, 
+                                        //type:primitiveConfig?.listType, 
                                         type: types,
-                                        focus: primitive.referenceParameters?.cat_theme,
+                                        focus: primitiveConfig?.cat_theme,
                                         batch: 500,
                                         theme: theme,
                                         literal,
@@ -1451,16 +1480,16 @@ export async function processQueue(job){
                                 }else{                            
                                     
                                     
-                                    let types = itemType ?? targetConfig?.build?.type ?? primitive.referenceParameters?.dataTypes ?? action.dataTypes
-                                    let theme = primitive.referenceParameters?.cat_theme ?? targetConfig?.build?.theme ?? action.theme
+                                    let types = itemType ?? targetConfig?.build?.type ?? primitiveConfig?.dataTypes ?? action.dataTypes
+                                    let theme = primitiveConfig?.cat_theme ?? targetConfig?.build?.theme ?? action.theme
                                     
                                     catData = await buildCategories( data, {
-                                        count: primitive.referenceParameters?.count ,
+                                        count: primitiveConfig?.count ,
                                         types: types, 
                                         themes: theme, 
                                         literal,
                                         batch: 500,
-                                        engine:  primitive.referenceParameters?.engine || action.engine,
+                                        engine:  primitiveConfig?.engine || action.engine,
                                         debug: true,
                                         debug_content: true}
                                         )
@@ -1480,7 +1509,7 @@ export async function processQueue(job){
                                                 paths: ['origin'],
                                                 data:{
                                                     type: "category",
-                                                    referenceId: primitive.referenceParameters?.resultCategory || action.resultCategory,
+                                                    referenceId: primitiveConfig?.resultCategory || action.resultCategory,
                                                     title: cat.t,
                                                     referenceParameters:{
                                                         description: cat.d
@@ -1524,9 +1553,7 @@ export async function processQueue(job){
                                 }
 
                                 const categoryList = catOptions.map((d)=>`${d.title}${d.referenceParameters?.description ? `: ${d.referenceParameters?.description}` : ""}`)
-                                const categoryIds = catOptions.map((d)=>d._id.toString())
                                 
-                                const removeUpdate = []
                                 console.log(`Removing existing mappings`)
                                 const listIds = list.map(d=>d.id)
                                 for(const category of catOptions){
@@ -1534,290 +1561,25 @@ export async function processQueue(job){
                                     const toClear = pp.uniqueAllIds.filter(d=>listIds.includes(d))
                                     console.log(`Category ${category.title} -> ${toClear.length}`)
                                     await removeRelationshipFromMultiple( category.id, toClear, "ref", category.workspaceId)
+                                    if( category.rationale ){
+                                        const rationale = category.rationale
+                                        for(const d of toClear){
+                                            delete rationale[d]
+                                        }
+                                        category.rationale =rationale 
+                                        dispatchControlUpdate(category.id, "rationale", rationale)
+                                    }
                                 }
 
-                                const scoreMap = {
-                                    "strongly": 4, 
-                                    "clearly": 3,
-                                    "somewhat": 2, 
-                                    "hardly": 1, 
-                                    "not at all": 0}
                                 let categoryAlloc
                                 let resultMap
-                                if( pCategory?.mapMode === "content" ){
-                                    const search = []
-                                    const toProcess = list//.slice(0,10)
-
-                                    const missing = toProcess.filter(d=>!d.indexReady)
-                                    console.log(`${missing.length} to add to index first`)
-                                    let left = missing.length
-                                    for(const d of missing ){
-                                        const id = d._id.toString()
-                                        let mark = true
-                                        console.log(`indexing ${left--}`)
-                                        const text = (await getDocumentAsPlainText(id))?.plain
-                                        if( text && text.length > 0){
-                                            mark = await indexDocument(id, text ?? "", primitive.workspaceId)
-                                        }
-                                        if( mark ){
-                                            await Primitive.updateOne({_id: id},{$set:{indexReady: true}})
-                                        }
-                                    }
-
-                                    for(const category of catOptions){
-                                        const result = await searchFiles(category.title, primitive.workspaceId)
-                                        console.log(category.title, result)
-                                        if( result ){
-                                            for(const id of result){
-                                                await addRelationship( category._id.toString(), id, "ref")
-                                            }
-                                        }
-                                    }
-                                    categoryAlloc = false
-
-                                }else if( pCategory?.mapMode === "embedding" ){
-                                    categoryAlloc = false
-                                    console.log(`Process by embeddings`)
-                                    const ids = list.map(d=>d.id)
-                                    const catEmbeddings = await buildEmbeddingsForPrimitives( catOptions )
-                                    const scores = {}
-                                    let field = primitive.referenceParameters.field ?? "title" 
-                                    const threshold = primitive.referenceParameters?.threshold ?? 0.9
-                                    await buildEmbeddingsForPrimitives( list, field  )
-                                    let idx = 0, batch = 1000
-
-                                    let parts = field.split(".")
-                                    if( parts.length > 1 ){
-                                        field = parts[1]
-                                    }
-
-                                    do{
-                                        const scope = list.slice(idx, idx + batch).map(d=>d.id)
-                                        const searchTerms = Math.min(scope.length * 2, 10000) 
-                                        console.log(`Doing in batches of ${batch} from ${idx}`)
-                                        for( const candidate of catEmbeddings ){
-                                            const thisCategory = catOptions.find(d=>d.id === candidate.foreignId)
-                                            console.log(`Semantic query: ${thisCategory?.title} / ${searchTerms}`)
-                                            const matches = await Embedding.aggregate([
-                                                {"$vectorSearch": {
-                                                "queryVector": candidate.embeddings,
-                                                "path": "embeddings",
-                                                "filter": {$and: [
-                                                        {
-                                                            type: field
-                                                        },{
-                                                            foreignId: {$in: scope}
-                                                        }
-                                                ]},
-                                                "numCandidates": Math.min(searchTerms * 15, 10000),
-                                                "limit": searchTerms,
-                                                "index": "vector_index",
-                                                    }
-                                                },
-                                                {
-                                                "$project": {
-                                                    "_id": 0,
-                                                    "foreignId": 1,
-                                                    "score": { $meta: "vectorSearchScore" }
-                                                }
-                                                }
-                                            ])
-                                            console.log(`-- got ${matches.length} matches`)
-                                            for(const result of matches){
-                                                if( result.score > threshold ){
-                                                    console.log(result.foreignId, result.score, scores[result.foreignId], thisCategory.title?.slice(0,20))
-                                                    if( (scores[result.foreignId] === undefined) || (result.score > scores[result.foreignId].score) ){
-                                                        scores[result.foreignId] = {score: result.score, id: thisCategory.id}
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        idx += batch
-                                    }while(idx < list.length)
-
-                                    for(const d in scores){
-                                        console.log(`setting ${d} to ${scores[d].id}`)
-                                        if( d && scores[d].id){
-                                            await addRelationship( scores[d].id, d, "ref")
-                                        }
-                                    }
-                                }else if( pCategory?.mapMode === "children" ){
-                                    categoryAlloc = []
-                                    resultMap = {}
-                                    console.log(`MAP BY CHILDREN`)
-                                    let catId = 0
-                                    let summary = []
-                                    let isProblemStatement = false
-                                    const sourceType = (primitive.referenceParameters?.source_type ?? action.source_type)?.trim() ?? ""
-                                    const customerType = (primitive.referenceParameters?.customer_focus ?? action.customer_focus)?.trim()
-                                    if( sourceType.length === 0){
-                                        throw "Need a source type description to run"
-                                    }
-                                    let mutableList = list
-                                    if( customerType && customerType.length > 0){
-                                     //   throw "Need a customer type description to run"
-                                        
-                                        mutableList = list.filter(d=>d.referenceParameters?.customers)//.slice(0,50)
-                                        
-                                        // Pass 1 - remove entities that are not relevant for mapping
-                                        console.log(`Have ${mutableList.length} entities to process`)
-                                        const result = await analyzeListAgainstItems( mutableList.map(d=>d.referenceParameters.customers), undefined, {
-                                            opener:"I have a list of companies, here are the customers each serves",
-                                            engine:  primitive.referenceParameters?.engine || action.engine,
-                                            prompt: `For each item in the list determine if the associated company serves ${customerType} `,
-                                            response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the company, a boolean 's' indicating if the company serves ${customerType}, and a 'r' field explaining your rationale in 10 words or less.`,
-                                            asScore: true,
-                                            batch: 100,
-                                            temperature:1,
-                                            engine: 'gpt4p',
-                                            debug: true, debug_content: true
-                                        } )
-                                        console.log( result)
-                                        if( result.success && result.output){
-                                            mutableList = mutableList.filter((d,idx)=>result.output.find(d=>d.i === idx)?.s)
-                                            console.log(`Now have ${mutableList.length} entities to process`)
-                                        }
-                                    }
-
-                                    for(const category of catOptions){
-                                        const title = categoryList[catId]
-                                        console.log(`Checking for ${category.plainId} - ${title}`)
-                                        let directs = (await primitivePrimitives(category, "ref", "evidence"))
-                                        console.log(`-- have ${directs.length} children`)
-
-                                        let attempts = 4
-                                        async function consolidate(){
-                                            console.log(`Too many items - consolidating attempt ${attempts} remanining`)
-                                            const response = await processPromptOnText( directs.map(d=>d.title), {
-                                                opener: "Here are a list of problem statements",
-                                                prompt: "Create a new list of no more than 50 problem statements by removing duplicates and synthezising the most significant and recurring problems, whilst being careful to not lose important details or nuance from the originals. Each new item should be about 20-30 words max and be of the form 'It sucks that....'.",
-                                                output: "Provide the result as a json object called 'results' containing an array of the new problem statements",
-                                                engine: "gpt3",
-                                                batch: 300
-                                            })
-                                            if( response?.success ){
-                                                directs = response.output.map(d=>({title:d}))
-                                                console.log(`Got ${directs.length} consolidated problems`)
-                                            }else{
-                                                throw "Couldnt rationalize list"
-                                            }
-                                        }
-                                        let consoldiated = false
-                                        while( directs.length > 50 && attempts > 0){
-                                            consoldiated = true
-                                            await consolidate()
-                                            attempts--
-                                        }
-                                        const directLength = directs.length
-
-                                        const process = async (entity, itemId)=>{
-                                            console.log(`Test ${itemId} [${entity.plainId}]`)
-                                            let d = ""
-                                            for(const field of ["description","offerings"]){
-                                                if(entity.referenceParameters?.[field]){
-                                                    d += `\n${field}: ${entity.referenceParameters?.[field]}.`
-                                                }
-
-                                            }
-                                            if( d.length === 0){
-                                                return 
-                                            }
-
-                                            const result = await analyzeListAgainstItems( directs.map((d)=>d.title), d, {
-                                                opener: `Here are a list of ${sourceType} faced by ${customerType ?? "customers"}`,
-                                                engine:  primitive.referenceParameters?.engine || action.engine,
-                                                descriptionType: " a company",
-                                                prompt2: `For each problem in the list, assess if the problem is solved by the company based on what is stated in the overview.`,
-                                                response: `Provide the result as a json object with an array called 'result' which contains an object with the following fields: an 'i' field containing the number of the problem statement, a boolean 's' indicating if it is clear that the problem is solved for customers of the company, and a 'r' field explaining your rationale in 10 words or less.`,
-                                                postfix: "END OF LIST",
-                                                asScore: true,
-                                                batch:25,
-                                                temperature:1,
-                                                engine: 'gpt4p',
-                                                debug: true, debug_content: true
-                                            } )
-                                            if( result.success ){
-
-                                                const filtered = result.output.filter(d=>d.s )
-                                                const passed = filtered.length
-                                                let alignment = primitive.referenceParameters?.alignment ?? (consoldiated ? 0.25 : 0.1)
-                                                if( directLength > 100 ){
-                                                    alignment *= 0.5
-                                                }
-                                                
-                                                const threshold = Math.floor(directLength * alignment)
-                                                console.log(`met ${passed} vs ${directLength} (threshold = ${alignment} = ${threshold})`)
-                                                if( passed >= threshold ){
-                                                    await addRelationship( category.id, entity.id, 'ref')
-                                                }
-                                            }
-                                        }
-                                        await executeConcurrently( mutableList, process)
-                                    }
-                                    return
-                                }else if( pCategory?.mapMode === "extract_score"){
-                                    let extractField = primitive.referenceParameters.extract
-                                    let conditions = "high, medium, low, unclear"//primitive.referenceParameters.conditions
+                                if( pCategory?.mapMode === "evaluate" ){
                                     let opener = "Here is a list of items"
-                                    if( primitive.referenceParameters.conditions){
-                                        opener = `And here is a list of items `
-                                    }
-                                    const categoryLabels = ["unclear", "low", "medium", "high"]
-                                    const missing = categoryLabels.filter(d=>!catOptions.map(d=>d.title).includes(d))
-
-                                    console.log(`Need to create ${missing.join(",")}`)
-                                    for(const d of missing){
-                                        const newCat = await createPrimitive({
-                                            workspaceId: primitive.workspaceId,
-                                            parent: primitive.id,
-                                            data:{
-                                                type: "category",
-                                                title: d
-                                            }
-                                        })
-                                        if( newCat ){
-                                            catOptions.push(newCat)
-                                        }
-                                    }
-
-                                    let prompt = `Examine each entry and extract the value ${extractField}${conditions ? ` - limit the extraction to one of ${conditions}` : ""}`
-                                    const result = await processPromptOnText( data, {
-                                        opener,
-                                        prompt,
-                                        output: "Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed, a field called 'value' set to the etxracted field for that item, and a quote field conatining upto 12 words verbatim from where you extracted the text.  Do not include anything other than the json object in the response.",
-                                        engine: "gpt4p",
-                                        debug: true,
-                                        no_num: false,
-                                        debug_content: true,
-                                        batch: 50
-                                    })
-                                    console.log(result)
-                                    
-                                    const resultCache = catOptions.reduce((a,c)=>{a[c.title] = {ids: [], categoryId: c.id}; return a}, {} )
-                                    if( result.success ){
-                                        for(const d of result.output){
-                                            const item = list[d.id]
-                                            let category = d.value?.toLowerCase ? resultCache[d.value.toLowerCase()] : undefined
-                                            if( !category ){
-                                                console.log(`WARN: couldnt align`, d)
-                                            }
-                                            if( item && category){
-                                                category.ids.push(item.id)
-                                            }
-                                        }
-                                    }
-                                    for( const d of Object.keys(resultCache)){
-                                        console.log(`Setting ${d} -> ${resultCache[d].ids.length} items`)
-                                        await addRelationshipToMultiple(resultCache[d].categoryId, resultCache[d].ids, 'ref', primitive.workspaceId)
-                                    }
-                                    throw "done"
-                                }else if( pCategory?.mapMode === "evaluate" || pCategory?.mapMode === "distance"){
-                                    let opener = "Here is a list of items"
-                                    if( ! primitive.referenceParameters.evaluation){
+                                    if( ! primitiveConfig.evaluation){
                                         throw "Nothing to evaluate"
                                     }
-                                    if( primitive.referenceParameters.conditions){
-                                        opener = `Here is some context about a task you will perform: ${primitive.referenceParameters.conditions}.\n\nAnd here is the information for you to assess.`
+                                    if( primitiveConfig.conditions){
+                                        opener = `Here is some context about a task you will perform: ${primitiveConfig.conditions}.\n\nAnd here is the information for you to assess.`
                                     }
                                     const categoryLabels = pCategory?.mapMode === "distance" ? ["unclear", "current", "adjacent","middle","far"] : ["not at all", "possibly", "likely", "clearly"]
                                     const missing = categoryLabels.filter(d=>!catOptions.map(d=>d.title).includes(d))
@@ -1838,32 +1600,57 @@ export async function processQueue(job){
                                     }
 
 
-                                    let runInBatch = (primitive.referenceParameters?.field ?? action.field) !== "context"
+                                    let runInBatch = (primitiveConfig?.field ?? action.field) !== "context"
 
-                                    let prompt = pCategory?.mapMode === "distance" ? `Using only the information provided, evaluate how close it is to the baseline described on a scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
-                                                                                    : `Using only the information provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitive.referenceParameters.evaluation}`
+                                    let prompt
+                                    if( runInBatch ){
+                                        prompt = `For each numbered item in turn - and using only the information provided for that item - undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitiveConfig.evaluation}`
+                                    }else{
+                                        prompt = `Using only the information provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitiveConfig.evaluation}`
+                                    }
+                                
+
                                                                                     
                                     const raw_result = await processPromptOnText( data, {
+                                        workspaceId: primitive.workspaceId,
+                                        functionName:"categorize_evaluate",
                                         opener,
+                                        output: runInBatch ? "Be very careful in your assessment. Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed, a 'ratonale' field with a 10 word explanation for your assessment, and a field called 'likelihood' set to your assessment for that item.  Do not include anything other than the json object in the response."
+                                                            : `Provide the result as a json object called 'results' waith the following structure: 
+                                                    {likelihood:<<your assessment for this item using the scale provided>>, ratonale:<<10 word explanation for your assessment>>}`,
+                                        field: "results",
                                         prompt,
-                                        output: runInBatch ? "Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed and a field called 'likelihood' set to your assessment for that item.  Do not include anything other than the json object in the response."
-                                                            : `Provide the result as a json object with the following structure: 
-                                                    {likelihood:<<your assessment for this item using the scale provided>>}`,
-                                        field: runInBatch ? "results" : 'likelihood',
-                                        engine: "gpt4p",
-                                        debug: true,
+                                        engine: primitiveConfig.engine ?? "gpt4p",
+                                        debug: false,
+                                        markup: "items",
                                         no_num: !runInBatch,
-                                        debug_content: true,
+                                        debug_content: false,
                                         batch: runInBatch ? 50 : 1,
+                                        progressCallback:(status)=>{
+                                            dispatchControlUpdate(primitive.id, job.data.field + ".progress", status.completed / status.total , {track: primitive.id})
+                                        }
                                         //batch: 1
                                     })
-                                    console.log(raw_result)
-                                    const resultCache = catOptions.reduce((a,c)=>{a[c.title] = {ids: [], categoryId: c.id}; return a}, {} )
+                                    const resultCache = catOptions.reduce((a,c)=>{a[c.title] = {ids: [], categoryId: c.id, rationale: c.rationale ?? {}}; return a}, {} )
                                     if( raw_result.success ){
-                                        const result = runInBatch ? raw_result.output : raw_result.output.map((d,idx)=>({id: idx, likelihood: d}))
+                                        const result = runInBatch ? raw_result.output : raw_result.output.map((d,idx)=>({id: idx, ...d}))
+
+                                        result.forEach((d)=>{
+                                            if( !resultCache[d.likelihood] ){
+                                                console.log(`no items for ${d.likelihood}`)
+                                            }else{
+
+                                                resultCache[d.likelihood].rationale[list[d.id]?.id] = d.rationale
+                                            }
+                                        })
+
                                         for(const d of result){
                                             const item = list[d.id]
                                             let category = resultCache[d.likelihood]
+                                            if(!d.rationale){
+                                                console.log(`No rationale for ${item.id}`)
+                                                console.log(d)
+                                            }
                                             if( !category ){
                                                 console.log(`WARN: couldnt align`, d)
                                             }
@@ -1875,31 +1662,9 @@ export async function processQueue(job){
                                     for( const d of Object.keys(resultCache)){
                                         console.log(`Setting ${d} -> ${resultCache[d].ids.length} items`)
                                         await addRelationshipToMultiple(resultCache[d].categoryId, resultCache[d].ids, 'ref', primitive.workspaceId)
+                                        dispatchControlUpdate(resultCache[d].categoryId, "rationale", resultCache[d].rationale)
                                     }
                                     throw "done"
-                                }
-                                else if( primitive.referenceParameters?.categorizeByTopic ){
-                                    categoryAlloc = []
-                                    resultMap = {}
-                                    let catId = 0
-                                    for(const category of categoryList){
-                                        console.log(`Checking for ${category}`)
-                                        let result = await analyzeListAgainstTopics( data, category, {
-                                            type:"description",
-                                            engine:  primitive.referenceParameters?.engine || action.engine,
-                                            prompt: `Assess how strongly the description addresses ${category}. Use one of the following assessments: "strongly", "clearly","somewhat", "hardly", "not at all" as your response`,
-                                            debug: true, debug_content: false
-                                        } )
-                                        if( result.success && result.output){
-                                            result.output.forEach(d=>{
-                                                const score = scoreMap[d.s] ?? 0
-                                                resultMap[d.i] = resultMap[d.i] || {}
-                                                //resultMap[d.i][category] = score
-                                                resultMap[d.i][catId] = score > 3 ? score : 0
-                                            })
-                                        }
-                                        catId++
-                                    }
                                 }else{
                                     const config = await getConfig(primitive)
 
@@ -1923,6 +1688,7 @@ export async function processQueue(job){
                                         complex: complex,
                                         theme,
                                         literal,
+                                        numerical : true,
                                         batch: runInBatch ? 50 : 1,
                                         no_num: !runInBatch,
                                         rationale: config?.rationale ?? action.rationale ?? false,
@@ -1942,35 +1708,36 @@ export async function processQueue(job){
 
                                     const thresholdName = config?.thresholds ?? action.thresholds ?? "standard"
                                     let thresholds ={
-                                        "standard": ["likely", "clear" ,"somewhat"],
-                                        "high": ["likely", "clear"],
+                                        "standard": 2,
+                                        "high": 3
                                     }[thresholdName]
                                    
                                     if( literal ){
                                         thresholds ={
-                                            "standard": ["likely", "clear"],
-                                            "high": ["clear"],
+                                            "standard": 3,
+                                            "high": 4,
                                         }[thresholdName]}
                                     
                                     
-                                    console.log(`Thresholds to keep = ${thresholds.join(", ")}`)
+                                    console.log(`Thresholds to keep >= ${thresholds}`)
 
                                     for(const entry of categoryAlloc){
                                         const prim = list[entry.id]
                                         if( prim ){
                                             console.log(`${list[entry.id].title} => ${entry.a?.map(d=>`${d.c} = ${d.s}`).join(", ")}`)
                                             if( entry.a){
-
                                                 for(const align of entry.a){
                                                     let idx = align.c
-                                                    let d = align.s
                                                     
                                                     if( catOptions[idx] ){
                                                         //if( d === "Likely" || d === "Clear" || d === "Somewhat"){
-                                                        if( thresholds.includes(d.toLowerCase()) ){
-                                                            const cId = catOptions[idx].id
-                                                            categoryAllocations[cId] = categoryAllocations[cId] || []
-                                                            categoryAllocations[cId].push( prim.id )
+                                                        const cId = catOptions[idx].id
+                                                        categoryAllocations[cId] = categoryAllocations[cId] || {items:[], rationale: catOptions.find(d=>d.id === cId)?.rationale ?? {}, scores: {}}
+                                                        categoryAllocations[cId].rationale[prim.id] = align.r
+                                                        categoryAllocations[cId].scores[prim.id] = align.s
+
+                                                        if( align.s >= thresholds ){
+                                                            categoryAllocations[cId].items.push( prim.id )
                                                         }
                                                     }else{
                                                         console.log(`Error : Exceeded expected categories ${idx} for ${list[entry.id].title}`)
@@ -1984,9 +1751,10 @@ export async function processQueue(job){
                                         await Promise.all( promiseList )
                                     }
                                     for(const d of catOptions){
-                                        const items = categoryAllocations[d.id]
+                                        const items = categoryAllocations[d.id].items
                                         console.log( `${d.plainId} ${d.title} -> ${items ? items.length : 0}`)
                                         await addRelationshipToMultiple(d.id, items, "ref", d.workspaceId )
+                                        dispatchControlUpdate(d.id, "rationale", categoryAllocations[d.id].rationale)
                                     }
                                     dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
                                     if( !Array.isArray(job.data.targetId)){

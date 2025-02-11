@@ -429,7 +429,7 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
         console.log('Data collection triggered successfully:', data);
         dispatchControlUpdate(primitive.id, `processing.bd.${api}.collectionId` , data?.snapshot_id)
 
-        BrightDataQueue().scheduleCollection( primitive, {api})
+        await BrightDataQueue().scheduleCollection( primitive, {api})
         
     } catch (error) {
         console.error('Error triggering data collection:', error.response ? error.response.data : error.message);
@@ -441,7 +441,7 @@ export async function restartCollection( primitive, {api} = {} ){
         throw "No API defined for collection"
     }
     const config = bdExtractors[api]
-    BrightDataQueue().scheduleCollection( primitive, {api, callopts: {enrich: config.enrich}})
+    await BrightDataQueue().scheduleCollection( primitive, {api, callopts: {enrich: config.enrich}})
 
 }
 
@@ -469,7 +469,9 @@ export async function handleCollection(primitive, {api} = {}, doCreation = true)
             if( response.data.status === "running" || response.data.status === "building"){
                 console.log(`still running - retry`)
                 return {
-                    reschedule: ()=>BrightDataQueue().scheduleCollection( primitive, {api}, true )
+                    reschedule: async (parent)=>{
+                        await BrightDataQueue().scheduleCollection( primitive, {api, parent}, true )
+                    }
                 }
             }
             console.log(response.data)
@@ -604,7 +606,7 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
             console.error(`Fetch request timed out after ${options.timeout || 30000}ms`);
         } else {
             console.log(`Error in fetchViaBrightDataProxy`)
-            console.log(`${error.response?.status} : ${error.response?.statusText}`)
+            console.log(`${error.response?.status} : ${error.response?.statusText} for ${url}`)
         }
         return {status: 500, error} 
     }

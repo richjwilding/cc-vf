@@ -20,7 +20,6 @@ import { ComponentRow } from './ComponentRow';
 import AIStatusPopup from './AIStatusPopup';
 import { AssessmentCard } from './AssessmentCard';
 import CollectionViewer from './CollectionViewer';
-import ReportView from './ReportView';
 import EditableTextField from './EditableTextField';
 import PrimitiveConfig from './PrimitiveConfig';
 import VFTable from './VFTable';
@@ -572,9 +571,6 @@ export function PrimitivePage({primitive, ...props}) {
                           nestedTypes='evidence'
                           //nestedReferenceIds={10}
                           />
-                    }
-                    {showWorkingPane === "old_report" &&
-                      <ReportView primitive={primitive}/>
                     }
                     {showWorkingPane === "report" && <ReportViewExporter primitive={primitive}/>}
                     {showWorkingPane === "assessment_table" &&

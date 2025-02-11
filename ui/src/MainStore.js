@@ -198,7 +198,7 @@ function MainStore (prims){
                                     }else{
                                         const oldValue = PrimitiveConfig.decodeParameter(target.referenceParameters, frag.join("."))
                                         if( val?.decode && val.modify !== undefined){
-                                            target.modifyParameter(frag.join("."), val, val.modify, true)
+                                            target.modifyParameter(frag.join("."), val.value, val.modify, true)
                                         }else{
                                             target.setParameter(frag.join("."), val, true, true)
                                         }
@@ -1317,9 +1317,9 @@ function MainStore (prims){
                             return false
                         }
                         const pConfig = parameters[ root ]
-                        switch( pConfig.type ){
-                            case "string": return (pConfig.optional ?? true) || value !== ""
-                        }
+                        /*switch( pConfig.type ){
+                            case "string": return (pConfig.optional ?? true) 
+                        }*/
                         return true
                     }
                 }
@@ -2142,11 +2142,20 @@ function MainStore (prims){
                                         }                                        
                                     }
                                 }
+                                const inputMapSource = receiver.type === "flowinstance" ? receiver.origin : receiver
+                                let inputMapConfig = inputMapSource.metadata?.pins?.[pinMode]?.[d.inputPin]
+                                if( inputMapConfig?.hasConfig ){
+                                    const localConfig = inputMapSource.getConfigWithoutOverrides().pins?.[d.inputPin] ?? {}
+                                    inputMapConfig = {
+                                        ...inputMapConfig,
+                                        ...localConfig
+                                    }
+                                }
                                 return {
                                     ...d,
                                     sourcePrimitive,
                                     sourcePinConfig,
-                                    inputMapConfig: receiver.type === "flowinstance" ? receiver.origin.metadata?.pins?.[pinMode]?.[d.inputPin] : receiver.metadata?.pins?.[pinMode]?.[d.inputPin]
+                                    inputMapConfig
                             }})
 
                             //const dynamicPinSource = receiver.type === "flowinstance" ? receiver.origin : receiver
@@ -2630,8 +2639,8 @@ function MainStore (prims){
                         for(const p of Object.keys(category?.parameters ?? {})){
                             if(  category.parameters[p].default && !doneFields.has(p) ){
                                 categoryConfig[p] = category.parameters[p].default
-                                requiredFields.delete(p)
-                                doneFields.add(p)
+                                //requiredFields.delete(p)
+                                //doneFields.add(p)
                             }
                         }
                     

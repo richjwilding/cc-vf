@@ -235,7 +235,7 @@ let mainstore = MainStore()
             const ids = lookups.map(d=>d.referenceId).flat().filter((d,i,a)=>a.indexOf(d) === i)
             available = available.filter(d=>ids.includes(d.id))
           }else{
-            available = []
+           // available = []
           }
         }
         if( item.filterForExtractor){
@@ -1189,6 +1189,9 @@ const Parameters = function({primitive, ...props}){
       }
       val = node?.[last]
     }
+    if( val === undefined && config.default){
+      val = config.default
+    }
     return {...config, value: val, autoId: source[`${k}Id`], key: k}
   })
     
@@ -1612,7 +1615,7 @@ const Categories = function({primitive, ...props}){
   }
     
   let button
-  const baseCategories = [53,55,33, 90]
+  const baseCategories = [90]
 
   let createButtons = [
                           {title:"Create new", small:true, action: ()=>createCategory()},

@@ -203,7 +203,7 @@ export async function getConfig(primitive, cache = [], skipInputs = false, requi
 
     for(const p of Object.keys(category?.parameters ?? {})){
         if( category.parameters[p].default ){
-            categoryConfig = category.parameters[p].default
+            categoryConfig[p] = category.parameters[p].default
         }
     }
 
@@ -634,7 +634,14 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
     let categoryIds = [130,primitive.referenceId, ...sourcePrimitives.map(d=>d.referenceId)].filter((d,i,a)=>a.indexOf(d)===i) 
     const categories = await Category.find({id: {$in: categoryIds}})
 
-    const thisCategory = categories.find(d=>d.id === (primitive.type === "flowinstance" ? 130 : primitive.referenceId))
+    let thisCategory
+    let inputFlowParentForInstance
+    if( primitive.type === "flowinstance" ){
+        inputFlowParentForInstance = (await findParentPrimitivesOfType(primitive, "flow"))[0]
+        thisCategory = categories.find(d=>d.id === 130)
+    }else{
+        thisCategory = categories.find(d=>d.id === primitive.referenceId)
+    }
 
 
     const out = []
@@ -644,6 +651,7 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
         const sourceCategory = categories.find(d=>d.id === sourcePrimitive.referenceId)
         let sourcePinConfig = sourceCategory?.pins?.output?.[d.sourcePin]
 
+        
 
         if( sourcePrimitive.type === "flow" || sourcePrimitive.type === "flowinstance"){
             const flow = sourcePrimitive.type === "flow" ? sourcePrimitive : (await findParentPrimitivesOfType(sourcePrimitive, "flow"))[0]
@@ -657,11 +665,22 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
             }
         }
 
+        let inputMapConfig = thisCategory?.pins?.[pinMode]?.[d.inputPin]
+        if( inputMapConfig?.hasConfig ){
+            const inputMapSource = primitive.type === "flowinstance" ? inputFlowParentForInstance : primitive
+            const localConfig = (await getConfig(inputMapSource, cache, true)).pins?.[d.inputPin] ?? {}
+            console.log(`LOCAAL`)
+            console.log(localConfig)
+            inputMapConfig = {
+                ...inputMapConfig,
+                ...localConfig
+            }
+        }
 
         out.push({
         ...d,
         sourcePrimitive,
-        inputMapConfig: thisCategory?.pins?.[pinMode]?.[d.inputPin],
+        inputMapConfig,
         sourcePinConfig})
     }
     inputMap = out
@@ -2599,6 +2618,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     }
     if( actionKey === "auto_extract" || actionKey === "auto_summarize"){
         console.log(options)
+        let primitiveConfig = await getConfig( primitive )
         const source = options.source ? await fetchPrimitive( options.source ) : undefined
         const [items, toSummarize] = await getDataForProcessing(primitive, {...(category?.openai?.summarize?.source ?? options ?? {})}, source, {instance: options?.instance} )
         console.log(items.length, "items")
@@ -2728,6 +2748,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                                             temperature: options.temperature ?? primitive.referenceParameters?.temperature,
                                                             allow_infer: options.infer,
                                                             markdown: options.markdown, 
+                                                            engine: primitiveConfig.engine,
                                                             heading: options.heading,
                                                             scored: options.scored ?? primitive.referenceParameters.scored,
                                                             outputFields: isCustomPrompt ? undefined : [
@@ -2747,7 +2768,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                             result = result.replace(/\\n/g, '\n');
                             result = result.replace(/\n+/g, '\n');
                             result = result.replace(/^\s*\d+\)?\.?\s*/gm, '');
-                            result = result.trim().replace(/\n/g, '\n\n');                 
                         }
                     }
                 }

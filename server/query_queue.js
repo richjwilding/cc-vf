@@ -12,6 +12,7 @@ import { queryMetaAds } from './ad_helper';
 import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, querySubredditWithBrightData, queryTiktokWithBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
+import { cleanURL } from './actions/SharedTransforms';
 
 
 let instance
@@ -64,7 +65,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                         if( config[k] && category.parameters[k].type === "options"){
                             config[k] = config[k].map(d=>category.parameters[k].options.find(d2=>d2.id === d))
                         }
-                        if(config[k] === undefined){
+                        if(config[k] === undefined || (typeof(config[k]) === "string" && config[k].trim() === "")){
                             if( category.parameters[k].default_process){
                                 let source = parentSearch ?? primitive
                                 if(category.parameters[k].default_process?.source.startsWith("parent")){
@@ -84,8 +85,9 @@ export async function processQueue(job, cancelCheck, extendJob){
                                     console.log(value)
                                     if( category.parameters[k].default_process.process === "domain"){
                                         try{
-                                            let url = new URL(value)
-                                            value = url.origin
+                                            //let url = new URL(value)
+                                            let url = new URL(cleanURL(value))
+                                            value = url.hostname + url.pathname
                                         }catch(e){
                                             console.log(`Not valid url - skipping search`)
                                             return
@@ -100,7 +102,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                     let missing = []
                     for(const k of Object.keys(category.parameters)){
                         if( category.parameters[k].optional === false ){
-                            if( config[k] === undefined ){
+                            if( config[k] === undefined || (typeof(config[k])==="string" && config[k].trim().length === 0)){
                                 missing.push(k)
                             }
                         }
@@ -163,7 +165,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                                         console.log(`Need to created nested search for ${target.id} / ${target.plainId}`)
                                         nestedSearchForItem = await createPrimitive({
                                                                                 workspaceId: primitive.workspaceId,
-                                                                                paths: ['origin'],
+                                                                                paths: ['origin', 'config'],
                                                                                 parent: primitive.id,
                                                                                 data:{
                                                                                     type: "search",
@@ -521,7 +523,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                         }
                     }
 
-                    const totalCount = Object.values(primitive.primitives.origin ?? []).length
+                    const totalCount = Object.values(primitive.primitives?.origin ?? []).length
 
                     dispatchControlUpdate(primitive.id, job.data.field , {
                         status: "complete",
