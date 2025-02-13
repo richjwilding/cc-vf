@@ -20,7 +20,7 @@ export function roundCurrency(number){
 export function getBaseDomain(hostname) {
   let parts = hostname.split('.');
   if (parts.length > 2) {
-      return parts.slice(-2).join('.'); // Keeps only "example.com" or "site.com"
+      return parts.slice(1).join('.'); 
   }
   return hostname; // If no subdomain, return as is
 }
