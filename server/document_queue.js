@@ -911,6 +911,10 @@ async function doDataQuery( options ) {
                            debug_content: true,
                             field: "answer"
                         })*/
+                        let batchSize = config.batchSize ?? undefined
+                        if( batchSize === 0){
+                            batchSize = doingExtracts ? 20 : undefined
+                        }
                         const results = await processPromptOnText( fragmentText,{
                             workspaceId: primitive.workspaceId,
                             functionName: "query-runquery",
@@ -920,8 +924,8 @@ async function doDataQuery( options ) {
                             no_num: false,
                             maxTokens: 40000,
                             temperature: 1,
-                            markPass: true,
-                            batch:  doingExtracts ? 20 : undefined, 
+                            markPass: true,                            
+                            batch: batchSize,
                             engine: config.engine ?? "gpt-4o",
                             idField: "ids",
                             debug: true,

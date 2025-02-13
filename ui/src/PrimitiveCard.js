@@ -132,7 +132,11 @@ let mainstore = MainStore()
             }
           }}/>)}</div>
       }else if( item.type === "axis_parent"){
+        if(!props.primitive){
+          return <></>
+        }
         const axis = CollectionUtils.axisFromCollection( props.items ?? [props.primitive], props.primitive )
+        
         const options = [{id: null, title: "None"}, ...axis.filter(d=>d.category && d.type === "title").map(d=>{
           return {
             id: d.relationship?.join("|"),
@@ -612,7 +616,7 @@ let mainstore = MainStore()
       }else if( item.type === "internal_parent_pin"){
         let options = []
         let current = ""
-        const page = props.primitive.origin
+        const page = props.primitive?.origin
         if( page ){
             const pins = page.inputPins 
             options = Object.keys(pins).map(d=>({id: d, title: pins[d].name})).filter(d=>d.id !== "impin")

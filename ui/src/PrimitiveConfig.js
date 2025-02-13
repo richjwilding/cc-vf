@@ -406,6 +406,45 @@ const PrimitiveConfig = {
                 }},
             field: {id: 5,title:"Field of item", renderType: "field",parameters: {},config:{}},
             detail_grid: {id: 6, title:"Details", renderType: "overview",parameters: {},config:{}},
+            word_cloud: {id: 7,title:"Word cloud", renderType: "cat_overview", configName:"word_cloud", parameters: {},
+                config:{
+                    "show_none":{
+                        type: "option_list",
+                        title: "Show None",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_title":{
+                        type: "option_list",
+                        title: "Show Title",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "by_tag":{
+                        type: "option_list",
+                        title: "Color by tag",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_legend":{
+                        type: "option_list",
+                        title: "Show Legend",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                }},
 
         },
     decodeParameter:(data, path)=>{
@@ -655,13 +694,27 @@ const PrimitiveConfig = {
     },getOutputMap:(primitive)=>{
         const out = []
         const pp = primitive._parentPrimitives ?? primitive.parentPrimitives ?? {}
-        const list = Object.keys(pp).reduce((a,d)=>{
+        const outputsToPins = Object.keys(pp).reduce((a,d)=>{
             const res = pp[d].filter(d=>d.startsWith("primitives.inputs."))
             if(res.length > 0){
                 a[d] = res.map(d=>d.replace("primitives.inputs.",""))
             }
             return a
         },{})
+
+
+        const outputToImports = Object.keys(primitive.primitives?.outputs ?? {}).reduce((a,d)=>{
+            for( const target of primitive.primitives?.outputs[d]){
+                a[target] = [d]
+            }
+            return a
+        }, {})
+        const list = {
+            ...outputToImports,
+            ...outputsToPins
+        }
+
+
         for(const targetId of Object.keys(list)){
             for(const inp of list[targetId]){
                 const [outputPin, targetPin] = inp.split("_")

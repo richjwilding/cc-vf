@@ -17,6 +17,13 @@ export function roundCurrency(number){
 
     return prefix + formatNumber(number)
 }
+export function getBaseDomain(hostname) {
+  let parts = hostname.split('.');
+  if (parts.length > 2) {
+      return parts.slice(-2).join('.'); // Keeps only "example.com" or "site.com"
+  }
+  return hostname; // If no subdomain, return as is
+}
 
 export function cleanURL(url){
    // Trim whitespace from the input

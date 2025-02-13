@@ -3831,6 +3831,222 @@ function imageHelper(url, options){
 
 }
 
+
+/*
+function getRotatedPolygon(node) {
+    // Get the unrotated rectangle. This returns an object with { x, y, width, height }.
+    const rect = node.getClientRect({ skipTransform: true });
+    // Use the node's (x, y) as the pivot point.
+    //const pivot = { x: 0, y: 0};
+    const pivot = { x: rect.width / 2, y: rect.height / 2 }
+    const angle = node.rotation(); // in degrees
+    const rad = angle * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+  
+    // Define the four corners of the unrotated rectangle.
+    const corners = [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y + rect.height },
+      { x: rect.x, y: rect.y + rect.height }
+    ];
+  
+    const ox = node.x() +  pivot.x
+    const oy = node.y() +  pivot.y
+    // Rotate each corner around the pivot.
+    const rotatedCorners = corners.map(corner => {
+      const dx = corner.x - pivot.x;
+      const dy = corner.y - pivot.y;
+      return {
+        x: ox +  dx * cos - dy * sin,
+        y: oy +  dx * sin + dy * cos,
+      };
+    });
+  
+    return rotatedCorners;
+  }*/
+    function getRotatedPolygon(node) {
+        // Get the local dimensions.
+        const rect = node.getClientRect({ skipTransform: true });
+        const width = rect.width
+        const height = rect.height
+        // With the offset set to (width/2, height/2), the local corners are:
+        /*const localCorners = [
+          { x: -width / 2, y: -height / 2 },
+          { x: width / 2, y: -height / 2 },
+          { x: width / 2, y: height / 2 },
+          { x: -width / 2, y: height / 2 }
+        ];*/
+        const localCorners = [
+          { x: 0, y: 0 },
+          { x: width, y: 0 },
+          { x: width, y: height },
+          { x: 0, y: height  }
+        ];
+        // Use the node's absolute transform to map local coordinates into the parent coordinate system.
+        const transform = node.getAbsoluteTransform();
+        return localCorners.map(pt => transform.point(pt));
+      }
+  
+  /**
+   * Checks if two convex polygons intersect using the Separating Axis Theorem (SAT).
+   *
+   * @param {Array} polyA - Array of points [{x, y}, ...] for the first polygon.
+   * @param {Array} polyB - Array of points [{x, y}, ...] for the second polygon.
+   * @returns {boolean} True if the polygons overlap; false if a separating axis is found.
+   */
+  function polygonsIntersect(polyA, polyB) {
+    // Helper: Compute the normalized axes (perpendiculars to edges) for a polygon.
+    function getAxes(polygon) {
+      const axes = [];
+      for (let i = 0; i < polygon.length; i++) {
+        const p1 = polygon[i];
+        const p2 = polygon[(i + 1) % polygon.length];
+        // The edge from p1 to p2.
+        const edge = { x: p2.x - p1.x, y: p2.y - p1.y };
+        // The perpendicular (normal) is (edge.y, -edge.x)
+        let normal = { x: edge.y, y: -edge.x };
+        // Normalize the axis.
+        const length = Math.sqrt(normal.x * normal.x + normal.y * normal.y);
+        if (length !== 0) {
+          normal.x /= length;
+          normal.y /= length;
+        }
+        axes.push(normal);
+      }
+      return axes;
+    }
+  
+    // Helper: Projects a polygon onto an axis and returns the min and max values.
+    function projectPolygon(axis, polygon) {
+      let min = axis.x * polygon[0].x + axis.y * polygon[0].y;
+      let max = min;
+      for (let i = 1; i < polygon.length; i++) {
+        const projection = axis.x * polygon[i].x + axis.y * polygon[i].y;
+        if (projection < min) {
+          min = projection;
+        }
+        if (projection > max) {
+          max = projection;
+        }
+      }
+      return { min, max };
+    }
+  
+    // Combine the axes from both polygons.
+    const axes = getAxes(polyA).concat(getAxes(polyB));
+  
+    // For each axis, project both polygons. If the projections do not overlap,
+    // then a separating axis exists and the polygons do not intersect.
+    for (let i = 0; i < axes.length; i++) {
+      const axis = axes[i];
+      const projA = projectPolygon(axis, polyA);
+      const projB = projectPolygon(axis, polyB);
+      if (projA.max < projB.min || projB.max < projA.min) {
+        // Found a separating axis.
+        return false;
+      }
+    }
+  
+    // No separating axis found; the polygons intersect.
+    return true;
+  }
+
+
+export function plotWordCloud(options = {}){
+    const startWords = options.words ?? []
+    const sizes = startWords.map(d=>d.size)
+    const min = sizes.reduce((a,c)=>a < c ? a : c, Infinity)
+    const max = sizes.reduce((a,c)=>a > c ? a : c, -Infinity)
+    const range = max - min
+    const maxFont = 80
+    const minFont = 8
+    const fontScale = (maxFont - minFont) / range
+    const words = startWords.map(d=>{
+        return {
+            text: d.text,
+            size: ((d.size - min) * fontScale) + minFont
+        }
+    }).sort((a,b)=>b.size - a.size)
+
+    
+    // Center point of the stage
+    const cx = options.width / 2;
+    const cy = options.height / 2;
+    
+    // Array to store already placed Konva.Text nodes
+    const placedWords = [];
+    
+    /**
+     * Attempts to place a word on the stage by testing five orientations.
+     * The candidate rotations range from -30° to 30°.
+     * For each candidate spiral position, we try all rotations. If one is
+     * collision-free, we place the word; otherwise, we continue moving along the spiral.
+     */
+    const g = new Konva.Group({
+        id: options.id,
+        width: options.width,
+        height: options.height,
+        minRenderSize : 0,
+        name:"inf_track primitive inf_keep"
+    })
+    function placeWord(word) {
+        let spiralAngle = 0;
+        let spiralRadius = 0;
+        let x = cx;
+        let y = cy;
+    
+        // Define the five candidate rotations in degrees.
+        const candidateRotations = [-15,0, 15, -30, 30];
+
+
+        while (true) {
+            // Test each candidate rotation for the current (x,y) position.
+            for (let rotation of candidateRotations) {
+                // Create a temporary text node with the current rotation.
+                const textNode = new Konva.Text({
+                    text: word.text,
+                    fontSize: word.size,
+                    fontFamily: 'Arial',
+                    fill: 'black',
+                    x: x,
+                    y: y,
+                    rotation: rotation,
+                });
+                const rect = textNode.getClientRect({ skipTransform: true });
+                textNode.offset({x: rect.width / 2, y: rect.height / 2})
+        
+              // Compute the rotated polygon for this candidate.
+                const candidatePoly = getRotatedPolygon(textNode);
+
+                // Check for overlap with each already placed word.
+                let collides = placedWords.some(existingWord => {
+                    const existingPoly = getRotatedPolygon(existingWord);
+                    return polygonsIntersect(candidatePoly, existingPoly);
+                });
+
+                if (!collides) {
+                    g.add(textNode);
+                    placedWords.push(textNode);
+                    return; // Exit once the word is placed.
+                }
+            }
+        
+            spiralAngle += 0.1;
+            spiralRadius += 2;
+            x = cx + spiralRadius * Math.cos(spiralAngle);
+            y = cy + spiralRadius * Math.sin(spiralAngle);
+        }
+    }
+    
+    // Place each word from the list
+    words.forEach(placeWord);
+
+    return g
+
+}
+
 export function renderMatrix( primitive, list, options ){
     let columnExtents = options.columnExtents ? options.columnExtents.slice(0,200) : [{idx:0}]
     let rowExtents = options.rowExtents ? options.rowExtents.slice(0,200) : [{idx:0}]
@@ -4519,6 +4735,11 @@ function renderSubCategoryChart( title, data, options = {}){
     return sg
 }
 
+registerRenderer( {type: "default", configs: "word_cloud"}, (primitive, options = {})=>{
+    const words = options.data.mappedCategories[0].details.map(d=>({text:d.label, size: d.items.length}))
+    
+    return plotWordCloud( {id: primitive.id, width: 300, height: 300, ...options, words})
+})
 registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, options = {})=>{
     const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, itemSize: 280, width: 1200, padding: [0,0,0,0], ...options, ...(primitive.renderConfig ?? {})}
 
@@ -4593,6 +4814,9 @@ registerRenderer( {type: "categoryId", id: 128, configs: "set_default"}, functio
     return categoryGrid( primitive, options)
 })
 registerRenderer( {type: "categoryId", id: 113, configs: "set_format_grid"}, function renderFunc(primitive, options = {}){
+    return categoryGrid( primitive, {...options, itemSize: 450})
+})
+registerRenderer( {type: "categoryId", id: 109, configs: "set_format_grid"}, function renderFunc(primitive, options = {}){
     return categoryGrid( primitive, {...options, itemSize: 450})
 })
 

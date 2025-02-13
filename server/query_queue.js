@@ -12,7 +12,7 @@ import { queryMetaAds } from './ad_helper';
 import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, querySubredditWithBrightData, queryTiktokWithBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
-import { cleanURL } from './actions/SharedTransforms';
+import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
 
 
 let instance
@@ -87,7 +87,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                                         try{
                                             //let url = new URL(value)
                                             let url = new URL(cleanURL(value))
-                                            value = url.hostname + url.pathname
+                                            value = getBaseDomain(url.hostname) + url.pathname
                                         }catch(e){
                                             console.log(`Not valid url - skipping search`)
                                             return

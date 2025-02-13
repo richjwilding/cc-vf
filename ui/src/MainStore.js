@@ -47,6 +47,48 @@ export function uniquePrimitives(list) {
     return result; // Return the array of unique primitives
 }
 
+function doStep(data, step, currentInstruction){
+    let out = data
+    const instructions = Object.keys(step) 
+    for(const instruction of instructions){
+        const config = step[instruction]
+        switch(instruction){
+            case "fetch_children":{
+                let temp = out.flatMap(d=>[...d.primitives.origin.allItems,...d.primitives.results.allItems]).filter(d=>d)
+                if( config.referenceId ){
+                    temp = temp.filter(d=>d.referenceId === config.referenceId)
+                }
+                out = temp
+                break
+            }
+            case "fetch_ancestor":{
+                if( config.referenceId ){
+                    const r = [config.referenceId]
+                    out = out.flatMap(d=>d.findParentPrimitives({referenceId: r}))
+                }else{
+                    out = out.map(d=>d.origin).filter(d=>d)
+                }
+                break
+            }
+            case "filter":{
+                out = out.filter(d=>{
+                    let scope = d
+                    if( config.fetch_children ){
+                        scope = doStep( [d], {fetch_children: config.fetch_children})
+                        if( config.count !== undefined){
+                            return scope.length === config.count
+                        }
+                    }
+                })
+                break
+            }
+        }
+    }
+    return out
+    
+}
+
+
 let instance = undefined
 function MainStore (prims){
     if( !prims && instance ){
@@ -1204,6 +1246,12 @@ function MainStore (prims){
         instance = obj
     }
     obj.uniquePrimitives = uniquePrimitives
+    obj.followSteps = (out, steps)=>{
+        for(const d of steps){
+            out = doStep(out, d)
+        }
+        return out
+    }
     const equalRelationships = (or1,or2)=>{
         if( or1 === or2){
             return true
@@ -1849,6 +1897,13 @@ function MainStore (prims){
                                             return source.outputs[outputPin]?.data ?? []
                                         }
                                         return source.itemsForProcessing
+                                    }else{
+                                        const address = source.primitives.outputs.paths(receiver.id)[0]
+                                        if( address && address !== '.impout_impin'){
+                                            const [outputPin, inputPin] = address.slice(1).split("_")
+                                            return source.outputs[outputPin]?.data ?? []
+                                        }
+
                                     }
                                     let list = []
                                     let node = source.primitives
@@ -2044,12 +2099,21 @@ function MainStore (prims){
                         const c = {}
                         for(const d of outputMap){
                             let targetMap = c[d.targetId]
-                            if(!targetMap){
-                                const target = obj.primitive( d.targetId )
-                                targetMap = target.fetchInputs( receiver.id)
-                                c[d.targetId] = targetMap
+                            if( d.outputPin !== "impout" && d.targetPin === "impin"){
+                                const query = receiver.metadata?.pins?.output?.[d.outputPin]?.query
+                                if( query ){
+                                    out[d.outputPin] = {data: receiver.follow(receiver.metadata?.queries?.[query]?.steps ?? [])}
+                                }else{
+                                    console.error(`Cant handle pin connected to import without query`, d)
+                                }
+                            }else{
+                                if(!targetMap){
+                                    const target = obj.primitive( d.targetId )
+                                    targetMap = target.fetchInputs( receiver.id)
+                                    c[d.targetId] = targetMap
+                                }
+                                out[d.outputPin] = targetMap[d.targetPin]
                             }
-                            out[d.outputPin] = targetMap[d.targetPin]
                         }
                         return out
                     }
@@ -2465,11 +2529,29 @@ function MainStore (prims){
                         return layerUp(receiver)
                     }
                 }
+                if( prop === "follow"){
+                    return function(steps){
+                        let out = [receiver]
+                        if( steps ){
+                            for(const d of steps){
+                                out = doStep(out, d)
+                            }
+                        }
+                        return out
+                    }
+                }
                 if( prop === "findParentPrimitives"){
                     return function(options = {type: undefined, referenceId: undefined, first: false}){
+                        const checked = new Set()
                         const scatter = (list)=>{
                             if( list === undefined){ return []}
-                            return uniquePrimitives(list.flatMap((p) => p.parentPrimitives));
+                            return uniquePrimitives(list.flatMap((p) => p.parentPrimitives)).filter(d=>{
+                                if( checked.has(d.id) ){
+                                    return false
+                                }
+                                checked.add(d.id)
+                                return true
+                            })
                         }
                         let found = []
                         let current = scatter( [receiver] )

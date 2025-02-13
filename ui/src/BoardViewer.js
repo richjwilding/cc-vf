@@ -259,7 +259,7 @@ let mainstore = MainStore()
                 }
             }
             return {id: d.id, parentRender: view.parentRender, frameless, title, pins, indicators, canChangeSize: "width", canvasMargin, items: render}
-        }else if( view.config === "cat_overview"){
+        }else if( view.config === "cat_overview" || view.config === "word_cloud"){
             return {
                 id: d.id, 
                 parentRender: view.parentRender, 
@@ -267,7 +267,7 @@ let mainstore = MainStore()
                 indicators, 
                 canChangeSize: "width", 
                 canvasMargin, 
-                items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: "cat_overview", data: view.renderData})
+                items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: view.config, data: view.renderData})
             }
         }else if( view.config === "page"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
@@ -333,7 +333,7 @@ let mainstore = MainStore()
                 primitiveToRender, 
                 view.list, 
                 {
-                    referenceId: primitiveToRender.referenceId,
+                    //referenceId: primitiveToRender.referenceId,
                     ...stageOptions, 
                     ...renderOptions,
                     axis:view.axis,
@@ -375,7 +375,7 @@ let mainstore = MainStore()
                     let pageInputs = pageInstance.inputs
                     let inputs = pins.flatMap(pin=>pageInputs[pin]?.data ?? [])
 
-                    if( pageInputs[pins[0]].config === "primitive"){
+                    if( pageInputs[pins[0]]?.config === "primitive"){
                         // Do Ancestors
                         if( config.source_items){
                             let changed = false
@@ -656,7 +656,7 @@ let mainstore = MainStore()
 
                 myState[stateId].primitive = basePrimitive
                 myState[stateId].stateId = stateId
-                myState[stateId].config = "cat_overview"
+                myState[stateId].config = viewConfig.configName ?? "cat_overview"
                 myState[stateId].renderData = {
                     mappedCategories
                 }
@@ -1239,6 +1239,19 @@ export default function BoardViewer({primitive,...props}){
                                 }
                             }                       
                         }else{
+                            if(right.primitives.imports.allIds.includes(left.id)){
+                                if(left.primitives.outputs.allIds.includes(right.id)){
+                                    const rel = left.primitives.paths(right.id,"outputs")[0]
+                                    if( rel ){
+                                        const pinNames = rel.substring(rel.lastIndexOf(".") + 1);
+                                        const [leftPinName, rightPinName] = pinNames.split("_")
+                                        const leftPin = myState[left.id].outputPins[leftPinName]?.idx
+                                        const rightPin = myState[right.id].inputPins[rightPinName]?.idx
+                                        console.log(leftPin, leftPinName, rightPin, rightPinName)
+                                        return {left: left.id, right: right.id, leftPin, rightPin }
+                                    }
+                                }                       
+                            }
                             const leftPin = myState[left.id].outputPins.impout?.idx
                             const rightPin = myState[right.id].inputPins.impin?.idx
                             return {left: left.id, right: right.id, leftPin, rightPin }

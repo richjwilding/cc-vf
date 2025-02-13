@@ -21,6 +21,7 @@ import { QueryPane } from "./QueryPane"
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list"
 import { CheckboxField, Checkbox } from "./@components/checkbox"
 import { TrashIcon } from "@heroicons/react/24/outline"
+import { Table } from "./Table"
 
 // Add the icons to the library
 
@@ -180,6 +181,7 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
 export default function CollectionInfoPane({board, frame, underlying, primitive, filters, localItems, ...props}){
     const [activeTab, setActiveTab] = useState(mainstore.category(tabs.find(d=>d.initial)))
     const [showDetails, setShowDetails] = useState(false)
+    const [showNested, setShowNested] = useState(false)
     const [hideNull, setHideNull] = useState(frame?.referenceParameters?.explore?.hideNull)
     const [activeView, setActiveView] = useState(frame?.referenceParameters?.explore?.view ?? 0)
 
@@ -265,6 +267,11 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
         const searchCategoryIds = frame.metadata.resultCategoryId ?? frame.metadata.parameters?.sources?.options?.map(d=>d.resultCategoryId ) ?? []
         const searchResultCategory = mainstore.category( searchCategoryIds[0] )
         const searchResults = primitiveForContent.primitives.strictDescendants.filter(d=>searchCategoryIds.includes(d.referenceId))
+        const nestedSearch = frame.primitives.origin.uniqueSearch
+        
+        const nestedCallback = (id)=>{
+            mainstore.doPrimitiveAction(mainstore.primitive(id), "run_search")
+        }
 
         content = <div className="flex flex-col pb-2 px-3">
                     {activeInfo}
@@ -290,6 +297,50 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 px-2 py-1.5">
                         <QueryPane primitive={frame} terms={false}/>
                     </div>
+
+                    {frame.metadata?.nestedSearch &&  <div className="mt-2 space-y-2">
+                        <div className="border rounded-md bg-gray-50">
+                            <div onClick={()=>setShowNested(!showNested)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">
+                                <p className="font-medium ">Nested Searches</p>
+                                <ChevronRightIcon strokeWidth={2} className={`ml-auto w-5 h-5 ${showNested ? '-rotate-90 transform' : ''}`}/>
+                            </div>
+                            {showNested && <>
+                                <Table
+                                    primitive={frame}
+                                    page={0}
+                                    pageItems={50}
+                                    onEnter={(d)=>mainstore.sidebarSelect(d)}
+                                    columns={[
+                                        {field: 'plainId', title: "ID", width: 80},
+                                        {field: 'title', title: "Title"},
+                                        {field: 'count', title: "Results"},
+                                        {field: 'action', title: "", callback: nestedCallback}
+                                    ]}
+                                    data={nestedSearch.map(d=>{
+                                        const target = d.parentPrimitives.filter(d=>d.id !== frame.id)[0]
+                                        if( target ){
+
+                                            return {
+                                                id: target.id,
+                                                plainId: target.plainId,
+                                                title: target.title,
+                                                count: d.primitives.origin.allUniqueIds.length,
+                                                action: d.id,
+                                                data:{
+                                                    id: target.id,
+                                                    primitive: target
+                                                }                                            
+                                            }
+                                        }
+                                    }).filter(d=>d)}
+                                    primitives={frame.primitives.origin.uniqueSearch} 
+                                    className='w-full min-h-[24em] max-h-[60vh] !text-xs'/> 
+                            </>
+                            }
+                        </div>
+                    </div>
+                }
+
                     {underlyingInfo}
                     <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 p-2">
                         <CategoryHeader itemCategory={searchResultCategory} items={searchResults} actionAnchor={frame} />
@@ -751,6 +802,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     </div>
                 </div>
             }
+           
             {frame.type === "query" && 
                 <div className="space-y-2">
                     <div className="border rounded-md bg-gray-50">
