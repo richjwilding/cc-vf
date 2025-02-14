@@ -188,6 +188,7 @@ let mainstore = MainStore()
 
         const pins = view.primitive.type === "element" ? undefined : {input: Object.values(view.inputPins), output: Object.values(view.outputPins) }
         const frameless = view.inPage
+        const titleAlwaysPresent = view.noTitle ? false : !(view.widgetConfig !== undefined || view.config === "widget")
         const title = view.noTitle ? undefined : ()=>{
             return view.title ?? `${d.title} - #${d.plainId}${view.underlying ? ` (${primitiveToRender.plainId})` : ""}`
         }
@@ -224,7 +225,7 @@ let mainstore = MainStore()
             return {
                 id: d.id, 
                 parentRender: view.parentRender, 
-                pins, frameless, title, 
+                pins, frameless, title, titleAlwaysPresent, 
                 indicators, 
                 canChangeSize: true, 
                 canvasMargin, 
@@ -258,12 +259,12 @@ let mainstore = MainStore()
                     }
                 }
             }
-            return {id: d.id, parentRender: view.parentRender, frameless, title, pins, indicators, canChangeSize: "width", canvasMargin, items: render}
+            return {id: d.id, parentRender: view.parentRender, frameless, title, titleAlwaysPresent, pins, indicators, canChangeSize: "width", canvasMargin, items: render}
         }else if( view.config === "cat_overview" || view.config === "word_cloud"){
             return {
                 id: d.id, 
                 parentRender: view.parentRender, 
-                pins, frameless, title, 
+                pins, frameless, title, titleAlwaysPresent, 
                 indicators, 
                 canChangeSize: "width", 
                 canvasMargin, 
@@ -278,26 +279,26 @@ let mainstore = MainStore()
                 pins, 
                 frameless, 
                 utils: myState.renderSubPages ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
-                title, 
+                title, titleAlwaysPresent, 
                 canChangeSize: true, 
                 canvasMargin: [0,0,0,0], 
                 items: render, 
                 bgFill: "white"}
         }else if( view.config === "flow"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, parentRender: view.parentRender, resizeForChildren: true, indicators, pins, frameless, title, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#ffffef"}
+            return {id: d.id, parentRender: view.parentRender, resizeForChildren: true, indicators, pins, frameless, title, titleAlwaysPresent, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#ffffef"}
         }else if( view.config === "widget"){
             const data = view.renderData
             if( view.inFlow ){
                 data.basePrimitive = view.primitive
             }
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: "widget", data: data})
-            return {id: d.id, pins, frameless, title,parentRender: view.parentRender, indicators, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
+            return {id: d.id, pins, frameless, title, titleAlwaysPresent,parentRender: view.parentRender, indicators, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
         }else if( view.config === "report_set"){
 
 
             return {id: d.id, 
-                    pins, frameless, title, 
+                    pins, frameless, title, titleAlwaysPresent, 
                     canChangeSize: "width", 
                     indicators, 
                     canvasMargin, 
@@ -317,7 +318,7 @@ let mainstore = MainStore()
         }
         
         if( d.type === "query" && d.processing?.ai?.data_query){
-            return {id: d.id, parentRender: view.parentRender, pins, frameless, title, indicators, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {config: "ai_processing",...stageOptions, ...renderOptions})}
+            return {id: d.id, parentRender: view.parentRender, pins, frameless, title, titleAlwaysPresent, indicators, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {config: "ai_processing",...stageOptions, ...renderOptions})}
         }
 
         const canChangeSize = view?.viewConfig?.resizable 
@@ -326,7 +327,7 @@ let mainstore = MainStore()
         return {id: d.id ,
             parentRender: 
             view.parentRender, 
-            pins, frameless, title, 
+            pins, frameless, title, titleAlwaysPresent, 
             indicators, 
             canChangeSize, 
             items: (stageOptions)=>RenderSetAsKonva(
@@ -346,7 +347,7 @@ let mainstore = MainStore()
 
         }
 
-        return {id: d.id ,parentRender: view.parentRender, pins, frameless, title, indicators, utils: {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard},canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
+        return {id: d.id ,parentRender: view.parentRender, pins, frameless, title, titleAlwaysPresent, indicators, utils: {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard},canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
 
     }
 

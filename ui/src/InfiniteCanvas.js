@@ -695,6 +695,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     })
                     label.attrs.originWidth = titleText.width()
                     label.attrs.scaleFont = 12
+                    label.attrs.hideScale = options.titleAlwaysPresent ?  undefined : 3
+                    
 
                     
                     label.add(titleText)
@@ -1558,7 +1560,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const uniqueKey = item._id; // Assuming 'item' has a unique 'id'
                             if (!seen.has(uniqueKey)) {
                                 seen.add(uniqueKey);
-                                //if( item.attrs.scaleFont || ((item.attrs.width * scale * frame.scale) > (item.attrs.minRenderSize ?? 8)) || item.attrs.name === "frame_outline"){
                                 if( item.attrs.scaleFont || ((item.width() * scale * frame.scale) > (item.attrs.minRenderSize ?? 8)) || item.attrs.name === "frame_outline"){
                                     if( item.attrs.name?.includes("top_layer")){
                                         topLayer.push(item)
@@ -1607,6 +1608,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         if(visible){
                             if( d.attrs.scaleFont ){
                                 const iScale = Math.min(25, Math.max(1 / scale / frame.scale , 2))
+                                if( d.attrs.hideScale){
+                                    d.visible(iScale > d.attrs.hideScale)
+                                }
                                 const w = Math.min( d.attrs.originWidth * iScale, frame.node.attrs.width * 1.25)
                                 const h =  (iScale * d.attrs.scaleFont) * 1.2
                                 d.children[1].fontSize( iScale * d.attrs.scaleFont )

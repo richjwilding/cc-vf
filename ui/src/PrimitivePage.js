@@ -27,6 +27,7 @@ import MapViewer from './MapViewer';
 import BoardViewer from './BoardViewer';
 import AnalysisPage from './AnalysisPage';
 import ReportViewExporter from './ReportViewExporter';
+import RouterTest from './RouterTest';
 
 
 let mainstore = MainStore()
@@ -584,7 +585,8 @@ export function PrimitivePage({primitive, ...props}) {
                         closeButton={()=>setShowWorkingPane()}
                       
                       />}
-                    {showWorkingPane === "board" && <BoardViewer primitive={primitive}/>}
+                    {true && showWorkingPane === "board" && <RouterTest/>}
+                    {false && showWorkingPane === "board" && <BoardViewer primitive={primitive}/>}
                     {(showWorkingPane instanceof Object && showWorkingPane.type === "result" )  && 
                       <CollectionViewer 
                           closeButton={()=>setShowWorkingPane()}
