@@ -8,7 +8,7 @@ export default function RouterTest(){
 
     // Define shapes
     let shapes = []
-    for(let idx = 0; idx < 80; idx = idx){
+    for(let idx = 0; idx < 0; idx = idx){
         const shape = {id: `shape${idx}`, 
             left: 5 + Math.random() * 1200,  
             top: 5 + Math.random() * 1200,  
@@ -28,8 +28,7 @@ export default function RouterTest(){
         {
             "id": "shape0",
             "left": 290,
-            "top": 835,
-            ...target,
+            "top": 635,
             "width": 30,
             "height": 30
         },
@@ -37,6 +36,7 @@ export default function RouterTest(){
             "id": "shape1",
             "left": 792,
             "top": 339,
+            ...target,
             "width": 30,
             "height": 30
         },
@@ -603,7 +603,7 @@ export default function RouterTest(){
         const routes = [
             {
                 pointA: {shape: shapes.find(d=>d.id === "shape0"), side: 'bottom', distance: 0.5},
-                pointB: {shape: shapes.find(d=>d.id === "shape1"), side: 'right',  distance: 0.5}
+                pointB: {shape: shapes.find(d=>d.id === "shape1"), side: ['bottom','right','top','left'],  distance: 0.5}
             }
         ]
         while(routes.length < 50){
@@ -614,19 +614,16 @@ export default function RouterTest(){
                 routes.push(
                     {
                         pointA: {shape: shapes.find(d=>d.id === `shape${start}`), side: 'bottom', distance: 0.5},
-                        pointB: {shape: shapes.find(d=>d.id === `shape${end}`), side: 'right',  distance: 0.5}
+                        pointB: {shape: shapes.find(d=>d.id === `shape${end}`), side: ['bottom','right','top','left'],  distance: 0.5}
                     }
                 )
             }
         }
-        console.time("route")
         OrthogonalConnector.route(routes, router);
-        console.timeEnd("route")
 
     },[])
 
 
-    const paths = router.paths()
 
     
     // Draw shapes and path
@@ -639,6 +636,7 @@ export default function RouterTest(){
         if( !ref.current){
             return 
         }
+    const paths = router.paths()
     
             const context = ref.current.getContext('2d');
 
@@ -666,10 +664,6 @@ export default function RouterTest(){
             for(const d of router.byproduct.grid){
                 context.strokeRect(d.left, d.top, d.width, d.height);
             }*/
-            for(const d of router.byproduct.clearedblocks){
-                    context.fillStyle = "#ff99aa"
-            //        context.fillRect(d.left, d.top, d.width, d.height);
-            }
 
             
             context.strokeStyle ="red"
@@ -711,19 +705,24 @@ export default function RouterTest(){
 
 
     const handleClick = (event) => {
+                    render()
+    }
+    const handleMove = (event) => {
         if( event.buttons> 0 ){
             if( !anim ){
                 const rect = event.target.getClientRects()[0]
-                setTarget({left: event.pageX - rect.x, top: event.pageY - rect.y})
+                //setTarget({left: event.pageX - rect.x, top: event.pageY - rect.y})
                 const left = event.pageX - rect.x
                 const top = event.pageY - rect.y
-                router.moveShape("shape0", {
+                router.moveShape("shape1", {
                     left,
                     top,
                 })
-                OrthogonalConnector.route(undefined, router);
-
+                
                 anim = requestAnimationFrame(()=>{
+                    console.time("route")
+                    OrthogonalConnector.route(undefined, router);
+                    console.timeEnd("route")
                     render()
                     anim = undefined
                 })
@@ -739,7 +738,8 @@ export default function RouterTest(){
 
     return <canvas 
         ref={ref}
-        onMouseMove={handleClick}
+        onMouseMove={handleMove}
+        onClick={handleClick}
         width={1400}
         height={1400}
         style={{width:"1400px",height:"1400px"}}
