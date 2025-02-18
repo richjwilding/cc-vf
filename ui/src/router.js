@@ -375,38 +375,57 @@ function makePt(x, y) {
     constructor(data) {
       this.data = data;
       this.distance = Number.MAX_SAFE_INTEGER;
-      this.adjacentNodes = new Map();
+      this.visitedGeneration = 0;
+      this.adjacentNodes = [];
+    }
+    addNeighbor(neighbor, weight) {
+      this.adjacentNodes.push({ node: neighbor, weight: weight });
     }
   }
   
   class PointGraph {
     constructor() {
-      this.index = {};
+      //this.index = {};
+      this.index = new Map();
+      this.currentGeneration = 1;
     }
-
-    resetNodes(){
-
-      for(const xs in this.index){
-        for(const ys in this.index[xs]){
-          this.index[xs][ys].distance = Number.MAX_SAFE_INTEGER;
-          this.index[xs][ys].previousNode = undefined
-          this.index[xs][ys].settled = undefined
-
-        }
+    _key(p) {
+        // If a key is already computed on this point, return it.
+      if (p._key !== undefined) {
+        return p._key;
       }
+      // Otherwise, compute it and cache it on the point.
+      p._key = (p.x * 2) * 0x100000000 + (p.y * 2);
+      return p._key;
+
+      //return `${p.x},${p.y}`;
     }
-  
+    startNewSearch() {
+      this.currentGeneration++;
+    }
+
+    resetNode(node) {
+      node.distance = Number.MAX_SAFE_INTEGER;
+      node.previousNode = null;
+      node.settled = undefined
+      node.visitedGeneration = this.currentGeneration;
+    }
+
     add(p) {
-      const { x, y } = p;
-      const xs = x.toString(),
-        ys = y.toString();
+      const key = this._key(p);
+      if (!this.index.has(key)) {
+        this.index.set(key, new PointNode(p));
+      }
+    }
   
-      if (!(xs in this.index)) {
-        this.index[xs] = {};
-      }
-      if (!(ys in this.index[xs])) {
-        this.index[xs][ys] = new PointNode(p);
-      }
+    // Retrieve the node for a given point.
+    get(p) {
+      return this.index.get(this._key(p)) || null;
+    }
+  
+    // Check if the graph contains a point.
+    has(p) {
+      return this.index.has(this._key(p));
     }
   
     getLowestDistanceNode(unsettledNodes) {
@@ -430,6 +449,7 @@ function makePt(x, y) {
     }
   
       calculateShortestPathFromSource(graph, source, destinationNodes, lastPath) {
+        this.resetNode(source);
         source.distance = 0;
         const minHeap = new MinHeap();
         minHeap.insert(source);
@@ -444,7 +464,13 @@ function makePt(x, y) {
           
           currentNode.settled = true
       
-          for (const [adjacentNode, edgeWeight] of currentNode.adjacentNodes) {
+          //for (const [adjacentNode, edgeWeight] of currentNode.adjacentNodes) {
+          for (let i = 0, len = currentNode.adjacentNodes.length; i < len; i++) {
+            const { node: adjacentNode, weight: edgeWeight } = currentNode.adjacentNodes[i];
+
+            if (adjacentNode.visitedGeneration !== this.currentGeneration) {
+              this.resetNode(adjacentNode);
+            }
             if (!adjacentNode.settled) {
              if( this.calculateMinimumDistance(adjacentNode, edgeWeight, currentNode, lastPath)){
                minHeap.insert(adjacentNode);
@@ -524,17 +550,6 @@ function makePt(x, y) {
     directionOfNodes(a, b) {
       return this.directionOf(a.data, b.data);
     }
-  
-    connect(a, b) {
-      const nodeA = this.get(a);
-      const nodeB = this.get(b);
-  
-      if (!nodeA || !nodeB) {
-        throw new Error(`A point was not found`);
-      }
-  
-      nodeA.adjacentNodes.set(nodeB, distance(a, b));
-    }
     connectBoth(a, b) {
       const nodeA = this.get(a);
       const nodeB = this.get(b);
@@ -542,26 +557,10 @@ function makePt(x, y) {
         throw new Error(`A point was not found`);
       }
       const w = distance(a, b);
-      nodeA.adjacentNodes.set(nodeB, w);
-      nodeB.adjacentNodes.set(nodeA, w);
-    }
-  
-    has(p) {
-      const { x, y } = p;
-      const xs = x.toString(),
-        ys = y.toString();
-      return xs in this.index && ys in this.index[xs];
-    }
-  
-    get(p) {
-      const { x, y } = p;
-      const xs = x.toString(),
-        ys = y.toString();
-  
-      if (xs in this.index && ys in this.index[xs]) {
-        return this.index[xs][ys];
-      }
-      return null;
+      //nodeA.adjacentNodes.set(nodeB, w);
+      //nodeB.adjacentNodes.set(nodeA, w);
+      nodeA.addNeighbor(nodeB, w);
+      nodeB.addNeighbor(nodeA, w);
     }
   }
   
@@ -580,20 +579,6 @@ function makePt(x, y) {
     }
   }
   
-  // Extrudes the connector point by margin depending on its side
-  function extrudeCp(cp, margin) {
-    const { x, y } = computePt(cp);
-    switch (cp.side) {
-      case "top":
-        return makePt(x, y - margin);
-      case "right":
-        return makePt(x + margin, y);
-      case "bottom":
-        return makePt(x, y + margin);
-      case "left":
-        return makePt(x - margin, y);
-    }
-  }
   
   // Returns flag indicating if the side belongs on a vertical axis
   function isVerticalSide(side) {
@@ -637,9 +622,9 @@ function makePt(x, y) {
     // 2. Add horizontal edge midpoints: For each horizontal line, midpoint between adjacent verticals.
     for (const y of horizontals) {
       for (let i = 0; i < verticals.length - 1; i++) {
-        const xMid = (verticals[i] + verticals[i + 1]) / 2;
-        if( xMid > midThresh){
-          addPoint({ x: xMid, y });
+        if( (verticals[i] - verticals[i]) > midThresh){
+            const xMid = (verticals[i] + verticals[i + 1]) / 2;
+            addPoint({ x: xMid, y });
         }
       }
     }
@@ -647,8 +632,8 @@ function makePt(x, y) {
     // 3. Add vertical edge midpoints: For each vertical line, midpoint between adjacent horizontals.
     for (const x of verticals) {
       for (let j = 0; j < horizontals.length - 1; j++) {
-        const yMid = (horizontals[j] + horizontals[j + 1]) / 2;
-        if( yMid > midThresh){
+        if( (horizontals[j + 1] - horizontals[j]) > midThresh){
+          const yMid = (horizontals[j] + horizontals[j + 1]) / 2;
           addPoint({ x, y: yMid });
         }
       }
@@ -657,9 +642,9 @@ function makePt(x, y) {
     // 4. Add cell centers: For each cell defined by adjacent verticals and horizontals.
     for (let i = 0; i < verticals.length - 1; i++) {
       for (let j = 0; j < horizontals.length - 1; j++) {
-        const xMid = (verticals[i] + verticals[i + 1]) / 2;
-        const yMid = (horizontals[j] + horizontals[j + 1]) / 2;
-        if( xMid > midThresh && yMid > midThresh){
+        if( ((verticals[i] - verticals[i]) > midThresh) && ((horizontals[j + 1] - horizontals[j]) > midThresh)){
+          const xMid = (verticals[i] + verticals[i + 1]) / 2;
+          const yMid = (horizontals[j] + horizontals[j + 1]) / 2;
           addPoint({ x: xMid, y: yMid });
         }
       }
@@ -667,131 +652,6 @@ function makePt(x, y) {
     return spots;
   }
 
-  // Creates a grid of rectangles from the specified set of rulers, contained on the specified bounds
-  function rulersToGrid(verticals, horizontals, bounds) {
-    const result = new Grid();
-  
-    verticals.sort((a, b) => a - b);
-    horizontals.sort((a, b) => a - b);
-  
-    let lastX = bounds.left;
-    let lastY = bounds.top;
-    let column = 0;
-    let row = 0;
-  
-    for (const y of horizontals) {
-      for (const x of verticals) {
-        result.set(row, column++, Rectangle.fromLTRB(lastX, lastY, x, y));
-        lastX = x;
-      }
-  
-      // Last cell of the row
-      result.set(row, column, Rectangle.fromLTRB(lastX, lastY, bounds.right, y));
-      lastX = bounds.left;
-      lastY = y;
-      column = 0;
-      row++;
-    }
-  
-    lastX = bounds.left;
-  
-    // Last row of cells
-    for (const x of verticals) {
-      result.set(row, column++, Rectangle.fromLTRB(lastX, lastY, x, bounds.bottom));
-      lastX = x;
-    }
-  
-    // Last cell of last row
-    result.set(row, column, Rectangle.fromLTRB(lastX, lastY, bounds.right, bounds.bottom));
-  
-    return result;
-  }
-  
-  function reducePoints(points) {
-    const seen = new Set();
-    const result = [];
-    for (const p of points) {
-      const key = `${p.x},${p.y}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        result.push(p);
-      }
-    }
-    return result;
-  }
-  
-  // Returns a set of spots generated from the grid, avoiding colliding spots with specified obstacles
-  function gridToSpots(grid, obstacles) {
-    const seen = new Set();
-    const obsLen = obstacles.length;
-    const multiplier = 0x100000000
-
-    const gridPoints = [];
-    function addPoint(p){
-        const key =  p.x * multiplier + p.y;
-        if (seen.has(key)) return;
-        seen.add(key);
-        for (let i = 0; i < obsLen; i++) {
-          const ob = obstacles[i]
-          if(p.x >= ob.left && p.x <= ob.right && p.y >= ob.top && p.y <= ob.bottom){
-            return
-          }
-        }
-        gridPoints.push(p);
-    }
-  
-    for (const [row, data] of grid.data) {
-      const firstRow = row === 0;
-      const lastRow = row === grid.rows - 1;
-  
-      for (const [col, r] of data) {
-        const firstCol = col === 0;
-        const lastCol = col === grid.columns - 1;
-        const nw = firstCol && firstRow;
-        const ne = firstRow && lastCol;
-        const se = lastRow && lastCol;
-        const sw = lastRow && firstCol;
-
-  
-        if (nw || ne || se || sw) {
-          addPoint(r.northWest)
-          addPoint(r.northEast)
-          addPoint(r.southWest)
-          addPoint(r.southEast)
-        } else if (firstRow) {
-          addPoint(r.northWest)
-          addPoint(r.north)
-          addPoint(r.northEast)
-        } else if (lastRow) {
-          addPoint(r.southEast)
-          addPoint(r.south)
-          addPoint(r.southWest)
-        } else if (firstCol) {
-          addPoint(r.northWest)
-          addPoint(r.west)
-          addPoint(r.southWest)
-        } else if (lastCol) {
-          addPoint(r.northEast)
-          addPoint(r.east)
-          addPoint(r.southEast);
-        } else {
-          addPoint(r.northWest)
-          addPoint(r.north)
-          addPoint(r.northEast)
-          addPoint(r.east)
-          addPoint(r.southEast)
-          addPoint(r.south)
-          addPoint(r.southWest)
-          addPoint(r.west)
-          addPoint(r.center);
-        }
-      }
-    }
-  
-    // Reduce repeated points and filter out those that touch shapes
-    //return reducePoints(gridPoints).filter(p => !obstacleCollision(p));
-    return gridPoints//.filter(p => !obstacleCollision(p))
-  }
   
   // Creates a graph connecting the specified points orthogonally
   function createGraph(spots) {
@@ -874,7 +734,7 @@ function makePt(x, y) {
     const matchNode = graph.calculateShortestPathFromSource(graph, originNode, destinationNodes, lastPath);
   
     const shortestPath = graph.reconstructPath(matchNode)
-    return shortestPath.map(n => n.data);
+    return {path: shortestPath.map(n => n.data), node: matchNode, distance: matchNode?.distance ?? Infinity}
   }
   
   // Given three points representing two connected segments,
@@ -1077,8 +937,7 @@ function makePt(x, y) {
 
       if( this.pathCache ){
         for(const [idx, entry] of this.pathCache){
-          if( OrthogonalConnector.doesPathCutThroughRectangle(Rectangle.fromRect(shape), entry.path)){
-          //if( entry.shapeA.id === shapeId || entry.shapeB.id === shapeId ){
+          if( entry.shapeA.id === shapeId || entry.shapeB.id === shapeId  || OrthogonalConnector.doesPathCutThroughRectangle(Rectangle.fromRect(shape), entry.path)){
             entry.redo = true
           }
         }
@@ -1254,21 +1113,33 @@ function makePt(x, y) {
           cached = target.pathCache.get(key);
           if ( !cached.redo){//true){//target.isCachedPathValid(link, cached)) {
             // Reuse the cached path.
+            
             paths.push([...cached.path]);
             continue;
           }
         }
 
         const { pointA, pointB } = link;
-        const origin = termPoints[key].a[0]//extrudeCp(pointA, shapeMargin);
-    
-        const start = computePt(pointA, "bottom");
-    
-        
-        const path = shortestPath(graph, origin, termPoints[key].b, cached?.path) ?? []
-
+        let bestPath = []
+        let bestScore = Infinity
+        let bestStart
+        let sideIdx = 0
+        const aSide = [pointA.side].flat()
+        for( const side of aSide){
+          const origin = termPoints[key].a[sideIdx]//extrudeCp(pointA, shapeMargin);
+          const start = computePt(pointA, aSide[sideIdx]);
+          
+          graph.startNewSearch()
+          const {path, node, distance} = shortestPath(graph, origin, termPoints[key].b, cached?.path) 
+          if( distance < bestScore ){
+            bestPath = path ?? []
+            bestScore = distance
+            bestStart = start
+          }
+          sideIdx++        
+        }
         let fullPath
-        let endPrime = path[path.length - 1]
+        let endPrime = bestPath[bestPath.length - 1]
         if( endPrime){
           let end
           let pos = termPoints[key].b.findIndex( d=>d.x === endPrime.x && d.y === endPrime.y)
@@ -1280,11 +1151,10 @@ function makePt(x, y) {
             case "right": end = {x: endPrime.x - shapeMargin, y: endPrime.y};break
           }
           
-          fullPath = simplifyPath([start, ...path, end]);
+          fullPath = simplifyPath([bestStart, ...bestPath, end]);
         }else{
-          fullPath = [start, termPoints[key].b[0]]
+          fullPath = [termPoints[key].a[0], termPoints[key].b[0]]
         }
-        //const fullPath = [start, ...path, destination, end]
 
         target.pathCache.set(key, {
           key,
@@ -1296,7 +1166,6 @@ function makePt(x, y) {
   
         
         paths.push(fullPath);
-        graph.resetNodes()
       }
       return paths
     }

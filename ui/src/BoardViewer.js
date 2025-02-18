@@ -1676,6 +1676,19 @@ export default function BoardViewer({primitive,...props}){
                     await addBlankView( undefined, bp.id, undefined, {referenceId: resultCategoryIds})
                 }
                 
+            }else if( bp.type === "query"){
+                let resultCategoryIds = bp.itemsForProcessing.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i)
+                if( resultCategoryIds.length === 0){
+                    if( bp.referenceParameters.extract ){
+                        resultCategoryIds = [bp.referenceParameters.extract]
+                    }else{
+                        resultCategoryIds = [82]
+                    }
+                }
+                if( resultCategoryIds.length > 0 ){
+                    await addBlankView( undefined, bp.id, undefined, {referenceId: resultCategoryIds})
+                }
+                
             }
         }
     }

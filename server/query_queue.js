@@ -9,7 +9,7 @@ import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
 import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleScholar, queryYoutube } from "./google_helper";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
-import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, querySubredditWithBrightData, queryTiktokWithBrightData } from './brightdata';
+import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
 import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
@@ -442,6 +442,19 @@ export async function processQueue(job, cancelCheck, extendJob){
                         if( source.platform === "glassdoor" ){
                             //await queryInstagramWithBrightData( primitive, terms, callopts) 
                             await queryGlassdoorReviewWithBrightData( primitive, terms, callopts)
+                        }
+                        if( source.platform === "trustpilot" ){
+                            //await queryInstagramWithBrightData( primitive, terms, callopts) 
+                            if( oId ){
+                                origin = origin ?? await Primitive.findOne({_id: oId})
+                            }
+
+                            if( origin ){
+                                let targetProfile = origin.referenceParameters.trustpilot
+                                if( targetProfile ){
+                                    await queryTrustPilotForCompanyReviewsBrightData( primitive, targetProfile, terms, callopts)
+                                }
+                            }
                         }
                         if( source.platform === "instagram" ){
                             await queryInstagramPostsByRapidAPI( primitive, terms, callopts)

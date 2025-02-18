@@ -7,6 +7,7 @@ import BrightDataQueue from "./brightdata_queue";
 import { promises as fs } from 'fs';
 
 
+
 async function linkToPrimitiveViaSearchPath( primitive ){
     const [oId, candidatePaths] = Object.keys(primitive.parentPrimitives ?? {})?.map(d=>primitive.parentPrimitives[d].map(d2=>[d,d2])).flat()?.find(d=>d[1].indexOf("primitives.search.") === 0) ?? []
     const addToOrigin = candidatePaths?.length > 0
@@ -87,8 +88,9 @@ const bdExtractors = {
         }
     },
     "trustpilot_review":{
-        datasetId: "gd_lm5zmhwd2sni130",
+        datasetId: "gd_lm5zmhwd2sni130p",
         id: (data)=>data.id,
+        limitKey: "limit_multiple_results",
         excludeIds:async ()=>{},
         data:  (data)=>{
             const date = moment(data.review_date).format('DD MMM YY')
@@ -278,6 +280,20 @@ export async function enrichPrimitiveViaBrightData( primitive, options = {} ){
     await triggerBrightDataCollection(input, configName, primitive, undefined, options.create ?? {})
 }
 
+export async function queryTrustPilotForCompanyReviewsBrightData( primitive, targetProfile, terms, callopts){
+    if( targetProfile ){
+        const input = [{        
+            url: targetProfile,
+            //date_posted:"Last 12 months"
+        }]
+        if( primitive.processing?.bd?.collectionId){
+            //console.log(`Not redoing TrustPilot fetch`)
+            return 
+        }
+        
+        await triggerBrightDataCollection(input, "trustpilot_review", primitive, terms, {...callopts, limit_count: callopts.count})
+    }
+}
 export async function queryLinkedInCompanyPostsBrightData( primitive, company_url, terms, callopts){
     const input = [{        
         url: company_url,
@@ -410,7 +426,11 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
     if( config.limit ){
         url += `&limit_per_input=${config.limit}`
     }else if( callopts.limit_count ){
-        url += `&limit_per_input=${callopts.limit_count}`
+        if( config.limitKey){
+            url += `&${config.limitKey}=${callopts.limit_count}`
+        }else{
+            url += `&limit_per_input=${callopts.limit_count}`
+        }
     }
 
 

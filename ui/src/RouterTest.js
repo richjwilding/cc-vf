@@ -8,7 +8,7 @@ export default function RouterTest(){
 
     // Define shapes
     let shapes = []
-    for(let idx = 0; idx < 0; idx = idx){
+    for(let idx = 0; idx < 10; idx = idx){
         const shape = {id: `shape${idx}`, 
             left: 5 + Math.random() * 1200,  
             top: 5 + Math.random() * 1200,  
@@ -24,7 +24,7 @@ export default function RouterTest(){
     }
 
 
-    shapes = [
+    const _shapes = [
         {
             "id": "shape0",
             "left": 290,
@@ -602,11 +602,13 @@ export default function RouterTest(){
 
         const routes = [
             {
-                pointA: {shape: shapes.find(d=>d.id === "shape0"), side: 'bottom', distance: 0.5},
-                pointB: {shape: shapes.find(d=>d.id === "shape1"), side: ['bottom','right','top','left'],  distance: 0.5}
+                //pointA: {shape: shapes.find(d=>d.id === "shape0"), side: ['bottom', 'right','top','left'], distance: 0.5},
+                //pointB: {shape: shapes.find(d=>d.id === "shape1"), side: ['bottom','right','top','left'],  distance: 0.5}
+                pointA: {shape: shapes.find(d=>d.id === "shape0"), side: ['right'], distance: 0.5},
+                pointB: {shape: shapes.find(d=>d.id === "shape1"), side: ['left'],  distance: 0.5}
             }
         ]
-        while(routes.length < 50){
+        while(routes.length < 3){
             const start = Math.floor(Math.random() * shapes.length)
             const end = Math.floor(Math.random() * shapes.length)
             if( start !== end && start >1 && end > 1){
@@ -654,12 +656,12 @@ export default function RouterTest(){
                 context.stroke();
 
             }
+            /*
             context.fillStyle ="#aaaaff"
-
             for(const d of router.byproduct.spots){
                     context.fillRect(d.x - 1, d.y - 2, 2, 2);
 
-            }
+            }*/
             /*
             for(const d of router.byproduct.grid){
                 context.strokeRect(d.left, d.top, d.width, d.height);
@@ -687,11 +689,11 @@ export default function RouterTest(){
                 if( path.length > 0 ){
                     let idx = 0
                     context.beginPath();
-                    for(const {x,y} of path){
+                    for(const p of path ){
                         if( idx === 0){
-                            context.moveTo(x, y)
+                            context.moveTo(p?.x, p?.y)
                         }else{
-                            context.lineTo(x, y)
+                            context.lineTo(p?.x, p?.y)
                         }
                         idx++
                     }

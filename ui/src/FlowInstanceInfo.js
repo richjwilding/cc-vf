@@ -158,7 +158,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
                         items={stepsToProcess.map(d=>({
                             ...d, 
                             content: d.title, 
-                            secondary: d.message, 
+                            secondary: d.progress, 
                             onClick:()=>MainStore().sidebarSelect(d.primitive, {forFlow: true})
                         }))}
                         />

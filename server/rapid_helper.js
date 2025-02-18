@@ -169,6 +169,61 @@ export async function queryLinkedInCompaniesByRapidAPI( primitive, terms, callop
         return
     }
 
+    async function fetchItems(urls){
+        console.log(`Now fetching`)
+        const batchData = []
+        const batchSize = 25
+        for(let idx = 0; idx <= urls.length; idx += batchSize)
+        {
+            const thisBatch = urls.slice(idx, idx + batchSize)
+
+            const options = {
+                method: 'POST',
+                url: 'https://linkedin-bulk-data-scraper.p.rapidapi.com/companies',
+                headers: {
+                'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+                  'x-rapidapi-host': 'linkedin-bulk-data-scraper.p.rapidapi.com',
+                  'Content-Type': 'application/json',
+                //  'x-rapidapi-user': 'usama'
+                },
+                data: {
+                  links: thisBatch
+                }
+            };
+    
+            console.log(options)
+            
+            try {
+                const response = await axios.request(options);
+                const results = response.data
+                if( results?.success && results?.data){
+                    for(const outer of results.data){
+                        const d = outer.data
+                        if( d ){
+                            const data = {
+                                title: d.companyName,
+                                type: "entity",
+                                referenceParameters:{
+                                    description: d.description,
+                                    url: d. websiteUrl,
+                                    employee_count: d.employeeCount,
+                                    location: d.headquarter?.country
+                                }
+                            }
+                            const newPrim = callopts.createResult( data, true )
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log(`Error`)
+                console.error(error);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
+    }
+
     console.log(`-- ${individualTerms.join(", ")}`)
 
     const doQuery = async (term, nextPage, retries = 5 )=>{//}= "%7Bend_cursor%7D", page = "%7Bnext_page%7D")=>{
@@ -228,10 +283,12 @@ export async function queryLinkedInCompaniesByRapidAPI( primitive, terms, callop
 
     const emptyMax = 5
     const maxPage = 50
-    let total = 0, empty = 0
+    let total = 0, empty = 0, scanned = 0, allTerms = 0
 
     for( const term of individualTerms){
-        total = 0
+        if( callopts.countPerTerm ){
+            total = 0
+        }
         let nextPage = 1
         let exit = false
         do{
@@ -240,14 +297,16 @@ export async function queryLinkedInCompaniesByRapidAPI( primitive, terms, callop
                 let someAdded = false
                 const processItem = async (d)=>{
                     if( d.companyName && d.summary){
+                        scanned++
                         const check = d.companyName + "\n" + d.primarySubtitle + "\n" + d.summary
-                        console.log(check)
+                        if( callopts.progressUpdate){
+                            await callopts.progressUpdate({totalCount: allTerms + 1, scanned: scanned, term: term})
+                        }
                         if( callopts.filterPre && !(await callopts.filterPre({text: check, term: term})) ){
-                            console.log(`--- didnt pass`)
                             return
                         }
-                        console.log(`--- passed`)
                         total++
+                        allTerms++
                         urls.push( d.navigationUrl )
                         someAdded = true
                     }else{
@@ -276,62 +335,16 @@ export async function queryLinkedInCompaniesByRapidAPI( primitive, terms, callop
             if( nextPage >= maxPage ){
                 exit = true
             }
+            if( urls.length > 20 ){
+                await fetchItems(urls)
+                urls = []
+            }
         }while( (total < targetCount) && !exit)
     }
    
     console.log( urls )
     if(urls.length > 0){
-        console.log(`Now fetching`)
-        const batchData = []
-        const batchSize = 25
-        for(let idx = 0; idx <= urls.length; idx += batchSize)
-        {
-            const thisBatch = urls.slice(idx, idx + batchSize)
-
-            const options = {
-                method: 'POST',
-                url: 'https://linkedin-bulk-data-scraper.p.rapidapi.com/companies',
-                headers: {
-                'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-                  'x-rapidapi-host': 'linkedin-bulk-data-scraper.p.rapidapi.com',
-                  'Content-Type': 'application/json',
-                //  'x-rapidapi-user': 'usama'
-                },
-                data: {
-                  links: thisBatch
-                }
-            };
-    
-            console.log(options)
-            
-            try {
-                const response = await axios.request(options);
-                const results = response.data
-                if( results?.success && results?.data){
-                    for(const outer of results.data){
-                        const d = outer.data
-                        if( d ){
-                            const data = {
-                                title: d.companyName,
-                                type: "entity",
-                                referenceParameters:{
-                                    description: d.description,
-                                    url: d. websiteUrl,
-                                    employee_count: d.employeeCount,
-                                    location: d.headquarter?.country
-                                }
-                            }
-                            const newPrim = callopts.createResult( data, true )
-                        }
-                    }
-                }
-            } catch (error) {
-                console.log(`Error`)
-                console.error(error);
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
+        await fetchItems(urls)
     }
     
 }

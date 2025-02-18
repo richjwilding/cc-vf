@@ -155,7 +155,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
             //const instanceStepsForFlow = flowInstanceItems.filter(d=>d.parentPrimitives?.[instanceInfo.instance.id])
             for(const step of steps){
                 //let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
-                let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("config"))
+                let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
                 if( stepInstance ){
                     logger.info(` - Step instance ${stepInstance.id} for ${step.id}`)
                         dispatchControlUpdate(stepInstance.id, "flowElement", false)

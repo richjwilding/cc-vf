@@ -1899,7 +1899,7 @@ function MainStore (prims){
                                         return source.itemsForProcessing
                                     }else{
                                         const address = source.primitives.outputs.paths(receiver.id)[0]
-                                        if( address && address !== '.impout_impin'){
+                                        if( address && address !== '.impout_impin' && address !== '.impin_impin'){
                                             const [outputPin, inputPin] = address.slice(1).split("_")
                                             return source.outputs[outputPin]?.data ?? []
                                         }

@@ -1235,7 +1235,7 @@ export async function processQueue(job){
                     opener: "Here is some data i will give you instructions about",
                     prompt: prompt,
                     output: "Provide the result as a json object with an array called 'results' which has a string entry for each complete part of your answer",
-                    engine: "gpt4o"
+                    engine: config.engine ?? "gpt4o"
                 })
                 if( response?.success && response.output){
                     dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", response.output)

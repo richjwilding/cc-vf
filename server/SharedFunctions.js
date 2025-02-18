@@ -1566,11 +1566,11 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             }
         }
         if(source.type === "search"){
-            const nestedSearch = [source, await primitiveChildren(source, "search")].filter(d=>d)
+            const nestedSearch = [source, ...(await primitiveChildren(source, "search"))].filter(d=>d)
             logger.info(`Got ${nestedSearch.length} nested searches`)
             const ids = nestedSearch.flatMap(d=>{
                 let node = new Proxy((d.primitives ?? {}), parser)
-                return node[d].uniqueAllIds
+                return node.uniqueAllIds
             }).filter((d,i,a)=>a.indexOf(d) === i)
 
             list = await fetchPrimitives( ids)

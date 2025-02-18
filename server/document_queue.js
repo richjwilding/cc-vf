@@ -544,71 +544,6 @@ async function doDataQuery( options ) {
                 }
                 if(items){
                     let ids = items?.map(d=>d.id)
-
-                    /*const reject = [
-                        "67a5fdd5bdf98485e993d27d",
-                        "67a5fdd4bdf98485e993d277",
-                        "67a34dbb6a8099ad72a0ad23",
-                        "67a34db96a8099ad72a0ad0e",
-                        "67a34d806a8099ad72a0ac53",
-                        "67a34d346a8099ad72a0ab47",
-                        "67a34d326a8099ad72a0ab2c",
-                        "67a34d326a8099ad72a0ab2a",
-                        "67a34d2e6a8099ad72a0aafe",
-                        "67a34d286a8099ad72a0aadf",
-                        "67a34d246a8099ad72a0aab5",
-                        "67a34d1b6a8099ad72a0aa3d",
-                        "67a34d1b6a8099ad72a0aa37",
-                        "67a34b016a8099ad72a0a34d",
-                        "67a34adc6a8099ad72a0a2a0",
-                        "67a34abe6a8099ad72a0a236",
-                        "67a34ab96a8099ad72a0a1de",
-                        "67a34ab86a8099ad72a0a1d8",
-                        "67a34ab76a8099ad72a0a1cb",
-                        "67a34aaf6a8099ad72a0a168",
-                        "67a34aaa6a8099ad72a0a107",
-                        "67a34aa86a8099ad72a0a0ef",
-                        "67a34aa56a8099ad72a0a0cb",
-                        "67a34aa46a8099ad72a0a0bc",
-                        "67a34aa46a8099ad72a0a0b2",
-                        "67a34a806a8099ad72a0a01c",
-                        "67a34a736a8099ad72a09fd0",
-                        "67a34a706a8099ad72a09fa5",
-                        "67a3479d5599e2d4b66362b3",
-                        "67a3479b5599e2d4b663628f",
-                        "67a347955599e2d4b6636231",
-                        "67a347955599e2d4b663622f",
-                        "67a347935599e2d4b6636214",
-                        "67a347925599e2d4b6636204",
-                        "67a346fa5599e2d4b6636145",
-                        "67a346ec5599e2d4b6636102",
-                        "67a346de5599e2d4b66360ac",
-                        "67a346db5599e2d4b6636097",
-                        "67a346d15599e2d4b6636039",
-                        "67a346d15599e2d4b6636032",
-                        "67a346d15599e2d4b663602e",
-                        "67a346d05599e2d4b663602a",
-                        "67a346d05599e2d4b6636023",
-                        "67a3468a5599e2d4b6635f72",
-                        "67a3461f5599e2d4b6635dde",
-                        "67a345fa5599e2d4b6635cc3",
-                        "67a345e75599e2d4b6635c25",
-                        "67a345e65599e2d4b6635c1d",
-                        "67a345e45599e2d4b6635c01",
-                        "67a345e25599e2d4b6635bdd",
-                        "67a345e15599e2d4b6635bd4",
-                        "67a345dd5599e2d4b6635bb9",
-                        "67a345da5599e2d4b6635b8b",
-                        "67a345da5599e2d4b6635b89",
-                        "67a345d45599e2d4b6635b41",
-                        "67a345d25599e2d4b6635b17",
-                        "67a345d15599e2d4b6635b0d",
-                        "67a345d15599e2d4b6635b06",
-                        "67a345d15599e2d4b6635b03"
-                    ]
-                    ids = ids.filter(d=>!reject.includes(d))*/
-
-
                     serachScope.push({foreignId: {$in: ids}})
                     console.log(`Constrained to ${ids.length} items`)
                     if( ids.length === 0){
@@ -765,6 +700,17 @@ async function doDataQuery( options ) {
                             console.log(`Fetching all fragments`)
                             fragmentList = await ContentEmbedding.find({$and: serachScope},{foreignId:1, part:1, text: 1})
                             fragmentList = fragmentList.sort((a,b)=>a.part - b.part).map(d=>({...d.toJSON(), id: d.foreignId}))
+                            if( fragmentList.length === 0){
+                                logger.info(`No fragemnts - will revert to context`)
+                                for(const d of items){
+                                    const context = await buildContext( d )
+                                    if(context && context.trim().length > 0){
+                                        fragmentList.push({
+                                            id: d.id, text: context
+                                        })
+                                    }
+                                }
+                            }
                         }
 
                         

@@ -221,7 +221,20 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
     const underlyingInfo = !underlying ? <></> : <div className="px-2 py-2 mt-4 bg-ccgreen-50 border-ccgreen-200 border rounded-md">{(()=>{
                     let flowinstance = underlying.findParentPrimitives({type:"flowinstance"})?.[0]
                     let title = flowinstance.primitives.imports.allItems[0]?.filterDescription
-                    return <div className="text-sm text-ccgreen-800">Items for flow instance {title} (#{flowinstance?.plainId}) </div>
+                    return <>
+                        <div className="text-sm text-ccgreen-800">Items for flow instance {title} (#{flowinstance?.plainId}) </div>
+                        <button
+                        type="button"
+                        className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 mt-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        onClick={()=>{
+                            MainStore().doPrimitiveAction( flowinstance, "run_flowinstance_from_step", {from: underlying.id, force: true})
+                            
+                        }}
+                        >
+                            Run from here
+                        </button>
+                    </>
+
                 })()}
             </div>
 
@@ -835,6 +848,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     </div>
                 </div>
             }
+            {!filters && (frame.type === "flow") && <UIHelper.Button outline title="Scaffold" onClick={()=>mainstore.doPrimitiveAction(frame,"workflow_scaffold")}/>}
             {underlyingInfo}
             {itemCategory && <div className="px-3 py-2 bg-gray-50 border rounded-md">
                 <CategoryHeader newPrimitiveCallback={newPrimitiveCallback} itemCategory={itemCategory} items={list}  newItemParent={newItemParent} createNewView={props.createNewView} panelConfig={frame?.referenceParameters?.table} actionAnchor={frame} filters={filters}/>
