@@ -17,7 +17,7 @@ async function findTrustPilotURL(primitive){
     async function doLookup(title, parts, single = true){
         let out = []
         const result = await fetchLinksFromWebQuery(`site:trustpilot.com ${title}`, {count:5, timeFrame: ""})
-        if( result.links ){
+        if( result?.links ){
             const matchOrder = new Array(parts.length).fill(0).map((d,i)=>parts.slice(0, i + 1).join(" ")).reverse()
             for(const pass of matchOrder ){
                 let matches = result.links.filter(d=>(d.title.toLowerCase().match(pass) || d.snippet.toLowerCase().match(pass)))
@@ -40,17 +40,19 @@ async function findTrustPilotURL(primitive){
     let result
 
     try{
-        const url = primitive.referenceParameters?.url ? getBaseDomain(primitive.referenceParameters?.url) : undefined
+        let url = primitive.referenceParameters?.url ? primitive.referenceParameters?.url : undefined
         if( !url.includes("linkedin.com/company/")){
-            if( url.pathname !== "/"){
+            const realUrl = new URL(baseURL(url))
+            if( realUrl.pathname !== "/"){
                 console.log(`Skipping with path - should have config option for this`)
-                
             }else{
-                const base = getBaseDomain(new URL(baseURL(url)).hostname)
+                const base = getBaseDomain(realUrl.hostname)
                 result = url && await doLookup(base, [base])
             }
         }
     }catch(e){
+        console.log(e)
+        
 
     }
     if( result ){

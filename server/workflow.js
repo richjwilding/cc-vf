@@ -152,7 +152,23 @@ export async function scaffoldWorkflow( flow, options = {} ){
         }else{
             logger.info( "Flow instance ", {id: instanceInfo.instance.id, segment: instanceInfo.for, name: instanceInfo.forName})
             const instanceStepsForFlow = await primitiveChildren( instanceInfo.instance )
-            //const instanceStepsForFlow = flowInstanceItems.filter(d=>d.parentPrimitives?.[instanceInfo.instance.id])
+
+            const importPrimitiveIds = steps.flatMap(step=>{
+                let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
+                if( stepInstance ){
+
+                    const pp = (new Proxy(stepInstance.primitives ?? {}, PrimitiveParser()))
+                    return [pp.imports.uniqueAllIds, pp.inputs.uniqueAllIds,]
+                }
+                return
+            }).flat().filter((d,i,a)=>d && a.indexOf(d) === i)
+            console.log(`Pre cached ids = ${importPrimitiveIds.length}`)
+            const importPrimitives = await fetchPrimitives( importPrimitiveIds )
+            const importCache = importPrimitives.reduce((a,d)=>{
+                a[d.id] = d
+                return a
+            }, {})
+
             for(const step of steps){
                 //let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
                 let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
@@ -185,7 +201,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
                     instance: stepInstance,
                     stepId: step.id,
                     title: `Instance of ${step.plainId} for ${instanceInfo.instance.plainId}`,
-                    ...(await stepInstanceStatus(stepInstance, instanceInfo.instance))
+                    ...(await stepInstanceStatus(stepInstance, instanceInfo.instance, importCache))
                 } )
             }
             logger.info(`Check outputs`)
@@ -490,8 +506,20 @@ export async function runFlowInstance( flowInstance, options = {}){
 async function flowInstanceStepsStatus( flowInstance ){
     const instanceSteps = await getFlowInstanceSteps(flowInstance)
     const stepStatus = []
+
+    const importPrimitiveIds = instanceSteps.flatMap(d=>{
+        const pp = (new Proxy(d.primitives ?? {}, PrimitiveParser()))
+        return [pp.imports.uniqueAllIds, pp.inputs.uniqueAllIds,]
+    }).flat().filter((d,i,a)=>a.indexOf(d) === i)
+    console.log(`Pre cached ids = ${importPrimitiveIds.length}`)
+    const importPrimitives = await fetchPrimitives( importPrimitiveIds )
+    const importCache = importPrimitives.reduce((a,d)=>{
+        a[d.id] = d
+        return a
+    }, {})
+
     for(const step of instanceSteps){
-        const status = await stepInstanceStatus(step, flowInstance)
+        const status = await stepInstanceStatus(step, flowInstance, importCache)
         stepStatus.push({
             step,
             flowStepId: Object.keys(step.parentPrimitives ?? {}).find(d=>step.parentPrimitives[d].includes("primitives.config")),
@@ -500,8 +528,8 @@ async function flowInstanceStepsStatus( flowInstance ){
     }
     return stepStatus
 }
-async function stepInstanceStatus( step, flowInstance){
-    const should = await shouldStepRun( step, flowInstance)
+async function stepInstanceStatus( step, flowInstance, cache){
+    const should = await shouldStepRun( step, flowInstance, cache)
     const running = should.need ? await stepIsRunning( step, flowInstance ) : false
     return {
         ...should,
@@ -512,7 +540,7 @@ async function getFlowInstanceSteps( flowInstance ){
     return await primitiveChildren( flowInstance )
 }
 
-async function shouldStepRun( step, flowInstance ){
+async function shouldStepRun( step, flowInstance, cache = {} ){
     let flowStarted = flowInstance.processing?.flow?.started
     let canReason, needReason
     let can = undefined, need = false
@@ -540,7 +568,11 @@ async function shouldStepRun( step, flowInstance ){
             //const importIds = Object.values(step.primitives?.[rel] ?? {})
             const importIds = pp.uniqueAllIds
             if( importIds.length > 0){
-                const importPrimitives = await fetchPrimitives( importIds )
+                let importPrimitives = importIds.map(d=>cache[d]).filter(d=>d)                
+                if( importPrimitives.length !== importIds.length){
+                    console.log(`-- Cache miss - fetching importIds`)
+                    importPrimitives = await fetchPrimitives( importIds )
+                }
                 for(const imp of importPrimitives){
                     if( imp.type === "segment"){
                         throw "Need to move to segment origin to get flow step?"
@@ -602,6 +634,8 @@ export async function runStep( step, options = {}){
         const config = await getConfig( step )
         if( config?.action ){
             await doPrimitiveAction(step, "run_runner", {action: config.action, flowStarted, newIteration, flow: true, force: options.singleStep})
+        }else if( config?.generator ){
+            await doPrimitiveAction(step, "run_generator", {generator: config?.generator, flowStarted, newIteration, flow: true, force: options.singleStep})
         }else{
             logger.error(`No acton defined for ${step.id} / ${step.plainId} action runner`)
         }

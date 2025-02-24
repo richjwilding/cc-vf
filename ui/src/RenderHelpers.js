@@ -1594,16 +1594,8 @@ registerRenderer( {type: "categoryId", id: 101, configs: "set_grid"}, (primitive
 registerRenderer( {type: "categoryId", id: 95, configs: "set_grid"},(primitive, options = {})=>{
     const config = {itemWidth:555, spacing: [20,20], itemPadding: [2,2,2,2], padding: [5,5,5,5], ...(options.renderConfig ?? {}), height: undefined}
 
-    const concept_info = {}
-    for(const d of options.list){
-        const concept = d.findParentPrimitives({referenceId: [PrimitiveConfig.Constants["CONCEPT"]]})
-        if( concept ){
-            concept_info[d.id] = {id:concept[0].id, title: concept[0].title}
-        }
-    }
 
-
-    return baseGridRender({...options, extras: {concept_info}}, config)
+    return baseGridRender({...options}, config)
 })
 function baseGridRender( options, config){
     if( !options.list ){
@@ -1964,7 +1956,8 @@ registerRenderer( {type: "default",  configs: "overview"}, (primitive, options =
             y: config.padding[0] + oy + 16,
             fontSize: config.fontSize,
             lineHeight: 1.5,
-            text: primitive.referenceParameters?.description?.slice(0,150) ?? "",
+            withMarkdown: true,
+            text: primitive.referenceParameters?.description?.slice(0,150) ?? primitive.referenceParameters?.summary ?? "",
             fill: '#334155',
             wrap: true,
             refreshCallback: options.imageCallback,
@@ -4202,7 +4195,7 @@ export function renderMatrix( primitive, list, options ){
 
             if( asCounts ){
                 console.log(`MAPPING FOR asCounts`)
-                //subList = mainstore.uniquePrimitives( subList.map(d=>d.origin) )
+                //subList = mainstore.uniquePrimitives( subList.flatMap(d=>d.findParentPrimitives({referenceId: [9]})) )
             }
 
             let cellShowExtra
@@ -4272,8 +4265,8 @@ export function renderMatrix( primitive, list, options ){
         const rowRange = rowExtents.map((_,i)=>cells.filter(d=>d.rIdx === i).map(d=>d.itemLength))
         
         baseRenderConfig.range = [Math.min(...cellCount), Math.max(...cellCount)]
-        baseRenderConfig.colRange = columnRange.map(d=>[Math.min(...d), Math.max(...d)])
-        baseRenderConfig.rowRange = rowRange.map(d=>[Math.min(...d), Math.max(...d)])
+        baseRenderConfig.colRange = columnRange.map(d=>[Math.min(0,...d), Math.max(...d)])
+        baseRenderConfig.rowRange = rowRange.map(d=>[Math.min(0,...d), Math.max(...d)])
         baseRenderConfig.colTitles = columnExtents.map(d=>d.label)
         baseRenderConfig.rowTitles = rowExtents.map(d=>d.label)
     }

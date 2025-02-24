@@ -452,7 +452,7 @@ export async function buildCategories(list, options = {} ){
 
     let final = interim
     const passes = interim.map(d=>d._pass).filter((d,i,a)=>a.indexOf(d)===i).length
-    if( passes > 1){
+    if( passes > 1 && !options.literal){
 
         const result = await processInChunk( interim.map(d=>`${d.t}: ${d.d}`), 
             [

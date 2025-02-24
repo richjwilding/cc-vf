@@ -17,7 +17,7 @@ export async function retrieveDocumentFromSearchCache( primitiveId){
     return undefined
 
 }
-export async function indexDocument( primitive, {force} = {}){
+export async function indexDocument( primitive, {force} = {}, req){
     try{
         if( force ){
             await ContentEmbedding.deleteMany({
@@ -43,7 +43,8 @@ export async function indexDocument( primitive, {force} = {}){
         }
         
         if( !text ){
-            text = (await getDocumentAsPlainText( primitive.id ))?.plain
+            //text = (await getDocumentAsPlainText( primitive.id, req, undefined, true ))?.plain
+            text = (await getDocumentAsPlainText( primitive.id, req ))?.plain
         }
         if( !text || text.length === 0){
             console.log(`Nothing to process`)

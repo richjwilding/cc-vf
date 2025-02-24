@@ -21,7 +21,7 @@ export default function AIStatusPopup({primitive,...props}){
 
     const completeDiscovery = async ()=>{
         for( const item of list ){
-            if( !item.discoveryDone ){
+            if( item.processing?.discovery?.status !== "completed" ){
                 if( item.analyzer ){
                     await item.analyzer().doDiscovery()
                 }
@@ -100,7 +100,7 @@ export default function AIStatusPopup({primitive,...props}){
                           {!banner && <>
                             <div className='py-1 border-gray-200 border-b justify-center flex'>
                               <div className='group relative w-6 h-6'><>
-                                {d.discoveryDone 
+                                {d.processing?.discovery?.status === "completed"
                                   ? <CheckIcon className='group-hover:invisible w-4 h-4 text-gray-400 absolute top-2 left-1' strokeWidth='2'/>
                                   : <div className='group-hover:invisible ml-1 mt-1 w-2 h-2 bg-gray-200 rounded-full  absolute top-2 left-1'/>}
                                   <button

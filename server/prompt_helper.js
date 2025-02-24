@@ -50,6 +50,7 @@ Each section of the of the output should be an element of an array. If a section
                     If the section has subsections:
                     {
                         heading: a short heading that can be used when formatting the response (if this element is top level section - otherwise omit this field), 
+                        content: If the user has requested a title for this section, then an instruction to the AI on how to generate a title (and then omit the title from following subsections). Note that fragment IDs must not referenced / included in this field, otherwise omit this field
                         subsections: an array containing any the subsections 
                     } 
 
@@ -79,7 +80,7 @@ Each section of the of the output should be an element of an array. If a section
     if( structureResult?.output?.[0]){
         structure = structureResult.output[0]
     }
-    augmentEntries(structure, "content", "ids", "List the numbers associated with the fragments of text used for the table.")
+    augmentEntries(structure, "content", "ids", "List the numbers associated with all of the fragments of text used for this section.")
     console.log(structure)
 
     const prompt2 = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to update the task to remove any mention of the output format or sturcture - i will be appending an updated format myself.  

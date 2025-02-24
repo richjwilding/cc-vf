@@ -293,7 +293,8 @@ var ensureAuthenticated = async function (req, res, next) {
 
             // Check if cached user data is still valid
             if (now - req.session.user.lastFetched < CACHE_DURATION) {
-                req.user = req.session.user.data;
+                //req.user = req.session.user.data;
+                req.user = {...req.user,...req.session.user.data}
                 return next();
             }
         }
@@ -314,7 +315,7 @@ var ensureAuthenticated = async function (req, res, next) {
                     lastFetched: Date.now(),
                 };
 
-                req.user = req.session.user.data;
+                req.user = {...req.user,...req.session.user.data}
                 return next();
             } else {
                 res.redirect('/login');

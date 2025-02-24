@@ -1513,7 +1513,7 @@ export default function BoardViewer({primitive,...props}){
         if( id ){
             myState.activeBoard = myState[id]
             if(true || !myState[id].axisOptions ){
-                const source = /*myState[id].underlying ?? */ myState[id].primitive
+                const source = myState[id].underlying ?? myState[id].primitive
                 myState[id].axisOptions = CollectionUtils.axisFromCollection( myState[id].primitiveList ? myState[id].primitiveList : source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
                 //myState[id].axisOptions = CollectionUtils.axisFromCollection( source.itemsForProcessing, source,  source.referenceParameters?.explore?.hideNull)
             }
@@ -1523,13 +1523,9 @@ export default function BoardViewer({primitive,...props}){
                 if( myState.activeBoard.primitive.primitives.imports.allIds.length === 0){
                     addToView = {view: myState.activeBoard.primitive, segment: undefined}
                 }else{
-                    if( myState.activeBoard.primitive.primitives.imports.allIds.length === 1){
-                        const source = myState.activeBoard.primitive.primitives.imports.allItems[0]
-                        if( source.type === "segment"){
-                            if(source.primitives.imports.allIds.length === 0){
-                                addToView = {view: myState.activeBoard.primitive, segment: source}
-                            }
-                        }
+                    const target = myState.activeBoard.primitive.primitives.imports.allItems.find(d=>d.type === "segment" && d.primitives.imports.allIds.length === 0)
+                    if( target ){
+                        addToView = {view: myState.activeBoard.primitive, segment: target}
                     }
                 }
             }
@@ -1924,9 +1920,9 @@ export default function BoardViewer({primitive,...props}){
                categoryList = [89]
             }else{
                 categoryList = [
-                    38, 130, 140, 118, 135, 109, 136, 137,132,133,
+                    38, 130, 140, 131,142,118, 135, 109, 136, 137,132,133,
                     ...mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
-                    ...(addToFlow ? [131,81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id)),
+                    ...(addToFlow ? [81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id)),
                 ].flat()
             }
         }

@@ -238,7 +238,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 })()}
             </div>
 
-    if( frame?.type === "actionrunner" ){
+    if( frame?.type === "actionrunner" && Object.values(frame.metadata?.parameters ?? {}).filter(d=>d.type).length === 0){
         const inputCategories = primitiveForContent.itemsForProcessing.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d)).filter(d=>d)
 
         const actions = inputCategories.map(d=>d.actions).flat()
@@ -787,7 +787,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 {["query","view"].includes(frame.type) && filterPanel()}
             </div>
             
-            {!filters && (frame.type === "view" || frame.type === "action" || frame.type === "summary" || frame.type === "categorizer") && 
+            {!filters && (frame.type === "view" || frame.type === "action" || frame.type === "summary" || frame.type === "categorizer" || frame.type == "actionrunner") && 
                 <div className="space-y-2">
                     <div className="border rounded-md bg-gray-50">
                         <div onClick={()=>setShowDetails(!showDetails)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">

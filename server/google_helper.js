@@ -15,7 +15,7 @@ import { encode } from "gpt-3-encoder";
 import { buildEmbeddings } from "./openai_helper";
 import Parser from '@postlight/parser';
 import csv from 'csv-parser';
-import { dispatchControlUpdate, executeConcurrently, fetchPrimitive } from "./SharedFunctions";
+import { buildContext, dispatchControlUpdate, executeConcurrently, fetchPrimitive } from "./SharedFunctions";
 import { retrieveDocumentFromSearchCache, storeDocumentEmbeddings } from "./DocumentSearch";
 import * as cheerio from 'cheerio';
 import { fetchLinksFromWebDDGQuery } from "./ddg_helper";
@@ -175,6 +175,10 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF, fo
 
     const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
     const category =  await Category.findOne({id:  primitive.referenceId})
+
+    if( category?.ai?.process?.contextAsContent){
+        return { plain: await buildContext( primitive ) }
+    }
 
     const field = Object.keys(category?.parameters ?? {}).find(d=>category?.parameters[d].useAsContent)
     if( field ){
@@ -417,6 +421,36 @@ export async function getDocument(id, req){
         return undefined
     }
 }
+export async function readTXTFromGoogleDrive(fileId, req) {
+    let data = []
+
+    try {
+        const auth = new google.auth.OAuth2();
+        auth.setCredentials({ access_token: req.user.accessToken });
+        
+        const drive = google.drive({ version: 'v3', auth });
+  
+        const response = await drive.files.get({ fileId: fileId, alt: 'media' }, { responseType: 'stream' });
+  
+        let fileContent = ''
+
+        return new Promise((resolve, reject) => {
+            response.data
+              .on('data', chunk => {
+                fileContent += chunk.toString(); // Append each chunk as a string
+              })
+              .on('end', () => {
+                resolve(fileContent); // Resolve with the complete file content
+              })
+              .on('error', err => {
+                console.error('Error reading stream:', err);
+                reject(err);
+              });
+          });
+    } catch (err) {
+        console.error('Error streaming file.', err);
+    }
+  }
 export async function readCSVFromGoogleDrive(fileId, req) {
     let data = []
 
@@ -493,12 +527,26 @@ export async function importDocument(id, req){
             }
             if( notes.type === "google_drive"){
                 let result
+
+
+
                 if( notes.mimeType === "application/pdf"){
                     result = await copyGoogleDriveFile(id, notes.id, req)
+                }else if( notes.mimeType === "text/plain"){
+                    result = await readTXTFromGoogleDrive( notes.id, req)
+                    if( result ){
+                        //await writeTextToFile( id, JSON.stringify(result) )
+                        
+                        await uploadTextToPDF(result, "cc_vf_documents", id)
+                        await waitForFileToExit(id, "cc_vf_documents")
+
+                        
+                    }
                 }else if( notes.mimeType === "text/csv"){
                     result = await readCSVFromGoogleDrive( notes.id, req)
                     if( result ){
                         await writeTextToFile( id, JSON.stringify(result) )
+                        await waitForFileToExit(id, "cc_vf_document_plaintext")
                     }
 
                 }else{
@@ -531,6 +579,52 @@ export async function importDocument(id, req){
     }
     return undefined
 }
+
+export async function uploadTextToPDF(text, bucketName, destinationFileName) {
+    // Create a new PDF document.
+    const doc = new PDFDocument();
+  
+    // Create a Google Cloud Storage client.
+    // Make sure your environment is set up with the proper credentials, e.g., via the GOOGLE_APPLICATION_CREDENTIALS environment variable.
+    const storage = new Storage();
+  
+    // Reference the bucket and destination file.
+    const bucket = storage.bucket(bucketName);
+    const file = bucket.file(destinationFileName);
+  
+    // Create a write stream to the Google Cloud Storage file.
+    const stream = file.createWriteStream({
+      metadata: {
+        contentType: 'application/pdf',
+      },
+      resumable: false, // For small files, you can disable resumable uploads.
+    });
+  
+    return new Promise((resolve, reject) => {
+      // Listen for errors on the storage stream.
+      stream.on('error', (err) => {
+        console.error('Error uploading PDF to bucket:', err);
+        reject(err);
+      });
+  
+      // When the PDF is fully written to the bucket, resolve the promise.
+      stream.on('finish', () => {
+        console.log(`PDF successfully uploaded to gs://${bucketName}/${destinationFileName}`);
+        resolve();
+      });
+  
+      // Pipe the PDF document to the storage write stream.
+      doc.pipe(stream);
+  
+      // Add the text content to the PDF.
+      doc.text(text);
+  
+      // Finalize the PDF file.
+      doc.end();
+    });
+  }
+
+
 export async function writeTextToFile(id, text, req){
     if( !text ){
         return
@@ -612,6 +706,10 @@ export async function copyGoogleDriveFile(id, fileId, req){
 }
 async function waitForFileToExit(id, bucket, retry = 10, pause = 200){
     do{
+        if(typeof(bucket) === "string"){
+            const storage = new Storage({projectId: process.env.GOOGLE_PROJECT_ID})
+            bucket = storage.bucket(bucket);
+        }
         const file = bucket.file(id)
         if( !((await file.exists())[0]) ){
             console.log(retry)

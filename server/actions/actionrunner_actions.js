@@ -4,11 +4,11 @@ import QueueDocument from "../document_queue";
 import { decodeBase64ImageToStorage, uploadDataToBucket } from "../google_helper";
 import { getLogger } from "../logger";
 import Category from "../model/Category";
-import { generateImage } from "../openai_helper";
+import { categorize, generateImage, processPromptOnText } from "../openai_helper";
 import QueryQueue from "../query_queue";
-import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
 import { aggregateItems, compareItems, iterateItems, lookupEntity, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
-import { baseURL, cleanURL, markdownToSlate } from "./SharedTransforms";
+import { baseURL, cartesianProduct, cleanURL, markdownToSlate } from "./SharedTransforms";
 const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
 
 
@@ -56,7 +56,121 @@ registerAction("run_prompt", undefined, async (primitive, action, options, req)=
 })
 
 
+function generateCombinations(input) {
+    const keys = Object.keys(input);
+    return keys.reduce((combinations, key) => {
+      const temp = [];
+      for (const combo of combinations) {
+        for (const value of input[key]) {
+          temp.push({ ...combo, [key]: value });
+        }
+      }
+      return temp;
+    }, [{}]); // Start with one empty combination
+  }
 
+registerAction( "run_generator", undefined, async (primitive, action, options, req)=>{
+    const category = await Category.findOne({id: options.generator})
+
+    const generateConfig = category.ai?.generate
+    const inputs = await getPrimitiveInputs( primitive )
+    
+    const inputsToConsolidate = Object.keys(inputs).filter(d=>inputs[d].dataBySegment)
+    const inputsToMux = Object.keys(inputs).filter(d=>!inputs[d].dataBySegment)
+
+    const consolidated = {}
+    for(const inputName of inputsToConsolidate){
+        for(const key of Object.keys(inputs[inputName].dataBySegment)){
+            consolidated[key] ||= {}
+            consolidated[key][inputName] = inputs[inputName].dataBySegment[key]
+        }
+    }
+    //console.log(consolidated)
+    const combinations = Object.values(consolidated).map(d=>generateCombinations(d)).flat()
+
+    const fields = Object.keys(generateConfig.resultFields).map(d=>`${d}: ${generateConfig.resultFields[d].prompt}`).join(",")
+    const outputPrompt = `Provide your output as a JSON object in a field called "generated" with the following structure: [{${fields}}, ..remaining items]`
+
+    logger.info(`Generator has ${combinations.length} combinations to build`)
+    async function doGeneration( theseInputs ){
+        let prompt = generateConfig.generator
+        const inputField = {}
+        const linkTo = []
+        for(const input of Object.keys(generateConfig.inputs)){
+            if( theseInputs[input]){
+
+
+                let value
+                const useConfig = inputs[input].config
+                if( useConfig === "string"){
+                    value = theseInputs[input]
+                }else if(useConfig === "primitive"){
+                    const d = theseInputs[input]
+                    linkTo.push(d.id)
+                    if(d.type === "summary"){
+                        value = d.referenceParameters?.summary
+                    }else{
+                        value = d.title
+                    }
+                }
+                
+                if( value ){
+                    if( generateConfig.inputs[input].name){
+                        value = generateConfig.inputs[input].name + ": " + value
+                    }
+                    prompt = prompt.replaceAll(`{${input}}`, value)               
+                    inputField[input] = value
+                }
+            }else{
+                prompt = prompt.replaceAll(`{${input}}`, "")
+            }
+        }
+
+        const result = await processPromptOnText( "   ", {
+                opener: "<task>" + prompt,
+                prompt: "</task>",
+                output: outputPrompt,
+                engine: options.engine ?? "gpt4o",
+                field: "generated",
+                debug:true,
+                debug_content: true
+            })
+        if( result.success && result.output){
+            for(const generated of result.output){
+                console.log(linkTo)
+
+                let title = `New ${generateConfig.primitiveType}`
+                const titleField = Object.keys(generateConfig.resultFields).find(d=>generateConfig.resultFields[d].target === "title")
+                if( titleField ){
+                    title = generated[titleField]
+                    delete generated[titleField]
+                }
+                
+                const newData = {
+                    workspaceId: primitive.workspaceId,
+                    parent: primitive.id,
+                    paths: ['origin'],
+                    data:{
+                        type: category.primitiveType,
+                        title,
+                        referenceId: options.generator,
+                        referenceParameters: {
+                            ...inputField,
+                            ...generated
+                        }
+                    }
+                }
+                const newPrim = await createPrimitive( newData )
+                if( newPrim ){
+                    for(const parentId of linkTo){
+                        await addRelationship( parentId, newPrim.id, "auto")
+                    }
+                }
+            }
+        }
+    }
+    await executeConcurrently(combinations, doGeneration)
+})
 
 registerAction( "run_runner", undefined, async (primitive, action, options, req)=>{
     let list = await getDataForImport( primitive, undefined, true ) 

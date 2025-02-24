@@ -507,6 +507,8 @@ async function doDataQuery( options ) {
                                 await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: true})
                                 return
                             }, undefined, undefined, 10)
+                            console.log(`Groups all done - leaving`)
+                            return
                         }
 
                         console.log(`Got ${interim.length} for view `)
@@ -916,7 +918,7 @@ async function doDataQuery( options ) {
                                     if( d.ids ){
 
                                         const primitiveIds = d.ids.map(idx=>fragmentList[idx]?.id).filter((d,i,a)=>a.indexOf(d) === i )
-                                        console.log(`need to link in ${primitiveIds.join(", ")}`)
+                                        console.log(`need to link in ${primitiveIds.join(", ")} as ${options.linkAsChild ? "child" : "parent"}`)
                                         for(const id of primitiveIds){
                                             if( options.linkAsChild ){
                                                 try{
@@ -986,6 +988,9 @@ async function processQuestions( data ){
                         id: prompt.referenceId,
                         prompts: [],
                     }
+                    if( question.referenceParameters?.engine){
+                        groups[targetId].engine = question.referenceParameters?.engine                        
+                    }
                     let out
                     const isEmpty = (prompt.allowInput === false) || prompt.title === undefined || prompt.title === null || prompt.title.trim() === "" 
                     if( isEmpty ){
@@ -1041,7 +1046,7 @@ async function processQuestions( data ){
                     promptType: group.category.openai.promptType,
                     sourceType: group.category.openai.sourceType,
                     prompts: group.prompts.map((p)=>p.text),
-                    engine: group.category.openai.engine,
+                    engine: group.engine ?? group.category.openai.engine,
                     prefix: group.category.openai.prefix,
                     postfix: group.category.openai.postfix,
                     responseQualifier: group.category.openai.responseQualifier,
@@ -1071,7 +1076,7 @@ async function processQuestions( data ){
                     promptType: group.category.openai.promptType,
                     sourceType: group.category.openai.sourceType,
                     prompts: group.prompts.map((p)=>p.text),
-                    engine: group.category.openai.engine,
+                    engine: group.engine ?? group.category.openai.engine,
                     prefix: group.category.openai.prefix,
                     postfix: group.category.openai.postfix,
                     temperature: group.category.openai.temperature,

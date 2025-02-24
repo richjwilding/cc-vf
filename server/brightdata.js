@@ -12,7 +12,9 @@ async function linkToPrimitiveViaSearchPath( primitive ){
     const [oId, candidatePaths] = Object.keys(primitive.parentPrimitives ?? {})?.map(d=>primitive.parentPrimitives[d].map(d2=>[d,d2])).flat()?.find(d=>d[1].indexOf("primitives.search.") === 0) ?? []
     const addToOrigin = candidatePaths?.length > 0
     const resultPath = addToOrigin ? candidatePaths.replace(".search.",".results.") : undefined
-    return {linkId: oId, linkPath: resultPath}
+    if(oId && resultPath){
+        return {linkId: oId, linkPath: resultPath}
+    }
 }
 
 async function baseExcludeByReferenceId(referenceId, primitive, idField = "id"){

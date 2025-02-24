@@ -278,6 +278,8 @@ const PrimitiveConfig = {
         "type": "origin_type",
         "options": "raw",
         "title": "raw",
+        "pin": "pin",
+        "primitive": "primitive",
         "revenue": "currency",
         "currency": "currency",
         "marketCap": "currency",
@@ -731,7 +733,7 @@ const PrimitiveConfig = {
         }
     },getDynamicPins:(primitive, config, mode = "inputs")=>{
         if( mode === "inputs"){
-            if( primitive.type === "query" || primitive.type === "summary"){
+            if( primitive.type === "query" || primitive.type === "summary" || primitive.type === "action"){
                 if( config?.prompt ?? config?.query){
                     const matches = (config.prompt ?? config.query).match(/\{([^}]+)\}/g);
                     const dynamicNames =  matches ? matches.map(match => match.slice(1, -1)) : [];
@@ -787,7 +789,7 @@ const PrimitiveConfig = {
                                 name:"Imports",
                                 types:['primitive']
                             },
-                            sourceTransform: "imports"
+                            sourceTransform: input.inputMapConfig.segments ? "filter_imports" : "imports"
                         })
                     }else{
                         out.push({
@@ -802,7 +804,15 @@ const PrimitiveConfig = {
                         })
                     }
                 }else{
-                    if( sourcePinConfig ){
+                    if( !sourcePinConfig && (input.sourcePin === "rowAxis" || input.sourcePin === "colAxis")){
+                        out.push({
+                            ...input,
+                            useConfig: "pass_through",
+                            sourceTransform: "get_axis",
+                            axis: input.sourcePin.slice(0,3)
+
+                        })
+                    }else  if( sourcePinConfig ){
 
                         let sourceTransform
                         let useConfig = sourcePinConfig.types.map(d=>({config:d, position: imConfig.types.indexOf(d)})).filter(d=>d.position > -1).reduce((best, current) => (best === null || current.position < best.position ? current : best), null)?.config
@@ -835,10 +845,10 @@ const PrimitiveConfig = {
             let imConfig = input.inputMapConfig
 
             if( imConfig ){
-                const source = input.sourcePrimitive
+                const source = input.sourcePrimitive 
                 if( source ){
                     const sourcePinConfig = input.sourcePinConfig
-                    if( sourcePinConfig ){
+                    if( sourcePinConfig || input.useConfig === "pass_through"){
                         if( !out[input.inputPin]){
                             out[input.inputPin] = {
                                 config: input.useConfig,
@@ -855,10 +865,15 @@ const PrimitiveConfig = {
                             }else{
                                 if( input.sources ){
                                     out[input.inputPin].data = out[input.inputPin].data.concat( input.sources )
+                                }else if( input.sourceBySegment ){
+                                    out[input.inputPin].dataBySegment = input.sourceBySegment
+                                    out[input.inputPin].data = Object.values(input.sourceBySegment).flat()
                                 }else{
                                     out[input.inputPin].data.push( source)
                                 }
                             }
+                        }else if(input.useConfig === "pass_through"){
+                            out[input.inputPin].data.push( ...[input.pass_through].flat())
                         }else{
                             let sourceField = input.sourcePinConfig.source.replace(/^param./,"")
                             function extractDataFromSource( sources){

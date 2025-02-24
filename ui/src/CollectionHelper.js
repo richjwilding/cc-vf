@@ -244,6 +244,22 @@ class CollectionUtils{
                 )
             }
         }
+        if( primitive.flowElement){
+                out.push(
+                    {id: out.length, passType: "title", type: "title", title: `Title`},
+                )
+        }
+        const pins = primitive.inputPinsWithStatus
+        if( pins.rowAxis?.connected ){
+                out.push(
+                    {axis:"row", passType: "pin", type: "pin", title: `Axis (Row) Pin`},
+                )
+        }
+        if( pins.colAxis?.connected ){
+                out.push(
+                    {axis: "col", passType: "pin", type: "pin", title: `Axis (Col) Pin`},
+                )
+        }
         
         const viewPivot = options.viewPivot
 
@@ -350,15 +366,23 @@ class CollectionUtils{
                 }
             }
 
+            if( p.some(d=>d.type === "summary")){
+                const category = MainStore().category(109)
+                out.push( {type: 'title', title: `Title`, category, relationship: relationship ?? [], access: access ?? 0, passType: "raw"})
+                out.push( {type: 'primitive', title: `Item`, category, relationship: relationship ?? [], access: access ?? 0, passType: "primitive"})
+            }
+
             catIds.forEach((id)=>{
                 const category = MainStore().category(id)
                 if( id=== 29){
                         out.push( {type: 'act_parent', title: `Activity parent`, category, relationship, access: access, passType: "raw"})
                 }
+                if( ["result","entity","evidence", "summary"].includes(category.primitiveType)){
+                        out.push( {type: 'primitive', title: `${category.title} item`, category, relationship, access: access, passType: "primitive"})
+                }
                 if( category.primitiveType === "marketsegment"){
                         out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "indexed"})
                 }else{
-
                     if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query" || category.primitiveType === "evidence" ){
                         out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "raw"})
                     }
@@ -427,24 +451,13 @@ class CollectionUtils{
 
             const final = out.filter((filter)=>{
                 if( filter.type === "parameter" ){
-                    /*const r = (p.some((d)=>{
-                        const value = PrimitiveConfig.decodeParameter(d.referenceParameters, filter.parameter)
-                        if( value === undefined){return false}
-                        if( filter.parameterType === "boolean"){
-                            return value !== undefined 
-                        }
-                        const t = typeof(value)
-                        return (t === "number" || t === "string") || Array.isArray(value)
-                    }))//.some((d)=>d !== undefined)
-                    */
                    const r = hasData.has( filter.parameter)
                     return r
                 }
                 if( filter.type === "title" ){
-                    //return  (p.some((d)=>["number","string"].includes(typeof(d.title))).filter((d)=>d !== undefined))
                     return hasTitle
                 }
-                if( filter.type === "icon"  || filter.type === "type" || filter.type ==="act_parent"){
+                if( filter.type === "icon"  || filter.type === "type" || filter.type ==="act_parent" || filter.type ==="pin" || filter.type ==="primitive"){
                     return true
                 }
                 return false
@@ -632,9 +645,16 @@ class CollectionUtils{
                 })
                 return {values: out.map((d,i)=>({idx: d.idx, label: d.value === undefined ? "None" : d.value}))}
             },
+            "pin":(field)=>{
+                return {values: axis.pinData}
+            },             
             "icon":(field)=>{
                 let out = interim.map((d)=>d[field]).flat().filter((v,idx,a)=>a.indexOf(v)===idx)
                 return {values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : MainStore().primitive(d)?.title ?? "Unknown"})).sort((a,b)=>a.label.localeCompare(b.label))}
+            },
+            "primitive":(field)=>{
+                let out = interim.map((d)=>d.primitive).sort((a,b)=>(a.title ?? "None").localeCompare(b.title ?? "None"))
+                return {values: out.map((d,i)=>({idx: d.id, primitive:d, label: d.title ?? "None"}))}
             },
             "raw":(field)=>{
                 let out = interim.map((d)=>d[field]).flat().filter((v,idx,a)=>a.indexOf(v)===idx).sort()
@@ -767,10 +787,12 @@ class CollectionUtils{
                 return {labels: labels, order: labels, values: labels.map((d,i)=>({idx: d, label: d, bucket_min: mins[i], bucket_max: max[i]}))}
             },
             "date": (field)=>{
-                const mode = "month"//axis.axisData.dateOptions[0]
+                const mode = "day"//axis.axisData.dateOptions[0]
 
                 function convert(date){
-                    if( mode === "week"){
+                    if( mode === "day"){
+                        return date.year() + "-" + date.dayOfYear()
+                    }else if( mode === "week"){
                         return date.format('YYYY-[W]WW');
                     }else if( mode === "month"){
                         return date.format('YYYY-MM');
@@ -794,8 +816,20 @@ class CollectionUtils{
                         d[field] = convert(date)
                     }
                 }
+                if( maxDate && mode === "day"){
+                    for(const d of interim){
+                        let date = moment(d["original_" + field])
+                        if( maxDate.diff(date, "d") > 30){
+                            d[field] = undefined
+                        }
+                    }
+                    if( maxDate.diff(minDate, "d") > 30){
+                        minDate = maxDate.clone().subtract(30, "d");
+                    }
+
+                }
                 if( minDate && maxDate){
-                    let bucketCount = maxDate.diff( minDate, mode)
+                    let bucketCount = maxDate.diff( minDate, mode) + 1
                     let buckets = new Array(bucketCount).fill(0).map((_,i)=>convert(minDate.clone().add(i, mode)))
                     console.log(bucketCount)
                     console.log(buckets)
@@ -841,6 +875,12 @@ class CollectionUtils{
         }
     }
     static mapCollectionByAxis(list, column, row, others, liveFilters, viewPivot){
+
+        let pinData = {}
+
+     
+
+
         const _pickProcess = ( option )=>{
             if( option ){
                 if( option.type === "category"){
@@ -852,6 +892,13 @@ class CollectionUtils{
                         }
                         return "_N_"
                     }
+                }else if( option.type === "pin"){
+                    return (p)=>{
+                        return p.parentPrimitiveIds.filter(d=>option.pinValues.includes(d))
+                    }
+
+                }else if( option.type === "primitive"){
+                    return (p)=>p.id
                 }else if( option.type === "segment_filter"){
                     return (p)=>{
                         const segments = p.findParentPrimitives({type: "segment", first:true})
@@ -1099,9 +1146,22 @@ class CollectionUtils{
             axis = config?.explore?.filters?.[ axisName]
         }
         if( axis ){
-            if( ["question", "title", "type", "icon","segment_filter"].includes(axis.type)){
+            if( ["question", "title", "type", "icon","segment_filter","primitive"].includes(axis.type)){
                 return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
             }
+
+            if( axis.type == "pin"){
+                const inputs = primitive.inputs[axisName === 'column' ? "colAxis" : "rowAxis"]
+                const pinData = inputs?.data?.map(d=>{
+                    if(d.id){
+                        return {idx: d.id, label: d.title}
+                    }
+                    return {idx: d, label: d}
+                })
+                return {filter: [],...axis, pinData, pinValues: pinData.map(d=>d.idx), passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
+            }
+    
+
             if( "parameter" === axis.type ){
                 const pC = {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.parameter] ?? PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
 
@@ -1220,7 +1280,7 @@ class CollectionUtils{
                 return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0) && (d.subtype === struct.subtype))?.id ?? 0
             }else if(struct.type === "title"  || struct.type === "type" || struct.type === "icon" ){
                 return axisOptions.find(d=>d.type === struct.type &&  CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0
-            }else if(struct.type === "segment_filter" ){            
+            }else if(struct.type === "segment_filter" || struct.type === "primitive" ){            
                 return axisOptions.find(d=>d.type === struct.type &&  ((struct.axis ?? 0) === (d.axis ?? 0)))?.id ?? 0
             }
             return axisOptions.find(d=>d.type === struct.type && d.primitiveId === connectedPrim && CollectionUtils.equalRelationshipForFilter(d.relationship, struct.relationship) && (d.access ?? 0) === (struct.access ?? 0))?.id ?? 0

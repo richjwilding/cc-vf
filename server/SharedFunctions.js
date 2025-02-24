@@ -669,7 +669,6 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
         if( inputMapConfig?.hasConfig ){
             const inputMapSource = primitive.type === "flowinstance" ? inputFlowParentForInstance : primitive
             const localConfig = (await getConfig(inputMapSource, cache, true)).pins?.[d.inputPin] ?? {}
-            console.log(`LOCAAL`)
             console.log(localConfig)
             inputMapConfig = {
                 ...inputMapConfig,
@@ -686,30 +685,72 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
     inputMap = out
 
     let configForPins
-    if( primitive.type === "query" || primitive.type === "summary"){
+    if( primitive.type === "query" || primitive.type === "summary" || primitive.type === "action" || primitive.type === "actionrunner"){
         configForPins = await getConfig(primitive, cache, true)
     }
 
-    const dynamicPins = PrimitiveConfig.getDynamicPins(primitive,  configForPins)
+    let dynamicPins = PrimitiveConfig.getDynamicPins(primitive,  configForPins)
+
+
+    let generatorPins = {}
+    if( primitive.type === "actionrunner"){
+        if( configForPins.generator){
+            const generateTarget = await Category.find( {id:configForPins.generator})
+            generatorPins = generateTarget[0]?.ai?.generate?.inputs ?? {}
+
+            dynamicPins = {
+                ...dynamicPins,
+                ...generatorPins
+            }
+        }
+    }
+
 
     let interim = PrimitiveConfig.alignInputAndSource(inputMap,  dynamicPins)
+
+    async function resolveAxis( segment ){
+        const fetchTitleList = segment.filters.filter(d=>d.type === "parent")
+        if( fetchTitleList.length > 0){
+            const ids = fetchTitleList.map(d=>d.value)
+            const resolved = await fetchPrimitives(ids)
+            let i = 0
+            for(const d of resolved){
+                if( fetchTitleList[i].value === d.id){
+                    fetchTitleList[i].orignalValue = fetchTitleList[i].value
+                    fetchTitleList[i].value = d.type === "segment" ? await getFilterName( d ) : d.title
+                }else{
+                    console.log(`MISMATCH`)
+                }
+                i++
+            }
+        }
+    }
+
+
     for(const d of interim){
         if( d.sourceTransform === "filter_imports"){
-            const itp = await getDataForImport( d.sourcePrimitive)
-            const pIds = itp.flatMap(d=>Object.keys(d.parentPrimitives ?? {})).filter((d,i,a)=>a.indexOf(d)===i)
-//            console.log(`Got ${pIds.length} to check`)
-
-            const sourceSegments = await fetchPrimitives( pIds, {type: "segment"})
-            //console.log(`Got ${sourceSegments.length} segments`)
-
+            const sourceConfig = await getConfig( d.sourcePrimitive )
+            const defs = await getSegemntDefinitions( d.sourcePrimitive, undefined, sourceConfig, true)
             d.sourceBySegment = {}
-            for(const segment of sourceSegments){
-                const desc = await getFilterName( segment )
-                d.sourceBySegment[desc] ||= []
-                d.sourceBySegment[desc] = d.sourceBySegment[desc].concat( itp.filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(segment.id)))
-            }
+            for(const segment of defs){
+                await resolveAxis(segment)
+                const label = segment.filters.map(d=>d.value).join(" - ")
+                d.sourceBySegment[label] ||= []
+                d.sourceBySegment[label] = d.sourceBySegment[label].concat( segment.items)
 
-//            console.log(d.sourceBySegment)
+            }
+        }else if( d.sourceTransform === "get_axis"){
+            const sourceConfig = await getConfig( d.sourcePrimitive )
+            const axis = sourceConfig?.explore?.axis[d.axis]
+            if( axis ){
+                const customAxis = {sourcePrimId: d.sourcePrimitive.primitives?.axis?.row?.[0], ...axis} 
+                const defs = await getSegemntDefinitions( d.sourcePrimitive, [customAxis], sourceConfig)
+                for(const segment of defs){
+                    await resolveAxis(segment)
+                }
+                d.pass_through = defs.flatMap(d=>d.filters.map(d=>d.value))
+            }
+            //d.pass_through = extents.map(d=>d.label)
         }else if( d.sourceTransform === "child_list_to_string"){
             d.sources = await getDataForImport( d.sourcePrimitive )
         }
@@ -1540,7 +1581,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
     let fullList = []
 
     let requesterInFlow
-    if((source.type === "query" || source.type === "summary" || source.type === "search") && !forceImport ){
+    if((source.type === "query" || source.type === "summary" || source.type === "search") && forceImport !== true){
         let list 
         if( source.type === "summary"){
             return [source]
@@ -1884,7 +1925,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
         list = await primitiveDescendents(source, type, {fullDocument:true, paths: ["link"]})
     }else if(target === "children"){
         //list = startList || await primitiveChildren(source)
-        list = startList || await primitiveDescendents(source, type, {fullDocument:true, paths: ["origin", "ref"]})
+        list = startList || await primitiveDescendents(source, type, {fullDocument:true, first: true, paths: ["origin", "ref"]})
     }else if(target === "evidence"){
         list = startList || await primitiveDescendents(source, undefined, {fullDocument:true})
         type = "evidence"
@@ -1910,7 +1951,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
             return [[],[]]
         }
     }else if( target === "items"){
-        list = await getDataForImport( source, undefined, {forceImport: options.forceImport} )
+        list = await getDataForImport( source, undefined, options.forceImport )
         console.log(`TOTAL IMPORT = ${list.length}`)
     }else if( target === "parents"){
         throw "DEPRECATED"
@@ -1982,8 +2023,8 @@ export async function getDataForProcessing(primitive, action, source, options = 
     
     if( field){
         if( field === "context" ){
-            const hasContext = list.filter(d=>d.referenceParameters?.context).length > 0
-            if( !hasContext ){
+            //const hasContext = list.filter(d=>d.referenceParameters?.context).length > 0
+            //if( !hasContext ){
                 const out = [], listOut = [], refCache = {}
                 let idx = 0
                 const refIds = list.map(d=>d.referenceId)
@@ -2000,7 +2041,7 @@ export async function getDataForProcessing(primitive, action, source, options = 
                 }
                 console.log(`+++++ For context HAD ${list.length} now ${listOut.length} +++++`)
                 return [listOut, out]
-            }
+            //}
 
         }
         if( field === "full_content" ){
@@ -2349,7 +2390,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     if( actionKey === "config_test"){
         return await getConfig( primitive )
     }
-    if( actionKey === "d_test"){
+    if( actionKey === "pin_test"){
         let items
         if( options?.pins === "output"){
             items = await getPrimitiveOutputs( primitive )
@@ -2438,7 +2479,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             } )
             if( newPrim ){
                 for( const path of paths){
-                    console.log(`Adding ${path}`)
                     await  addRelationship(oId, newPrim.id, path)
                 }
             }
@@ -2611,13 +2651,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             
             //const result = await doPrimitiveAction(newPrim, "auto_summarize", {source: newPrim.id, ...newPrim.referenceParameters})
             const result = await doPrimitiveAction(refreshedPrim, "rebuild_summary")
-            console.log(result)
             dispatchControlUpdate( refreshedPrim.id, "referenceParameters.summary", result)
         }
         return options.segment ? {segment:parent.id, primitive: newPrim.id} : {primitive: newPrim.id}
     }
     if( actionKey === "auto_extract" || actionKey === "auto_summarize"){
-        console.log(options)
         let primitiveConfig = await getConfig( primitive )
         const source = options.source ? await fetchPrimitive( options.source ) : undefined
         const [items, toSummarize] = await getDataForProcessing(primitive, {...(category?.openai?.summarize?.source ?? options ?? {})}, source, {instance: options?.instance} )
@@ -2661,7 +2699,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
 
             if( mergedInputs ){
                 for(const inp of Object.keys(mergedInputs)){
-                    if( primitiveInputs[inp].data){
+                    if( mergedInputs[inp].data){
                         config.prompt = config.prompt.replaceAll(`{${inp}}`, mergedInputs[inp].data)
                     }
                 }
@@ -2799,7 +2837,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         let action = category.actions.find((d)=>d.key === actionKey)
         if( action ){
             const command = action?.command || actionKey
-            console.log(action)
             if(action.required){
                 console.log(`check ${action.required.join(", ")}`)
                 const missing = action.required.filter((d)=>primitive.referenceParameters[d] === undefined)
@@ -3281,9 +3318,8 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 return
             }
             if( command === "build_image"){
-                const concept = (await primitiveListOrigin( [primitive], "hierarchy", undefined, "ALL", PrimitiveConfig.Constants["CONCEPT"]))?.[0]
                 
-                const style = concept?.referenceParameters?.image_style ?? primitive.referenceParameters?.image_style ?? action.image_style ?? "Create a high-contrast abstract image with a fluid, dynamic pattern from a single geomteric shapes in various shades of high contrast green and #00d967 as the accent color on a dark background, intended for use as a website hero image. The design should be modern and elegant, not too busy, suitable for a professional service website, evoking a sense of expert knowledge and precision. The image should be clean and not too busy"
+                const style = "Create a photo realistic 3d rendering which is firendly and engaging. Do not include any text."
 
                 let value = decodePath(primitive,action.field ?? "title")
                 if( action.asList ){
@@ -3697,7 +3733,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
             }
             if( command === "embed_content"){
-                await indexDocument( primitive, {force:options.force} )
+                await indexDocument( primitive, {force:options.force}, req )
             }
             if( command === "evidence_from_query"){
                 //await QueueDocument().extractEvidenceFromFragmentSearch( primitive, {...action, ...options})

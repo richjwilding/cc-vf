@@ -708,7 +708,7 @@ checkCanvasCleared() {
         context.fillText(text, lineTranslateX + offset, obj.y)
 
         if( obj.bullet ){
-          const r = obj.ascent / 6
+          const r = Math.abs(obj.ascent / 6)
           context.beginPath();
           context.arc(lineTranslateX + offset - (r * 4), obj.y, r, 0, Math.PI * 2, false);
           context.closePath();

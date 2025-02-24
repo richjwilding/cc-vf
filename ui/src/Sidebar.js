@@ -420,7 +420,7 @@ export function Sidebar({primitive, ...props}) {
             </div>}
             {!infoPane && !isMulti && !props.forFlow && !showAsSummary && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
-                {primitive.type === "result" && !fulltext && primitive.referenceParameters?.url && <Panel.MenuButton title='View text' onClick={async ()=>setFullText((await primitive.getDocumentAsText())?.split(" ").slice(0,5000).join(" "))}/>}
+                {primitive.type === "result" && !fulltext && (primitive.referenceParameters?.url || primitive.referenceParameters?.notes) && <Panel.MenuButton title='View text' onClick={async ()=>setFullText((await primitive.getDocumentAsText())?.split(" ").slice(0,5000).join(" "))}/>}
                 {primitive.type === "result" && fulltext && <div className='p-3 border rounded-md text-sm'>{fulltext}</div>}
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
                     <Panel title="Significance" collapsable={true} open={true} major>

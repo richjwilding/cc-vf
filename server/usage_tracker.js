@@ -1,3 +1,31 @@
+import TrackUsage from "./model/TrackUsage"
+
+
+const cost_map = {
+    "open_ai":{
+        "o3-mini-2025-01-31":{
+            "prompt_tokens": 1.1 / 1000000,
+            "completion_tokens": 4.4 / 1000000
+        },
+        "gpt-4o-2024-08-06":{
+            "prompt_tokens": 2.5 / 1000000,
+            "completion_tokens": 10 / 1000000
+        },
+        "gpt-4o-mini-2024-07-18":{
+            "prompt_tokens": 0.15 / 1000000,
+            "completion_tokens": 0.6 / 1000000
+        }
+    }
+}
+
+function getCost(provider, resource, unit, value){
+    const multipler = cost_map[provider]?.[resource]?.[unit]
+    if( !multipler){
+        console.log(`---- USAGE ERROR - couldn't find cost for `, provider, resource, unit, value)
+    }
+    return value * multipler
+}
+
 export async function recordUsage(options = {}){
     try{
 
@@ -36,18 +64,39 @@ let aiBufferSet = [{}, {}]
 let activeAIBuffer =0
 
 setInterval(()=>{
-    const currentBuffer = activeAIBuffer
-    const aiBuffer = aiBufferSet[activeAIBuffer]
-    activeAIBuffer = 1 - activeAIBuffer
+    try{
 
-    for(const tId of Object.keys(aiBuffer)){
-        for(const mk of Object.keys(aiBuffer[tId])){
-            const item = aiBuffer[tId][mk]
-            console.log(`       ${tId} (${mk}) used ${item.prompt_tokens} + ${item.completion_tokens} = ${item.total}`)
-            console.log(item)
-            delete aiBuffer[tId][mk]
+        const currentBuffer = activeAIBuffer
+        const aiBuffer = aiBufferSet[activeAIBuffer]
+        activeAIBuffer = 1 - activeAIBuffer
+        
+        for(const tId of Object.keys(aiBuffer)){
+            for(const mk of Object.keys(aiBuffer[tId])){
+                const item = aiBuffer[tId][mk]
+                console.log(`       ${tId} (${mk}) used ${item.prompt_tokens} + ${item.completion_tokens} = ${item.total}`)
+                console.log(item)
+                
+                TrackUsage.create({
+                    workspaceId: item.workspace,
+                    usageId: tId,
+                    resource: mk,
+                    usage: item.total,
+                    units: "tokens",
+                    data:{
+                        function: item.function,
+                        prompt_tokens: item.prompt_tokens,
+                        completion_tokens: item.completion_tokens,
+                        cost: item.cost
+                    }
+                })
+                
+                delete aiBuffer[tId][mk]
+            }
+            delete aiBuffer[tId]
         }
-        delete aiBuffer[tId]
+    }catch(error){
+        console.log(`Error in usage tracker`)   
+        console.log(error)
     }
 }, 15000)
 
@@ -55,6 +104,9 @@ setInterval(()=>{
 function addToAIBuffer( trackId, data ){
     const aiBuffer = aiBufferSet[activeAIBuffer]
     let mk = `${data.api}-${data.model}`
+
+    const cost = getCost( data.api, data.model, "prompt_tokens", data.prompt_tokens) + getCost( data.api, data.model, "completion_tokens", data.completion_tokens)
+
     aiBuffer[trackId] ||= {}
     aiBuffer[trackId][mk] ||= {
         mk, 
@@ -63,7 +115,8 @@ function addToAIBuffer( trackId, data ){
         total: 0,
         workspace: data.workspace,
         function: data.functionName,
-        usageId: data.usageId
+        usageId: data.usageId,
+        cost
     }
     aiBuffer[trackId][mk].prompt_tokens += data.prompt_tokens
     aiBuffer[trackId][mk].completion_tokens += data.completion_tokens

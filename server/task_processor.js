@@ -12,7 +12,7 @@ import { findEntries, modiftyEntries, removeEntries, reviseUserRequest } from ".
 
 const parser = PrimitiveParser()
 
-const logger = getLogger('task_processor'); // Debug level for moduleA
+const logger = getLogger('task_processor', "info"); // Debug level for moduleA
 
 export async function getItemsForQuery(primitive){
     let items
@@ -32,7 +32,7 @@ function getAllCombinations(axisValues) {
     }, [[]]);
   }
 
-export async function getSegemntDefinitions( primitive, customAxis, config ){
+export async function getSegemntDefinitions( primitive, customAxis, config, withItems = false ){
     if( !config ){
         config = await getConfig( primitive )
     }
@@ -156,11 +156,20 @@ export async function getSegemntDefinitions( primitive, customAxis, config ){
 
     const importConfigList = segmentFilter.map(d=>{
         const values = d.map(d=>d.value === null ? undefined : d.value)
-        const itemCount = itemPositions.filter(d=>d.reduce((a,c,i)=>a && c === values[i], true))
-        if( itemCount.length === 0){
+        const itemMatch = itemPositions.map(d=>d.reduce((a,c,i)=>a && c === values[i], true))
+        const itemCount = itemMatch.filter(d=>d).length
+        if( itemCount === 0){
             return undefined
         }
-        console.log(`Got ${itemCount.length} items in segment ${values.join(",")}`)
+        logger.debug(`Got ${itemCount} items in segment ${values.join(",")}`)
+        if( withItems ){
+            const idList = Object.keys(itemMap)
+            return {
+                filters: d,
+                id: primitive.id,
+                items: itemMatch.flatMap((d,i)=>d ? items.find(d=>d.id === idList[i]) : undefined).filter(d=>d)
+            }
+        }
         return {
                 filters: d,
                 id: primitive.id
@@ -1659,27 +1668,37 @@ export async function summarizeWithQuery( primitive ){
                 }
 
 
-                let out = flattenStructuredResponse( nodeResult, nodeStruct, primitiveConfig.heading !== false)
+                let asList, outputList = []
+                if( primitiveConfig.split ){
+                    asList = nodeResult[0]?.content ? nodeResult.map(d=>({nodeResult: [d]})) : nodeResult.map(d=>({heading:d.heading, nodeResult: d.subsections}))
+                }else{
+                    asList = [{nodeResult}]
+                }
 
+                for( const {heading, nodeResult} of asList){
 
-                modiftyEntries( nodeResult, "ids", entry=>{
-                    const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>parseInt(d)) : entry.ids
-                    const remapped = ids.map(d=>{
-                        const primitive = items[d]
-                        if( primitive){
-                            return primitive.id
-                        }else{
-                            logger.error(`--- Referenced item out of bounds:`)
-                            logger.error(entry)
-                        }
-                    }).filter(d=>d)
-                    return remapped
-                } )
-                const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
-                const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
-
-
-                return {plain:out, structured: nodeResult, sourceIds: allIds}
+                    let out = flattenStructuredResponse( nodeResult, nodeStruct, primitiveConfig.heading !== false)
+                    
+                    modiftyEntries( nodeResult, "ids", entry=>{
+                        const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>parseInt(d)) : entry.ids
+                        const remapped = ids.map(d=>{
+                            const primitive = items[d]
+                            if( primitive){
+                                return primitive.id
+                            }else{
+                                logger.error(`--- Referenced item out of bounds:`)
+                                logger.error(entry.ids)
+                            }
+                        }).filter(d=>d)
+                        return remapped
+                    } )
+                    const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
+                    const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
+                    
+                    
+                    outputList.push({plain:out, heading: heading, structured: nodeResult, sourceIds: allIds})
+                }
+                return outputList
             }
             
         }

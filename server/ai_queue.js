@@ -1,4 +1,4 @@
-import { addRelationship, addRelationshipToMultiple, buildContext, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findPrimitiveOriginParent, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
+import { addRelationship, addRelationshipToMultiple, buildContext, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, findPrimitiveOriginParent, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
@@ -1230,6 +1230,15 @@ export async function processQueue(job){
                     } 
                 }
                 let prompt = config.prompt
+
+                if( prompt.match(/{.+}/)){
+                    const primitiveInputs = await getPrimitiveInputs( primitive )
+                    for(const inp of Object.keys(primitiveInputs)){
+                        if( primitiveInputs[inp].data){
+                            prompt = prompt.replaceAll(`{${inp}}`, primitiveInputs[inp].data)
+                        }
+                    }
+                }
                 
                 const response = await processPromptOnText( data, {
                     opener: "Here is some data i will give you instructions about",
@@ -1292,19 +1301,68 @@ export async function processQueue(job){
 
                                 result = await summarizeWithQuery(primitive)
                                 if( result ){
-                                    dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
-                                    const linkIds = result.sourceIds ?? []
-                                    const existingLinks = primitive.primitives.source ?? []
-                                    const toRemove = existingLinks.filter(d=>!linkIds.includes(d))
-                                    const toAdd = linkIds.filter(d=>!existingLinks.includes(d))
-                                    
-                                    if( toRemove.length > 0 ){
-                                        await removeRelationshipFromMultiple( primitive.id, toRemove, "source", primitive.workspaceId)
+                                    if( result.length > 1){
+                                        console.log(`GOT MULTIPLE - NEED TO CREATE`)
+                                        const primitiveParentId = primitiveOrigin(primitive)
+                                        const segments = await findParentPrimitivesOfType(primitive, ["segment"])
+                                        const segment = segments[0]
+                                        console.log(segment)
+                                        let created = false
+                                        if( primitiveParentId && segment ){
+                                            for(const section of result){
+                                                const newData = {
+                                                    workspaceId: primitive.workspaceId,
+                                                    parent: primitiveParentId,
+                                                    //paths: primitive.parentPrimitives[primitiveParentId].map(d=>d.replace(/^primitives./,"")),
+                                                    paths: ['origin'],
+                                                    data:{
+                                                        type: primitive.type,
+                                                        title: section.heading ?? "Summary",
+                                                        referenceParameters: {
+                                                            summary: section.plain,
+                                                            structured_summary: section.structured
+                                                        }
+                                                    }
+                                                }
+                                                const newPrim = await createPrimitive( newData )
+                                                if( newPrim ){
+                                                    created = true
+                                        console.log(segment)
+
+                                                    await addRelationship( segment.id, newPrim.id, "auto")
+                                                    
+                                                    if( section.sourceIds?.length > 0 ){
+                                                        await addRelationshipToMultiple( newPrim.id, section.sourceIds, "source", primitive.workspaceId)
+                                                    }
+                                                }
+                                            }
+                                            if(created ){
+                                                await removePrimitiveById(primitive.id)
+                                            }
+                                        }
+
+                                        return
+
+                                    }else{
+                                        result = result[0]
+                                        if( result){
+
+                                            dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
+                                            const linkIds = result.sourceIds ?? []
+                                            const existingLinks = primitive.primitives.source ?? []
+                                            const toRemove = existingLinks.filter(d=>!linkIds.includes(d))
+                                            const toAdd = linkIds.filter(d=>!existingLinks.includes(d))
+                                            
+                                            if( toRemove.length > 0 ){
+                                                await removeRelationshipFromMultiple( primitive.id, toRemove, "source", primitive.workspaceId)
+                                            }
+                                            if( toAdd.length > 0 ){
+                                                await addRelationshipToMultiple( primitive.id, toAdd, "source", primitive.workspaceId)
+                                            }
+                                            dispatchControlUpdate( primitive.id, "referenceParameters.summary", result.plain)
+                                            return
+                                        }
                                     }
-                                    if( toAdd.length > 0 ){
-                                        await addRelationshipToMultiple( primitive.id, toAdd, "source", primitive.workspaceId)
-                                    }
-                                    result = result.plain
                                 }
 
                             }catch(error){
@@ -1668,6 +1726,7 @@ export async function processQueue(job){
                                 }else{
                                     const config = await getConfig(primitive)
 
+
                                     let types = targetConfig?.mark?.type
                                     let focus = config?.focus ?? targetConfig?.mark?.theme ??config?.cat_theme
                                     let literal = config?.literal
@@ -1676,7 +1735,8 @@ export async function processQueue(job){
                                     
                                     console.log(`Compexity = ${complex} (${config?.complex} / ${action.complex})`)
 
-                                    let runInBatch = (config?.field ?? action.field) !== "context"
+                                    let field = (config?.field ?? action.field) 
+                                    let runInBatch = field !== "context" && field !== "full_content"
 
                                     categoryAlloc = await categorize(data, categoryList, {
                                         workspaceId: primitive.workspaceId,

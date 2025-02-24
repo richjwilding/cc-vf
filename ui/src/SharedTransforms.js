@@ -487,3 +487,15 @@ export function convertOrganizationFinancialData( primitive, analysisTables, sec
     }
     return overall
 }
+
+export function cartesianProduct(arrays) {
+  return arrays.reduce((acc, curr) => {
+    const result = [];
+    for (const combo of acc) {
+      for (const item of curr) {
+        result.push([...combo, item]);
+      }
+    }
+    return result;
+  }, [[]]); 
+}

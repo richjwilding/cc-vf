@@ -209,6 +209,26 @@ let mainstore = MainStore()
           base = <p>None</p>
         }
         return <div className='w-full flex'>{base}</div>
+      }else if( item.type === "generatorId"){
+        let list = mainstore.categories().filter(d=>d.ai?.generate)
+
+        return <MyCombo 
+          disabled={item.locked}
+          selectedItem={item.value} 
+          setSelectedItem={(idx)=>{
+            if( props.callback ){
+              return props.callback(idx)
+            }else{
+              if( item.key ){
+                props.primitive.setParameter( item.key, idx)
+              }
+            }
+          }}
+          small={props.compact || props.inline}
+          portal
+          items={list.map((d, idx)=>{return {id:idx, ...d}})}
+            className={props.compact ? "" : 'ml-auto w-full'}
+          />
       }else if( item.type === "categoryId"){
         let list = []
         if( props.allowNone || item.allowNone){

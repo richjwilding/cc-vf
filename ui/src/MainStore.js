@@ -2149,14 +2149,23 @@ function MainStore (prims){
                     }
                     if(prop === "inputPins"){
                         let dynamicPinSource = receiver
+                        let generatorPins = {}
                         if(receiver.type === "flowinstance"){
                             dynamicPinSource = receiver.origin
                         }else if( !receiver.flowElement ){
                             dynamicPinSource = receiver.configParent ?? receiver
                         }
+                        if( receiver.type === "actionrunner"){
+                            const rConfig  = dynamicPinSource.getConfigWithoutOverrides()                                
+                            if( rConfig.generator){
+                                const generateTarget = obj.category( rConfig.generator)
+                                generatorPins = generateTarget?.ai?.generate?.inputs ?? {}
+                            }
+                        }
                         return {
                             ...receiver._pins("input"),
-                            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs")
+                            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs"),
+                            ...generatorPins
                         }
                     }
                     if(prop === "outputPins"){
@@ -2171,6 +2180,15 @@ function MainStore (prims){
                         return (mode = "input")=>{
                             const base = {
                                 ...(receiver.metadata?.pins?.[mode] ?? {})
+                            }
+                            if( receiver.type === "query" || receiver.type === "view"){
+                                if( mode === "output"){
+                                    base["rowAxis"] =  {name: "Axis (row)", types: ["primitive", "string"]}
+                                    base["colAxis"] =  {name: "Axis (col)", types: ["primitive", "string"]}
+                                }else{
+                                    base["rowAxis"] =  {name: "Axis (row)", types: ["primitive","string"]}
+                                    base["colAxis"] =  {name: "Axis (col)", types: ["primitive", "string"]}
+                                }
                             }
                             if( mode === "output" && receiver.type === "flow"){
                                 return base
@@ -2207,7 +2225,8 @@ function MainStore (prims){
                                     }
                                 }
                                 const inputMapSource = receiver.type === "flowinstance" ? receiver.origin : receiver
-                                let inputMapConfig = inputMapSource.metadata?.pins?.[pinMode]?.[d.inputPin]
+                                //let inputMapConfig = inputMapSource.metadata?.pins?.[pinMode]?.[d.inputPin]
+                                let inputMapConfig = receiver._pins(pinMode)[d.inputPin]
                                 if( inputMapConfig?.hasConfig ){
                                     const localConfig = inputMapSource.getConfigWithoutOverrides().pins?.[d.inputPin] ?? {}
                                     inputMapConfig = {
@@ -2230,11 +2249,25 @@ function MainStore (prims){
                                 dynamicPinSource = receiver.configParent ?? receiver
                             }
                             let dynamicPins = dynamicPinSource.type === "query" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "page" ? PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs") : {}
+                            
 
                             if( (receiver.type === "flow" || receiver.type === "flowinstance") && mode === "outputs"){
                                 dynamicPins = {
                                     ...dynamicPins,
                                     ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "outputs")
+                                }
+                            }
+                            let generatorPins = {}
+                            if( receiver.type === "actionrunner"){
+                                const rConfig  = receiver.getConfigWithoutOverrides()                                
+                                if( rConfig.generator){
+                                    const generateTarget = obj.category( rConfig.generator)
+                                    generatorPins = generateTarget?.ai?.generate?.inputs ?? {}
+
+                                    dynamicPins = {
+                                        ...dynamicPins,
+                                        ...generatorPins
+                                    }
                                 }
                             }
 
@@ -2243,15 +2276,41 @@ function MainStore (prims){
                             for(const d of interim){
                                 if( d.sourceTransform === "imports"){
                                     d.sources = d.sourcePrimitive.itemsForProcessing
+                                }else if( d.sourceTransform === "get_axis"){
+                                    const items = d.sourcePrimitive.itemsForProcessing
+                                    const extents = CollectionUtils.mapCollectionByAxis(items, CollectionUtils.primitiveAxis(d.sourcePrimitive, d.axis, items)).extents.column
+                                    if(d.inputMapConfig.types.includes("primitive")){
+                                        d.pass_through = extents.map(d=>d.primitive)
+                                    }else{
+                                        d.pass_through = extents.map(d=>d.label)
+                                    }
                                 }else if( d.sourceTransform === "filter_imports"){
-                                    const itp = d.sourcePrimitive.itemsForProcessing
+                                    const items = d.sourcePrimitive.itemsForProcessing
+                                    const {data, extents} = CollectionUtils.mapCollectionByAxis(items, CollectionUtils.primitiveAxis(d.sourcePrimitive, "col", items), CollectionUtils.primitiveAxis(d.sourcePrimitive, "row", items))
+                                    const colMap = extents.column.reduce((a,c)=>{
+                                        a[c.idx] = c.label
+                                        return a
+                                    },{})
+                                    const rowMap = extents.row.reduce((a,c)=>{
+                                        a[c.idx] = c.label
+                                        return a
+                                    },{})
+
+
+                                    d.sourceBySegment = data.reduce((a,d)=>{
+                                        const desc = [colMap[d.column],rowMap[d.row]].filter(d=>d && d.length > 0).join(" - ")
+                                        a[desc] ||= []
+                                        a[desc].push( d.primitive )
+                                        return a
+                                    }, {})
+                                    /*
                                     const sourceSegments = uniquePrimitives(itp.flatMap(d=>d.findParentPrimitives({type: ["segment"]})))
                                     d.sourceBySegment = sourceSegments.reduce((a,d)=>{
                                         const desc = d.filterDescription
                                         a[desc] ||= []
                                         a[desc] = a[desc].concat( itp.filter(d2=>Object.keys(d2._parentPrimitives ?? {}).includes(d.id)))
                                         return a
-                                    }, {})
+                                    }, {})*/
                                 }else if( d.sourceTransform === "child_list_to_string"){
                                     d.sources = d.sourcePrimitive.itemsForProcessing
                                 }
