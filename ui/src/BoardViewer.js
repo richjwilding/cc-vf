@@ -130,9 +130,9 @@ function prepareSubBoards( d ){
     }
 
     return configPage.primitives.origin.allUniqueElement.map(d=>{
-        const {x,y,s, ..._renderConfigOverride} = configPage.frames?.[d.id] ?? {x: 0, y: 0, s: 1}
+        const {x,y,s, ...renderConfigOverride} = configPage.frames?.[d.id] ?? {x: 0, y: 0, s: 1}
 
-        const {x:sx, y:sy, ...renderConfigOverride}= mainstore.primitive(941814).frames?.[d.id] ?? {}
+        //const {x:sx, y:sy, ...renderConfigOverride}= mainstore.primitive(941814).frames?.[d.id] ?? {}
 
         tempState[d.id] = {
             id: d.id, 
@@ -213,10 +213,11 @@ let mainstore = MainStore()
                 expand: Object.keys(primitive.frames?.[ d.id ]?.expand ?? {})
             })
 
-        if( primitive.frames?.[d.id]){
+        let sizeSource = view.parentRender ? myState[view.parentRender].primitive.frames : primitive.frames
+        if( sizeSource?.[d.id]){
             for( const name of configNames){
-                if( primitive.frames[d.id][name] !== undefined){
-                    renderOptions[name] = primitive.frames[d.id][name]
+                if( sizeSource[d.id][name] !== undefined){
+                    renderOptions[name] = sizeSource[d.id][name]
                 }
             }
         }
@@ -375,6 +376,31 @@ let mainstore = MainStore()
                     const config = basePrimitive.getConfig
                     let pageInputs = pageInstance.inputs
                     let inputs = pins.flatMap(pin=>pageInputs[pin]?.data ?? [])
+
+                    if(  pageInputs.group1 ){
+                        const combos = []
+
+                        if( pageInputs.group1?.data ){
+                            for(const g1 of pageInputs.group1?.data){
+                                let groupInputs = inputs.filter(d=>d.id === g1.id || d.parentPrimitiveIds.includes(g1.id) || d.primitives.source.allIds.includes(g1.id))
+                                let done = false
+                                if( pageInputs.group2?.data){
+                                    for(const g2 of pageInputs.group2?.data){
+                                        let g2Inputs = groupInputs.filter(d=>d.id === g2.id || d.parentPrimitiveIds.includes(g2.id) || d.primitives.source.allIds.includes(g2.id))
+                                        if( g2Inputs.length > 0){
+                                            combos.push(g2Inputs)
+                                            done = true
+                                        }
+                                    }
+                                }
+                                if( !done && groupInputs.length > 0){
+                                    combos.push(groupInputs)
+                                }
+                            }
+                        }
+                        console.log(`---> For ${combos.length} sub pages`)
+                        inputs = combos[0] ?? inputs
+                    }                        
 
                     if( pageInputs[pins[0]]?.config === "primitive"){
                         // Do Ancestors
@@ -1023,14 +1049,16 @@ export default function BoardViewer({primitive,...props}){
                                 }
                                 let needRefresh = true
                                 let refreshBoards = []
+                                let resized = false
                                 let needRebuild = ((event === "set_field" || event === "set_parameter") && info === "referenceParameters.explore.view")
 
                                 if( event === "set_field" && info && typeof(info)==="string"){
                                     if( info.startsWith('processing.ai.')){
                                         const board = myState[frameId]
                                         canvas.current.refreshFrame( board.id, renderView(board.primitive))
-                                    }else if(info.startsWith('frames.') && info.endsWith('.showItems')){
+                                    }else if(info.startsWith('frames.') && (info.endsWith('.showItems') || info.endsWith('.height') || info.endsWith('.width'))){
                                         needRebuild = true
+                                        resized = true
                                     }else if(info.startsWith('processing.flow') ){
                                         needRefresh = true
                                     }else if(info.startsWith('processing.') || info.startsWith('embed_')){
@@ -1047,7 +1075,12 @@ export default function BoardViewer({primitive,...props}){
                                     const framePrimitive = myState[frameId].primitive
                                     let doFrame = true
                                     if( framePrimitive.type === "page"){
-                                        ids.filter(d=>d !== frameId).map(d=>myState[d]).forEach(other=>{
+                                        let dIds = ids
+                                        if(info.startsWith('frames.') && (info.endsWith('.height') || info.endsWith('.width'))){
+                                            dIds = [...ids, info.split(".")[1]]
+                                        }
+                                        
+                                        dIds.filter(d=>d !== frameId).map(d=>myState[d]).forEach(other=>{
                                             if( other && other.primitive.type === "element"){
                                                 needRefresh = prepareBoard( other.primitive )
                                                 if( needRefresh ){
@@ -1062,6 +1095,9 @@ export default function BoardViewer({primitive,...props}){
                                     if( doFrame ){
                                         needRefresh = prepareBoard( framePrimitive )
                                     }
+                                    if(resized ){
+                                        needRefresh = true
+                                    }
                                     if( !needRefresh){
                                         console.log(`Cancelled refresh - no changes on ${myState[frameId]?.primitive.plainId}`)
                                     }
@@ -1071,7 +1107,7 @@ export default function BoardViewer({primitive,...props}){
                                     console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}`)
                                     forceUpdateLinks()
 
-                                    refreshBoards = [...refreshBoards, ...(Array.isArray(needRefresh) ? needRefresh : [frameId])]                                    
+                                    refreshBoards = [...refreshBoards, ...(Array.isArray(needRefresh) ? needRefresh : [frameId])].filter((d,i,a)=>a.indexOf(d) === i)
 
                                     if( needRebuild ){
                                         console.log(`With rebuild`)
@@ -1235,7 +1271,6 @@ export default function BoardViewer({primitive,...props}){
                                     const [leftPinName, rightPinName] = pinNames.split("_")
                                     const leftPin = myState[left.id].outputPins[leftPinName]?.idx
                                     const rightPin = myState[right.id].inputPins[rightPinName]?.idx
-                                    console.log(leftPin, leftPinName, rightPin, rightPinName)
                                     return {left: left.id, right: right.id, leftPin, rightPin }
                                 }
                             }                       
@@ -1248,7 +1283,6 @@ export default function BoardViewer({primitive,...props}){
                                         const [leftPinName, rightPinName] = pinNames.split("_")
                                         const leftPin = myState[left.id].outputPins[leftPinName]?.idx
                                         const rightPin = myState[right.id].inputPins[rightPinName]?.idx
-                                        console.log(leftPin, leftPinName, rightPin, rightPinName)
                                         return {left: left.id, right: right.id, leftPin, rightPin }
                                     }
                                 }                       
@@ -1281,7 +1315,6 @@ export default function BoardViewer({primitive,...props}){
                                 const [leftPinName, rightPinName] = pinNames.split("_")
                                 const leftPin = myState[left.id].outputPins[leftPinName]?.idx
                                 const rightPin = myState[right.id].inputPins[rightPinName]?.idx
-                                console.log(leftPin, leftPinName, rightPin, rightPinName)
                                 if( leftPin !== undefined && rightPin !== undefined){
                                     return {left: left.id, right: right.id, leftPin, rightPin}
                                 }
@@ -1404,13 +1437,14 @@ export default function BoardViewer({primitive,...props}){
     let boardUpdateTimer
 
     function resizeFrame(fId, width, height){
+        let target = myState[fId].parentRender ? myState[myState[fId].parentRender].primitive : primitive
         const board = myState[fId]
         if( width ){
-            primitive.setField(`frames.${fId}.width`, width)
+            target.setField(`frames.${fId}.width`, width)
             canvas.current.updateFramePosition( fId, {width: width})
         }
         if( height ){
-            primitive.setField(`frames.${fId}.height`, height)
+            target.setField(`frames.${fId}.height`, height)
             canvas.current.updateFramePosition( fId, {height: height})
         }
         canvas.current.refreshFrame( board.id, renderView(board.primitive))

@@ -265,7 +265,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             d.refreshCache()
                             d.draw()
                         }else{
-                            console.log(`Has been removed`)
                             d.resetOwner()
                         }
                     }
@@ -1304,9 +1303,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
         }
         if( start ){
-
             myState.current.frames.forEach(frame=>frame.order = frame.node.zIndex())
-            console.log(myState.current.frames.map(d=>d.order))
             myState.current.frames = myState.current.frames.sort((a,b)=>a.order - b.order)
         }
     }

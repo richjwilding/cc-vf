@@ -2226,7 +2226,10 @@ function MainStore (prims){
                                 }
                                 const inputMapSource = receiver.type === "flowinstance" ? receiver.origin : receiver
                                 //let inputMapConfig = inputMapSource.metadata?.pins?.[pinMode]?.[d.inputPin]
-                                let inputMapConfig = receiver._pins(pinMode)[d.inputPin]
+
+                                //let inputMapConfig = receiver._pins(pinMode)[d.inputPin]
+                                let inputMapConfig = inputMapSource._pins(pinMode)[d.inputPin]
+                                
                                 if( inputMapConfig?.hasConfig ){
                                     const localConfig = inputMapSource.getConfigWithoutOverrides().pins?.[d.inputPin] ?? {}
                                     inputMapConfig = {
@@ -2281,8 +2284,10 @@ function MainStore (prims){
                                     const extents = CollectionUtils.mapCollectionByAxis(items, CollectionUtils.primitiveAxis(d.sourcePrimitive, d.axis, items)).extents.column
                                     if(d.inputMapConfig.types.includes("primitive")){
                                         d.pass_through = extents.map(d=>d.primitive)
+                                        d.passThroughCoonfig = "primitive"
                                     }else{
                                         d.pass_through = extents.map(d=>d.label)
+                                        d.passThroughCoonfig = "string"
                                     }
                                 }else if( d.sourceTransform === "filter_imports"){
                                     const items = d.sourcePrimitive.itemsForProcessing

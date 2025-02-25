@@ -140,7 +140,7 @@ let mainstore = MainStore()
         const options = [{id: null, title: "None"}, ...axis.filter(d=>d.category && d.type === "title").map(d=>{
           return {
             id: d.relationship?.join("|"),
-            title: d.title
+            title: d.category.title
           }
         })]
 

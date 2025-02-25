@@ -1,6 +1,10 @@
 import { useLayoutEffect, useMemo, useReducer, useRef,useState } from "react";
 import { OrthogonalConnector } from "./router";
 
+
+let move = "shape1"
+let wasDrag = false
+
 export default function RouterTest(){
     const ref = useRef()
     const [update, setUpdate] = useReducer((x)=>x+1,0)
@@ -24,569 +28,6 @@ export default function RouterTest(){
     }
 
 
-    const _shapes = [
-        {
-            "id": "shape0",
-            "left": 290,
-            "top": 635,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape1",
-            "left": 792,
-            "top": 339,
-            ...target,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape2",
-            "left": 252,
-            "top": 835,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape3",
-            "left": 76,
-            "top": 1184,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape4",
-            "left": 566,
-            "top": 790,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape5",
-            "left": 131,
-            "top": 257,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape6",
-            "left": 352,
-            "top": 507,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape7",
-            "left": 1118,
-            "top": 8,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape8",
-            "left": 260,
-            "top": 1006,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape9",
-            "left": 857,
-            "top": 962,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape10",
-            "left": 326,
-            "top": 1069,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape11",
-            "left": 816,
-            "top": 407,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape12",
-            "left": 907,
-            "top": 71,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape13",
-            "left": 654,
-            "top": 462,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape14",
-            "left": 18,
-            "top": 770,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape15",
-            "left": 273,
-            "top": 968,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape16",
-            "left": 780,
-            "top": 1190,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape17",
-            "left": 57,
-            "top": 521,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape18",
-            "left": 907,
-            "top": 533,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape19",
-            "left": 1130,
-            "top": 859,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape20",
-            "left": 292,
-            "top": 532,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape21",
-            "left": 413,
-            "top": 879,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape22",
-            "left": 1130,
-            "top": 99,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape23",
-            "left": 962,
-            "top": 994,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape24",
-            "left": 372,
-            "top": 793,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape25",
-            "left": 651,
-            "top": 1033,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape26",
-            "left": 936,
-            "top": 599,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape27",
-            "left": 282,
-            "top": 891,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape28",
-            "left": 969,
-            "top": 1183,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape29",
-            "left": 563,
-            "top": 115,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape30",
-            "left": 415,
-            "top": 505,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape31",
-            "left": 153,
-            "top": 540,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape32",
-            "left": 497,
-            "top": 417,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape33",
-            "left": 164,
-            "top": 796,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape34",
-            "left": 570,
-            "top": 871,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape35",
-            "left": 945,
-            "top": 568,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape36",
-            "left": 162,
-            "top": 466,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape37",
-            "left": 804,
-            "top": 27,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape38",
-            "left": 745,
-            "top": 1205,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape39",
-            "left": 593,
-            "top": 362,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape40",
-            "left": 774,
-            "top": 387,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape41",
-            "left": 392,
-            "top": 347,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape42",
-            "left": 970,
-            "top": 199,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape43",
-            "left": 996,
-            "top": 724,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape44",
-            "left": 462,
-            "top": 656,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape45",
-            "left": 6,
-            "top": 156,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape46",
-            "left": 494,
-            "top": 868,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape47",
-            "left": 636,
-            "top": 895,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape48",
-            "left": 868,
-            "top": 186,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape49",
-            "left": 497,
-            "top": 785,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape50",
-            "left": 1046,
-            "top": 921,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape51",
-            "left": 1158,
-            "top": 931,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape52",
-            "left": 750,
-            "top": 471,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape53",
-            "left": 791,
-            "top": 131,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape54",
-            "left": 389,
-            "top": 381,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape55",
-            "left": 608,
-            "top": 596,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape56",
-            "left": 767,
-            "top": 704,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape57",
-            "left": 1088,
-            "top": 1163,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape58",
-            "left": 509,
-            "top": 924,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape59",
-            "left": 785,
-            "top": 264,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape60",
-            "left": 841,
-            "top": 55,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape61",
-            "left": 729,
-            "top": 106,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape62",
-            "left": 588,
-            "top": 1187,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape63",
-            "left": 935,
-            "top": 388,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape64",
-            "left": 33,
-            "top": 273,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape65",
-            "left": 183,
-            "top": 738,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape66",
-            "left": 1115,
-            "top": 682,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape67",
-            "left": 1190,
-            "top": 293,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape68",
-            "left": 218,
-            "top": 736,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape69",
-            "left": 410,
-            "top": 817,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape70",
-            "left": 565,
-            "top": 202,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape71",
-            "left": 581,
-            "top": 149,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape72",
-            "left": 157,
-            "top": 199,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape73",
-            "left": 761,
-            "top": 671,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape74",
-            "left": 131,
-            "top": 1191,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape75",
-            "left": 453,
-            "top": 219,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape76",
-            "left": 1173,
-            "top": 437,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape77",
-            "left": 206,
-            "top": 1071,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape78",
-            "left": 112,
-            "top": 624,
-            "width": 30,
-            "height": 30
-        },
-        {
-            "id": "shape79",
-            "left": 846,
-            "top": 773,
-            "width": 30,
-            "height": 30
-        }
-    ]
     shapes = shapes.map(d=>({...d, left: Math.round(d.left), top: Math.round(d.top)}))
     // Get the connector path
     const router = useMemo(()=>{
@@ -616,7 +57,8 @@ export default function RouterTest(){
                 routes.push(
                     {
                         pointA: {shape: shapes.find(d=>d.id === `shape${start}`), side: 'bottom', distance: 0.5},
-                        pointB: {shape: shapes.find(d=>d.id === `shape${end}`), side: ['bottom','right','top','left'],  distance: 0.5}
+                        //pointB: {shape: shapes.find(d=>d.id === `shape${end}`), side: ['bottom','right','top','left'],  distance: 0.5}
+                        pointB: {shape: shapes.find(d=>d.id === `shape${end}`), side: ['bottom'],  distance: 0.5}
                     }
                 )
             }
@@ -656,12 +98,17 @@ export default function RouterTest(){
                 context.stroke();
 
             }
-            /*
-            context.fillStyle ="#aaaaff"
+            
+            context.strokeStyle ="#f0f0f0"
+            for(const d of router.byproduct.vRulers){
+                    context.strokeRect(d, 0, 1, 1500);
+
+            }
             for(const d of router.byproduct.spots){
+                context.fillStyle = ["#eaaaee", "red", "blue", "green"][ d.mid ?? 0]
                     context.fillRect(d.x - 1, d.y - 2, 2, 2);
 
-            }*/
+            }
             /*
             for(const d of router.byproduct.grid){
                 context.strokeRect(d.left, d.top, d.width, d.height);
@@ -671,12 +118,12 @@ export default function RouterTest(){
             context.strokeStyle ="red"
             
             // Draw shapes
-            for(const d of shapes){
+            for(const d of Object.values(router.shapes ?? {})){
                 if( d.id === "shape0"){
                     context.fillStyle = "green"
                     context.fillRect(d.left, d.top, d.width, d.height);
                 }
-                if( d.id === "shape1"){
+                if( d.id === move){
                     context.fillStyle = "blue"
                     context.fillRect(d.left, d.top, d.width, d.height);
                 }
@@ -707,16 +154,47 @@ export default function RouterTest(){
 
 
     const handleClick = (event) => {
-                    render()
+        if( wasDrag ){
+            wasDrag = false
+            return 
+        }
+        if(event.shiftKey){
+            setUpdate()
+            render()
+            return
+        }
+
+        const rect = event.target.getClientRects()[0]
+        //setTarget({left: event.pageX - rect.x, top: event.pageY - rect.y})
+        const left = event.pageX - rect.x
+        const top = event.pageY - rect.y
+
+        const inShape = Object.values(router.shapes ?? {}).find(d=>left >= d.left && left < (d.left + 30) && top >= d.top && (top < (d.top + 30)))
+        
+        if( inShape ){
+            //router.removeShape( inShape)
+            move = inShape.id
+        }else{
+            router.addShape({
+                id: `s${left}-${top}`,
+                left,
+                top,
+                width: 30,
+                height: 30
+            })
+        }
+        
+        render()
     }
     const handleMove = (event) => {
         if( event.buttons> 0 ){
+            wasDrag = true
             if( !anim ){
                 const rect = event.target.getClientRects()[0]
                 //setTarget({left: event.pageX - rect.x, top: event.pageY - rect.y})
                 const left = event.pageX - rect.x
                 const top = event.pageY - rect.y
-                router.moveShape("shape1", {
+                router.moveShape(move, {
                     left,
                     top,
                 })

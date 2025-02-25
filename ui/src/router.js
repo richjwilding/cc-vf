@@ -514,11 +514,13 @@ function makePt(x, y) {
       const comingDirection = this.inferPathDirection(sourceNode);
       const goingDirection = this.directionOfNodes(sourceNode, evaluationNode);
       const changingDirection = comingDirection && goingDirection && comingDirection !== goingDirection;
-      const extraWeigh = changingDirection ? Math.pow(edgeWeigh + 1, 2) + (sourceDistance / 2) : 0;
+      const multiplier = evaluationNode.data.mid ? 0.8 : 1
+
+      const extraWeigh = changingDirection ? (Math.pow(edgeWeigh + 1, 2) * multiplier) + (sourceDistance / 2)  : 0;
   
       const deviationCost = previousPath ? this.computeDeviationCost(evaluationNode, previousPath, 20) : 0
 
-      const totalCost = sourceDistance + edgeWeigh + extraWeigh + deviationCost;
+      const totalCost = sourceDistance + (multiplier * (edgeWeigh + extraWeigh + deviationCost));
 
       if (totalCost < evaluationNode.distance) {
         evaluationNode.distance = totalCost;
@@ -622,9 +624,9 @@ function makePt(x, y) {
     // 2. Add horizontal edge midpoints: For each horizontal line, midpoint between adjacent verticals.
     for (const y of horizontals) {
       for (let i = 0; i < verticals.length - 1; i++) {
-        if( (verticals[i] - verticals[i]) > midThresh){
+        if( (verticals[i + 1] - verticals[i]) > midThresh){
             const xMid = (verticals[i] + verticals[i + 1]) / 2;
-            addPoint({ x: xMid, y });
+            addPoint({ x: xMid, y, mid: 1 });
         }
       }
     }
@@ -634,7 +636,7 @@ function makePt(x, y) {
       for (let j = 0; j < horizontals.length - 1; j++) {
         if( (horizontals[j + 1] - horizontals[j]) > midThresh){
           const yMid = (horizontals[j] + horizontals[j + 1]) / 2;
-          addPoint({ x, y: yMid });
+          addPoint({ x, y: yMid, mid: 2 });
         }
       }
     }
@@ -642,10 +644,10 @@ function makePt(x, y) {
     // 4. Add cell centers: For each cell defined by adjacent verticals and horizontals.
     for (let i = 0; i < verticals.length - 1; i++) {
       for (let j = 0; j < horizontals.length - 1; j++) {
-        if( ((verticals[i] - verticals[i]) > midThresh) && ((horizontals[j + 1] - horizontals[j]) > midThresh)){
+        if( ((verticals[i + 1] - verticals[i]) > midThresh) && ((horizontals[j + 1] - horizontals[j]) > midThresh)){
           const xMid = (verticals[i] + verticals[i + 1]) / 2;
           const yMid = (horizontals[j] + horizontals[j + 1]) / 2;
-          addPoint({ x: xMid, y: yMid });
+          addPoint({ x: xMid, y: yMid, mid: 4 });
         }
       }
     }
@@ -859,7 +861,9 @@ function makePt(x, y) {
       this.inflatedRects = {}
 
       this.inflateShapes()
-
+      this.setupBase()
+    }
+    setupBase(){
       for (const b of Object.values(this.inflatedRects)) {
 
         this.verticals.add(Math.round(b.left / sz) * sz);
@@ -867,9 +871,6 @@ function makePt(x, y) {
         this.horizontals.add(Math.round(b.top / sz) * sz);
         this.horizontals.add(Math.round(b.bottom / sz) * sz);
       }
-
-      this.horizontals = [...this.horizontals]
-      this.verticals = [...this.verticals]
 
     }
     inflateShape(shape){
@@ -931,6 +932,34 @@ function makePt(x, y) {
       }
       return false;
     }
+    removeShape(shape){
+      this.internalRemoveShape( shape )
+      this.setupBase()
+    }
+    internalRemoveShape(shape){
+      const existing = this.shapes[shape.id]
+
+      if( existing ){
+        this.links = this.links.filter(d=>{
+          if( d.pointA.shape === existing || d.pointB.shape === existing){
+            const key = OrthogonalConnector.getConnectionKey(d);
+            console.log(`REMOVE LINK ${key}`)            
+            this.pathCache.delete(key)
+            return false
+          }
+          return true
+        })
+        
+        delete this.shapes[shape.id]
+        delete this.inflatedRects[shape.id]
+      }
+    }
+    addShape(shape){
+      this.internalRemoveShape( shape )
+      this.shapes[shape.id] = shape
+      this.inflatedRects[shape.id] = this.inflateShape(shape)
+      this.setupBase()
+    }
 
     moveShape(shapeId, position){
       const shape = this.shapes[shapeId]
@@ -944,6 +973,8 @@ function makePt(x, y) {
       }
       shape.left = position.left
       shape.top = position.top
+      this.inflatedRects[shape.id] = this.inflateShape(shape)
+      this.setupBase()
     }
     
   
@@ -1079,7 +1110,7 @@ function makePt(x, y) {
       verticals.sort((a, b) => a - b)
       horizontals.sort((a, b) => a - b)
   
-      const blocksToClear = inflatedRects.filter(d=>!keepPoints.some(d2=>d.contains(d2)))
+      const blocksToClear = inflatedRects//.filter(d=>!keepPoints.some(d2=>d.contains(d2)))
   
   /*    if(!target.qt){
         target.qt = new FastQuadtree(target.bigBounds, 8);

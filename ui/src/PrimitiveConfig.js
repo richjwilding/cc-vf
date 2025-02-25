@@ -873,6 +873,9 @@ const PrimitiveConfig = {
                                 }
                             }
                         }else if(input.useConfig === "pass_through"){
+                            if( input.passThroughCoonfig ){
+                                out[input.inputPin].config = input.passThroughCoonfig
+                            }
                             out[input.inputPin].data.push( ...[input.pass_through].flat())
                         }else{
                             let sourceField = input.sourcePinConfig.source.replace(/^param./,"")

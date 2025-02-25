@@ -1137,7 +1137,7 @@ class CollectionUtils{
 
         return outList
     }
-    static primitiveAxis( primitive, axisName, items){
+    static primitiveAxis( primitive, axisName, items, skipPinData){
         let config = primitive.getConfig
         let axis 
         if( axisName === "column" || axisName === "row"){
@@ -1151,13 +1151,16 @@ class CollectionUtils{
             }
 
             if( axis.type == "pin"){
-                const inputs = primitive.inputs[axisName === 'column' ? "colAxis" : "rowAxis"]
-                const pinData = inputs?.data?.map(d=>{
-                    if(d.id){
-                        return {idx: d.id, label: d.title}
-                    }
-                    return {idx: d, label: d}
-                })
+                let pinData = []
+                if(!skipPinData){
+                    const inputs = primitive.inputs[axisName === 'column' ? "colAxis" : "rowAxis"]
+                    pinData = inputs?.data?.map(d=>{
+                        if(d.id){
+                            return {idx: d.id, label: d.title, primitive: d}
+                        }
+                        return {idx: d, label: d}
+                    })
+                }
                 return {filter: [],...axis, pinData, pinValues: pinData.map(d=>d.idx), passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
             }
     
@@ -1292,7 +1295,7 @@ class CollectionUtils{
             "column",
             "row",
             (source.referenceParameters?.explore?.filters ?? []).map((d,i)=>i)
-        ].flat().map(d=>this.primitiveAxis(source,d)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
+        ].flat().map(d=>this.primitiveAxis(source,d, undefined, true)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
     }
 }
 
