@@ -191,10 +191,13 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
         customAxis = Object.values(config.axis  ?? {}).filter(d=>d)
     }
     if( config?.segments ){
-        const targetSegments = config?.segments
+        let targetSegments = config?.segments
         if( targetSegments && Array.isArray(targetSegments)){
             logger.debug(`Checking segments at ${parent.id} / ${parent.plainId}`)
             logger.debug( `Got ${targetSegments.length} segments to create / check - currently have ${currentSegments.length}`)
+
+            targetSegments = targetSegments.map(d=>d?.title ? d.title : d)
+            
 
             for(const d of targetSegments){
                 let existing = currentSegments.filter(d2=>d2.title === d)

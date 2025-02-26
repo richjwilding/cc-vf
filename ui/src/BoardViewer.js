@@ -15,7 +15,7 @@ import useDataEvent from "./CustomHook";
 import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 import Konva from "konva";
                 
-const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "frame_label", "background", "view", "pin", "pin_label", "indicators"]
+export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "frame_label", "background", "view", "pin", "pin_label", "indicators"]
 
 function dropZoneToAxis(id){
     return id.split('-')
@@ -114,43 +114,115 @@ function _buildIndicators(primitive){
     ]
 }
 
-function prepareSubBoards( d ){
+function preparePageElements( d, pageState ){
     
     if( d.type !== "page"){
         return []
     }
     let configPage = d.configParent ?? d
     let page = d 
+
+    pageState.subpages ||= {}
+    pageState.subpages[d.id] ||= {}
     
-    const tempState = {}
-    tempState[configPage.id] = {
-        id: configPage.id, 
-        primitive: configPage,
-        underlying: page
+    let tempState = pageState.subpages[d.id]
+    const childNodes = configPage.primitives.origin.allUniqueElement
+    
+    if( tempState[configPage.id]){
+        console.log(`REUSING SUB PAGE STATE ${d.id}`)
+    }else{
+        tempState[configPage.id] = {
+            id: configPage.id, 
+            primitive: configPage,
+            underlying: page
+        }
+
+
+        const pageInputs = d.inputs
+        const pageOutputs = configPage.primitives.outputs
+        let masterVariants = {}
+        const partialVariants = {}
+        const pageVariants = {}
+        console.log(pageInputs)
+        for(let child of childNodes){
+            const {x,y,s, ...renderConfigOverride} = configPage.frames?.[child.id] ?? {x: 0, y: 0, s: 1}
+            tempState[child.id] = {
+                id: child.id, 
+                primitive: child, 
+                renderConfigOverride,
+                page: configPage,
+                position: {x,y,s},
+                renderConfigOverride
+            }
+
+            const pins = Object.keys(pageOutputs ?? {}).filter(d2=>pageOutputs[d2].allIds.includes(child.id)).map(d=>d.split("_")[0])
+            if( pins.length > 0){
+                let inputs = pins.flatMap(pin=>pageInputs[pin]?.data ?? [])
+                let variants = getPageVariants( pageInputs, inputs, true)
+                for(const d of variants){
+                    if( d.data.length > 0){
+                        const aId = d.a?.id ?? ".+?"
+                        const bId = d.b?.id ?? ".+?"
+                        const key = [aId, bId].join("-")
+
+                        const target = (d.a?.id && d.b?.id) ? masterVariants : partialVariants
+                        target[key] ||= {}
+                        target[key][child.id] = d.data
+                        if( (d.a?.id && d.b?.id) ){
+                            if( !pageVariants[key] ){
+                                pageVariants[key] = {a: d.a, b: d.b}
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+        for(const p of Object.keys(partialVariants)){
+            for(const m of Object.keys(masterVariants)){
+                if( m.match(p)){
+                    masterVariants[m] = {
+                        ...masterVariants[m],
+                        ...partialVariants[p]
+                    }
+                }
+            }
+        }
+        console.log(`Preparing ${Object.keys(pageVariants).length} variants for ${d.plainId} ${d.title}`)
+        if(Object.keys(masterVariants).length === 0){
+            if(Object.keys(partialVariants).length > 0){
+                masterVariants = partialVariants
+            }else{
+                masterVariants["single"] = pageInputs
+            }
+        }
+        tempState.masterVariants = masterVariants
+        /*childNodes.forEach(d=>{
+            tempState[d.id].variants = Object.keys(masterVariants).reduce((a,c)=>{a[c] = masterVariants[c][d.id];return a}, {})
+        })*/
+
     }
-
-    return configPage.primitives.origin.allUniqueElement.map(d=>{
-        const {x,y,s, ...renderConfigOverride} = configPage.frames?.[d.id] ?? {x: 0, y: 0, s: 1}
-
-        //const {x:sx, y:sy, ...renderConfigOverride}= mainstore.primitive(941814).frames?.[d.id] ?? {}
-
-        tempState[d.id] = {
-            id: d.id, 
-            primitive: d, 
-            renderConfigOverride,
-            page: configPage,
-        }
-        SharedPrepareBoard( d, tempState)
-        return {
-            x,
-            y,
-            s,
-            state: tempState[d.id]
-        }
+    
+    const variantData = {}
+    
+    return Object.keys(tempState.masterVariants).map(vId=>{
+        variantData[vId] = {}
+        variantData[vId][configPage.id]  =tempState[configPage.id]
+        return childNodes.map(d=>{
+            variantData[vId][d.id] = {
+                ...tempState[d.id],
+                variant: tempState.masterVariants[vId][d.id]
+            }
+            SharedPrepareBoard( d, variantData[vId])
+            return {
+                ...variantData[vId][d.id].position,
+                ...variantData[vId][d.id].renderConfigOverride,
+                state: variantData[vId][d.id]
+            }
+        })
     })
-
-    //return SharedPrepareBoard(d, tempState )
 }
+
 function renderSubBoard(d, stageOptions){
     if( d.state?.primitive){
 
@@ -199,6 +271,9 @@ let mainstore = MainStore()
             indicators = ()=>buildIndicators(primitiveToRender, undefined, undefined, myState)
         }
 
+        const prepareSubBoards = (d)=>{
+            return preparePageElements(d, view)
+        }
 
         const mapMatrix = (stageOptions, d, view)=>renderMatrix(
             primitiveToRender, 
@@ -351,6 +426,45 @@ let mainstore = MainStore()
         return {id: d.id ,parentRender: view.parentRender, pins, frameless, title, titleAlwaysPresent, indicators, utils: {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard},canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
 
     }
+    function getPageVariants( pageInputs, inputs, allItems = false ){
+        const combos = []
+        if(  pageInputs.group1 ){
+
+            if( pageInputs.group1?.data ){
+                for(const g1 of pageInputs.group1?.data?.filter(d=>d)){
+                    let groupInputs = inputs.filter(d=>d.id === g1.id || d.parentPrimitiveIds.includes(g1.id) || d.primitives.source.allIds.includes(g1.id))
+                    let done = false
+                    if( pageInputs.group2?.data){
+                        for(const g2 of pageInputs.group2?.data?.filter(d=>d)){
+                            let g2Inputs = groupInputs.filter(d=>d.id === g2.id || d.parentPrimitiveIds.includes(g2.id) || d.primitives.source.allIds.includes(g2.id))
+                            if( allItems ){
+                                combos.push({a: g1, b: g2, data: g2Inputs})
+                                if( g2Inputs.length > 0){
+                                    done = true
+                                }
+                            }else{
+                                if( g2Inputs.length > 0){
+                                    done = true
+                                    combos.push(g2Inputs)
+                                }
+                            }
+                        }
+                    }
+                    if(!done){
+                        if( allItems ){
+                            combos.push({a: g1,  data: groupInputs})
+                        }else{
+                            if( groupInputs.length > 0){
+                                combos.push(groupInputs)
+                            }
+                        }
+                    }
+                }
+            }
+            console.log(`---> For ${combos.length} sub pages`)
+        }                        
+        return combos
+    }
 
     function SharedPrepareBoard(d, myState, element, forceViewConfig){
         let didChange = false
@@ -375,32 +489,17 @@ let mainstore = MainStore()
                 if( pins.length > 0){
                     const config = basePrimitive.getConfig
                     let pageInputs = pageInstance.inputs
-                    let inputs = pins.flatMap(pin=>pageInputs[pin]?.data ?? [])
-
-                    if(  pageInputs.group1 ){
-                        const combos = []
-
-                        if( pageInputs.group1?.data ){
-                            for(const g1 of pageInputs.group1?.data){
-                                let groupInputs = inputs.filter(d=>d.id === g1.id || d.parentPrimitiveIds.includes(g1.id) || d.primitives.source.allIds.includes(g1.id))
-                                let done = false
-                                if( pageInputs.group2?.data){
-                                    for(const g2 of pageInputs.group2?.data){
-                                        let g2Inputs = groupInputs.filter(d=>d.id === g2.id || d.parentPrimitiveIds.includes(g2.id) || d.primitives.source.allIds.includes(g2.id))
-                                        if( g2Inputs.length > 0){
-                                            combos.push(g2Inputs)
-                                            done = true
-                                        }
-                                    }
-                                }
-                                if( !done && groupInputs.length > 0){
-                                    combos.push(groupInputs)
-                                }
-                            }
-                        }
-                        console.log(`---> For ${combos.length} sub pages`)
-                        inputs = combos[0] ?? inputs
-                    }                        
+                    let inputs
+                    if( myState[stateId].variant ){
+                        console.log(`Getting inputs from variant`)
+                        inputs = myState[stateId].variant
+                    }else{
+                        inputs =pins.flatMap(pin=>pageInputs[pin]?.data ?? [])
+                        
+                        let variants = getPageVariants( pageInputs, inputs)
+                        inputs = variants.length > 0 ? variants[0] : inputs
+                    }
+                   
 
                     if( pageInputs[pins[0]]?.config === "primitive"){
                         // Do Ancestors
@@ -509,7 +608,6 @@ let mainstore = MainStore()
                     }
                 }
 
-                console.log("done")
                 didChange = true
 
             }
@@ -826,13 +924,11 @@ let mainstore = MainStore()
             }
 
             for(let child of childNodes){
-                console.log(`- preparing child of page ${child.plainId} ${child.type}`)
                 myState[child.id] ||= {
                     id: child.id, 
                     inPage: true,
                     page: d
                 }
-
                 const renderResult = SharedPrepareBoard(child, myState)
                 const childChanged = renderResult !== false
                 if( childChanged ){
@@ -1056,9 +1152,17 @@ export default function BoardViewer({primitive,...props}){
                                     if( info.startsWith('processing.ai.')){
                                         const board = myState[frameId]
                                         canvas.current.refreshFrame( board.id, renderView(board.primitive))
-                                    }else if(info.startsWith('frames.') && (info.endsWith('.showItems') || info.endsWith('.height') || info.endsWith('.width'))){
+                                    }else if(info.startsWith('frames.') && info.endsWith('.showItems')){
                                         needRebuild = true
-                                        resized = true
+                                    }else if(info.startsWith('frames.') ){
+                                        if((info.endsWith('.height') || info.endsWith('.width'))){
+                                            resized = true
+                                        }
+                                        needRebuild = true
+                                        if( mainstore.primitive(ids[0])?.type === "page"){
+                                            myState[frameId].subpages = {}
+                                            resized = true
+                                        }
                                     }else if(info.startsWith('processing.flow') ){
                                         needRefresh = true
                                     }else if(info.startsWith('processing.') || info.startsWith('embed_')){
@@ -1076,7 +1180,7 @@ export default function BoardViewer({primitive,...props}){
                                     let doFrame = true
                                     if( framePrimitive.type === "page"){
                                         let dIds = ids
-                                        if(info.startsWith('frames.') && (info.endsWith('.height') || info.endsWith('.width'))){
+                                        if(typeof(info) === "string" && info.startsWith('frames.') && (info.endsWith('.height') || info.endsWith('.width'))){
                                             dIds = [...ids, info.split(".")[1]]
                                         }
                                         
@@ -2120,13 +2224,12 @@ export default function BoardViewer({primitive,...props}){
                 pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
         }
     }
-    async function exportFrame(asTable = false, byCell){
+    async function exportFrame(asTable = false, byCell, options){
         if(myState.activeBoard){
             if( asTable ){
                 const root = canvas.current.frameData( myState.activeBoardId )
                 const temp = root.node.children
                 root.node.children = root.allNodes
-            
                 await exportKonvaToPptx( root.node, mainstore.keepPPTX, {removeNodes: IGNORE_NODES_FOR_EXPORT, fit:"width", asTable: true, padding: [3, 1, 0.25, 1]} )
                 root.node.children = temp
             }else if(byCell){
@@ -2147,10 +2250,11 @@ export default function BoardViewer({primitive,...props}){
                 pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
 
             }else{
-                const frames = canvas.current.getSelection("frame")
+                const frames = options.allFrames ? canvas.current.frameList() : canvas.current.getSelection("frame")
                 const pptx = createPptx()
                 for(const d of frames){                    
                     const childFrames = Object.values(myState).filter(d2=>d2?.parentRender === d.attrs.id).map(d=>canvas.current.frameData(d.id)).filter(d=>d)
+                    
                     if( childFrames.length > 0){
                         const aggNode = new Konva.Group({
                             x: d.x(),
@@ -2178,9 +2282,39 @@ export default function BoardViewer({primitive,...props}){
 
                     }else{
                         const root = canvas.current.frameData( d.attrs.id )
+                        let pages = root.node.find("._page")
                         const temp = root.node.children
                         root.node.children = root.allNodes
-                        await exportKonvaToPptx( root.node, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [3, 1, 0.25, 1]} )
+
+                        if( pages.length > 0){
+                            for(const page of pages){
+                                const childFrames = root.node.find(d=>d.attrs.pageTrack === page.attrs.pageIdx)
+                                const aggNode = new Konva.Group({
+                                    width: page.width(),
+                                    height: page.height()
+                                })
+                                for(const child of childFrames){
+                                    child.ox = child.x()
+                                    child.oy = child.y()
+                                    child.x( child.ox - page.x() )
+                                    child.y( child.oy - page.y() )
+                                    child.oldParent = child.parent
+                                    aggNode.add( child )
+                                }
+                                await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [0,0,0,0]} )
+                                for(const child of childFrames){
+                                    child.x( child.ox )
+                                    child.y( child.oy )
+                                    child.oldParent.add( child )
+                                    delete child["oldParent"]
+                                    delete child["ox"]
+                                    delete child["oy"]
+                                }
+                            }
+                        }else{
+                            await exportKonvaToPptx( root.node, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [3, 1, 0.25, 1]} )
+                        }
+                        
                         root.node.children = temp
                     }
                 }

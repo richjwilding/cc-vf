@@ -3353,7 +3353,7 @@ registerRenderer( {type: "type", id: "flow", configs: "default"}, (primitive, op
     return g
 })
 registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, options = {})=>{
-    const config = {width: 1920, height: 1080, ...options}
+    const config = {width: 1920, height: 1080, pageColumns: 6, ...options}
     const g = new Konva.Group({
         id: primitive.id,
         x: config.x,
@@ -3381,34 +3381,96 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
     g.add(r)
 
 
+    let startX = 0
+    let startY = 0
+    let pageCol = 0
+    let maxX = config.width, maxY = config.height
+    let pageIdx= 0
     if( options.utils?.prepareBoards){
-        const subboards = options.utils.prepareBoards( primitive )
-        const subrenders = subboards.map(d=>options.utils.renderBoard(d, {imageCallback: options.imageCallback, amimCallback: options.amimCallback}))
-        console.log(`----------\n\Fetching subboards\n\n------------------`)
-        console.log(g)
-        let i = 0
-        for(const sub of subrenders){
-            const ss = sub.rendered.scaleX()
-            const sw = (sub.rendered.width() * ss)
-            const sh = (sub.rendered.height() * ss)
-            const r = sub.x + sw
-            const b = sub.y + sh
-            const cl = Math.max( -sub.x / ss, 0)
-            const ct = Math.max( -sub.y / ss, 0)
-            const cw = r > config.width ? config.width - cl - sub.x : config.width
-            const ch = b > config.height ? config.height - ct - sub.y : config.height
-            sub.rendered.x(sub.x)
-            sub.rendered.y(sub.y)
-            sub.rendered.name('inf_track primitive')
-            sub.rendered.clip({
-                x: cl,
-                y: ct,
-                width: cw / ss,
-                height: ch /ss
+        const subpages = options.utils.prepareBoards( primitive )
+        for(const subboards of subpages){
+            const subrenders = subboards.map(d=>options.utils.renderBoard(d, {imageCallback: options.imageCallback, amimCallback: options.amimCallback}))
+            let i = 0
+
+            const sg = new Konva.Group({
+                id: primitive.id,
+                x: startX,
+                y: startY,
+                width: config.width,
+                height: config.height,
+                onClick: options.onClick,
+                minRenderSize : 0,
+                pageIdx,
+                name:"inf_track _inf_keep _page",
+                clipX:0,
+                clipY:0,
+                clipWidth:config.width,
+                clipHeight:config.height
+                //name:"inf_track action_primitive inf_keep"
             })
-            g.add(sub.rendered)
-            i++
+            const r = new Konva.Rect({
+                x: 0,
+                y: 0,
+                width: config.width,
+                height: config.height,
+                stroke: '#555',
+                fill:"white",
+                name:"background"
+            })
+            sg.add(r)
+
+            g.add(sg)
+
+
+            for(const sub of subrenders){
+                const ss = sub.rendered.scaleX()
+                const sw = (sub.rendered.width() * ss)
+                const sh = (sub.rendered.height() * ss)
+                const r = sub.x + sw
+                const b = sub.y + sh
+                const cl = Math.max( -sub.x / ss, 0)
+                const ct = Math.max( -sub.y / ss, 0)
+                const cw = r > config.width ? config.width - cl - sub.x : config.width
+                const ch = b > config.height ? config.height - ct - sub.y : config.height
+                sub.rendered.x(sub.x)
+                sub.rendered.y(sub.y)
+                sub.rendered.attrs.pageTrack = pageIdx
+                sub.rendered.find(d=>d.attrs.name?.includes("inf_track")).forEach(d=>d.attrs.pageTrack = pageIdx)
+                sub.rendered.name('inf_track primitive')
+                sub.rendered.clip({
+                    x: cl,
+                    y: ct,
+                    width: cw / ss,
+                    height: ch /ss
+                })
+                sg.add(sub.rendered)
+            }
+            maxX = Math.max(maxX, startX + config.width)
+            maxY = Math.max(maxY, startY + config.height)
+            startX += config.width + 20
+            pageCol++
+            if( pageCol >= config.pageColumns ){
+                pageCol = 0
+                startX = 0
+                startY += config.height + 20
+            }
+            pageIdx++
         }
+        
+        g.width(maxX)
+        g.height(maxY)
+        g.clipWidth(maxX)
+        g.clipHeight(maxY)
+        r.width(maxX)
+        r.height(maxY)
+        r.fill("#f2f2f2")
+        if( options.getConfig ){
+            config.height = maxY
+            config.width = maxX
+        }
+    }
+    if( options.getConfig ){
+        return config
     }
 
     return g

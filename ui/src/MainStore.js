@@ -2283,6 +2283,7 @@ function MainStore (prims){
                                     const items = d.sourcePrimitive.itemsForProcessing
                                     const extents = CollectionUtils.mapCollectionByAxis(items, CollectionUtils.primitiveAxis(d.sourcePrimitive, d.axis, items)).extents.column
                                     if(d.inputMapConfig.types.includes("primitive")){
+                                        //d.pass_through = extents.map(d=>d.primitive ?? obj.primitive(d.idx))
                                         d.pass_through = extents.map(d=>d.primitive)
                                         d.passThroughCoonfig = "primitive"
                                     }else{

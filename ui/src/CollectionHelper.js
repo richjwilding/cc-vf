@@ -616,7 +616,7 @@ class CollectionUtils{
                         }
                     }else{
                         doRemap = false
-                        return {idx: d.id, label: d.title}
+                        return {idx: d.id, primitive:d, label: d.title}
                     }
                 }).filter((d,i,a)=>d && a.findIndex(d2=>d2?.label === d?.label)===i).sort((a,b)=>{
                     const v1 =  (a?.label ?? "")

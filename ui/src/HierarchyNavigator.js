@@ -121,6 +121,7 @@ const HierarchyNavigator = forwardRef(function HierarchyNavigator(props, ref){
             {node.items.map(d=>(<Menu.Item>
                                         {({ active }) => (
                                             <a
+                                            key={d.id}
                                             href="#"
                                             className={classNames(
                                                 active ? 'bg-ccgreen-700 text-white' : 'text-gray-900',
