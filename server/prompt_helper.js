@@ -14,7 +14,9 @@ export async function assessContextForPrompt( request, options = {}){
     const prompt = `</task>
 
                     I want you to undertake the following :
-                    1)  I am going to search an embeddings store for relevant fragments of information to help answer this task. Assess if the tasks' preamble specifies and constraints to the target of the query (ie specific companies, regions, products, users, and similar) that i should use as a context filter when fetching suitable documents . Only look for things where the task says "focus on" or "specifically" etc - do not include the broader task and output request in this assessment
+                    1) I am going to search an embeddings store for relevant fragments of information to help answer this task. Assess if the tasks' preamble specifies and constraints to the target of the query (ie specific companies, regions, products, users, and similar) that i should use as a context filter when fetching suitable documents . 
+                        a) Only look for things where the task says "focus on" or "specifically" etc - do not include the broader task and output request in this assessment. 
+                        b) IF the task is asking for a comparison to another thing (company, product, person etc) that the fragments do not need to mention that specific thing explictly - mention of defined properties, characterictics, features etc is sufficient. In such a case provide enough context from the original prompt in your answer so taht the AI can make an informed the comaprison and DO NOT mention the name of the thing.
                     2) assess any requested output formats, constraints, or length 
                     `.replaceAll(/\s+/g," ")
     

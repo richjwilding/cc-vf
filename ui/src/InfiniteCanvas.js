@@ -45,7 +45,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const colors = {
         hover:{
             background:{
-                fill:'#fafefb'
+                fill:'#d1fae5'
+                
             },
             border:{
                 stroke: "#a3f0c6",
@@ -217,22 +218,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }, [])
 
     function refreshImages(){
-        /*
-        if(!myState.current.healthTracker){
-            myState.current.healthTracker = setInterval(() => {
-                console.log(`${myState.current.rescaleList?.length ?? 0}, ${myState.current.timeoutPending}, ${myState.current.animFramePending}`)
-            }, 500);
-
-        }*/
         if( !stageRef.current){
             return
         }
         if(myState.current.timeoutPending){
-            //console.log(`TO  cancel - already scheduled ${myState.current.timeoutPending} ${myState.current.rescaleList?.length ?? 0}`)
             return
         }
         if(myState.current.animFramePending){
-            //console.log(`RAF cancel - already scheduled ${myState.current.timeoutPending} ${myState.current.rescaleList?.length ?? 0}`)
             return
         }
         if( !myState.current.rescaleList  ){
@@ -249,14 +241,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         
         myState.current.timeoutPending = setTimeout(() => {
             myState.current.timeoutPending = undefined
-                /*if(myState.current.animFramePending){
-                    console.log(`No RAF after 5s - clearing`)
-                    myState.current.animFramePending = undefined
-                }*/
             myState.current.animFramePending = requestAnimationFrame(()=>{
                 myState.current.animFramePending = undefined
                 let steps = 200
-                //console.log(`RENDERING ${myState.current.rescaleList?.length ?? 0}`)
                 let toProcess = myState.current.rescaleList.splice(0,steps)
                 for(let idx = 0; idx < steps; idx++){
                     const d = toProcess[idx]
@@ -2499,6 +2486,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                     let ft = frame.y
                                     let fr = (frame.x + (frame.node.attrs.width * frame.scale))
                                     let fb = (frame.y + (frame.node.attrs.height * frame.scale))
+
+
                                     if( minX == undefined || fl < minX){ minX = fl}
                                     if( minY == undefined || ft < minY){ minY = ft}
                                     if( maxX == undefined || fr > maxX){ maxX = fr}
@@ -2507,7 +2496,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 min = Math.min( 0.03, myState.current.width / (maxX- minX) / 2,  myState.current.height / (maxY - minY) / 2 )
                             }
                         }
-                        const max = props.board ? 5 / Math.min(1, ...Object.values(props.framePositions ?? {}).map(d=>d.s ?? 1)) : 8
+                        let boardScales
+                        if( props.board){
+                            boardScales = myState.current.frames.map(frame=>{
+                                const subViews = frame.node.find('.view').map(d=>d.attrs.scaleX / 2 ).filter(d=>d)                        
+                                const innerScale = subViews.reduce((a,d)=>a < d ? a : d, 1)
+                                return (frame.node.attrs.scaleX ?? 1) * innerScale
+                            })
+                        }
+                        const max = props.board ? 5 / Math.min(1, ...boardScales) : 8
                         return { min, max }
                     }
                 },

@@ -10,6 +10,7 @@ import { fetchFragmentsForTerm } from "./DocumentSearch";
 import { BaseQueue } from './base_queue';
 import { assessContextForPrompt } from './prompt_helper';
 import { getLogger } from './logger.js';
+import { compareTwoStrings } from './actions/SharedTransforms.js';
 
 const logger = getLogger('document_queue', "debug"); // Debug level for moduleA
 
@@ -768,8 +769,8 @@ async function doDataQuery( options ) {
                                             rationale:[a 30 word summary of your assessment]
                                         }`.replaceAll(/\s+/g," "),
                                     engine: "gpt4o-mini",
-                                    debug: false,
-                                    debug_content: false,
+                                    debug: true,
+                                    debug_content: true,
                                     field: "assessment"
                                 })
                                 if( config.fullText ){
@@ -1351,39 +1352,6 @@ export async function extractEvidenceFromFragmentSearch( primitive, config){
     }
 }
 
-export function compareTwoStrings(first, second) {
-    //https://github.com/aceakash/string-similarity#readme
-	first = first.replace(/\s+/g, '')
-	second = second.replace(/\s+/g, '')
-
-	if (first === second) return 1; // identical or empty
-	if (first.length < 2 || second.length < 2) return 0; // if either is a 0-letter or 1-letter string
-
-	let firstBigrams = new Map();
-	for (let i = 0; i < first.length - 1; i++) {
-		const bigram = first.substring(i, i + 2);
-		const count = firstBigrams.has(bigram)
-			? firstBigrams.get(bigram) + 1
-			: 1;
-
-		firstBigrams.set(bigram, count);
-	};
-
-	let intersectionSize = 0;
-	for (let i = 0; i < second.length - 1; i++) {
-		const bigram = second.substring(i, i + 2);
-		const count = firstBigrams.has(bigram)
-			? firstBigrams.get(bigram)
-			: 0;
-
-		if (count > 0) {
-			firstBigrams.set(bigram, count - 1);
-			intersectionSize++;
-		}
-	}
-
-	return (2.0 * intersectionSize) / (first.length + second.length - 2);
-}
 
 export function findQuoteLocation(originalText, quote) {
     originalText = originalText.trim().toLowerCase();
@@ -1400,7 +1368,7 @@ export function findQuoteLocation(originalText, quote) {
             }
             let testString = words.slice(i, i + window + buffer).join(' ');
             
-            let distance = 1 - compareTwoStrings (testString, quote);
+            let distance = 1 - compareTwoStrings(testString, quote);
             
             if (distance < bestMatch.distance) {
                 bestMatch = { index: i, distance };

@@ -244,7 +244,7 @@ export async function queryLinkedInCompaniesByRapidAPI( primitive, terms, callop
               page: nextPage,
               company_size_list: '',
               hasJobs: false,
-              location_list: '103644278',
+              location_list: '',//103644278',
               industry_list: ''
             }
           };

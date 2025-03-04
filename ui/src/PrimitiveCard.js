@@ -136,13 +136,17 @@ let mainstore = MainStore()
           return <></>
         }
         const axis = CollectionUtils.axisFromCollection( props.items ?? [props.primitive], props.primitive )
+        const hasSegments = (props.items ?? [props.primitive]).some(d=>d.parentPrimitives.find(d=>d.type === "segment"))
         
-        const options = [{id: null, title: "None"}, ...axis.filter(d=>d.category && d.type === "title").map(d=>{
+        const options = [
+            {id: null, title: "None"}, 
+            hasSegments ? {id:"SEGMENT", title: "Segment parent"} : undefined,
+            ...axis.filter(d=>d.category && d.type === "title").map(d=>{
           return {
             id: d.relationship?.join("|"),
             title: d.category.title
           }
-        })]
+        })].filter(d=>d)
 
         return <PrimitiveCard.RenderItem 
             item={{

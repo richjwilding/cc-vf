@@ -1568,8 +1568,93 @@ function addHeader( title, options ={}){
 }
 
 registerRenderer( {type: "type", id: "page", configs: "set_grid"}, (primitive, options = {})=>{
-    const config = {itemWidth: 1920, itemHeight: 1080, minColumns: 1, spacing: [20,20], itemPadding: [0,0,0,0], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
-    return baseGridRender(options, config)
+    const config = {minColumns: 1, spacing: [20,20], itemPadding: [0,0,0,0], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    if( !options.list ){
+        return undefined
+    }
+
+    let minColumns = config.minColumns
+
+    let items = options.list
+    let itemCount = items.length + (config.showExtra ? 1 : 0)
+
+    if( minColumns) {
+        config.columns = Math.max(minColumns, config.columns)
+    }
+
+    const width = config.width 
+    const height = config.height 
+    
+    const g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: width,
+        height: height,
+    })
+    let x = config.padding[3] + config.spacing[1]
+    let y = config.padding[0] + config.spacing[0]
+
+    const r = new Konva.Rect({
+        x: config.padding[3],
+        y: config.padding[0],
+        width: config.width - config.padding[3] - config.padding[1],
+        height: config.height ? config.height - config.padding[0] - config.padding[2] : undefined,
+        name: "background",
+        fill: '#f9fafb'
+    })
+    g.add(r)
+
+    let idx = 0
+    let maxX = 0
+    let columnYs = new Array( config.columns ).fill( y )
+    for( let dIdx = 0; dIdx < itemCount; dIdx++){
+        const d = items[dIdx]
+        let node
+
+        if( d ){
+            node = RenderPrimitiveAsKonva( d, {
+                config: "default", 
+                x: x, 
+                y: columnYs[ idx ], 
+                onClick: options.primitiveClick,
+                padding: config.itemPadding, 
+                placeholder: options.placeholder !== false,
+                toggles: options.toggles,
+                imageCallback: options.imageCallback,
+                utils: options.utils,
+                ...options.extras
+            })
+        }else{
+            node = addExtraNode( config, options, x, y, 1080)
+        }
+
+        g.add(node)
+        let lastHeight = node.attrs.height
+        columnYs[idx] += lastHeight + config.spacing[0]
+
+        maxX = Math.max(maxX, x + node.attrs.width)
+        x += node.attrs.width + config.spacing[1]
+        idx++
+        if( idx === config.columns){
+            idx = 0
+            x = config.padding[3] + config.spacing[1]
+            y = columnYs[idx]
+        }
+    }
+
+    const mayY = Math.max(...columnYs) 
+    g.height( mayY + config.padding[2])
+    config.height = mayY + config.padding[2]
+    config.width = maxX
+
+    if( options.getConfig ){
+        return config
+    }
+
+    return g
+
 })
 registerRenderer( {type: "categoryId", id: 138, configs: "set_grid"}, (primitive, options = {})=>{
     const config = {itemWidth: 600, minColumns: 1, spacing: [2,2], itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
@@ -1710,7 +1795,7 @@ function baseGridRender( options, config){
         }
     }
 
-    if( !heightDefined ){
+    if( !config.height ){
         const mayY = Math.max(...columnYs) 
        // r.height( mayY)
         g.height( mayY + config.padding[2])
@@ -3192,7 +3277,7 @@ registerRenderer( {type: "categoryId", id: 95, configs: "default"}, (primitive, 
     g.add( bg )
     if( options.concept_info?.[primitive.id]){
 
-        const logo = imageHelper( `/published/image/${options.concept_info[primitive.id]?.id}`, {
+        /*const logo = imageHelper( `/published/image/${options.concept_info[primitive.id]?.id}`, {
             size: 48,
             x: config.padding[3] + 12,
             y: config.padding[0] + 6,
@@ -3200,7 +3285,7 @@ registerRenderer( {type: "categoryId", id: 95, configs: "default"}, (primitive, 
             imageCallback: options.imageCallback,
             placeholder: options.placeholder !== false
         })
-        g.add( logo )
+        g.add( logo )*/
         const conceptText = new Konva.Text({
             x: config.padding[3] + 68,
             y: config.padding[0] + 8,
@@ -3469,6 +3554,8 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
             config.width = maxX
         }
     }
+    config.width = maxX
+    config.height = maxY
     if( options.getConfig ){
         return config
     }
@@ -3858,9 +3945,22 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
 })
 
 export function finalizeImages( node, options ){
-    for(const d of node.find('.img_ph')){
-        d.finalize()
+    const list = node.find('.img_ph')
+    console.log(`${list.length} to finalize`)
+    let idx = 0
+    while(list.length > 0){
+        const delay = 1 +(Math.random() * 50)
+        const thisSection = list.splice(0,20)
+        setTimeout(()=>{
+            for(const d of thisSection){
+                d.finalize()            
+            }
+        }, delay)
+
     }
+    //for(const d of list){
+    //    d.finalize()
+   // }
 
 }
 

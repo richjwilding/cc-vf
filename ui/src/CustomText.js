@@ -51,6 +51,17 @@ var AUTO = 'auto',
   // cached variables
   attrChangeListLen = ATTR_CHANGE_LIST.length;
 
+
+const HEATMAP = {
+  colors:[
+    "#f6d7dc",
+    "#fbeadb",
+    "#fcfcf7",
+    "#e5f1e3",
+    "#cae5df"
+  ]
+}
+
 var dummyContext;
 function getDummyContext() {
     if (dummyContext) {
@@ -125,7 +136,7 @@ class CustomText extends Text {
       return super.getHeight()
     }
   }
-  _addMDTextLine(line, metrics, indent, y, bold, large, bullet) {
+  _addMDTextLine(line, metrics, indent, y, bold, large, bullet, color, fontScale, tableInfo) {
       const align = this.align();
       if (align === JUSTIFY) {
           line = line.trim();
@@ -141,6 +152,9 @@ class CustomText extends Text {
           bullet: bullet,
           indent: indent,
           lastInParagraph: false,
+          fontScale: fontScale,
+          tableInfo,
+          color
       });
   }
   setFont
@@ -170,7 +184,10 @@ class CustomText extends Text {
                             lastLine.y, 
                             lastLine.bold,
                             lastLine.large,
-                            lastLine.bullet
+                            lastLine.bullet,
+                            lastLine.color,
+                            lastLine.fontScale,
+                            lastLine.tableInfo
         )
     }
 
@@ -195,6 +212,7 @@ _setTextData() {
   }*/
 
     this.fontCache = this._getContextFont()
+    
 
   if( this.fontStyle() === "light"){
     this.standardFont = this._getContextFont({style: "normal", weight: 300})
@@ -242,11 +260,19 @@ _setTextData() {
   this.textArr = [];
   
   var additionalWidth = shouldAddEllipsis ? this._getTextStats(ELLIPSIS).width : 0;
+
+  let placeTextWidth = maxWidth
+  let fontScaleForTable = 1
   
 
-  const placeText = ( text, large, bold, drawBullet, startIndent, indent, lastLine )=>{
+  const placeText = ( text, large, bold, drawBullet, startIndent, indent, color, lastLine, tableInfo )=>{
     
-    getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : (large ? this.headlineFont : this.standardFont)
+    let targetFont = bold ? (large ? this.headlineFont : this.boldFont) : (large ? this.headlineFont : this.standardFont)
+    if( fontScaleForTable != 1){
+      const size = targetFont.match(/(\d+.?\d+)px/)
+      targetFont = targetFont.replace(size[0], (size[1] * fontScaleForTable) + "px")
+    }
+    getDummyContext().font = targetFont
     
     let lineMetrics = this._getTextStats(text)
     let lineWidth = lineMetrics.width + indent;
@@ -254,17 +280,17 @@ _setTextData() {
     let advanced = false
     let textWidth = 0
     
-    if( translateY === undefined){
+    if( translateY === undefined || tableInfo?.first){
       translateY = lineHeightPx / 2 ;
     }
 
-    if (lineWidth > maxWidth) {
+    if (lineWidth > placeTextWidth) {
       let frag = 0
       while (text.length > 0) {
           var low = 0, high = text.length, match = '', matchWidth = 0;
           while (low < high) {
               var mid = (low + high) >>> 1, substr = text.slice(0, mid + 1), substrWidth = this._getTextStats(substr).width + additionalWidth + indent
-              if (substrWidth <= maxWidth) {
+              if (substrWidth <= placeTextWidth) {
                   low = mid + 1;
                   match = substr;
                   matchWidth = substrWidth;
@@ -279,7 +305,7 @@ _setTextData() {
                   var wrapIndex;
                   var nextChar = text[match.length];
                   var nextIsSpaceOrDash = nextChar === SPACE || nextChar === DASH;
-                  if (nextIsSpaceOrDash && matchWidth <= maxWidth) {
+                  if (nextIsSpaceOrDash && matchWidth <= placeTextWidth) {
                       wrapIndex = match.length;
                   }
                   else {
@@ -295,7 +321,7 @@ _setTextData() {
                     matchWidth = matchMetrics.width + indent;
               }
               match = match.trimRight();
-              this._addMDTextLine(match, matchMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet && (frag === 0));
+              this._addMDTextLine(match, matchMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet && (frag === 0), color, fontScaleForTable, tableInfo);
               indent = startIndent
               textWidth = Math.max(textWidth, matchWidth);
               currentHeightPx += lineHeightPx;
@@ -311,8 +337,8 @@ _setTextData() {
               if (text.length > 0) {
                   lineMetrics = this._getTextStats(text)
                   lineWidth = lineMetrics.width + indent;
-                  if (lineWidth <= maxWidth) {
-                      this._addMDTextLine(text, lineMetrics, indent, currentHeightPx + translateY, bold, large);
+                  if (lineWidth <= placeTextWidth) {
+                      this._addMDTextLine(text, lineMetrics, indent, currentHeightPx + translateY, bold, large, false, color, fontScaleForTable, tableInfo);
                       advanced = false
                       textWidth = Math.max(textWidth, lineWidth);
                       break;
@@ -328,7 +354,7 @@ _setTextData() {
           }
       }
     }else {
-      this._addMDTextLine(text, lineMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet);
+      this._addMDTextLine(text, lineMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet, color, fontScaleForTable, tableInfo);
       textWidth = Math.max(textWidth, lineWidth);
       if (this._shouldHandleEllipsis(currentHeightPx ) && !lastLine) {
         this._MDtryToAddEllipsisToLastLine();
@@ -348,10 +374,7 @@ _setTextData() {
 
   let indentWidths = []
 
-  const processSection = ( section, lastSection )=>{
-    if( section.type === "table"){
-      return
-    }
+  const processSection = ( section, lastSection, tableInfo )=>{
     if( clipped ){
       return
     }
@@ -374,30 +397,112 @@ _setTextData() {
       
       if( section.children ){
         for(const sub of section.children ){
-          processSection( sub )
+          processSection( sub, false, false )
         }
       }
 
       startIndent = preIndent
+    }else if( section.type === "table"){
+      const rows = section.children
+      const startX = startIndent
+      this.tableDecoration ||= []
+      if(rows.length > 0){
+        const columnCount = rows[0].children.length
+        if( columnCount > 9){
+          fontScaleForTable = 0.35
+        }else if( columnCount > 6){
+          fontScaleForTable = 0.4
+        }else if( columnCount > 3){
+          fontScaleForTable = 0.8
+        }
+        const mainLineHeight = baseLineHeightPx
+ //       const heatRegex = /^(\d+)(?: - | – |: )(.*)$/;
+        const heatRegex = /^(\d+)(?: - | – |: |\s+)(.*)$/
+        baseLineHeightPx = baseLineHeightPx * fontScaleForTable
+        const rowSpacing = baseLineHeightPx * 0.2
+        const colSpacing = baseLineHeightPx * 0.1
+        const columnSize = new Array(columnCount).fill( width / columnCount )
+        let maxForRow = 0
+        let startRow = currentHeightPx
+        let rIdx = 0
+        for( const row of rows){
+          startRow = startRow + rowSpacing + maxForRow
+          currentHeightPx = startRow
+          maxForRow = 0
+          let cIdx = 0
+          startIndent = startX + colSpacing
+          let fills = []
+          for(const col of row.children){
+            placeTextWidth = startIndent + columnSize[cIdx] -  colSpacing - colSpacing
+            currentHeightPx = startRow
+            let firstOfCell = true
+            if( rIdx === 0){
+                fills[cIdx] = "#999999"
+            }else{
+
+              const m = col.children[0].children?.[0]?.text?.match(heatRegex)
+              if( m ){
+                let v = m[1] - 1
+                if( v > 4 ){v = 4}
+                fills[cIdx] = HEATMAP.colors[v]
+                col.children[0].children[0].text = m[2]
+              }
+            }
+            for(const child of col.children){
+              processSection( child, false, {first: firstOfCell, col: cIdx, row: rIdx, xPadding: colSpacing, yPadding: rowSpacing, fill: fills[cIdx]} )
+              firstOfCell = false
+            }
+            startIndent += columnSize[cIdx]
+            const rowHeight = currentHeightPx - startRow
+            maxForRow = rowHeight > maxForRow ? rowHeight : maxForRow
+            cIdx++
+          }
+          let sx = startX
+          for( let cIdx = 0; cIdx < columnCount; cIdx++){
+            const fill = fills[cIdx]
+            
+            this.tableDecoration.push({
+              type: "rect",
+              x: sx,
+              y: startRow - rowSpacing,
+              width: columnSize[cIdx],
+              height: maxForRow + rowSpacing,
+              fill,
+              stroke:"#999999"
+            })
+            sx += columnSize[cIdx]
+          }
+          rIdx++
+        }
+        startIndent = startX
+        placeTextWidth = maxWidth
+        currentHeightPx = startRow + maxForRow + rowSpacing
+        this.textArr[this.textArr.length - 1].tableInfo.tableHeight = currentHeightPx
+        fontScaleForTable = 1
+        baseLineHeightPx = mainLineHeight
+      }
     }else{
       needAdvance  = true
-      if(isHeading && (lastWasHeading === false)){
-        currentHeightPx += (lineHeightPx * 0.6);
-      }else if(!isHeading && lastWasHeading){
-        currentHeightPx -= (lineHeightPx * 0.3);
-      }else if( isListItem){
-        currentHeightPx += (lineHeightPx * 0.2);
-      }else if( !isListItem && lastWasListItem){
-        currentHeightPx += (lastLineHeight * 0.2);
+      if( !tableInfo || !tableInfo.first ){
+        if(isHeading && (lastWasHeading === false)){
+          currentHeightPx += (lineHeightPx * 0.6);
+        }else if(!isHeading && lastWasHeading){
+          currentHeightPx -= (lineHeightPx * 0.3);
+        }else if( isListItem){
+          currentHeightPx += (lineHeightPx * 0.2);
+        }else if( !isListItem && lastWasListItem){
+          currentHeightPx += (lastLineHeight * 0.2);
+        }
       }
       if( section.children ){
         let indent = startIndent
         let fragmentIdx = 0
         for(const frag of section.children ){
-          const bold = frag.bold || isHeading
+          const bold = frag.bold || isHeading  || tableInfo?.row === 0
           const bullet = isListItem && (fragmentIdx === 0)
           const lastLine = lastSection && (fragmentIdx === (section.children.length - 1))
-          const result = placeText( frag.text, large, bold, bullet, startIndent, indent, lastLine)
+          const color = tableInfo?.row === 0 ? "white" : undefined
+          const result = placeText( frag.text, large, bold, bullet, startIndent, indent, color, lastLine, tableInfo)
           
           indent = result.indent
           if( result.textWidth > maxUsedWidth ){
@@ -436,204 +541,6 @@ _setTextData() {
   this.textWidth = maxUsedWidth;
   this._cachedHeight = this.height()
 
-}
-_setTextDataOLD() {
-    this.fontCache = this._getContextFont()
-
-    let stem = this.fontCache.slice(this.fontCache.indexOf(" "))
-    this.standardFont = "normal" + stem
-    this.boldFont = "bold " + stem
-    this.headlineFont = "bold " + stem.replace(/(\d+)px/, (d)=>(parseInt(d) * 1.5) + "px")
-
-    if( !this.attrs.withMarkdown ){
-      super._setTextData()
-      this._cachedHeight = this.height()
-      return
-    }
-
-  var lines = this.text().split('\n'), fontSize = +this.fontSize(), textWidth = 0, baseLineHeightPx = this.lineHeight() * fontSize, width = this.attrs.width, height = this.attrs.height, fixedWidth = width !== AUTO && width !== undefined, fixedHeight = height !== AUTO && height !== undefined, padding = this.padding(), maxWidth = width - padding * 2, maxHeightPx = height - padding * 2, currentHeightPx = 0, wrap = this.wrap(), shouldWrap = wrap !== NONE, wrapAtWord = wrap !== CHAR && shouldWrap, shouldAddEllipsis = this.ellipsis();
-  this.textArr = [];
-  
-  fixedHeight = false
-  getDummyContext().font = this.standardFont
-
-  var indentWidth = this._getTextStats("      ").width
-  var additionalWidth = shouldAddEllipsis ? this._getTextStats(ELLIPSIS).width : 0;
-  var translateY 
-
-
-
-
-  let wasIndented = false
-  let wasHeader = undefined
-
-  for (var i = 0, max = lines.length; i < max; ++i) {
-      var line = lines[i];
-      if( line.length === 0){
-        continue
-      }
-      let padding = 0.35
-      var startIndent = 0
-      const isIndented = line.match(/^(\s*)(-+)\s(.*)/)
-      if( isIndented ){
-        //const count = isIndented[1] ? 2 : (isIndented[2].length)
-        const count =  (isIndented[2].length)
-        startIndent = indentWidth * count
-        line = isIndented[3]
-        if( wasIndented < startIndent){
-          padding = 0.1
-        }else if( wasIndented > startIndent){
-          padding = 0.5
-        }else{
-          padding = 0.6
-        }
-      }
-      
-      let indent = startIndent
-      let large = line.trim().startsWith("#")
-      if( large ){
-        line = line.replace(/^\s*#+\s*/,"")
-      }
-
-      const fragments = line.split("**")
-      let bold = false
-      let advanced = false
-      //let large = fragments.length === 3 && fragments[0].length === 0 && fragments[2].length === 0
-      
-      let lineHeightPx = large ? baseLineHeightPx * 1.2 : baseLineHeightPx
-      if( large && !wasHeader){
-        //padding = -0.1
-        currentHeightPx += lineHeightPx * 0.4;
-      }
-
-      if( i > 0){
-        currentHeightPx += lineHeightPx * padding;
-      }
-      let idx = -1
-      let segment = 0
-
-      for( let line of fragments ){
-        idx++
-        let thisBold = idx % 2 === 1
-        if( bold!= thisBold || large != wasHeader){
-          bold = thisBold
-          //getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : this.standardFont
-          getDummyContext().font = bold ? (large ? this.headlineFont : this.boldFont) : (large ? this.headlineFont : this.standardFont)
-          if( bold ){
-            indent = startIndent
-            if( idx > 1){
-              currentHeightPx += lineHeightPx;
-            }
-          }
-        }
-        if( line.length === 0){
-          continue
-        }
-        var drawBullet = (segment === 0) && (indent > 0)
-
-        segment++
-        
-        if( translateY === undefined){
-          translateY = lineHeightPx / 2 ;
-        }
-        var lineMetrics = this._getTextStats(line)
-        var lineWidth = lineMetrics.width + indent;
-        var leaveForHeight = false
-        if (lineWidth > maxWidth) {
-          let frag = 0
-          while (line.length > 0) {
-              var low = 0, high = line.length, match = '', matchWidth = 0;
-              while (low < high) {
-                  var mid = (low + high) >>> 1, substr = line.slice(0, mid + 1), substrWidth = this._getTextStats(substr).width + additionalWidth + indent
-                  if (substrWidth <= maxWidth) {
-                      low = mid + 1;
-                      match = substr;
-                      matchWidth = substrWidth;
-                  }
-                  else {
-                      high = mid;
-                  }
-              }
-              if (match) {
-                  let matchMetrics
-                  if (wrapAtWord) {
-                      var wrapIndex;
-                      var nextChar = line[match.length];
-                      var nextIsSpaceOrDash = nextChar === SPACE || nextChar === DASH;
-                      if (nextIsSpaceOrDash && matchWidth <= maxWidth) {
-                          wrapIndex = match.length;
-                      }
-                      else {
-                          wrapIndex =
-                              Math.max(match.lastIndexOf(SPACE), match.lastIndexOf(DASH)) +
-                                  1;
-                      }
-                      if (wrapIndex > 0) {
-                          low = wrapIndex;
-                          match = match.slice(0, low);
-                        }
-                        matchMetrics = this._getTextStats(match)
-                        matchWidth = matchMetrics.width + indent;
-                  }
-                  match = match.trimRight();
-                  this._addMDTextLine(match, matchMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet && (frag === 0));
-                  indent = startIndent
-                  textWidth = Math.max(textWidth, matchWidth);
-                  currentHeightPx += lineHeightPx;
-                  advanced = true
-                  var shouldHandleEllipsis = this._shouldHandleEllipsis(currentHeightPx + lineHeightPx);
-                  if (shouldHandleEllipsis) {
-                      this._MDtryToAddEllipsisToLastLine();
-                      leaveForHeight = true
-                      break;
-                  }
-                  line = line.slice(low);
-                  line = line.trimLeft();
-                  if (line.length > 0) {
-                      lineMetrics = this._getTextStats(line)
-                      lineWidth = lineMetrics.width + indent;
-                      if (lineWidth <= maxWidth) {
-                          this._addMDTextLine(line, lineMetrics, indent, currentHeightPx + translateY, bold, large);
-                          currentHeightPx += lineHeightPx;
-                          textWidth = Math.max(textWidth, lineWidth);
-                          break;
-                      }
-                  }
-              }
-              else {
-                  break;
-              }
-              frag++
-              if( leaveForHeight ){
-                break
-              }
-          }
-        }else {
-          this._addMDTextLine(line, lineMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet);
-          textWidth = Math.max(textWidth, lineWidth);
-          if (this._shouldHandleEllipsis(currentHeightPx + lineHeightPx) && i < max - 1) {
-            this._MDtryToAddEllipsisToLastLine();
-            leaveForHeight = true
-          }
-          indent = startIndent
-        }
-        indent = lineWidth
-      }
-      if( !advanced ){
-        currentHeightPx += lineHeightPx;
-      }
-      if (this.textArr[this.textArr.length - 1]) {
-          this.textArr[this.textArr.length - 1].lastInParagraph = true;
-      }
-      if(leaveForHeight || (fixedHeight && (currentHeightPx + (lineHeightPx > maxHeightPx)))) {
-          break;
-      }
-      wasIndented = startIndent
-      wasHeader = large
-    }
-  this.textHeight = fontSize;
-  this.textWidth = textWidth;
-  this._cachedHeight = this.height()
 }
 
 
@@ -686,7 +593,7 @@ checkCanvasCleared() {
     var lineTranslateX = padding;
     var lineTranslateY = padding;
 
-    let bold = false, large = false
+    let bold = false, large = false, lastScale = 1, lastFill
     if( this.attrs.withMarkdown){
       
       context.font = this.standardFont
@@ -697,7 +604,24 @@ checkCanvasCleared() {
           bold = obj.bold
           large = obj.large
           context.font = bold ? (obj.large ? this.headlineFont : this.boldFont) : (obj.large ? this.headlineFont : this.standardFont)
+          if( lastScale !== 1){
+            lastScale = undefined
+          }
         }
+
+        if( obj.fontScale !== lastScale ){
+          lastScale = obj.fontScale
+          let targetFont = context.font 
+          const size = targetFont.match(/(\d+.?\d+)px/)
+          context.font = targetFont.replace(size[0], (size[1] * lastScale) + "px")
+        }
+        let useColor = obj.color ?? this.attrs.fill
+        if( useColor !== lastFill ){
+          context.fillStyle = useColor
+          lastFill = useColor
+        }
+
+
         let offset = (obj.indent ?? 0)
         if( alignCenter ){
           offset += (this.attrs.width - obj.width) / 2
@@ -896,7 +820,24 @@ checkCanvasCleared() {
         }
     }else{
       if( DISABLE_CANVAS ){
-          this.renderText( context )
+        if( this.tableDecoration ){
+          for(const decoration of this.tableDecoration){
+            if( decoration.x > this.attrs.width || decoration.x + decoration.width > this.attrs.width){continue}
+            if( decoration.y > this.attrs.height || decoration.y + decoration.height > this.attrs.height){continue}
+            if( decoration.type === "rect" ){
+              if( decoration.fill){
+                context.fillStyle = decoration.fill 
+                context.fillRect( decoration.x, decoration.y, decoration.width, decoration.height)
+              }
+              if( decoration.stroke){
+                context.strokeStyle = decoration.stroke
+                context.lineWidth = 0.5
+                context.strokeRect( decoration.x, decoration.y, decoration.width, decoration.height)
+              }
+            }              
+          }
+        }
+        this.renderText( context )
       }else{
 
         if( this.pcache.width > 0 && this.pcache.height > 0){

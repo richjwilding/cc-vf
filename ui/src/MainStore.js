@@ -1709,6 +1709,8 @@ function MainStore (prims){
                                     if( filter.sourcePrimId ){
                                         scope = obj.primitive(filter.sourcePrimId)?.primitives.allIds ?? []
                                     }
+                                }else if( filter.type === "segment_filter"){
+                                    scope = [filter.sourcePrimId]
                                 }else if( filter.subtype === "question"){
                                     const prompts = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "prompt"})).flat()),
                                     scope = prompts.map(d=>d.id)
@@ -1845,6 +1847,7 @@ function MainStore (prims){
                         return [receiver]
                     }
                     if( prop === "filterDescription"){
+                        /*
                         if( receiver.referenceParameters?.importConfig ){
                             const idsToLookup = [], frags = []
                             receiver.referenceParameters.importConfig.forEach(d=>{
@@ -1864,7 +1867,8 @@ function MainStore (prims){
                             return frags.join(", ")
                         }else{
                             return receiver.title
-                        }                        
+                        }                        */
+                       return receiver.filterTargets.map(d=>d.title).join(", ")
                     }
                     if( prop === "itemsForProcessingFromImport"){
                         return (p, o)=>receiver.itemsForProcessingWithOptions(p.id, o)
@@ -1927,7 +1931,33 @@ function MainStore (prims){
                                     }
                                     let params = options.params ?? receiver.getConfig
                                     if( params.descend ){
-                                        list = list.map(d=>[d,d.primitives.strictDescendants]).flat(2).filter(d=>d)
+                                        if( params.referenceId ){
+                                            let noExpandIds = new Set()
+                                            if( params.referenceId ){
+                                                const match = params.referenceId
+                                                if( Array.isArray(match)){
+                                                    list.forEach(d=>{
+                                                        if(match.includes(d.referenceId)){
+                                                            noExpandIds.add(d.id)
+                                                        }
+                                                    })
+                                                }else{
+                                                    list.forEach(d=>{
+                                                        if(d.referenceId === match){
+                                                            noExpandIds.add(d.id)
+                                                        }
+                                                    })
+                                                }
+                                            }
+                                            list = list.flatMap(d=>{
+                                                if( noExpandIds.has(d.id)){
+                                                    return d
+                                                }
+                                                return [d,d.primitives.strictDescendants]
+                                            }).filter(d=>d)
+                                        }else{
+                                            list = list.flatMap(d=>[d,d.primitives.strictDescendants]).filter(d=>d)
+                                        }
                                     }
                                     if( params.referenceId ){
                                         const match = params.referenceId
@@ -2731,7 +2761,6 @@ function MainStore (prims){
                             const connectedInputs = Object.keys(receiver.primitives.inputs).map(d=>d.split("_")[1])
                             Object.keys(receiver.metadata?.pins?.input ?? {}).forEach((d=>{
                                 if( receiver.metadata.pins.input[d]?.override && connectedInputs.includes(d) && !doneFields.has(d)){
-                                    console.log(`Override ${d} for ${receiver.plainId}`)
                                     overrides.push({
                                         input:d,
                                         param:receiver.metadata.pins.input[d]?.override

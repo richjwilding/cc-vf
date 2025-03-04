@@ -471,6 +471,7 @@ class CollectionUtils{
                 ...primitive.primitives.origin.allUniqueCategory, 
                 ...primitive.findParentPrimitives({type:["view", "query","categorizer"]}).map(d=>d.primitives.origin.allUniqueCategory).flat(),
                 ...primitive.origin.type == "flow" ? primitive.origin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
+                ...primitive.origin.type == "flowinstance" ? primitive.origin.origin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
                 ...uniquePrimitives(items.map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()).map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()
             ])
 
@@ -580,45 +581,68 @@ class CollectionUtils{
             "segment_filter":(field)=>{
                 const segments = uniquePrimitives(interim.map(d=>d.primitive.findParentPrimitives({type: "segment", first:true})).flat())
 
+                const newRemap = {}
                 const remap = {}
                 let doRemap = true
-                const mapped = segments.map(d=>{
+                let mapped = segments.map(d=>{
                     const m =  axis.title?.match(/(.d+)/)
 
                     let filterConfig = d.referenceParameters?.importConfig?.[0]?.filters
+                    const sourcePrimId = d.referenceParameters?.importConfig?.[0]?.id
                     if( filterConfig ){
-                        /*if( filterConfig.length > 0){
-                            const did = field === "row" ? 0 : 1
-                            filterConfig = filterConfig[did]
-                        }else{
-                            filterConfig = filterConfig[0]
-                        }*/
                        filterConfig = filterConfig[axis.axis]
                         
                         if( filterConfig){
                             if(filterConfig.type ==="parent"){
                                 if( filterConfig.value){
-                                    //return {idx: filterConfig.value, label: MainStore().primitive(filterConfig.value)?.title ?? "None"}
                                     const segment = MainStore().primitive(filterConfig.value)
                                     let title = segment?.filterDescription ??  segment?.title  ?? "None"
                                     
+                                    newRemap[title] ||= []
+                                    newRemap[title] = filterConfig.value
+                                    
                                     remap[d.id] = title
-                                    return {idx: d.id, label: title}
+                                    return {idx: filterConfig.value, label: title, sourcePrimId}
                                 }else{
                                     remap[d.id] = "None"
-                                    return {idx: d.id, label: "None"}
+                                    return {idx: d.id, label: "None", sourcePrimId}
                                 }
                             }else{
                                 const value = filterConfig.value ?? "None"
                                 remap[d.id] = value
-                                return {idx: d.id, label: value}
+                                newRemap[value] ||= []
+                                newRemap[value] = d.id
+                                return {idx: d.id, label: value, sourcePrimId}
                             }
                         }
                     }else{
                         doRemap = false
                         return {idx: d.id, primitive:d, label: d.title}
                     }
-                }).filter((d,i,a)=>d && a.findIndex(d2=>d2?.label === d?.label)===i).sort((a,b)=>{
+                })
+
+
+                if( doRemap ){
+                    interim.forEach(d=>{
+                        d["original_" + field] = d[field]
+                        if( Array.isArray(d[field])){
+                            d[field] = d[field].map(df=>newRemap[remap[df]])
+                        }else{
+                            d[field] = newRemap[remap[d[field]]]
+                        }
+                    })
+                }
+                mapped = mapped.filter((d,i,a)=>d && a.findIndex(d2=>d2?.label === d?.label)===i).sort((a,b)=>{
+                    const v1 =  (a?.label ?? "")
+                    if( v1.localeCompare){
+                        return v1?.localeCompare(b?.label ?? "")
+                    }
+                    return v1 - b?.label
+                })
+                return {values: mapped}
+                
+                /*
+                mapped = mapped.filter((d,i,a)=>d && a.findIndex(d2=>d2?.label === d?.label)===i).sort((a,b)=>{
                     const v1 =  (a?.label ?? "")
                     if( v1.localeCompare){
                         return v1?.localeCompare(b?.label ?? "")
@@ -627,6 +651,7 @@ class CollectionUtils{
                 })
                 if( doRemap ){
                     interim.forEach(d=>{
+                        d["original_" + field] = d[field]
                         if( Array.isArray(d[field])){
                             d[field] = d[field].map(df=>mapped.find(d2=>d2.label === remap[df])?.idx)
                         }else{
@@ -635,6 +660,7 @@ class CollectionUtils{
                     })
                 }
                 return {values: mapped}
+                */
 
                // return {values: mapped.map((d,i)=>({idx: d, label: d}))}
             },

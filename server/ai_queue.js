@@ -1811,10 +1811,12 @@ export async function processQueue(job){
                                         await Promise.all( promiseList )
                                     }
                                     for(const d of catOptions){
-                                        const items = categoryAllocations[d.id].items
-                                        console.log( `${d.plainId} ${d.title} -> ${items ? items.length : 0}`)
-                                        await addRelationshipToMultiple(d.id, items, "ref", d.workspaceId )
-                                        dispatchControlUpdate(d.id, "rationale", categoryAllocations[d.id].rationale)
+                                        const items = categoryAllocations[d.id]?.items
+                                        if( items ){
+                                            console.log( `${d.plainId} ${d.title} -> ${items ? items.length : 0}`)
+                                            await addRelationshipToMultiple(d.id, items, "ref", d.workspaceId )
+                                            dispatchControlUpdate(d.id, "rationale", categoryAllocations[d.id].rationale)
+                                        }
                                     }
                                     dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
                                     if( !Array.isArray(job.data.targetId)){

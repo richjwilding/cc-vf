@@ -30,7 +30,9 @@ export default function AnalysisPage({primitive, ...props}){
         if(d.type === "flowinstance"){
             flowInstances.push(d)
         }else{
-            steps.push(d)
+            if( d.type !== "view" && d.type !== "page"){
+                steps.push(d)
+            }
         }
     })
     

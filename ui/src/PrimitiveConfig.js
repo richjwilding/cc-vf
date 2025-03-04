@@ -139,6 +139,9 @@ const PrimitiveConfig = {
             needCategory:true,
             "createAtWorkspace": true,
         },
+        "summary": {
+            defaultReferenceId: 109,
+        },
         "category": {
             needCategory:false,
             defaultReferenceId: 54,
@@ -478,6 +481,7 @@ const PrimitiveConfig = {
 
         if( val instanceof Object && !Array.isArray(val)){
             if( val.bucket_min !== undefined || val.bucket_max !== undefined ){
+            }else if(option?.type === "segment_filter"){
             }else{
                 val = val.idx
             }
@@ -509,7 +513,7 @@ const PrimitiveConfig = {
         }else if( option?.type === "title"){
             return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
         }else if( option?.type === "segment_filter"){
-            return  {type: "segment_filter", value: val, pivot: option.access, relationship: option.relationship, invert}
+            return  {type: "segment_filter", value: val.idx, sourcePrimId: val.sourcePrimId, pivot: option.access, relationship: option.relationship, invert}
         }else if( option.type === "parameter"){
             if( val?.bucket_min  !== undefined ){
                 return  {type: "parameter", param: option.parameter, value: {idx: val.idx, min_value: val.bucket_min, max_value: val.bucket_max}, pivot: option.access, relationship: option.relationship, invert}
@@ -553,7 +557,6 @@ const PrimitiveConfig = {
             pivot = (pivot ?? 0) + 1
         }
         if( filter.type === "segment_filter"){
-            resolvedFilterType = "parent"
             pivot = 1
             relationship = ['auto']
         }
@@ -997,19 +1000,29 @@ const PrimitiveConfig = {
                 }else if( resolvedFilterType === "not_category_level1"){
                     const parentIds = lookups[idx].map(d=>fns.parentIds(d)).flat()
                     data = scope.filter(d=>parentIds.includes(d))
+                }else if( resolvedFilterType === "segment_filter"){
+                    data = lookups[idx].map(d=>{
+                        const imSections = d.referenceParameters?.importConfig.filter(d=>scope.includes(d.id))
+                        const alignSections = imSections.map(d=>{
+                            return d.filters.flatMap(d=>{
+                                //if(d.type == "parent" ){
+                                    return d.value
+                                //}
+                            }).filter(d=>d)
+                        })
+                        return alignSections.flat()
+                    })                        
+                    data = fastUnique(data)
                 }else if( resolvedFilterType === "parent"){
                     if( filter.sourcePrimId ){
-                        //data = lookups[idx].map(d=>fns.parentIds(d)).flat().filter((d,i,a)=>a.indexOf(d)===i)
                         data = fastUnique(lookups[idx].map(d=>fns.parentIds(d)).flat())
                     }else{
-                        //data = lookups[idx].map(d=>d.id).flat().filter((d,i,a)=>a.indexOf(d)===i)
                         data = fastUnique(lookups[idx].map(d=>d.id).flat())
                     }
                     if( scope ){
                         data = data.filter(d=>scope.includes(d))
                     }
                 }
-
 
                 if( invert ){
                     if( (data.length === 0 && !includeNulls) || !data.reduce((a,d)=>a && doCheck(d), true) ){

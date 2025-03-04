@@ -2,9 +2,9 @@ import yahooFinance from "yahoo-finance2"
 import Primitive from "./model/Primitive";
 import { SIO } from "./socket";
 import { dispatchControlUpdate } from "./SharedFunctions";
-import { compareTwoStrings } from "./document_queue";
 import { fecthUSDFXRate } from "./google_helper";
 import moment from "moment";
+import { compareTwoStrings } from "./actions/SharedTransforms";
 
 
 let fxRateCache = {}

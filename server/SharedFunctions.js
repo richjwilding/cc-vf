@@ -708,7 +708,7 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
 
     let interim = PrimitiveConfig.alignInputAndSource(inputMap,  dynamicPins)
 
-    async function resolveAxis( segment ){
+    async function resolveAxis( segment){
         const fetchTitleList = segment.filters.filter(d=>d.type === "parent")
         if( fetchTitleList.length > 0){
             const ids = fetchTitleList.map(d=>d.value)
@@ -718,6 +718,7 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
                 if( fetchTitleList[i].value === d.id){
                     fetchTitleList[i].orignalValue = fetchTitleList[i].value
                     fetchTitleList[i].value = d.type === "segment" ? await getFilterName( d ) : d.title
+                    
                 }else{
                     console.log(`MISMATCH`)
                 }
@@ -745,10 +746,14 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
             if( axis ){
                 const customAxis = {sourcePrimId: d.sourcePrimitive.primitives?.axis?.row?.[0], ...axis} 
                 const defs = await getSegemntDefinitions( d.sourcePrimitive, [customAxis], sourceConfig)
-                for(const segment of defs){
-                    await resolveAxis(segment)
+                if( customAxis.type === "primitive"){
+                    d.pass_through = defs.flatMap(d=>d.filters.map(d=>d.value))
+                }else{
+                    for(const segment of defs){
+                        await resolveAxis(segment)
+                    }
+                    d.pass_through = defs.flatMap(d=>d.filters.map(d=>d.value))
                 }
-                d.pass_through = defs.flatMap(d=>d.filters.map(d=>d.value))
             }
             //d.pass_through = extents.map(d=>d.label)
         }else if( d.sourceTransform === "child_list_to_string"){
@@ -1306,16 +1311,15 @@ async function filterItems(list, filters){
                 const sourcePrim = await fetchPrimitive(filter.sourcePrimId)
                 let node = new Proxy(sourcePrim.primitives, parser)
                 scope = node.allIds
-                //scope = obj.primitive(filter.sourcePrimId).primitives.allIds
             }
+        }else if( filter.type === "segment_filter"){
+            scope = [filter.sourcePrimId]
         }else if( filter.subtype === "question"){
-            //const prompts = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "prompt"})).flat())
             const prompts = await primitiveListOrigin( setToCheck, 1, ["prompt"], "ALL")
             scope = prompts.map(d=>d.id)
             check = check.map(d=>prompts.filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d))).flat().map(d=>d.id)
         }else if( filter.subtype === "search"){
             if( includeNulls){
-                //scope = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "search"})).flat()).map(d=>d.id)
                 const searches = await primitiveListOrigin( setToCheck, 1, ["search"], "ALL")
                 scope = uniquePrimitives(searches).map(d=>d.id)
             }
@@ -1323,7 +1327,6 @@ async function filterItems(list, filters){
             includeNulls = true
             check = []
             if( filter.sourcePrimId ){
-                //scope = obj.primitive(filter.sourcePrimId).primitives.allIds
                 const sourcePrim = await fetchPrimitive(filter.sourcePrimId)
                 let node = new Proxy(sourcePrim.primitives, parser)
                 scope = node.allIds
@@ -1940,16 +1943,6 @@ export async function getDataForProcessing(primitive, action, source, options = 
     }else if( target === "ref"){
         list = await primitivePrimitives(source, 'ref')
         console.log(`GOT for ref ${list.length}`)
-    }else if( target === "instance_peer"){
-        throw "DEPRECATED"
-        list = await primitivePrimitives(primitive, "ref" )
-        const instance = await fetchPrimitive( options.instance )
-        if( instance ){
-            const data = list.map(d=>instance?.computeCache?.[d.id])
-            return [list.filter((_,idx)=>data[idx]), data.filter(d=>d)]
-        }else{
-            return [[],[]]
-        }
     }else if( target === "items"){
         list = await getDataForImport( source, undefined, options.forceImport )
         console.log(`TOTAL IMPORT = ${list.length}`)
@@ -2658,7 +2651,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     if( actionKey === "auto_extract" || actionKey === "auto_summarize"){
         let primitiveConfig = await getConfig( primitive )
         const source = options.source ? await fetchPrimitive( options.source ) : undefined
-        const [items, toSummarize] = await getDataForProcessing(primitive, {...(category?.openai?.summarize?.source ?? options ?? {})}, source, {instance: options?.instance} )
+        const [items, toSummarize] = await getDataForProcessing(primitive, {...(category?.openai?.summarize?.source ?? options ?? {})}, source, {instance: options?.instance, forceImport: true} )
         console.log(items.length, "items")
 
         let parentInputs = {}

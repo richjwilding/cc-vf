@@ -462,6 +462,7 @@ export default function PrimitiveParser(obj){
                             let childrenIds 
                             if( origin_only ){
                                 childrenIds = []
+                                /*
                                 if( target.link ){
                                     childrenIds.push( ...Object.values(target.link ) )
                                 }
@@ -470,6 +471,21 @@ export default function PrimitiveParser(obj){
                                 }
                                 if( target.auto ){
                                     childrenIds.push( ...Object.values(target.auto ) )
+                                }*/
+                                if (target.link) {
+                                    for (let i = 0, len = target.link.length; i < len; i++) {
+                                        childrenIds.push(target.link[i]);
+                                    }
+                                }
+                                if (target.origin) {
+                                    for (let i = 0, len = target.origin.length; i < len; i++) {
+                                        childrenIds.push(target.origin[i]);
+                                    }
+                                }
+                                if (target.auto) {
+                                    for (let i = 0, len = target.auto.length; i < len; i++) {
+                                        childrenIds.push(target.auto[i]);
+                                    }
                                 }
                             }else if(direct_only){
                                 const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "ref" && d!== "config" && d !=="inputs" && d !=="link")
@@ -483,7 +499,8 @@ export default function PrimitiveParser(obj){
                                 if( id && !temp.has(id) ){
                                     temp.add(id)
                                     const p = obj.primitive(id)
-                                    if (p && Object.keys(p._primitives).length > 0) {
+                                    //if (p && Object.keys(p._primitives).length > 0) {
+                                    if(p){
                                         p.primitives._buildDescendantIds(temp, false, origin_only);
                                     }
                                 }

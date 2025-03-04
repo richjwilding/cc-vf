@@ -124,6 +124,8 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
                 }else{
                     data = item.map(d=>d.id)
                 }
+            }else if( resolvedFilterType === "primitive"){
+                    data = item
             }
 
             if( data.length === 0){
@@ -192,14 +194,16 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
     }
     if( config?.segments ){
         let targetSegments = config?.segments
-        if( targetSegments && Array.isArray(targetSegments)){
+        if( targetSegments && Array.isArray(targetSegments) && targetSegments.length > 0){
             logger.debug(`Checking segments at ${parent.id} / ${parent.plainId}`)
             logger.debug( `Got ${targetSegments.length} segments to create / check - currently have ${currentSegments.length}`)
 
-            targetSegments = targetSegments.map(d=>d?.title ? d.title : d)
-            
+            const segmentsArePrimitives = typeof(targetSegments[0]) === "object" && targetSegments[0].id !== undefined
 
-            for(const d of targetSegments){
+            const segmentNames = segmentsArePrimitives ? targetSegments.map(d=>d.title) : targetSegments
+
+            let idx = 0
+            for(const d of segmentNames){
                 let existing = currentSegments.filter(d2=>d2.title === d)
                 if(existing.length > 1 ){
                     logger.warn(`Got multiple segments for ${d} = ${existing.map(d=>d.plainId).join(", ")}`)
@@ -214,14 +218,18 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                 if( existing ){
                     logger.debug(`++ Got segments for ${d} = ${existing.plainId}`)
                 }else{
-                    existing = await createPrimitive({
+                    const data = {
                         workspaceId: primitive.workspaceId,
                         parent: parent.id,
                         data:{
                             type: "segment",
                             title: d
                         }
-                    })
+                    }                    
+                    if( segmentsArePrimitives ){
+                        data.data.referenceParameters = {sourcePrimId: targetSegments[idx].id}
+                    }
+                    existing = await createPrimitive( data )
                     if( !existing ){
                         throw "Couldnt create segment"
                     }
@@ -229,7 +237,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                     logger.debug(`Created new segment ${existing.id} ${existing.plainId} for ${d}`)
                 }
                 out.push(existing)
-
+                idx++
             }
 
 
@@ -863,7 +871,7 @@ export async function iterateItems( parent, primitive, options = {}){
 }
 export async function runProcess( primitive, options = {}){
     const source = options.source ? await fetchPrimitive( options.source ) : undefined
-    const [items, toProcess] = await getDataForProcessing(primitive, {field: "param.summary"}, source, {instance: options?.instance} )
+    const [items, toProcess] = await getDataForProcessing(primitive, {field: "param.summary"}, source, {instance: options?.instance, forceImport: true} )
 
     console.log(`${items.length} items`)
 
@@ -1598,11 +1606,11 @@ export async function summarizeWithQuery( primitive ){
 
                 if( revised.task.includes("{focus}") || revised.task.includes("{segment}") || revised.output.includes("{focus}") || revised.output.includes("{segment}") ||((primitiveConfig.revised_query.cache !== config.prompt) && (primitiveConfig.revised_query.cache === primitiveConfig.prompt))){
                     console.log(`--- Revised structure has local mods - reapplying`)
-                    revised.task = revised.task.replaceAll('{focus}', segmentName)
-                    revised.task = revised.task.replaceAll('{segment}', segmentName)
-
-                    revised.output = revised.output.replaceAll('{focus}', segmentName)
-                    revised.output = revised.output.replaceAll('{segment}', segmentName)
+                    revised.task = revised.task.replaceAll(/\{focus\}/gi, segmentName);
+                    revised.task = revised.task.replaceAll(/\{segment\}/gi, segmentName);
+                    
+                    revised.output = revised.output.replaceAll(/\{focus\}/gi, segmentName);
+                    revised.output = revised.output.replaceAll(/\{segment\}/gi, segmentName);
                 }
             }
             if(!revised){

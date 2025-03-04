@@ -178,7 +178,24 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 let tIdx = 0
                 let bulletNeedsFlushing = false
                 let lastSegment, startSegment, latchSegment, lastFontSize
+                let inTable = false, liveTable = [], tableSet = []
                 for( const d of konvaNode.textArr){
+                    if( d.tableInfo){
+                        if( !inTable ){
+                            liveTable = []
+                            inTable = true
+                        }
+                        liveTable.push( d )
+                        continue
+                    }else{
+                        if( inTable ){
+                            console.log(`Finished table`)
+                            console.log( tableSet)
+                            inTable = false
+                            tableSet.push(liveTable)
+                            liveTable = undefined
+                        }
+                    }
                     if( agg.length === 0){
                         startSegment = d
                     }
@@ -222,22 +239,10 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     }
                     spacingBefore = 0
                     spacingAfter = 0
-                    //spacingAfter = largeFontSize * 0.2
-                    if( lastEndList) {
-                      //  spacingBefore = largeFontSize * 0.5
-                    }
                     const useFontSize = (lastLarge ?  largeFontSize : fontSize)
                     
                     if( flush ){
                         if(latchSegment && startSegment){
-                            /*spacingBefore = (
-                                    (startSegment.y - ((startSegment.large ? largeFontSize : fontSize) /2 * lineSpacingMultiple)) - 
-                                    (latchSegment.y + ((latchSegment.large ? largeFontSize : fontSize) /2 * lineSpacingMultiple) )
-                                ) * fontScale * thisScale*/
-
-                            //const topCurrent = (startSegment.y - ((startSegment.large ? kLargeFontSize : kFontSize) * 0.75 * lineSpacingMultiple))
-                            //const bottomPrevious = (latchSegment.y + ((latchSegment.large ? kLargeFontSize : kFontSize) * 0.25 * lineSpacingMultiple) )
-
                             const bottomTextCurrent = startSegment.y + ((startSegment.large ? kLargeFontSize : kFontSize) / 2)
                             const topCurrent = bottomTextCurrent - ((startSegment.large ? kLargeFontSize : kFontSize) * 0.76 * konvaNode.lineHeight())
 
@@ -247,15 +252,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             spacingBefore = (topCurrent - bottomPrevious) * fontScale * thisScale * lineSpacingMultiple * 0.98
                             spacingBefore = spacingBefore.toFixed(3)
                         }
-                        if( lastLarge ){
-                         //   spacingAfter = largeFontSize * 0.05
-                        }
                         if( agg.length ){
-                            if( lastIndent ){
-                                //spacingBefore = fontSize * 0.2
-                                if( indentLevel === 0){
-                                }
-                            }
                             let options = {
                                     paraSpaceBefore: spacingBefore,
                                     paraSpaceAfter: spacingAfter,
@@ -335,13 +332,57 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         h: rh,
                         hyperlink: {url: konvaNode.attrs.url}
                     })
+                }
+                if( inTable ){
+                    tableSet.push(liveTable)
+                }
+                if( tableSet ){
+                    for(const tableData of tableSet){
+                        const rowIdx = tableData.reduce((a,d)=>{a[d.tableInfo.row] = d.tableInfo.row; return a},[])
+                        const colIdx = tableData.reduce((a,d)=>{a[d.tableInfo.col] = d.tableInfo.col; return a},[])
+                        const topOffset = (tableData[0].y  - (fontSize * 0.5 * (tableData[0].fontScale ?? 1)) + tableData[0].tableInfo.yPadding)  * scale * thisScale
+                        const lastItem = tableData[tableData.length - 1]
+                        const tableHeight = lastItem.tableInfo.tableHeight - topOffset
                     
-                    /*
-                    if( window.pptlinks){
-                        if( window.pptlinks[konvaNode.parent?.attrs.id]){
-                            stack[0].options.hyperlink = {slide: window.pptlinks[konvaNode.parent?.attrs.id]}
-                        }
-                    }*/
+                        const data = rowIdx.map(rIdx=>{
+                            return colIdx.map(cIdx=>{
+                                const items = tableData.filter(d=>d.tableInfo.col === cIdx && d.tableInfo.row === rIdx)
+                                const options = {}
+                                if( items[0].tableInfo.row === 0){
+                                    options.bold = true
+                                    options.color = "#ffffff"
+                                }
+                                if( items[0].fontScale && items[0].fontScale !== 1 ){
+                                    options.fontSize = fontSize * items[0].fontScale
+                                }
+                                if( items[0].tableInfo.fill ){
+                                    options.fill = toHex(items[0].tableInfo.fill)
+                                }
+                                return {text: items.map(d=>d.text).join(" "), options}
+                            })
+                        })
+                        const rowStarts = tableData.filter(d=>d.tableInfo.col === 0).map(d=>d.y)
+                        const baserowHeights = rowStarts.map((d,i,a)=>(i === (rowStarts.length - 1) ? tableHeight : a[i + 1]) - d)
+                        const rowHeights = baserowHeights.map(d=>(d / tableHeight)) 
+                        //const rowHeights = baserowHeights.map(d=>d * scale * thisScale )
+                        const mx = lastItem.tableInfo.xPadding * scale * thisScale * 2
+                        const my = lastItem.tableInfo.yPadding * scale * thisScale * 2
+                        slide.addTable(data,{
+                            x: rx,
+                            y: ry + topOffset,
+                            w: rw,
+                            h: tableHeight * scale * thisScale,
+                            fontFace: konvaNode.fontFamily() + (konvaNode.fontStyle() === "light" ? " light" : ""),
+                            margin: [my, mx, my, mx],
+                            rowH: rowHeights,
+                            fontSize: fontSize.toFixed(3),
+                            border:{
+                                type:"solid",
+                                pt: 1,
+                                color: toHex(konvaNode.tableDecoration?.[0]?.stroke)
+                            }
+                        })
+                    }
                 }
             }else{
 

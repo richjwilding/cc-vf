@@ -14,8 +14,10 @@ import CollectionInfoPane from "./CollectionInfoPane";
 import useDataEvent from "./CustomHook";
 import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 import Konva from "konva";
+import { compareTwoStrings } from "./SharedTransforms";
                 
-export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "frame_label", "background", "view", "pin", "pin_label", "indicators"]
+export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
+const RENDERSUB = true
 
 function dropZoneToAxis(id){
     return id.split('-')
@@ -354,7 +356,8 @@ let mainstore = MainStore()
                 indicators, 
                 pins, 
                 frameless, 
-                utils: myState.renderSubPages ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
+                //utils: myState.renderSubPages ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
+                utils: RENDERSUB ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
                 title, titleAlwaysPresent, 
                 canChangeSize: true, 
                 canvasMargin: [0,0,0,0], 
@@ -482,8 +485,8 @@ let mainstore = MainStore()
             const pagePrimitive = myState[stateId].page
             const pageState = pagePrimitive ? myState[pagePrimitive.id] : undefined
             let inputs
-            if( pageState?.underlying){
-                const pageInstance = pageState.underlying
+            if( true ){//{pageState?.underlying){
+                const pageInstance = pageState.underlying ?? pageState.primitive
                 const pageOutputs = pageState.primitive.primitives.outputs
                 const pins = Object.keys(pageOutputs ?? {}).filter(d2=>pageOutputs[d2].allIds.includes(d.id)).map(d=>d.split("_")[0])
                 if( pins.length > 0){
@@ -491,7 +494,6 @@ let mainstore = MainStore()
                     let pageInputs = pageInstance.inputs
                     let inputs
                     if( myState[stateId].variant ){
-                        console.log(`Getting inputs from variant`)
                         inputs = myState[stateId].variant
                     }else{
                         inputs =pins.flatMap(pin=>pageInputs[pin]?.data ?? [])
@@ -521,7 +523,11 @@ let mainstore = MainStore()
                         myState[stateId].originalList = inputs
                         if( config.ancestor){
                             const rel = config.ancestor
-                            inputs = uniquePrimitives( inputs.flatMap(d=>d.relationshipAtLevel(rel,rel.length)) )
+                            if( rel && rel[0] === "SEGMENT"){
+                                inputs = uniquePrimitives( inputs.flatMap(d=>d.findParentPrimitives({type: ["segment"]})) ).slice(-1)
+                            }else{
+                                inputs = uniquePrimitives( inputs.flatMap(d=>d.relationshipAtLevel(rel,rel.length)) ).slice(-1)
+                            }
                             if( inputs[0]?.type === "flowinstance"){
                                 inputs = uniquePrimitives(inputs.flatMap(d=>d.itemsForProcessing))
                             }
@@ -534,6 +540,7 @@ let mainstore = MainStore()
                         fontFamily: config?.fontFamily,
                         heading: config?.heading,
                     }
+                    inputs = inputs.filter(d=>d)
                     if( inputs.length === 1){
                         if( pageInputs[pins[0]].config === "primitive"){
 
@@ -542,13 +549,22 @@ let mainstore = MainStore()
                                 if( inputs[0]?.type === "summary"){
                                     const summaries = inputs.map(d=>{
                                         let base = d.referenceParameters.structured_summary ?? []
+                                        const sectionconfig = basePrimitive.referenceParameters?.sections
                                         return base.map(section=>{
-                                            if( basePrimitive.referenceParameters?.sections?.[section.heading]?.show !== false ){
+                                            let target = sectionconfig?.[section.heading]
+                                            if( !target ){
+                                                let allItems = Object.keys(sectionconfig).map(d=>[d, compareTwoStrings(d, section.heading)])
+                                                const candidates = allItems.filter(d=>d[1] > 0.4).sort((a,b)=>b[1]-a[1])
+                                                if( candidates.length > 0){
+                                                    target = sectionconfig?.[candidates[0][0]]
+                                                }
+                                            }
+                                            if( target?.show !== false ){
                                                 return {
                                                     ...section,
-                                                    heading: basePrimitive.referenceParameters?.sections?.[section.heading]?.heading === false ? undefined : section.heading,
-                                                    fontSize: basePrimitive.referenceParameters?.sections?.[section.heading]?.fontSize,
-                                                    fontStyle: basePrimitive.referenceParameters?.sections?.[section.heading]?.fontStyle
+                                                    heading: target?.heading === false ? undefined : section.heading,
+                                                    fontSize: target?.fontSize,
+                                                    fontStyle: target.fontStyle
 
                                                 }
                                             }
@@ -563,11 +579,17 @@ let mainstore = MainStore()
                                     } 
                                     myState[stateId].primitiveList = inputs
                                 }else{
+                                    let text
+                                    if( inputs[0]?.type === "segment"){
+                                        text = inputs.map(d=>d.filterDescription)
+                                    }else{
+                                        text = inputs.map(d=>d.title ?? d.referenceParameters[basePrimitive?.renderConfig?.field])
+                                    }
                                     myState[stateId].object = {
                                         type: "text",
                                         ids: inputs.map(d=>d.id),
-                                        text: inputs.map(d=>d.title ?? d.referenceParameters[basePrimitive?.renderConfig?.field]),
-                                            ...format
+                                        text,
+                                        ...format
                                     } 
                                 }
                                 myState[stateId].config = "plain_object"
@@ -679,7 +701,7 @@ let mainstore = MainStore()
                 widgetConfig.icon = <HeroIcon icon='FARobot'/>
                 widgetConfig.items = "results"
                 widgetConfig.count = primitiveToPrepare.itemsForProcessing.length
-                widgetConfig.content = `**${useQuery ? "Query" : "Prompt"}:** ` + (useQuery ? primitiveToPrepare.getConfig.query : primitiveToPrepare.getConfig.prompt)
+                widgetConfig.content = `**${useQuery ? "Query" : "Prompt"}:** ` + (useQuery ? primitiveToPrepare.getConfig.query?.slice(0,900) : primitiveToPrepare.getConfig.prompt?.slice(0,900))
                 myState[stateId].widgetConfig = widgetConfig
                 didChange = true
             }else if( primitiveToPrepare.type=== "action"){
@@ -905,7 +927,7 @@ let mainstore = MainStore()
                 title: basePrimitive.title,
                 icon: <HeroIcon icon={resultCategory?.icon}/>,
                 items: resultCategory.plural ?? resultCategory.title + "s",
-                count: primitiveToPrepare.primitives.strictDescendants.filter(d=>d.referenceId === resultCategory.id).length
+                //count: primitiveToPrepare.primitives.strictDescendants.filter(d=>d.referenceId === resultCategory.id).length
             }
         }else if( renderType === "page" ){
             let childNodes = d.primitives.origin.uniqueAllItems
@@ -922,20 +944,21 @@ let mainstore = MainStore()
                 icon: <HeroIcon icon='CogIcon'/>,
                 count: primitiveToPrepare.primitives.uniqueAllIds.length
             }
-
-            for(let child of childNodes){
-                myState[child.id] ||= {
-                    id: child.id, 
-                    inPage: true,
-                    page: d
+            if( !RENDERSUB){
+                for(let child of childNodes){
+                    myState[child.id] ||= {
+                        id: child.id, 
+                        inPage: true,
+                        page: d
+                    }
+                    const renderResult = SharedPrepareBoard(child, myState)
+                    const childChanged = renderResult !== false
+                    if( childChanged ){
+                        boardsToRefresh = boardsToRefresh.concat([child.id, ...renderResult])
+                    }
+                    didChange ||= (childChanged ?? true)
+                    myState[child.id].parentRender = stateId
                 }
-                const renderResult = SharedPrepareBoard(child, myState)
-                const childChanged = renderResult !== false
-                if( childChanged ){
-                    boardsToRefresh = boardsToRefresh.concat([child.id, ...renderResult])
-                }
-                didChange ||= (childChanged ?? true)
-                myState[child.id].parentRender = stateId
             }
         }else if( renderType === "flow" ){
             let childNodes = d.primitives.origin.uniqueAllItems
@@ -1320,7 +1343,14 @@ export default function BoardViewer({primitive,...props}){
 
     const [boards,  renderedSet] = useMemo(()=>{
         console.log(`--- REDO BOARD RENDER ${primitive?.id}, ${update}`)
-        const boards = [...primitive.primitives.allUniqueView, ...primitive.primitives.allUniqueSummary,...primitive.primitives.allUniqueCategorizer,...primitive.primitives.allUniqueQuery,...primitive.primitives.allUniqueSearch,...primitive.primitives.allUniqueFlow,...primitive.primitives.allUniqueAction]
+        const boards = [...primitive.primitives.allUniqueView,
+                        ...primitive.primitives.allUniquePage, 
+                        ...primitive.primitives.allUniqueSummary,
+                        ...primitive.primitives.allUniqueCategorizer,
+                        ...primitive.primitives.allUniqueQuery,
+                        ...primitive.primitives.allUniqueSearch,
+                        ...primitive.primitives.allUniqueFlow,
+                        ...primitive.primitives.allUniqueAction]
         
         for(const d of boards){
             if(!myState[d.id] ){
@@ -2224,7 +2254,7 @@ export default function BoardViewer({primitive,...props}){
                 pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
         }
     }
-    async function exportFrame(asTable = false, byCell, options){
+    async function exportFrame(asTable = false, byCell, options = {}){
         if(myState.activeBoard){
             if( asTable ){
                 const root = canvas.current.frameData( myState.activeBoardId )
@@ -2242,7 +2272,7 @@ export default function BoardViewer({primitive,...props}){
 
                     const cells = root.node.find('.primitive')
                     for(const cell of cells){
-                        await exportKonvaToPptx( cell, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [3, 1, 0.25, 1]} )
+                        await exportKonvaToPptx( cell, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [0,0,0,0]} )
                     }
 
                     root.node.children = temp
