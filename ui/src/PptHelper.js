@@ -419,20 +419,23 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
         }else if (konvaNode instanceof Konva.Wedge) {
             const wedgeWidth = 2 * rr;
             const wedgeHeight = 2 * rr;
-        
-            slide.addShape(pptx.shapes.ARC, {
-                x: rx - rr,
-                y: ry - rr,
-                w: wedgeWidth,
-                h: wedgeHeight,
-                angleRange:[konvaNode.rotation(), konvaNode.rotation() + konvaNode.angle()],
-                fill: {color: toHex(konvaNode.fill())},
-                line:konvaNode.stroke() ? {
-                    color: toHex(konvaNode.stroke()),
-                    width: konvaNode.strokeWidth() / 2,
-                } : undefined,
-            });
-            
+            if( konvaNode.angle() > 0){
+
+                
+                slide.addShape(pptx.shapes.ARC, {
+                    x: rx - rr,
+                    y: ry - rr,
+                    w: wedgeWidth,
+                    h: wedgeHeight,
+                    angleRange:[konvaNode.rotation(), konvaNode.rotation() + konvaNode.angle()],
+                    fill: {color: toHex(konvaNode.fill())},
+                    line:konvaNode.stroke() ? {
+                        color: toHex(konvaNode.stroke()),
+                        width: konvaNode.strokeWidth() / 2,
+                    } : undefined,
+                });
+                
+            }
 
             //slide.addShape(pptx.shapes.ARC, { x: rx, y: ry, w: 1.5, h: 1.45, fill: { color: pptx.colors.ACCENT3 }, angleRange:[konvaNode.rotation(), konvaNode.rotation() + konvaNode.angle()] });
         } else if (konvaNode instanceof Konva.Arc ) {

@@ -813,7 +813,7 @@ class CollectionUtils{
                 return {labels: labels, order: labels, values: labels.map((d,i)=>({idx: d, label: d, bucket_min: mins[i], bucket_max: max[i]}))}
             },
             "date": (field)=>{
-                const mode = "day"//axis.axisData.dateOptions[0]
+                const mode = "year"//axis.axisData.dateOptions[0]
 
                 function convert(date){
                     if( mode === "day"){
@@ -853,6 +853,9 @@ class CollectionUtils{
                         minDate = maxDate.clone().subtract(30, "d");
                     }
 
+                }
+                if( minDate < moment("1995-01-01")){
+                    minDate = moment("1995-01-01")
                 }
                 if( minDate && maxDate){
                     let bucketCount = maxDate.diff( minDate, mode) + 1
@@ -1194,7 +1197,9 @@ class CollectionUtils{
             if( "parameter" === axis.type ){
                 const pC = {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.parameter] ?? PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
 
-                const meta = items?.[0]?.metadata 
+                //const meta = items?.[0]?.metadata 
+                const meta = axis.relationship ? items?.[0]?.relationshipAtLevel(axis.relationship, axis.relationship.length)?.[0]?.metadata : items?.[0]?.metadata 
+                
                 if( meta ){
                     if( meta.parameters?.[axis.parameter]?.axisType){
                         pC.passType = meta.parameters[axis.parameter].axisType

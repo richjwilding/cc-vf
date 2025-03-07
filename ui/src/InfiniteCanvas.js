@@ -191,6 +191,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             addFrame,
             updateFramePosition,
             removeFrame,
+            restoreChildren,
+            restoreChildrenForTracking,
             framePosition,
             frameList,
             updateIndicators,
@@ -787,6 +789,41 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
         return frame
     }
+    function restoreChildren(node, offsetSource, list){
+        if( !list ){
+            list = offsetSource.find(d=>d)
+        }
+
+        const children = list.filter(d=>d.original?.parent?._id === node._id)
+        for(const child of children){
+            child.attrs.cachedParent = child.parent
+            child.ox = child.x()
+            child.oy = child.y()
+            child.os = child.scaleX()
+            child.remove()
+            //child.x( (child.ox / pScale) - child.attrs.originalParent.x() )
+            //child.y( (child.oy / pScale) - child.attrs.originalParent.y() )
+            //child.scale({x: newScale, y: newScale})
+            child.position( {x: child.original.x, y: child.original.y} )
+            child.scale({x: child.original.s, y: child.original.s})
+            child.original.parent.add( child )
+            restoreChildren(child, offsetSource, list)
+        }
+    }
+    function restoreChildrenForTracking(node){
+        for(const child of node.children){
+            if( child.attrs.cachedParent ){                
+                child.remove()
+                child.position( {x: child.ox, y:child.oy })
+                child.scale({x: child.os, y: child.os})
+                child.attrs.cachedParent.add( child )
+                delete child.attrs["cachedParent"]
+                delete child["ox"]
+                delete child["oy"]
+                restoreChildrenForTracking(child)
+            }
+        }
+    }
 
     function convertItems(g, frame, padding = 0){
         if(  typeof(g) === "object" ){
@@ -800,6 +837,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     y = (y * ps) + p.y()
                     s *= ps
                 }
+                d.original = {
+                    parent: d.parent,
+                    x: d.attrs.x,
+                    y: d.attrs.y,
+                    s: d.attrs.scaleX,
+                }
+
                 d.remove()
                 d.x(x )
                 d.y(y )

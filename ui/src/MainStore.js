@@ -1637,6 +1637,9 @@ function MainStore (prims){
 
                 if( prop === "relationshipAtLevel"){
                     return function(original, level = 0){
+                        if( level === undefined){
+                            level = [original].flat().length
+                        }
                         if(level === 0){
                             return [receiver]
                         }
@@ -1954,10 +1957,11 @@ function MainStore (prims){
                                                     return d
                                                 }
                                                 return [d,d.primitives.strictDescendants]
-                                            }).filter(d=>d)
+                                            }).flat().filter(d=>d)
                                         }else{
-                                            list = list.flatMap(d=>[d,d.primitives.strictDescendants]).filter(d=>d)
+                                            list = list.flatMap(d=>[d,d.primitives.strictDescendants]).flat().filter(d=>d)
                                         }
+                                        list = uniquePrimitives(list)
                                     }
                                     if( params.referenceId ){
                                         const match = params.referenceId

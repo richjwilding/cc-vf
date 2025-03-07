@@ -499,8 +499,7 @@ export default function PrimitiveParser(obj){
                                 if( id && !temp.has(id) ){
                                     temp.add(id)
                                     const p = obj.primitive(id)
-                                    //if (p && Object.keys(p._primitives).length > 0) {
-                                    if(p){
+                                    if (p && Object.keys(p._primitives).length > 0) {
                                         p.primitives._buildDescendantIds(temp, false, origin_only);
                                     }
                                 }

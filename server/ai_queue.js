@@ -1327,8 +1327,6 @@ export async function processQueue(job){
                                                 const newPrim = await createPrimitive( newData )
                                                 if( newPrim ){
                                                     created = true
-                                        console.log(segment)
-
                                                     await addRelationship( segment.id, newPrim.id, "auto")
                                                     
                                                     if( section.sourceIds?.length > 0 ){

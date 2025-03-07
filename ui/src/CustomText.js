@@ -129,8 +129,15 @@ class CustomText extends Text {
   getHeight() {
     if( this.attrs.withMarkdown ){
       var isAuto = this.attrs.height === AUTO || this.attrs.height === undefined;
+
+      const lastItem = this.textArr.slice(-1)?.[0]
+
+      if( lastItem?.tableInfo ){
+        return lastItem?.tableInfo.tableHeight
+      }
+
       return isAuto
-      ? (this.textArr.slice(-1)?.[0]?.y ?? 0) + (this.lineHeight() * this.fontSize() / 2)
+      ? (lastItem?.y ?? 0) + (this.lineHeight() * this.fontSize() / 2)
       : this.attrs.height;
     }else{
       return super.getHeight()

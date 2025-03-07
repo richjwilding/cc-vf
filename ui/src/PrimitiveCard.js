@@ -500,7 +500,6 @@ let mainstore = MainStore()
 
         let _target = props.primitive?.referenceParameters?.target ? props.primitive.referenceParameters?.target : defaultConfig?.target
         let _refId =  props.primitive?.referenceParameters?.referenceId ?? defaultConfig?.referenceId
-        console.log(_target)
 
         const first = item.itemMeta ? props.primitive?.itemsForProcessing?.[0] : undefined
 

@@ -8,7 +8,7 @@ import moment from "moment";
 import MainStore from "./MainStore";
 import { renderToString } from "react-dom/server";
 import { MagnifyingGlassIcon } from "@heroicons/react/20/solid";
-import { convertOrganizationFinancialData, formatNumber, roundCurrency } from "./SharedTransforms";
+import { compareTwoStrings, convertOrganizationFinancialData, formatNumber, roundCurrency } from "./SharedTransforms";
 import { HeroIcon } from "./HeroIcon";
 import { cloneElement } from "react";
 const typeMaps = {}
@@ -1756,13 +1756,15 @@ function baseGridRender( options, config){
 
     let idx = 0
     let columnYs = new Array( config.columns ).fill( y )
+    let thisRow = []
     for( let dIdx = 0; dIdx < itemCount; dIdx++){
         const d = items[dIdx]
         let node
 
         if( d ){
+            const rConfig = (options.config === "grid" ? "default" : options.config) ?? "default"
             node = RenderPrimitiveAsKonva( d, {
-                config: "default", 
+                config: rConfig, 
                 x: x, 
                 y: columnYs[ idx ], 
                 onClick: options.primitiveClick,
@@ -1773,6 +1775,7 @@ function baseGridRender( options, config){
                 toggles: options.toggles,
                 imageCallback: options.imageCallback,
                 utils: options.utils,
+                data: options.data,
                 ...options.extras
             })
         }else{
@@ -1780,6 +1783,7 @@ function baseGridRender( options, config){
         }
 
         g.add(node)
+        thisRow.push(node)
         let lastHeight = fullHeight ?? node.attrs.height
         columnYs[idx] += lastHeight + config.spacing[0]
 
@@ -1788,10 +1792,25 @@ function baseGridRender( options, config){
         if( idx === config.columns){
             idx = 0
             x = config.padding[3] + config.spacing[1]
+
+            if( config.alignHeight ){
+                const maxY = Math.max(...columnYs)
+                const maxHeight = thisRow.map(d=>d.find('.item_background')[0]?.height() ?? 0).reduce((a,c)=>a>c ? a:c,0)
+                columnYs.fill(maxY)
+                for(const d of thisRow){
+                    d.height(maxHeight)
+                    const bg = d.find('.item_background')[0]
+                    if( bg){
+                        bg.height( maxHeight)
+                    }
+                }
+            }
+
             y = columnYs[idx]
             if( heightDefined && (y + fullHeight) > height){
                 break
             }
+            thisRow = []
         }
     }
 
@@ -2487,6 +2506,237 @@ registerRenderer( {type: "categoryId", id: 109, configs: "checktable"}, function
 })
 registerRenderer( {type: "categoryId", id: 82, configs: "default"}, function renderFunc(primitive, options = {}){
     return categoryMaps[109]["default"](primitive, {...options, field:"description"})
+})
+registerRenderer( {type: "categoryId", id: 109, configs: "set_summary_section"}, function renderFunc(primitive, options = {}){
+    const config = {itemWidth: 600, minColumns: 1, spacing: [40,40], alignHeight: true, itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    return baseGridRender(options, config)
+})
+registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, function renderFunc(primitive, options = {}){
+
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, maxHeight: 3000, padding: [20,20,20,20], ...options}
+    let toggleWidth = 0
+    if( options.toggles){
+        toggleWidth = 26
+    }
+    if( config.minWidth){
+        config.width = Math.max(config.width ?? 0, config.minWidth)
+    }
+
+    let idHeight = config.showId ?  20 : 0
+    let availableWidth = config.width - config.padding[1] - config.padding[3]
+    let availableHeight = config.maxHeight !== undefined ? config.maxHeight - config.padding[0] - config.padding[2] - idHeight: undefined
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+    let totalheight = 10
+
+
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: config.width,
+        onClick: options.onClick,
+        name:"inf_track primitive"
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.width,
+        cornerRadius: 10,
+        fill: 'white',
+        name:"item_background"
+    })
+    g.add(r)
+
+    let data = primitive.referenceParameters.structured_summary
+    if( data ){
+        function findSection(targets){
+            let bestScore = 0, bestCandidate
+            function inner(target, start = data){
+                for(const candidate of start){
+                    if( !candidate?.heading){
+                        continue
+                    }
+                    const section = candidate.heading.toLowerCase()
+                    if( section === target){
+                        bestScore = 1
+                        bestCandidate = candidate
+                        return bestCandidate
+                    }
+                    const score = compareTwoStrings(section, target)
+                    if( score > 0.6 && score > bestScore){
+                        bestScore = score
+                        bestCandidate = candidate
+                    }
+                }
+            }
+            for(const d of [targets].flat()){
+                inner(d)
+                if( bestScore === 1){
+                    return bestCandidate
+                }
+            }
+            return bestCandidate
+        }
+        const title = findSection( "title")
+        const summary = findSection( ["description", "summary", "overview"])
+        const quotes = findSection( "quotes")
+        const orgs = findSection( ["companies","organizations"])
+        let y = config.padding[0]
+        let spaceY = config.fontSize * 0.5
+
+        if( title ){
+            const t = new CustomText({
+                x: config.padding[3],
+                y,
+                fontSize: config.fontSize * 1.5,
+                fontFamily: "Poppins",
+                lineHeight: 1.3,
+                text: `**${title.content}**`,
+                withMarkdown: true,
+                fill: '#334155',
+                wrap: true,
+                width: availableWidth,
+            })
+            g.add(t)
+            y += t.height() + spaceY
+        }
+        if( summary ){
+            const t = new CustomText({
+                x: config.padding[3],
+                y,
+                fontSize: config.fontSize * 1,
+                fontFamily: "Poppins",
+                lineHeight: 1.3,
+                text: summary.content,
+                withMarkdown: true,
+                fill: '#334155',
+                wrap: true,
+                width: availableWidth,
+            })
+            g.add(t)
+            y += t.height() + spaceY
+        }
+        if( quotes ){
+            const t = new CustomText({
+                x: config.padding[3] * 2,
+                y,
+                fontSize: config.fontSize,
+                fontFamily: "Poppins",
+                fontStyle:"light",
+                lineHeight: 1.1,
+                text: quotes.content,
+                withMarkdown: true,
+                fill: '#334155',
+                wrap: true,
+                width: availableWidth - (config.padding[3] * 3),
+            })
+            g.add(t)
+            y += t.height() + spaceY
+        }
+        if( orgs?.content){
+            y += spaceY * 2
+            let x = config.padding[3]
+            let companySizing = 96
+            const names = Array.isArray(orgs.content) ? orgs.content : orgs.content.split(/[,\n]/).map(d=>d.replace(/^\s*-\s+/,""))
+            const candidates = options?.data?.company_candidates ?? []
+            const primitives = names.map(name=>{
+                let variants = name.split(" ").map((d,i,a)=>a.slice(0,i + 1).join(" ")).reverse()
+                let foundP
+                variants.some(vName=>{
+                    let p = candidates.find(d=>d.title.toLowerCase() === vName.toLowerCase())
+                    if( !p ){
+                        const scored = candidates.map(d=>[d, compareTwoStrings(d.title, vName)]).filter(d=>d[1] > 0.75).sort((a,b)=>b[1] - a[1])
+                        p = scored[0]?.[0]
+                    }
+                    if( p ){
+                        foundP = p
+                    }
+                    return p
+                })
+                return foundP 
+            }).filter(d=>d).slice(0,5)
+            
+            for(const d of primitives){
+                const logo = imageHelper( `/api/image/${d.id}`, {
+                    x: x,
+                    y: y,
+                    width: companySizing,
+                    height: companySizing / 2,
+                    center: true,
+                    imageCallback: options.imageCallback,
+                    placeholder: options.placeholder !== false,
+                    maxScale: 1,
+                    scaleRatio: 1
+        
+                })
+                g.add( logo )
+                const t = new CustomText({
+                    x: x,
+                    y: y + (companySizing / 2) + spaceY,
+                    fontSize: config.fontSize * 0.6,
+                    fontFamily: "Poppins",
+                    lineHeight: 1.3,
+                    text: d.title,
+                    align: "center",
+                    fill: '#334155',
+                    wrap: true,
+                    width: companySizing,
+                })
+                x += companySizing + config.padding[3]
+                g.add(t)
+            }
+            y += 48 + spaceY + config.fontSize * 0.6 + (spaceY * 3)
+        }
+        totalheight = y
+    }else{
+        let text = primitive.referenceParameters[config.field]
+        text = text?.replaceAll('\\n','\n')
+        
+        const t = new CustomText({
+            x: config.padding[3],
+            y: config.padding[0],
+            fontSize: config.fontSize,
+            //fontFamily: "Poppins",
+            lineHeight: 1.3,
+            text: text,
+            withMarkdown: true,
+            fill: '#334155',
+            wrap: true,
+            width: availableWidth,
+        })
+        t.attrs.refreshCallback = options.imageCallback
+        if( options.inTable && options.height ){
+            t.y((options.height - t.height()) / 2)
+        }
+        
+        let h = t.height()
+        if( availableHeight ){
+            if( h > availableHeight ){
+                t.ellipsis(true)
+                t.height( availableHeight )
+                h = availableHeight
+            }
+        }
+        //t.height(h)
+        g.add(t)
+        
+        
+        totalheight = Math.max(h + config.padding[0] + config.padding[2] + idHeight, options.height ?? 0)
+        
+    }
+    if( options.getConfig){
+        config.height = totalheight
+        return config
+    }
+
+    g.setAttrs({
+        width: config.width,
+        height: totalheight
+    })
+    r.height( totalheight )
+    return g
 })
 registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function renderFunc(primitive, options = {}){
 
@@ -4448,6 +4698,7 @@ export function renderMatrix( primitive, list, options ){
                     viewConfig: options.viewConfig
                 },
                 checkMap,
+                data: options.data,
                 getConfig: true
             } )    
             if(!config){
@@ -4709,7 +4960,10 @@ export function renderMatrix( primitive, list, options ){
                     rows: cell.itemRows,
                     viewConfig: options.viewConfig
                 },
-                data: cell.config.data,
+                data: {
+                    ...(options.data ?? {}),
+                    ...(cell.config.data ?? {})
+                },
                 globalData,
                 checkMap,
                 cachedNodes: cell.config.cachedNodes
@@ -4979,6 +5233,17 @@ function categoryGrid(primitive, options = {}){
     const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, height: 1200, itemSize: 280, padding: [10,10,10,10], ...options, ...(primitive.renderConfig ?? {})}
     let ox = (options.x ?? 0) 
     let oy = (options.y ?? 0) 
+    
+    if( !options.extents?.column ||  options.extents?.row){
+        return new Konva.Group({
+            x: ox,
+            y: oy,
+            width: 100,
+            height: 100,
+            onClick: options.onClick,
+            name:"inf_track primitive"
+        })
+    }
 
     const setCount = options.extents.column.length * options.extents.row.length
     const usableWidth = config.width - config.padding[1] - config.padding[3]

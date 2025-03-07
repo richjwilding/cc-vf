@@ -103,7 +103,7 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
                                 tooltip="Add items to board"
                                 outline 
                                 icon={<HeroIcon icon='FAAddView' className='w-5 h-5'/>}
-                                onClick={props.createNewView ? ()=>props.createNewView(38, actionAnchor.id, props.filters, {referenceId: itemCategory.id, pivot: props.pivotRelationship, descend: props.pivotRelationship ? false : undefined}) : undefined}
+                                onClick={props.createNewView ? ()=>props.createNewView(38, actionAnchor.id, props.filters, {referenceId: itemCategory.id, pivot: props.pivotRelationship, descend: props.pivotRelationship ? false : true}) : undefined}
                             />
                             <UIHelper.Button 
                                 tooltip="Delete items"

@@ -23,7 +23,6 @@ import ContentEmbedding from "./model/ContentEmbedding";
 import Category from "./model/Category";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { fetchRedditThreadAsText } from "./reddit_helper.js";
-import { compareTwoStrings } from "./document_queue.js";
 import { fetchSERPViaBrightData, fetchViaBrightDataProxy } from "./brightdata.js";
 
 let adconfig = {}
@@ -2608,40 +2607,65 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
 
         let result
         const attempts = [
-            {title: "BrightData", exec: async ()=>await fetchURLAsTextAlternative( url,{
-                asArticle,
-                preferEmbeddedPdf,
-                proxy: process.env.BRIGHTDATA_DC_PROXY
-            } )},
-            {title: "BrightData Unlock", exec: async ()=>await fetchURLAsTextAlternative( url,{
-                asArticle,
-                preferEmbeddedPdf,
-                proxy: process.env.BRIGHTDATA_UNLOCK_PROXY
-            } )},
-            {title: "BrightData RES", exec: async ()=>await fetchURLAsTextAlternative( url,{
-                asArticle,
-                preferEmbeddedPdf,
-                proxy: process.env.BRIGHTDATA_RES_PROXY
-            } )},
-/*            {title: "zenRows 2", exec: async ()=>await fetchURLAsTextAlternative( url,{
-                        'premium_proxy': 'true',
-                        preferEmbeddedPdf
-                    } )},
-            {title: "zenRows 3", exec: async ()=>await fetchURLAsTextAlternative( url,{
-                        'js_render': 'true',
-                        'premium_proxy': 'true',
-                        'proxy_country': 'us',
-                        preferEmbeddedPdf
-                    } )},*/
-            {title: "Browserless", exec: async ()=>await fetchURLAsText( url )},
+            {title: "BrightData", exec: async ()=>{
+                if( url.includes("quora.com") || url.includes(".gov.") || url.endsWith(".gov")){
+                    return
+                }
+                return await fetchURLAsTextAlternative( url,{
+                    asArticle,
+                    preferEmbeddedPdf,
+                    proxy: process.env.BRIGHTDATA_DC_PROXY
+                })
+            }},
+            {title: "BrightData Unlock", exec: async ()=>{
+                if( url.includes("quora.com") || url.includes(".gov.") || url.endsWith(".gov")){
+                    return
+                }
+                return await fetchURLAsTextAlternative( url,{
+                    asArticle,
+                    preferEmbeddedPdf,
+                    proxy: process.env.BRIGHTDATA_UNLOCK_PROXY
+                })
+            }},
+            {title: "BrightData RES", exec: async ()=>{
+                if( url.includes(".gov.") || url.endsWith(".gov")){
+                    return
+                }
+                const out = await fetchURLAsTextAlternative( url,{
+                    asArticle,
+                    preferEmbeddedPdf,
+                    proxy: process.env.BRIGHTDATA_RES_PROXY
+                })
+                if( out?.fullText && out?.fullText.length < 200 && out.fullText.match(/enable Javascript/i)){
+                    return
+                }
+                return out
+            }},
+            {title: "Browserless", exec: async ()=>{
+                if( url.endsWith(".pdf") ){
+                    return
+                }
+                return await fetchURLAsText( url )
+            }},
+            {title: "PDF", exec: async ()=>{
+                const data = await grabUrlAsPdf( url, undefined, true, preferEmbeddedPdf )
+                console.log("got text")
+                console.log(text)
+                if( data?.plain ){
+                    return{
+                        title: `Download from ${url}`,
+                        fullText: data.plain, 
+                        description: data.plain?.split(" ").slice(0,400).join(" ")
+                    }
+                }
+            }}
            // {title: "Article", exec: !asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
-            //{title: "PDF", exec: async ()=> await grabUrlAsPdf( url, undefined, true, preferEmbeddedPdf )}
         ].filter(d=>d.exec)
 
         for(const attempt of attempts){
             console.log("Trying " + attempt.title)
             result = await attempt.exec()
-            if( result ){
+            if( result){
                 console.log("Success " + attempt.title)
                 return result
             }

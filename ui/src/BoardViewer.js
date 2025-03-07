@@ -287,6 +287,7 @@ let mainstore = MainStore()
                 ...stageOptions,
                 ...renderOptions,
                 toggles: view.toggles,
+                data: view.renderData,
                 expand: Object.keys(primitive.frames?.[ d.id ]?.expand ?? {})
             })
 
@@ -390,6 +391,7 @@ let mainstore = MainStore()
                                                                 ...stageOptions, 
                                                                 ...renderOptions,
                                                                 axis:view.axis,
+                                                                data: view.renderData,
                                                                 extents:{column: view.columns, row:view.rows}
                                                             }
                                                         )
@@ -753,6 +755,8 @@ let mainstore = MainStore()
             const columnAxis = CollectionUtils.primitiveAxis(primitiveToPrepare, "column", items)
             const rowAxis = CollectionUtils.primitiveAxis(primitiveToPrepare, "row", items)
 
+            
+            
             if( viewConfig?.renderType === "cat_overview"){
                 let config = primitiveToPrepare.getConfig
                 let categoriesToMap
@@ -875,6 +879,12 @@ let mainstore = MainStore()
                                                                             a[c] = extents[c]
                                                                         }
                                                                         return a}, {})
+                if( viewConfig?.renderType === "summary_section"){
+                    const company_candidates = MainStore().uniquePrimitives( items.map(d=>d.primitives.source.allItems.flatMap(d=>d.findParentPrimitives({referenceId: [29], first: true}))).flat(Infinity) )
+                    myState[stateId].renderData = {
+                        company_candidates
+                    }
+                }
             }
         }else if( renderType === "summary" || renderType === "element" || renderType === "action"){
             let viewConfig
@@ -1138,7 +1148,7 @@ export default function BoardViewer({primitive,...props}){
 
     useDataEvent("relationship_update set_parameter set_field delete_primitive set_title", undefined, (ids, event, info, fromRemote)=>{
         if( myState.current.watchList  ){
-            if( ids.length === 1 && ids[0] === primitive.id){
+            if( ids.length === 1 && ids[0] === primitive.id && typeof(info) == "string"){
                 const frameUpdate = info.match(/frames\.(.+)\.(.+)/)
                 if( frameUpdate && frameUpdate[2] === "showItems"){
                     ids = [frameUpdate[1]]
@@ -1155,8 +1165,6 @@ export default function BoardViewer({primitive,...props}){
                     const existing = myState.current[listName].find(d=>d.frameId === frameId && d.event === event) 
                     if( !existing){
                         myState.current[listName].push({frameId, event, info})
-                    }else{
-                        console.log(`already queued`)
                     }
                     
                     if( !myState.current[timerName] ){
@@ -1896,12 +1904,15 @@ export default function BoardViewer({primitive,...props}){
                     canvas.current.removeFrame( myState.activeBoard.id )
                     delete myState[myState.activeBoard.id]
                     myState.activeBoard = undefined
+                    setCollectionPaneInfo(undefined)
                     forceUpdate()
                     return true
                 }
             })
         }
     }
+
+    window.removeActiveBoard = removeBoard
 
 
     function renderView(d){
@@ -2270,9 +2281,11 @@ export default function BoardViewer({primitive,...props}){
                     const temp = root.node.children
                     root.node.children = root.allNodes
 
-                    const cells = root.node.find('.primitive')
+                    const cells = root.node.find('.cell')
                     for(const cell of cells){
+                        canvas.current.restoreChildren( cell, root.node )
                         await exportKonvaToPptx( cell, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [0,0,0,0]} )
+                        canvas.current.restoreChildrenForTracking( cell )
                     }
 
                     root.node.children = temp
@@ -2478,8 +2491,8 @@ export default function BoardViewer({primitive,...props}){
             {myState.menuOptions?.showAxis && <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
             {myState.menuOptions?.showAxis && <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
             {myState.menuOptions?.showAddChild && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}
-            <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />
-            {myState.menuOptions?.showClone  && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
+            {myState.activeBoard && <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />}
+            {myState.activeBoard && myState.menuOptions?.showClone  && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
             {myState.activePin && <DropdownButton noBorder icon={<HeroIcon icon='FALinkBreak' className='w-5 h-5'/>} onClick={disconnectActivePin} flat placement='left-start' />}
             {myState.createFromActivePin && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={createElementFromActivePin} flat placement='left-start' />}
         </div>}

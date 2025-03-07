@@ -11,8 +11,6 @@ import useDataEvent from "./CustomHook";
 export function CategoryCardPill({primitive, ...props}){
   const [confirmRemove, setConfirmRemove] = useState(false)
 
-  console.log(`CategoryCardPill ${primitive.plainId}`)
-
   const handleRemove = async ()=>{
     await MainStore().removePrimitive( primitive )
     setConfirmRemove(false)

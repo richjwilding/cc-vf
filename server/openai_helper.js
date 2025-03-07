@@ -242,32 +242,40 @@ export async function summarizeMultiple(list, options = {} ){
         //return {success: true, summary: interim.join("\n")}
     }
 
-    if( interim.length > 1 ){
-        const result = await processInChunk( interim, 
-            [
-                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
-                {"role": "user", "content": `Here is a list of summaries:`}],
-            [
-                {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single response to address this original prompt, if asked to include quotes use a selection of the quotes stated in the interim results: ${prompt}`                    
-                            },
-                {"role": "user", "content": outputFields},
-            ],
-            {
-                field: wholeResponse ? undefined : (options.field ?? "response"),
-                ...options,
-                debug: true,
-                debug_content: true
-            })
+    let shouldMerge = false
 
-        if( Object.hasOwn(result, "success")){
-            return result
+    if( interim.length > 1){
+        if( options.merge === false ){
+            shouldMerge = true
         }else{
-            final = result
-        }
-        console.log(`done`)
-        console.log(final)
 
-        return {success: true, summary: final[0], interim: interim, engine: options.engine }
+            let interimOutputFields = outputFields.replaceAll("List the numbers associated with all of the fragments of text used for this section", "List each and every number in the 'ids' field of each of the source summaries which you have rationalized into this new item - you MUST include ALL numbers from the relevant source summaries")
+            const result = await processInChunk( interim, 
+                [
+                    {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                    {"role": "user", "content": `Here is a list of summaries:`}],
+                    [
+                        {"role": "user", "content":  options.aggregatePrompt ?  options.aggregatePrompt.replaceAll("{title}", options.title) : `Rationalize these summaries into a single response to address this original prompt. Be careful to note which summaries you are merging together. If asked to include quotes use a selection of the quotes stated in the interim results.  ${prompt}`                    
+                    },
+                    {"role": "user", "content": interimOutputFields},
+                ],
+                {
+                    field: wholeResponse ? undefined : (options.field ?? "response"),
+                    ...options,
+                    debug: true,
+                    debug_content: true
+                })
+                
+            if( Object.hasOwn(result, "success")){
+                return result
+            }else{
+                final = result
+            }
+            console.log(`done`)
+            console.log(final)
+            
+            return {success: true, summary: final[0], interim: interim, engine: options.engine }
+        }
     }
     if( options.outputFields) {
         interim = interim.map(d=>{
@@ -275,8 +283,7 @@ export async function summarizeMultiple(list, options = {} ){
         })
     }
 
-    console.log(interim[0])
-    return {success: true, summary: interim[0]}
+    return {success: true, shouldMerge, summary: (shouldMerge && options.merge === false) ? interim : interim[0]}
 
 }
 export async function summarizeMultipleAsList(list, options = {} ){
@@ -718,7 +725,7 @@ function tokensForModel(model){
     return defaultTokens 
 }
 
-async function processInChunk( list, pre, post, options = {} ){
+export async function processInChunk( list, pre, post, options = {} ){
     list = list.map(d=>{
         if( typeof(d) === "object" ){
             return JSON.stringify(d)
