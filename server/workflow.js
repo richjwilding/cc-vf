@@ -46,7 +46,7 @@ registerAction("run_flowinstance_from_step", undefined, async (p,a,o)=>FlowQueue
 registerAction("run_step", undefined, async (p,a,o)=>FlowQueue().runStep(p,{...o, singleStep: true}))
 registerAction("run_flow", {id: "flow"}, async (p,a,o)=>FlowQueue().runFlow(p,o))
 registerAction("run_flow_instance", {id: "flowinstance"}, async (p,a,o)=>FlowQueue().runFlowInstance(p,{...o, force: true}))
-registerAction("continue_flow_instance", {id: "flowinstance"}, async (p,a,o)=>FlowQueue().runFlowInstance(p, {...o, manual: true}))
+registerAction("continue_flow_instance", {id: "flow"}, async (p,a,o)=>FlowQueue().runFlowInstance(p, {...o, manual: true}))
 registerAction("step_info", undefined, async (p,a,o)=>{
     let flowInstance = o.flowInstance ?? (await primitiveParentsOfType(p, "flowinstance"))?.[0]
     if( flowInstance ){
@@ -56,8 +56,16 @@ registerAction("step_info", undefined, async (p,a,o)=>{
 })
 registerAction("instance_info", {id: "flowinstance"}, async (p,a,o)=>flowInstanceStatus(p,o))
 registerAction("workflow_info", {id: "flow"}, async (p,a,o)=>getScaffoldWorkflow(p,{...(o ?? {}), create: false}))
+registerAction("instance_scaffold", {id: "flow"}, async (p,a,o)=>{
+    const flow = (await primitiveParentsOfType(p, "flow"))?.[0]
+    const result = await scaffoldWorkflowInstance( p, flow, undefined, {create: true} )
+})
 registerAction("workflow_scaffold", {id: "flow"}, async (p,a,o)=>{
     const result = await scaffoldWorkflow(p, o)
+    return result
+})
+registerAction("create_flowinstance", {id: "flow"}, async (p,a,o)=>{
+    const result = await createWorkflowInstance(p, o)
     return result
 })
 
@@ -72,227 +80,258 @@ export async function getScaffoldWorkflow( flow, options = {} ){
     }
 }
 
+export async function createWorkflowInstance( flow, options = {} ){
+    if( flow.primitives?.imports && flow.primitives.imports.length > 0){
+        throw "Workflows with imports not handled right now"
+    }
+
+    const newPrim = await createPrimitive({
+        workspaceId: flow.workspaceId,
+        paths: ["origin", "config"],
+        parent: flow.id,
+        data:{
+            type: "flowinstance",
+            title: `Instance of ${flow.plainId}`,
+            referenceParameters:{
+                target:"items"
+            }
+        }
+    })
+    if( newPrim ){
+        logger.debug(`Created new flow instance ${newPrim.id} ${newPrim.plainId} for ${flow.id} / ${flow.plainId}`)
+        await scaffoldWorkflowInstance(newPrim, flow, undefined, {create: true})
+    }
+    return newPrim
+}
+
 export async function scaffoldWorkflow( flow, options = {} ){
     const parser = PrimitiveParser()
     const pp = new Proxy(flow.primitives, parser)
     let customAxis 
     const items = await primitiveChildren( flow )
     const steps = items.filter(d=>d.type !== "flowinstance")
-    const sources = await fetchPrimitives( pp.imports.allIds  )
     const baseInstances = items.filter(d=>d.type === "flowinstance")
+    const importIds = pp.imports.allIds
+    let sources
+    if( importIds.length ){
+        sources = await fetchPrimitives( importIds )
+    }
     let instanceList = []
 
 
-
-
     logger.info(`Scaffold workflow`, {flow: flow.id});
-    logger.info(`Flow has ${steps.length} steps, ${sources.length} sources, ${baseInstances.length} instances`, {primitive: flow.id});
+    logger.info(`Flow has ${steps.length} steps, ${sources?.length} sources, ${baseInstances.length} instances`, {primitive: flow.id});
     
-    for( const source of sources){
-        logger.debug(`-- For ${source.title}`, {flow: flow.id, source: source.id});
 
-        const segments = await checkAndGenerateSegments( source, flow, {...options, by_axis: true})
-        logger.debug(`-- got ${segments.length} segments`, {flow: flow.id, source: source.id});
-
-        for( const segment of segments){
-            let existing = baseInstances.find(d=>Object.keys(d.parentPrimitives).includes(segment.id))
+    if( sources ){
+        logger.info(`Flow fed from imports`);
+        for( const source of sources){
+            logger.debug(`-- For ${source.title}`, {flow: flow.id, source: source.id});
             
-            if( !existing ){
-                if(options.create === false){
-                    existing = {
-                        missing: true,
-                    }
-                }else{
-                    existing = await createPrimitive({
-                        workspaceId: flow.workspaceId,
-                        paths: ["origin", "config"],
-                        parent: flow.id,
-                        data:{
-                            type: "flowinstance",
-                            title: `Instance of ${flow.plainId}`,
-                            referenceParameters:{
-                                target:"items"
-                            }
+            const segments = await checkAndGenerateSegments( source, flow, {...options, by_axis: true})
+            logger.debug(`-- got ${segments.length} segments`, {flow: flow.id, source: source.id});
+            
+            for( const segment of segments){
+                let existing = baseInstances.find(d=>Object.keys(d.parentPrimitives).includes(segment.id))
+                
+                if( !existing ){
+                    if(options.create === false){
+                        existing = {
+                            missing: true,
                         }
-                    })
-                    if( !existing ){
-                        throw "Couldnt create aggregator"
+                    }else{
+                        existing = await createPrimitive({
+                            workspaceId: flow.workspaceId,
+                            paths: ["origin", "config"],
+                            parent: flow.id,
+                            data:{
+                                type: "flowinstance",
+                                title: `Instance of ${flow.plainId}`,
+                                referenceParameters:{
+                                    target:"items"
+                                }
+                            }
+                        })
+                        if( !existing ){
+                            throw "Couldnt create aggregator"
+                        }
+                        logger.debug(`Created new flow instance ${existing.id} ${existing.plainId} for ${flow.id} / ${flow.plainId}`)
+                        await addRelationship(existing.id, segment.id, "imports")
+                        await addRelationship(segment.id, existing.id, "auto")
+                        existing = await fetchPrimitive(existing.id)
                     }
-                    logger.debug(`Created new flow instance ${existing.id} ${existing.plainId} for ${flow.id} / ${flow.plainId}`)
-                    await addRelationship(existing.id, segment.id, "imports")
-                    await addRelationship(segment.id, existing.id, "auto")
-                    existing = await fetchPrimitive(existing.id)
                 }
+                instanceList.push({
+                    instance: existing,
+                    for: segment.id,
+                    status:{}
+                })
             }
-            instanceList.push({
-                instance: existing,
-                for: segment.id,
-                //forName: await getFilterName(segment),
-                status:{
-                }
-            })
+        }
+        for(const instanceInfo of instanceList){
+            if( !instanceInfo.instance.missing){
+                await scaffoldWorkflowInstance( instanceInfo.instance, flow, steps, options)
+            }
+        }
+    }else{
+        logger.info(`Flow fed from inputs`);
+        for(const instance of baseInstances){
+            await scaffoldWorkflowInstance( instance, flow, steps, options)
         }
     }
+}
 
+export async function scaffoldWorkflowInstance( flowInstance, flow, steps, options = {} ){
+    const parser = PrimitiveParser()
+    const pp = new Proxy(flow.primitives, parser)
 
     logger.info( "Flow instances:")
     const flowPrimitiveParser = new Proxy(flow.primitives ?? {}, PrimitiveParser())
+    
+    if(!steps){
+        const items = await primitiveChildren( flow )
+        steps = items.filter(d=>d.type !== "flowinstance")
+    } 
 
-    for(const instanceInfo of instanceList){
-        instanceInfo.steps = []
-        if( instanceInfo.instance.missing){
-            logger.info( "Missing flow instance for", {segment: instanceInfo.for, name: instanceInfo.forName})
-            instanceInfo.steps = steps.map(step=>({
-                instance:{
-                    missing: true,
-                },
-                stepId: step.id,
-                title: `Instance of ${step.plainId}`
-            }))
+    const instanceSteps = []
+    logger.info( "Flow instance ", {id: flowInstance.id})
+    const instanceStepsForFlow = await primitiveChildren( flowInstance )
+
+    const importPrimitiveIds = steps.flatMap(step=>{
+        let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
+        if( stepInstance ){
+
+            const pp = (new Proxy(stepInstance.primitives ?? {}, PrimitiveParser()))
+            return [pp.imports.uniqueAllIds, pp.inputs.uniqueAllIds,]
+        }
+        return
+    }).flat().filter((d,i,a)=>d && a.indexOf(d) === i)
+    console.log(`Pre cached ids = ${importPrimitiveIds.length}`)
+    const importPrimitives = await fetchPrimitives( importPrimitiveIds )
+    const importCache = importPrimitives.reduce((a,d)=>{
+        a[d.id] = d
+        return a
+    }, {})
+
+    for(const step of steps){
+        //let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
+        let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
+        if( stepInstance ){
+            logger.info(` - Step instance ${stepInstance.id} for ${step.id}`)
+                dispatchControlUpdate(stepInstance.id, "flowElement", false)
         }else{
-            logger.info( "Flow instance ", {id: instanceInfo.instance.id, segment: instanceInfo.for, name: instanceInfo.forName})
-            const instanceStepsForFlow = await primitiveChildren( instanceInfo.instance )
-
-            const importPrimitiveIds = steps.flatMap(step=>{
-                let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
+            logger.info(` - Missing step instance for ${step.id}`)
+            if( options.create !== false ){
+                try{
+                    stepInstance = await duplicateStep( step, flowInstance)
+                }catch(error){
+                    console.log(error)
+                    throw `Couldnt create step instance for ${step.id}`
+                }
                 if( stepInstance ){
-
-                    const pp = (new Proxy(stepInstance.primitives ?? {}, PrimitiveParser()))
-                    return [pp.imports.uniqueAllIds, pp.inputs.uniqueAllIds,]
+                    logger.info(` - Created step instance ${stepInstance.id} for ${step.id}`)
                 }
-                return
-            }).flat().filter((d,i,a)=>d && a.indexOf(d) === i)
-            console.log(`Pre cached ids = ${importPrimitiveIds.length}`)
-            const importPrimitives = await fetchPrimitives( importPrimitiveIds )
-            const importCache = importPrimitives.reduce((a,d)=>{
-                a[d.id] = d
-                return a
-            }, {})
-
-            for(const step of steps){
-                //let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
-                let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
-                if( stepInstance ){
-                    logger.info(` - Step instance ${stepInstance.id} for ${step.id}`)
-                        dispatchControlUpdate(stepInstance.id, "flowElement", false)
-                }else{
-                    logger.info(` - Missing step instance for ${step.id}`)
-                    if( options.create !== false ){
-                        try{
-                            stepInstance = await duplicateStep( step, instanceInfo.instance)
-                        }catch(error){
-                            console.log(error)
-                            throw `Couldnt create step instance for ${step.id}`
-                        }
-                        if( stepInstance ){
-                            logger.info(` - Created step instance ${stepInstance.id} for ${step.id}`)
-                        }
-                        
-                        if( Object.keys(step.primitives ?? {}).includes("axis")){
-                            logger.warn(`Should replicate axis in flow instance ${step.id} / ${stepInstance.id}`)
-                        }
-                    }else{
-                        stepInstance = {
-                            missing: true,
-                        }
-                    }
+                
+                if( Object.keys(step.primitives ?? {}).includes("axis")){
+                    logger.warn(`Should replicate axis in flow instance ${step.id} / ${stepInstance.id}`)
                 }
-                instanceInfo.steps.push( {
-                    instance: stepInstance,
-                    stepId: step.id,
-                    title: `Instance of ${step.plainId} for ${instanceInfo.instance.plainId}`,
-                    ...(await stepInstanceStatus(stepInstance, instanceInfo.instance, importCache))
-                } )
-            }
-            logger.info(`Check outputs`)
-            const outputList = flowPrimitiveParser.outputs
-            const targetImports = []
-            const outputPP = pp.fromPath("outputs")
-            for(const rel of Object.keys(outputList)){
-                for(const source of outputList[rel].allIds ){
-                    const paths = outputPP.paths(source).map(d=>"outputs" + d)
-                    const mappedStep = instanceInfo.steps.find(d=>d.stepId === source)
-                    if( mappedStep ){
-                        logger.debug(`flow has output ${rel} from ${source} - need to map to ${mappedStep.instance.id} / ${mappedStep.instance.plainId} `)
-                        targetImports.push({id: mappedStep.instance.id, paths } )
-                    }else{
-                        logger.debug(`Cant find instance of ${source} `)
-                        if( options.create ){
-                            throw "Missing step"
-                        }
-                    }
-
-                }
-            }
-            await alignPrimitiveRelationships( instanceInfo.instance, targetImports, "outputs", options.create)
-
-
-            logger.info(`Checking relationship mapping`)
-            for(const step of steps){
-                const mappedStep = instanceInfo.steps.find(d=>d.stepId === step.id)
-                if( mappedStep){
-                    for(const rel of ["imports", "inputs", "outputs", "axis.column","axis.row"]){
-                        const pp = (new Proxy(step.primitives ?? {}, PrimitiveParser())).fromPath(rel)
-                        const importIds= pp.uniqueAllIds
-
-                        //const importIds = Object.values(step.primitives[rel] ?? {})
-                        const targetImports = []
-                        for(const importId of importIds){
-                            const paths = pp.paths(importId).map(d=>rel + d)
-                            if(importId === flow.id){
-                                logger.info(`Step ${step.id} / ${step.plainId} imports from flow ${flow.id} at ${rel} - mapping to flow instance ${instanceInfo.instance.id}`)
-                                targetImports.push( {id: instanceInfo.instance.id, paths} )
-                            }else{
-                                const originalImportStep = steps.find(d=>d.id === importId)
-                                if( originalImportStep ){
-                                    const mappedImportStep = instanceInfo.steps.find(d=>d.stepId === originalImportStep.id)
-                                    logger.info(`Step ${step.id} / ${step.plainId} ${rel} from flow step ${originalImportStep.id} / ${originalImportStep.plainId} - mapping to flow instance ${mappedImportStep.instance.id} / ${mappedImportStep.instance.plainId}`)
-                                    
-                                    let mappedFilters
-                                    if( rel === "imports"){
-                                        let filtersForOriginal = step.referenceParameters?.importConfig?.filter(d=>d.id === importId) ?? []
-                                        logger.debug(`-- filters to remap for import`, {filtersForOriginal})
-                                        mappedFilters = filtersForOriginal.map(d=>{
-                                            return {
-                                                id: mappedImportStep.instance.id,
-                                                filters: d.filters === undefined ? undefined : d.filters.map(d=>{
-                                                    if( d.type === "parent" && d.value === originalImportStep.id){
-                                                        logger.debug(`--- remapped done / fail filter : ${d.value} => ${mappedImportStep.instance.id}`)
-                                                        return {
-                                                            ...d,
-                                                            value: mappedImportStep.instance.id
-                                                        }
-                                                    }
-                                                    return d
-                                                })
-                                            }
-                                        })
-                                    }
-                                    if( rel.startsWith("axis") && originalImportStep.type === "categorizer"){
-                                        const internalId = mappedImportStep.instance.primitives?.origin?.[0]
-                                        logger.debug(` - Instance target is categroizer - redirecting to nested primitive ${internalId}`)
-
-                                        targetImports.push({id: internalId, filters: mappedFilters, paths} )
-                                    }else{
-                                        targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters, paths} )
-                                    }
-                                }else{
-                                    if( mappedStep.instance.type === "page"){
-                                        logger.debug(`Importing from something other than flow or step id = ${importId} - currently in page, assume element?`)
-                                    }else{
-                                        throw `Importing from something other than flow or step id = ${importId} - possibly nested segemnt??`
-                                    }
-                                }
-                            }
-                        }
-                        await alignPrimitiveRelationships( mappedStep.instance, targetImports, rel, options.create)
-                    }
+            }else{
+                stepInstance = {
+                    missing: true,
                 }
             }
         }
-
+        instanceSteps.push( {
+            instance: stepInstance,
+            stepId: step.id,
+            title: `Instance of ${step.plainId} for ${flowInstance.plainId}`,
+            ...(await stepInstanceStatus(stepInstance, flowInstance, importCache))
+        } )
     }
-    return instanceList
+    logger.info(`Check outputs`)
+    const outputList = flowPrimitiveParser.outputs
+    const targetImports = []
+    const outputPP = pp.fromPath("outputs")
+    for(const rel of Object.keys(outputList)){
+        for(const source of outputList[rel].allIds ){
+            const paths = outputPP.paths(source).map(d=>"outputs" + d)
+            const mappedStep = instanceSteps.find(d=>d.stepId === source)
+            if( mappedStep ){
+                logger.debug(`flow has output ${rel} from ${source} - need to map to ${mappedStep.instance.id} / ${mappedStep.instance.plainId} `)
+                targetImports.push({id: mappedStep.instance.id, paths } )
+            }else{
+                logger.debug(`Cant find instance of ${source} `)
+                if( options.create ){
+                    throw "Missing step"
+                }
+            }
+
+        }
+    }
+    await alignPrimitiveRelationships( flowInstance, targetImports, "outputs", options.create)
+
+    logger.info(`Checking relationship mapping`)
+    for(const step of steps){
+        const mappedStep = instanceSteps.find(d=>d.stepId === step.id)
+        if( mappedStep){
+            for(const rel of ["imports", "inputs", "outputs", "axis.column","axis.row"]){
+                const pp = (new Proxy(step.primitives ?? {}, PrimitiveParser())).fromPath(rel)
+                const importIds= pp.uniqueAllIds
+
+                //const importIds = Object.values(step.primitives[rel] ?? {})
+                const targetImports = []
+                for(const importId of importIds){
+                    const paths = pp.paths(importId).map(d=>rel + d)
+                    if(importId === flow.id){
+                        logger.info(`Step ${step.id} / ${step.plainId} imports from flow ${flow.id} at ${rel} - mapping to flow instance ${flowInstance.id}`)
+                        targetImports.push( {id: flowInstance.id, paths} )
+                    }else{
+                        const originalImportStep = steps.find(d=>d.id === importId)
+                        if( originalImportStep ){
+                            const mappedImportStep = instanceSteps.find(d=>d.stepId === originalImportStep.id)
+                            logger.info(`Step ${step.id} / ${step.plainId} ${rel} from flow step ${originalImportStep.id} / ${originalImportStep.plainId} - mapping to flow instance ${mappedImportStep.instance.id} / ${mappedImportStep.instance.plainId}`)
+                            
+                            let mappedFilters
+                            if( rel === "imports"){
+                                let filtersForOriginal = step.referenceParameters?.importConfig?.filter(d=>d.id === importId) ?? []
+                                logger.debug(`-- filters to remap for import`, {filtersForOriginal})
+                                mappedFilters = filtersForOriginal.map(d=>{
+                                    return {
+                                        id: mappedImportStep.instance.id,
+                                        filters: d.filters === undefined ? undefined : d.filters.map(d=>{
+                                            if( d.type === "parent" && d.value === originalImportStep.id){
+                                                logger.debug(`--- remapped done / fail filter : ${d.value} => ${mappedImportStep.instance.id}`)
+                                                return {
+                                                    ...d,
+                                                    value: mappedImportStep.instance.id
+                                                }
+                                            }
+                                            return d
+                                        })
+                                    }
+                                })
+                            }
+                            if( rel.startsWith("axis") && originalImportStep.type === "categorizer"){
+                                const internalId = mappedImportStep.instance.primitives?.origin?.[0]
+                                logger.debug(` - Instance target is categroizer - redirecting to nested primitive ${internalId}`)
+
+                                targetImports.push({id: internalId, filters: mappedFilters, paths} )
+                            }else{
+                                targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters, paths} )
+                            }
+                        }else{
+                            if( mappedStep.instance.type === "page"){
+                                logger.debug(`Importing from something other than flow or step id = ${importId} - currently in page, assume element?`)
+                            }else{
+                                throw `Importing from something other than flow or step id = ${importId} - possibly nested segemnt??`
+                            }
+                        }
+                    }
+                }
+                await alignPrimitiveRelationships( mappedStep.instance, targetImports, rel, options.create)
+            }
+        }
+    }
 }
 
 async function alignPrimitiveRelationships( targetPrimitive, targetImports, rel, create = true){

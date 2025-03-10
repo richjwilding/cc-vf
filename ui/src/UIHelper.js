@@ -156,7 +156,7 @@ function IconButton({options, name, title, type, tooltip, icon, small, action, .
         </Button>
     return control
 }
-function MyButton({options, name, title, type, tooltip, icon, small, action, ...props}){
+function MyButton({options, name, title, type, tooltip, icon, small, action, className, ...props}){
     const control = <Button 
             href={props.href} 
             title={tooltip}
@@ -164,7 +164,8 @@ function MyButton({options, name, title, type, tooltip, icon, small, action, ...
             color="white"
             className={clsx(
                 '!font-normal gap-x-1',
-                small ? '!text-xs' : '!text-sm'
+                small ? '!text-xs' : '!text-sm',
+                className
             )}
             {...props}
             >

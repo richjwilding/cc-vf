@@ -10,7 +10,7 @@ import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleSchola
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
 import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
-import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI } from './rapid_helper';
+import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryQuoraByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
 import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
 
@@ -476,6 +476,9 @@ export async function processQueue(job, cancelCheck, extendJob){
                         }
                         if( source.platform === "google" ){
                             await queryGoogleSERP( terms, callopts) 
+                        }
+                        if( source.platform === "quora" ){
+                            await queryQuoraByRapidAPI( terms, callopts) 
                         }
                         if( source.platform === "meta_ads" ){
                             callopts.ignoreIds = primitive.checkCache?.items

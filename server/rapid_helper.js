@@ -264,7 +264,6 @@ export async function queryLinkedInCompaniesByRapidAPI( primitive, terms, callop
                         await new Promise(resolve => setTimeout(resolve, 5000));
                         return await doQuery(term, nextPage, retries - 1)
                     }
-                    // Add any retry logic or handling code here
                 } else {
                     console.error(`Error ${error.response.status}: ${error.response.statusText}`);
                 }
@@ -347,4 +346,214 @@ export async function queryLinkedInCompaniesByRapidAPI( primitive, terms, callop
         await fetchItems(urls)
     }
     
+}
+
+export async function queryQuoraByRapidAPI(terms, callopts){
+    const totalTargetAnswerCount = 200
+    const targetAnswerCount = 10
+    const targetCommentCount = 30
+
+
+    async function findQuestions(term, endCursor){
+        if( !term){
+            return
+        }
+        const options = {
+            method: 'GET',
+            url: 'https://quora-scraper.p.rapidapi.com/search_questions',
+            params: {
+                query: term,
+                language: 'en',
+                time: 'all_times',
+                cursor: endCursor
+            },
+            headers: {
+              'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+              'x-rapidapi-host': 'quora-scraper.p.rapidapi.com'
+            }
+          };
+        return await wrapRequest( options )
+    }
+    async function processAnswersFromQuestion(question){
+        if( !question.url){
+            return
+        }
+        if( !question.answers ){
+            return
+        }
+        const options = {
+            method: 'GET',
+            url: 'https://quora-scraper.p.rapidapi.com/question_answers',
+            params: {
+              url: question.url,
+              sort: 'upvote_sorted_equiv'
+            },
+            headers: {
+              'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+              'x-rapidapi-host': 'quora-scraper.p.rapidapi.com'
+            }
+          };
+        const answerList = []
+        let leave = false
+        do{
+            leave = true
+            const answerData = await wrapRequest( options )
+            if( answerData ){
+                for(const answer of answerData.data){
+                    const {question, author, ...other} = answer
+                    answerList.push({
+                        authorName: `${author?.name ?? ""} ${author?.surname ?? ""}`,
+                        authorProfile: author.url,
+                        authorProfileImage: author.profileImage,
+                        ...other
+                    })
+                }
+                console.log(`Got ${answerData.data.length} items`)
+                if( answerData.pageInfo?.hasNextPage ){
+                    leave = false
+                    options.params.cursor = answerData.pageInfo.endCursor
+                    console.log(`-- Will fetch next page from ${options.params.cursor}`)
+                }
+            }
+        }while(!leave && answerList.length < targetAnswerCount)
+        console.log(`Got ${answerList.length} total answers`)
+        question.answerData = answerList
+        return question
+    }
+    async function processCommentsForAnswers(answer){
+        if( !answer.url || !answer.comments ){
+            return
+        }
+        const options = {
+            method: 'GET',
+            url: 'https://quora-scraper.p.rapidapi.com/answer_comments',
+            params: {
+              url: answer.url,
+            },
+            headers: {
+              'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+              'x-rapidapi-host': 'quora-scraper.p.rapidapi.com'
+            }
+          };
+        const commentList = []
+        let leave = false
+        do{
+            leave = true
+            const commentData = await wrapRequest( options )
+            if( commentData ){
+                for(const comment of commentData.data){
+                    const {author, ...other} = comment
+                    commentList.push({
+                        authorName: `${author?.name ?? ""} ${author?.surname ?? ""}`,
+                        authorProfile: author.url,
+                        authorProfileImage: author.profileImage,
+                        ...other
+                    })
+                }
+                console.log(`Got ${commentData.data.length} items`)
+                //console.log(answerData.data.map(d=>`- ${d.creationTimestamp} ${d.author?.name}`).join("\n"))
+                if( commentData.pageInfo?.hasNextPage ){
+                    leave = false
+                    options.params.cursor = commentData.pageInfo.endCursor
+                    console.log(`-- Will fetch next page from ${options.params.cursor}`)
+                }
+            }
+        }while(!leave && commentList.length < targetCommentCount)
+        console.log(`Got ${commentList.length} total comments`)
+        answer.commentData = commentList
+    }
+    async function saveQuestion(question, createPrimitive){
+        let title = question.title
+        if(title.length > 100){
+            title = title.split(" ").reduce((a, w) => (a.length + w.length <= 100 ? a + (a ? ' ' : '') + w : a), '');
+        }
+        const data = {
+            title: title,
+            type: "result",
+            referenceId: 143,
+            referenceParameters:{
+                "description": question.title,
+                "url":question.url,
+                "date_posted": question.creationDate,
+                "num_followers":question.followers,
+                "answers": question.answerData
+            }
+        }
+        return createPrimitive( data, true )
+    }
+    async function processTerm(term){
+
+        let totalAnswers = 0
+        let endCursor
+        do{
+            console.log(`Querying Quora for ${term} `)
+            const questionsData = await findQuestions(term, endCursor)
+            if( questionsData ){
+                if( questionsData.pageInfo?.hasNextPage ){
+                    endCursor = questionsData.pageInfo.endCursor
+                    console.log(`-- Will fetch next page of questions from ${endCursor}`)
+                }
+                const questions = questionsData.data
+                console.log(`Got ${questions} in this batch`)
+                if( questions ){
+                    await executeConcurrently(questions, processAnswersFromQuestion)
+                    const thisAnswers = questions.flatMap(d=>d.answerData).filter(d=>d)
+                    console.log(`---> Got ${thisAnswers.length} to get comments for`)
+                    await executeConcurrently(thisAnswers, processCommentsForAnswers)
+                    const thisComments = thisAnswers.flatMap(d=>d.commentData).filter(d=>d)
+                    console.log(`---> Got ${thisComments.length} total comments`)
+                    totalAnswers += thisAnswers.length
+                    console.log(`Have ${totalAnswers} vs target of ${totalTargetAnswerCount}`)
+                    if( callopts.createResult){
+                        console.log(`-- Saving`)
+                        await executeConcurrently(questions, (d)=>saveQuestion(d,callopts.createResult))
+                        
+                    }
+                    
+                }else{
+                    console.log( questionsData)
+                }
+            }
+        }while(false)
+    }
+    const individualTerms = terms.split(",").map(d=>{
+        let out = d.trim()
+        if( out.length === 0){return undefined}
+        if( out[0] === "#"){
+            //return out.slice(1)
+        }
+        return out
+    }).filter(d=>d)
+    for(const term of individualTerms){
+        await processTerm(term)
+    }
+}
+
+
+async function wrapRequest( options, retryCount = 3 ){
+    async function doRequest( retries = retryCount ){
+        try {
+            const response = await axios.request(options);
+            console.log("back")
+            return response.data
+        } catch (error) {
+            if (error.response) {
+                if (error.response.status === 429) {
+                    console.error("----------------------------\n----------------------------\nError 429: Too Many Requests - hit rate limit.");
+                    if(retries > 0){
+                        console.log(`Will retry`)
+                        await new Promise(resolve => setTimeout(resolve, 5000 * (4 - retries)));
+                        return await doRequest(retries - 1)
+                    }
+                } else {
+                    console.error(`Error ${error.response.status}: ${error.response.statusText}`);
+                }
+            } else if (error.request) {
+                console.error("No response received:", error.request);
+            } else {
+                console.error("Error setting up request:", error.message);
+            }
+        }
+    }
+    return await doRequest()
 }

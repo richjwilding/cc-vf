@@ -2256,6 +2256,12 @@ function MainStore (prims){
                                             ...flow.referenceParameters?.controlPins?.[d.sourcePin],
                                             source: `param.${d.sourcePin}`
                                         }                                        
+                                    }else if( flow.referenceParameters?.inputPins?.[d.sourcePin]){
+                                        sourcePrimitive = sourcePrimitive
+                                        sourcePinConfig = {
+                                            ...flow.referenceParameters?.inputPins?.[d.sourcePin],
+                                            source: `param.${d.sourcePin}`
+                                        }                                        
                                     }
                                 }
                                 const inputMapSource = receiver.type === "flowinstance" ? receiver.origin : receiver
@@ -2285,7 +2291,7 @@ function MainStore (prims){
                             }else if( !receiver.flowElement ){
                                 dynamicPinSource = receiver.configParent ?? receiver
                             }
-                            let dynamicPins = dynamicPinSource.type === "query" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "page" ? PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs") : {}
+                            let dynamicPins = dynamicPinSource.type === "action" || dynamicPinSource.type === "query" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "page" ? PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs") : {}
                             
 
                             if( (receiver.type === "flow" || receiver.type === "flowinstance") && mode === "outputs"){
@@ -2554,19 +2560,30 @@ function MainStore (prims){
                                 }
                             }else{
                                 const list = [receiver.referenceParameters?.[d]].flat().filter(d=>d)
-                                if( list.length > 0){
-                                    out += (source.header ?? d) + ":\n"
-
-                                    const titleBase = source.title ?? d
-
-                                    for(const d of list){
-                                        const title = titleBase.replace(/\{([^}]+)\}/g, function(match, fieldName) {
-                                            return fieldName in d ? d[fieldName] : match;
-                                        });
-
-                                        out += title + ":" + source.fields.map(d2=>d[d2]) + "\n"
+                                function unpackNested( list, source ){
+                                    if( list.length > 0){
+                                        out += (source.header ?? d) + ":\n"
+                                        
+                                        const titleBase = source.title ?? d
+                                        const subFields = source.fields.filter(d=>d instanceof Object)
+                                        const contentFields = source.fields.filter(d=>!(d instanceof Object))
+                                        
+                                        for(const d of list){
+                                            const title = titleBase.replace(/\{([^}]+)\}/g, function(match, fieldName) {
+                                                return fieldName in d ? d[fieldName] : match;
+                                            });
+                                            
+                                            out += title + ":" + contentFields.map(d2=>d[d2]) + "\n"
+                                            for(const sf of subFields){
+                                                const sublist = d[sf.source]
+                                                if( sublist ){
+                                                    unpackNested( sublist, sf )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
+                                unpackNested(list, source)
                             }
                         }else{
                             let field

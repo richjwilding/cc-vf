@@ -748,7 +748,10 @@ const PrimitiveConfig = {
                     }, {})
                 }
             }else if( primitive.type === "flow"){
-                return primitive.referenceParameters?.controlPins
+                return {
+                    ...(primitive.referenceParameters?.controlPins ?? {}),
+                    ...(primitive.referenceParameters?.inputPins ?? {}),
+                }
             }else if( primitive.type === "page"){
                 return primitive.referenceParameters?.inputPins
             }
@@ -919,7 +922,8 @@ const PrimitiveConfig = {
                                 if( input.useConfig === "object_list"){
                                     result = result.concat( sourceData )
                                 }else if(input.useConfig === "string_list"){
-                                    result = result.concat( sourceData )
+                                    const list = sourceData.flatMap(d=>typeof(d)==="string" ? d.split(/[\n,]/) : d)
+                                    result = result.concat( list )
                                 }else if(input.useConfig === "string"){
                                     if( Array.isArray(sourceData)){
                                         sourceData = sourceData.map(d=>{

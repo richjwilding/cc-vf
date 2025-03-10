@@ -22,6 +22,7 @@ import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@compone
 import { CheckboxField, Checkbox } from "./@components/checkbox"
 import { TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
+import { Label } from "./@components/fieldset"
 
 // Add the icons to the library
 
@@ -644,37 +645,105 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         </div>
                     </div>
         }
+        function flowPanel(){
+            function pinSet(title, target ){
+                const pins = frame.referenceParameters?.[target] ?? {}
+                const pinIds = Object.keys(pins)
 
+                function toggleType(pinId, type){
+                    let types = (pins[pinId].types ?? [])
+                    if( types.includes(type)){
+                        types = types.filter(d=>d !== type)
+                    }else{
+                        types.push(type)
+                    }
+                    frame.setField(`referenceParameters.${target}.${pinId}.types`, types)
+                }
+                return <UIHelper.Panel title={title} >
+                            <div className="px-2 py-2 flex flex-col space-y-2 text-gray-500 @container">
+                            <DescriptionList inContainer={true}>
+                                {pinIds.map(pinId=>(<>
+                                    <DescriptionTerm inContainer={true}>
+                                        <EditableTextField 
+                                            submitOnEnter={true} 
+                                            fieldClassName="!p-0 !bg-transparent"
+                                            callback={(value)=>{
+                                                if( value ){
+                                                    frame.setField(`referenceParameters.${target}.${pinId}.name`, value)
+                                                    return true
+                                                }
+                                                return false
+                                            }}
+                                            value={pins[pinId].name}>
+                                        </EditableTextField>
+                                    </DescriptionTerm>
+                                    <DescriptionDetails inContainer={true}>
+                                        <DescriptionList inContainer={true}>
+                                            <DescriptionTerm inContainer={true}>Types</DescriptionTerm>
+                                            <DescriptionDetails inContainer={true}>
+                                                <CheckboxField>
+                                                    <Checkbox 
+                                                        onClick={()=>toggleType(pinId, "primitive")}
+                                                        checked={(pins[pinId].types ?? []).includes("primitive")} 
+                                                        />
+                                                        <Label>Primitive</Label>
+                                                </CheckboxField>
+                                                <CheckboxField>
+                                                    <Checkbox 
+                                                        onClick={()=>toggleType(pinId, "string")}
+                                                        checked={(pins[pinId].types ?? []).includes("string")} 
+                                                        />
+                                                    <Label>Text</Label>
+                                                </CheckboxField>
+                                                <CheckboxField>
+                                                    <Checkbox 
+                                                        onClick={()=>toggleType(pinId, "string_list")}
+                                                        checked={(pins[pinId].types ?? []).includes("string_list")} 
+                                                        />
+                                                    <Label>Comma separated list</Label>
+                                                </CheckboxField>
 
-        function elementSourcePane(){
-            let options = []
-            let current = ""
-            const page = frame.findParentPrimitives({type: "page"})[0]
-            if( page ){
-                const pins = page.inputPins 
-                options = Object.keys(pins).map(d=>({id: d, title: pins[d].name})).filter(d=>d.id !== "impin")
+                                            </DescriptionDetails>
+                                        </DescriptionList>
+                                    </DescriptionDetails>
+                                    </>
+                                ))}
+                                    <DescriptionTerm inContainer={true}></DescriptionTerm>
+                                    <DescriptionDetails inContainer={true} >
+                                        <UIHelper.Button outline title="New Pin" className="w-full" onClick={()=>{
+                                            const pre = `${target}-`
+                                            const existing = Math.max(0, ...pinIds.filter(d=>d.startsWith(pre)).map(d=>d.slice(pre.length)))
+                                            let name = `${pre}${existing + 1}`
+                                            frame.setField(`referenceParameters.${target}.${name}`, {name: `New ${title}`, types:["string"]})
 
-                const outputs = page.primitives.outputs
-                current = Object.keys(outputs).find(d=>outputs[d].includes( frame.id ))?.split("_")?.[0]
+                                        }}/>
+                                    </DescriptionDetails>
+                            </DescriptionList>
+                            </div>
+                        </UIHelper.Panel>
+
             }
-        
 
-            return <PrimitiveCard.RenderItem 
-
-                item={{
-                    value: current,
-                    type:"option_list",
-                    options
-                }}
-                callback={(v)=>{
-                    const outputs = page.primitives.outputs
-                    const existing = Object.keys(outputs).find(d=>outputs[d].includes( frame.id ))
-                    page.removeRelationship(frame,`outputs.${existing}`)
-                    page.addRelationship(frame, `outputs.${v}_impin`)
-                }}
-            />
+            return <><div className="space-y-2">
+                <div className="border rounded-md bg-gray-50">
+                    <div onClick={()=>setShowDetails(!showDetails)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">
+                        <p className="font-medium ">{frame.metadata.title} details</p>
+                        <ChevronRightIcon strokeWidth={2} className={`ml-auto w-5 h-5 ${showDetails ? '-rotate-90 transform' : ''}`}/>
+                    </div>
+                    {showDetails && <>
+                        <div className="px-4 pb-2 space-y-2 text-sm text-gray-600">
+                            {pinSet("Inputs", "inputPins")}
+                            {pinSet("Outputs", "outputPins")}
+                            {pinSet("Control", "controlPins")}
+                        </div>
+                    </>
+                    }
+                </div>
+            </div>
+            {!filters && (frame.type === "flow") && <UIHelper.Button outline title="New Instance" onClick={()=>mainstore.doPrimitiveAction(frame,"create_flowinstance")}/>}
+            {!filters && (frame.type === "flow") && <UIHelper.Button outline title="Scaffold" onClick={()=>mainstore.doPrimitiveAction(frame,"workflow_scaffold")}/>}
+            </>
         }
-        
 
 
 
@@ -709,7 +778,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                                                     return (
                                                                     <>
                                                                         <DescriptionTerm inContainer={true}>{d}</DescriptionTerm>
-                                                                        {!show && <div className="grid grid-cols-1 text-base/6 text-sm/6 @xl:!grid-cols-[min(40%,theme(spacing.40))_auto] py-2">
+                                                                        {!show && <div className="grid grid-cols-1 text-base/6 text-sm/6 @lg:!grid-cols-[min(40%,theme(spacing.40))_auto] py-2">
                                                                                 <p>Include</p>
                                                                                     <Checkbox
                                                                                         onClick={()=>{frame.setField(`referenceParameters.sections.${d}.show`, true)}}
@@ -786,6 +855,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 {["query","view"].includes(frame.type) && categoryPanel()}
                 {["query","view"].includes(frame.type) && filterPanel()}
             </div>
+            {frame.type === "flow" && flowPanel()}
             
             {!filters && (frame.type === "view" || frame.type === "action" || frame.type === "summary" || frame.type === "categorizer" || frame.type == "actionrunner") && 
                 <div className="space-y-2">
@@ -798,18 +868,6 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                             <div className="p-2 ">
                                 <PrimitiveCard.Parameters primitive={frame} includeTitle editing leftAlign compactList className="text-xs text-slate-500" fullList />
                             </div>
-                            {false && <div className="px-3 py-2 text-gray-500 text-sm">
-                                <UIHelper.Panel title="Show inputs" narrow>
-                                    <div className="border p-2 rounded-md">
-                                        <PrimitiveCard.ImportList primitive={frame}/>
-                                        <div type="button"
-                                        className="flex my-2 font-medium grow-0 bg-white hover:bg-gray-100 hover:shadow-sm hover:text-gray-600 justify-center ml-2 p-1 rounded-full shrink-0 text-xs text-gray-400 "
-                                        onClick={()=>addImport(frame)}> 
-                                                <PlusIcon className="w-5 h-5"/>
-                                        </div>
-                                    </div>
-                                </UIHelper.Panel>
-                            </div>}
                         </>
                         }
                     </div>
@@ -848,7 +906,6 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     </div>
                 </div>
             }
-            {!filters && (frame.type === "flow") && <UIHelper.Button outline title="Scaffold" onClick={()=>mainstore.doPrimitiveAction(frame,"workflow_scaffold")}/>}
             {underlyingInfo}
             {itemCategory && <div className="px-3 py-2 bg-gray-50 border rounded-md">
                 <CategoryHeader newPrimitiveCallback={newPrimitiveCallback} itemCategory={itemCategory} items={list}  newItemParent={newItemParent} createNewView={props.createNewView} panelConfig={frame?.referenceParameters?.table} actionAnchor={frame} filters={filters}/>

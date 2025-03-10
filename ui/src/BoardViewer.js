@@ -17,7 +17,7 @@ import Konva from "konva";
 import { compareTwoStrings } from "./SharedTransforms";
                 
 export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
-const RENDERSUB = true
+const RENDERSUB = false//true
 
 function dropZoneToAxis(id){
     return id.split('-')
@@ -277,19 +277,33 @@ let mainstore = MainStore()
             return preparePageElements(d, view)
         }
 
-        const mapMatrix = (stageOptions, d, view)=>renderMatrix(
-            primitiveToRender, 
-            view.list, {
-                axis: view.axis,
-                columnExtents: view.columns,
-                rowExtents: view.rows,
-                viewConfig: view.viewConfig,
-                ...stageOptions,
-                ...renderOptions,
-                toggles: view.toggles,
-                data: view.renderData,
-                expand: Object.keys(primitive.frames?.[ d.id ]?.expand ?? {})
-            })
+        const mapMatrix = (stageOptions, d, view)=>{
+            let dataSource = view
+            if( view.axisSource ){
+                if( view.axisSource.inFlow && view.axisSource.configParent.flowElement){
+                    dataSource = myState[view.axisSource.configParent.id] 
+                }else{
+                    dataSource = myState[view.axisSource.id] 
+                }
+                if(!dataSource){
+                    console.warn(`Couldnt find config for axis Source ${view.axisSource.id}`)
+                    dataSource = view
+                }
+            }
+            return renderMatrix(
+                primitiveToRender, 
+                dataSource.list, {
+                    axis: dataSource.axis,
+                    columnExtents: dataSource.columns,
+                    rowExtents: dataSource.rows,
+                    viewConfig: view.viewConfig,
+                    ...stageOptions,
+                    ...renderOptions,
+                    toggles: view.toggles,
+                    data: view.renderData,
+                    expand: Object.keys(primitive.frames?.[ d.id ]?.expand ?? {})
+                })
+        }
 
         let sizeSource = view.parentRender ? myState[view.parentRender].primitive.frames : primitive.frames
         if( sizeSource?.[d.id]){
@@ -358,7 +372,7 @@ let mainstore = MainStore()
                 pins, 
                 frameless, 
                 //utils: myState.renderSubPages ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
-                utils: RENDERSUB ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
+                utils: view.renderSubPages || RENDERSUB ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
                 title, titleAlwaysPresent, 
                 canChangeSize: true, 
                 canvasMargin: [0,0,0,0], 
@@ -404,28 +418,26 @@ let mainstore = MainStore()
 
         const canChangeSize = view?.viewConfig?.resizable 
         if( view.viewConfig?.matrixType ){
-            
-        return {id: d.id ,
-            parentRender: 
-            view.parentRender, 
-            pins, frameless, title, titleAlwaysPresent, 
-            indicators, 
-            canChangeSize, 
-            items: (stageOptions)=>RenderSetAsKonva(
-                primitiveToRender, 
-                view.list, 
-                {
-                    //referenceId: primitiveToRender.referenceId,
-                    ...stageOptions, 
-                    ...renderOptions,
-                    axis:view.axis,
-                    extents:{column: view.columns.map(d=>({...d, primitive: mainstore.primitive(d.idx)})), row:view.rows.map(d=>({...d, primitive: mainstore.primitive(d.idx)}))},
-                    config: view.viewConfig?.matrixType
+            return {id: d.id ,
+                parentRender: 
+                view.parentRender, 
+                pins, frameless, title, titleAlwaysPresent, 
+                indicators, 
+                canChangeSize, 
+                items: (stageOptions)=>RenderSetAsKonva(
+                    primitiveToRender, 
+                    view.list, 
+                    {
+                        //referenceId: primitiveToRender.referenceId,
+                        ...stageOptions, 
+                        ...renderOptions,
+                        axis:view.axis,
+                        extents:{column: view.columns.map(d=>({...d, primitive: mainstore.primitive(d.idx)})), row:view.rows.map(d=>({...d, primitive: mainstore.primitive(d.idx)}))},
+                        config: view.viewConfig?.matrixType
 
-                }
-            )
-}
-
+                    }
+                )
+            }
         }
 
         return {id: d.id ,parentRender: view.parentRender, pins, frameless, title, titleAlwaysPresent, indicators, utils: {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard},canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
@@ -555,7 +567,7 @@ let mainstore = MainStore()
                                         return base.map(section=>{
                                             let target = sectionconfig?.[section.heading]
                                             if( !target ){
-                                                let allItems = Object.keys(sectionconfig).map(d=>[d, compareTwoStrings(d, section.heading)])
+                                                let allItems = Object.keys(sectionconfig ?? "").map(d=>[d, compareTwoStrings(d, section.heading)])
                                                 const candidates = allItems.filter(d=>d[1] > 0.4).sort((a,b)=>b[1]-a[1])
                                                 if( candidates.length > 0){
                                                     target = sectionconfig?.[candidates[0][0]]
@@ -566,7 +578,7 @@ let mainstore = MainStore()
                                                     ...section,
                                                     heading: target?.heading === false ? undefined : section.heading,
                                                     fontSize: target?.fontSize,
-                                                    fontStyle: target.fontStyle
+                                                    fontStyle: target?.fontStyle
 
                                                 }
                                             }
@@ -599,8 +611,8 @@ let mainstore = MainStore()
                                 renderType = "plain_object"
                             }else{
 
-                                renderType = "view"
                                 myState[stateId].primitiveList = inputs
+
                                 renderType = "view"
                             }
                         }else{
@@ -627,6 +639,17 @@ let mainstore = MainStore()
                                 renderType = "plain_object"
                         }else{
                             myState[stateId].primitiveList = inputs
+                            if( config.view_axis){
+                                const status = pageInstance.inputPinsWithStatus?.[pins[0]]
+                                if( status?.connected ){
+                                    const map = PrimitiveConfig.getPinMap(pageInstance, "inputs")
+                                    const pin = map.find(d=>d.inputPin === pins[0])
+                                    if( pin ){
+                                        myState[stateId].axisSource = mainstore.primitive(pin.sourceId)
+                                    }
+                                }
+                                console.log(`source = ${myState[stateId].axisSource?.id}`)
+                            }
                             renderType = "view"
                         }
                     }
@@ -739,7 +762,8 @@ let mainstore = MainStore()
             const items = myState[stateId].primitiveList ?? primitiveToPrepare.itemsForProcessing
             
             const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
-            let activeView = primitiveToPrepare?.referenceParameters?.explore?.view 
+            //let activeView = primitiveToPrepare?.referenceParameters?.explore?.view 
+            let activeView = basePrimitive?.referenceParameters?.explore?.view 
             let viewConfig = viewConfigs[activeView] ?? viewConfigs[0] 
             if( forceViewConfig ){
                 activeView = viewConfigs.findIndex(d=>d.renderType === forceViewConfig.viewConfig || d.id === forceViewConfig.viewConfig) 
@@ -954,7 +978,7 @@ let mainstore = MainStore()
                 icon: <HeroIcon icon='CogIcon'/>,
                 count: primitiveToPrepare.primitives.uniqueAllIds.length
             }
-            if( !RENDERSUB){
+            if( !myState[stateId].renderSubPages && !RENDERSUB){
                 for(let child of childNodes){
                     myState[child.id] ||= {
                         id: child.id, 
@@ -1407,14 +1431,13 @@ export default function BoardViewer({primitive,...props}){
                                 return {left: left.id, right: right.id, leftPin, rightPin }
                             }                       
                             if(right.primitives.inputs.allIds.includes(left.id)){
-                                const rel = right.primitives.paths(left.id,"inputs")[0]
-                                if( rel ){
+                                return right.primitives.paths(left.id,"inputs").map(rel=>{
                                     const pinNames = rel.substring(rel.lastIndexOf(".") + 1);
                                     const [leftPinName, rightPinName] = pinNames.split("_")
                                     const leftPin = myState[left.id].outputPins[leftPinName]?.idx
                                     const rightPin = myState[right.id].inputPins[rightPinName]?.idx
                                     return {left: left.id, right: right.id, leftPin, rightPin }
-                                }
+                                })
                             }                       
                         }else{
                             if(right.primitives.imports.allIds.includes(left.id)){
@@ -1674,7 +1697,7 @@ export default function BoardViewer({primitive,...props}){
     function setActivePin(pin){
         myState.activePin = pin
         const frame = myState[pin.frameId]
-        myState.createFromActivePin = frame.primitive.type === "page" && frame.primitive.referenceParameters?.inputPins[pin.name]
+        myState.createFromActivePin = frame.primitive.type === "page" && frame.primitive.referenceParameters?.inputPins?.[pin.name]
         {
             setActiveBoard( [pin.frameId] )
         }
@@ -1699,7 +1722,7 @@ export default function BoardViewer({primitive,...props}){
                 if( myState.activeBoard.primitive.primitives.imports.allIds.length === 0){
                     addToView = {view: myState.activeBoard.primitive, segment: undefined}
                 }else{
-                    const target = myState.activeBoard.primitive.primitives.imports.allItems.find(d=>d.type === "segment" && d.primitives.imports.allIds.length === 0)
+                    const target = myState.activeBoard.primitive.primitives.imports.allItems.find(d=>d.type === "search" || (d.type === "segment" && d.primitives.imports.allIds.length === 0))
                     if( target ){
                         addToView = {view: myState.activeBoard.primitive, segment: target}
                     }

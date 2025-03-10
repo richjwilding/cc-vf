@@ -74,8 +74,10 @@ export default function AnalysisPage({primitive, ...props}){
                 <div className={`p-2 text-sm text-gray-500 bg-white font-semibold`}>Status</div>
                 <div className={`p-2 text-sm text-gray-500 bg-white font-semibold`}></div>
                 
-                {inputPrimitives.map(input=>{
-                    const flowInstance = flowInstances.find(d=>d.itemsForProcessing.map(d=>d.id).includes(input.id))
+                {flowInstances.map(flowInstance=>{
+                    //const flowInstance = flowInstances.find(d=>d.itemsForProcessing.map(d=>d.id).includes(input.id))
+                    //const input = flowInstance.primitives.imports.allItems[0]
+                    const input = flowInstance.itemsForProcessing[0]
                     return <FlowInstanceInfo primitive={flowInstance} inputPrimitive={input} steps={steps} hideProgressAt="@4xl"/>
                 })}
             </div>

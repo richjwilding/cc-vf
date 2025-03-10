@@ -229,6 +229,8 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                         }
                         if( childSearch ){
                             logger.info(` --- Found child search ${childSearch.id} / ${childSearch.plainId} for ${d.id} / ${d.plainId}`)
+                            logger.info("--- Skipping")
+                            continue
                         }else{
                             logger.info(` --- No child search found for ${d.id} / ${d.plainId}`)
                             childSearch = await createPrimitive({

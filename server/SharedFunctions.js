@@ -29,6 +29,7 @@ import { runAction } from './action_helper';
 import "./workflow.js"
 import FlowQueue from './flow_queue.js';
 import { getLogger } from './logger.js';
+import { queryQuoraByRapidAPI } from './rapid_helper.js';
 
 const logger = getLogger('sharedfn'); // Debug level for moduleA
 
@@ -661,6 +662,11 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
                     ...flow.referenceParameters?.controlPins?.[d.sourcePin],
                     source: `param.${d.sourcePin}`
 
+                }                                        
+            }else if( flow.referenceParameters?.inputPins?.[d.sourcePin]){
+                sourcePinConfig = {
+                    ...flow.referenceParameters?.inputPins?.[d.sourcePin],
+                    source: `param.${d.sourcePin}`
                 }                                        
             }
         }
@@ -2558,6 +2564,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             if( actionKey === "test_person"){
                 await lookupPerson("Hey Kay Adams", await Category.find({id:44}))
+            }
+            if( actionKey === "quora_test"){
+                return await queryQuoraByRapidAPI()
             }
             if( actionKey === "zfat_test"){
                 console.log(`Testing ${options.url}`)

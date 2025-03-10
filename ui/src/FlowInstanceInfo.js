@@ -10,6 +10,7 @@ import InfiniteCanvas from "./InfiniteCanvas";
 import BoardViewer, { IGNORE_NODES_FOR_EXPORT } from "./BoardViewer";
 import { createPptx, exportKonvaToPptx } from "./PptHelper";
 import Konva from "konva";
+import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list";
 
 export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     const [expand, setExpand] = useState(false)
@@ -84,7 +85,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     const [selectedOutputPin, setSelectedOutputPin] = useState(outputPins[0])
 
     console.log(outputs)
-    if( !primitive || !inputPrimitive || !steps){
+    if( !primitive || !steps){
         return <></>
     }
     let runningProgress = []
@@ -120,22 +121,42 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
 
 
     const renderedSet = Object.keys(outputs ?? {}).map(pin=>(outputs[pin]?.items ?? []).map(d=>{
+        myState[d.id] = {id: d.id, renderSubPages: true}
         const renderConfig = BoardViewer.prepareBoard(d, myState)
         myState[d.id].title = `Output for ${pin}`
+        //myState[d.id].renderSubPages = true
         return BoardViewer.renderBoardView(d, primitive, myState)
     })).flat()
+
+
+    function inputPinPane(){
+        const flow = primitive.findParentPrimitives({type:"flow"})[0]
+        const pins = flow.referenceParameters?.inputPins ?? {}
+        const pinNames = Object.keys(pins)
+        return <div className="flex w-full @container  max-h-[min(70vh,_50rem)] min-h-0">
+            <DescriptionList inContainer={true}>
+                {pinNames.map((pinId)=>(
+                    <>
+                        <DescriptionTerm inContainer={true}>{pins[pinId].name}</DescriptionTerm>
+                        <DescriptionDetails inContainer={true}>{primitive.referenceParameters?.[pinId]}</DescriptionDetails>
+                    </>
+                ))}
+            </DescriptionList>
+        </div>
+
+    }
 
     return (<>
         <div className={`${bg} ${padding} @container flex flex-col`}>
             <div className="flex justify-between">
-            <span>{inputPrimitive.title}</span>
+            <span>{inputPrimitive?.title ?? primitive.title}</span>
             <UIHelper.IconButton 
                 icon={<DocumentArrowDownIcon className={`size-5`}/>}
                 action={downloadAll}/>
             </div>
-            <PrimitiveCard.Title primitive={inputPrimitive} compact={true}/>
-
-            {expand && <PrimitiveCard.Parameters primitive={inputPrimitive} fullList={true}/>}
+            {inputPrimitive && <PrimitiveCard.Title primitive={inputPrimitive} compact={true}/>}
+            {expand && inputPrimitive && <PrimitiveCard.Parameters primitive={inputPrimitive} fullList={true}/>}
+            {expand && !inputPrimitive && inputPinPane()}
             {expand && <div className="mt-auto -mb-3">
                 <PrimitiveCard.Title primitive={primitive} compact={true}/>
             </div>}

@@ -997,8 +997,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     function removeRoutingForFrame( frame ){
         if( frame.routing){
             myState.current.routing.routerLinks = myState.current.routing.routerLinks.filter(d=>{
-                let [leftFull,right] = d.id.split("~")
-                let [left, cell] = leftFull.split(":")
+                let [leftFull,rightFull] = d.id.split("~")
+                let [left, lPin] = leftFull.split(".")
+                let [right, rPin] = rightFull.split(".")
                 if( left === frame.id || right === frame.id){
                     myState.current.routing.router.deleteConnector( d.route )     
                     return false
@@ -1160,9 +1161,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 const right = nodes[target.right]?.shape
                 
                 if( left && right){
-                    const id = `${leftName}~${target.right}` 
                     let leftPin = target.leftPin ?? 1
                     let rightPin = target.rightPin ?? 1
+                    const id = `${leftName}.${leftPin}~${target.right}.${rightPin}` 
 
                     if( !myState.current.routing.routerLinks.find(d=>d.id===id)){
                         const leftConnEnd = new Avoid.ConnEnd(left, leftPin)
@@ -2954,6 +2955,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 }
                             }
                             doneClick = true
+                        }else if( cls === "frame_label"){
+                            const frame = d.findAncestor('.frame') 
+                            if(frame){
+                                const result = props.callbacks?.onClick?.["frame"]( [frame.attrs.id] )
+                                doneClick = true
+
+                            }
+
                         }else if( props.callbacks?.onClick?.[cls] ){
                             //const frameId = myState.current.selected[cls][0].findAncestor('.frame')?.attrs.id
                             //const ids = myState.current.selected[cls].map(d=>d.attrs.id)
