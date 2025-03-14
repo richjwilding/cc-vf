@@ -347,18 +347,23 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         const data = rowIdx.map(rIdx=>{
                             return colIdx.map(cIdx=>{
                                 const items = tableData.filter(d=>d.tableInfo.col === cIdx && d.tableInfo.row === rIdx)
-                                const options = {}
-                                if( items[0].tableInfo.row === 0){
-                                    options.bold = true
-                                    options.color = "#ffffff"
+                                let text = ""
+                                if( items.length > 0){
+
+                                    const options = {}
+                                    if( items[0].tableInfo.row === 0){
+                                        options.bold = true
+                                        options.color = "#ffffff"
+                                    }
+                                    if( items[0].fontScale && items[0].fontScale !== 1 ){
+                                        options.fontSize = fontSize * items[0].fontScale
+                                    }
+                                    if( items[0].tableInfo.fill ){
+                                        options.fill = toHex(items[0].tableInfo.fill)
+                                    }
+                                    text = items.map(d=>d.text).join(" ")
                                 }
-                                if( items[0].fontScale && items[0].fontScale !== 1 ){
-                                    options.fontSize = fontSize * items[0].fontScale
-                                }
-                                if( items[0].tableInfo.fill ){
-                                    options.fill = toHex(items[0].tableInfo.fill)
-                                }
-                                return {text: items.map(d=>d.text).join(" "), options}
+                                return {text, options}
                             })
                         })
                         const rowStarts = tableData.filter(d=>d.tableInfo.col === 0).map(d=>d.y)

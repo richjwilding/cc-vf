@@ -1946,6 +1946,9 @@ export async function getDataForProcessing(primitive, action, source, options = 
     }else if( target.slice(0,8) === "results."){
         list = await primitivePrimitives(source, target )
         console.log(`GOT for result ${list.length}`)
+    }else if( target.startsWith("path_")){
+        list = await primitivePrimitives(source, target.slice(5))
+        console.log(`GOT for path ${target.slice(5)} ${list.length}`)
     }else if( target === "ref"){
         list = await primitivePrimitives(source, 'ref')
         console.log(`GOT for ref ${list.length}`)
@@ -2003,7 +2006,9 @@ export async function getDataForProcessing(primitive, action, source, options = 
     }
     if( referenceId ){
         if( Array.isArray(referenceId)){
-            list = list.filter((d)=>referenceId.includes(d.referenceId ))
+            if( referenceId.length > 0 ){
+                list = list.filter((d)=>referenceId.includes(d.referenceId ))
+            }
         }else{
             list = list.filter((d)=>d.referenceId === referenceId)
         }
@@ -2024,22 +2029,43 @@ export async function getDataForProcessing(primitive, action, source, options = 
         if( field === "context" ){
             //const hasContext = list.filter(d=>d.referenceParameters?.context).length > 0
             //if( !hasContext ){
-                const out = [], listOut = [], refCache = {}
+                let out = [], listOut = [], refCache = {}
                 let idx = 0
                 const refIds = list.map(d=>d.referenceId)
                 const refCats = await Category.find({id: {$in: refIds}})
 
-                for(const d of list){
+                async function getContext(d, idx){
                     console.log(`Context ${idx} / ${list.length}`)
                     const context = await buildContext(d, refCats.find(d2=>d2.id === d.referenceId))
                     if( context ){
-                        listOut.push(d)
-                        out.push( context )
+                        return {p: d, context: context}
                     }
-                    idx++
                 }
-                console.log(`+++++ For context HAD ${list.length} now ${listOut.length} +++++`)
-                return [listOut, out]
+
+                const contextList = await executeConcurrently( list, getContext )
+                if( contextList.results ){
+
+                    listOut = contextList.results.map(d=>d.p)
+                    out = contextList.results.map(d=>d.context)
+                    
+                    /*for(const d of list){
+                        console.log(`Context ${idx} / ${list.length}`)
+                        const context = await buildContext(d, refCats.find(d2=>d2.id === d.referenceId))
+                        if( context ){
+                            listOut.push(d)
+                            out.push( context )
+                            }
+                            idx++
+                            }*/
+                    if( out.length !== listOut.length){
+                        throw "Mismatch on context build"
+                    }
+                    console.log(`+++++ For context HAD ${list.length} now ${out.length} / ${listOut.length} +++++`)
+                    return [listOut, out]
+                }else{
+                    logger.error(`Failed to build context`)
+                    return [listOut, out]
+                }
             //}
 
         }
@@ -2386,6 +2412,9 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         return items
     }
 
+    if( actionKey === "context_test"){
+        return await buildContext( primitive )
+    }
     if( actionKey === "config_test"){
         return await getConfig( primitive )
     }
@@ -4902,14 +4931,14 @@ export async function buildContext(primitive, category){
     }
 
     let out = ""
-    const lookupSet = Object.values(category.ai.process.context.fields ?? {}).filter(d=>(d instanceof Object) && d.referenceId).map(d=>({referenceId: d.referenceId, agg: (d.target ?? "children") + "-" + (d.field ?? "title"), target: d.target ?? "children", field: d.field ?? "title"}))
+    const lookupSet = Object.values(category.ai.process.context.fields ?? {}).filter(d=>(d instanceof Object) && (d.referenceId || d.target)).map(d=>({referenceId: d.referenceId, agg: (d.target ?? "children") + "-" + (d.field ?? "title"), target: d.target ?? "children", field: d.field ?? "title"}))
     let batches = {}
     if( lookupSet.length > 0 ){
         const unique = lookupSet.map(d=>d.agg).filter((d,i,a)=>a.indexOf(d) === i)
         for(const key of unique){
             const thisSet = lookupSet.filter(d=>d.agg === key)
-            const refIds = thisSet.map(d=>d.referenceId).flat()
-            const [children, content] = await getDataForProcessing( primitive, {referenceId: refIds, target: thisSet[0].target , field: thisSet[0].field })
+            const refIds = thisSet.map(d=>d.referenceId).flat().filter(d=>d)
+            const [children, content] = await getDataForProcessing( primitive, {referenceId: refIds, target: thisSet[0].target === "children" ? "children" : "path_" + thisSet[0].target , field: thisSet[0].field })
             batches[unique] = {
                 children,
                 content
@@ -4920,9 +4949,9 @@ export async function buildContext(primitive, category){
     for(const d of Object.keys(category.ai.process.context.fields ?? [])){
         const source = category.ai?.process?.context.fields[d]
         if( source instanceof Object){
-            if( source.referenceId ){
+            if( source.referenceId || source.target){
                 let header = source.title
-                const key = (source.target ?? "children") + "-" + (source.field ?? "title")
+                const key = (source.target ?? "children") + "-" + (source.field ?? "title") 
                 const children = batches[key].children
                 const content = batches[key].content
                 const showCount = false//children.length > 1
@@ -4932,8 +4961,9 @@ export async function buildContext(primitive, category){
                         out += ".\n"
                     }
                     out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>{
-                        let interim = `${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
-                        for(const p of Object.keys(d.referenceParameters ?? {})){
+                        let interim = `${(source.prefix ? source.prefix + " " : "") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
+                        let fields = source.fields ?? Object.keys(d.referenceParameters ?? {})
+                        for(const p of fields){
                             const val = [d.referenceParameters[p]].flat().filter(d=>d)
                             if( val.length > 0){
                                 interim += `\n${p}: ${val.join(", ")}`

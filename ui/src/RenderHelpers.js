@@ -539,14 +539,15 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
     const renderHeight = config.height - config.padding[0] - config.padding[2]
     let period = "month"
 
-    let showPercChange = true
+    let showPercChange = false
+    let showEndValue = true
 
     if( options.getConfig){
         const years = parseInt(primitive.renderConfig?.range ?? "1") 
         const endDate = primitive.renderConfig?.end ? new Date(primitive.renderConfig?.end) : new Date()
         const startDate = moment(endDate).subtract(years, "year")
         //const startDate = moment(endDate).subtract(1, "Q").toDate()
-        config.data = CollectionUtils.convertToTimesSeries( 
+        config.data = {series: CollectionUtils.convertToTimesSeries( 
                                         options.list, 
                                         {
                                             dataset: primitive.renderConfig?.set ?? options.renderConfig?.viewConfig?.set,
@@ -556,10 +557,10 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
                                             startDate: startDate,
                                             endDate: endDate,
                                             period: period
-                                        })
+                                        })}
         return config
     }
-    const series = options.data
+    const series = options.data.series
     
 
     if( locateThreshold ){
@@ -707,6 +708,24 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
                 fontSize: 8,
                 lineHeight: 1,
                 text: `${perc}%`,
+                verticalAlign:"top",
+                fill: color,
+                refreshCallback: options.imageCallback
+            })
+            t.x( renderWidth - t.width())
+            g.add(t)
+
+        }
+        if( showEndValue ){
+            const withValues = series.filter(d=>d)
+            const last = withValues[withValues.length - 1]
+
+            const t = new CustomText({
+                x: 0,
+                y: config.padding[1],
+                fontSize: 8,
+                lineHeight: 1,
+                text: formatNumber(last),
                 verticalAlign:"top",
                 fill: color,
                 refreshCallback: options.imageCallback
@@ -2381,7 +2400,8 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primiti
         if( rankBy === "title"){
             items = items.sort((a,b)=>(a.title ?? "").localeCompare(b.title ?? ""))
         }else{
-            items = items.filter(d=>d.referenceParameters?.[rankBy]).sort((a,b)=>b.referenceParameters[rankBy] - a.referenceParameters[rankBy])
+            const rankKey = rankBy === "raised" ? "funding" : rankBy
+            items = items.filter(d=>d.referenceParameters?.[rankKey]).sort((a,b)=>b.referenceParameters[rankKey] - a.referenceParameters[rankKey])
         }
 
     }
@@ -2513,7 +2533,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "set_summary_section"},
 })
 registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, function renderFunc(primitive, options = {}){
 
-    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, maxHeight: 3000, padding: [20,20,20,20], ...options}
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1600, maxHeight: 3000, padding: [20,20,20,20], ...options}
     let toggleWidth = 0
     if( options.toggles){
         toggleWidth = 26
@@ -2579,9 +2599,13 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             }
             return bestCandidate
         }
-        const title = findSection( "title")
-        const summary = findSection( ["description", "summary", "overview"])
-        const quotes = findSection( "quotes")
+        let title = findSection( "title") 
+        let summary = findSection( ["description", "summary", "overview"])
+        if( !title && !summary){
+            title = {content: data[0].heading}
+            summary = data[0]
+        }
+        const quotes = findSection( ["quotes", "examples"])
         const orgs = findSection( ["companies","organizations"])
         let y = config.padding[0]
         let spaceY = config.fontSize * 0.5
@@ -4148,7 +4172,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
         name:"inf_track primitive inf_keep"
     })
     if( g ){
-        let showName = true
+        let showName = false
 
         const logo = imageHelper( `/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`, {
             x: 0,
@@ -4731,8 +4755,8 @@ export function renderMatrix( primitive, list, options ){
     let showColumnHeaders = options.hideColumnHeader !== true && (columnExtents.length > 1)
 
     if( configName === "timeseries"){
-        globalData.maximumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a > c ? a : c, -Infinity) 
-        globalData.minimumValue = cells.map(d=>d.config.data).flat().reduce((a,c)=> a < c ? a : c, Infinity) 
+        globalData.maximumValue = cells.map(d=>d.config.data.series).flat().reduce((a,c)=> a > c ? a : c, -Infinity) 
+        globalData.minimumValue = cells.map(d=>d.config.data.series).flat().reduce((a,c)=> a < c ? a : c, Infinity) 
     }
 
     if( showColumnHeaders){

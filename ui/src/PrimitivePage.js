@@ -588,8 +588,8 @@ export function PrimitivePage({primitive, ...props}) {
                         closeButton={()=>setShowWorkingPane()}
                       
                       />}
-                    {false && showWorkingPane === "board" && <RouterTest/>}
-                    {true && showWorkingPane === "board" && <BoardViewer primitive={primitive}/>}
+                    {true && showWorkingPane === "board" && <RouterTest/>}
+                    {false && showWorkingPane === "board" && <BoardViewer primitive={primitive}/>}
                     {(showWorkingPane instanceof Object && showWorkingPane.type === "result" )  && 
                       <CollectionViewer 
                           closeButton={()=>setShowWorkingPane()}

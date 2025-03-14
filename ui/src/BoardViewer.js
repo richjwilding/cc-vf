@@ -904,7 +904,21 @@ let mainstore = MainStore()
                                                                         }
                                                                         return a}, {})
                 if( viewConfig?.renderType === "summary_section"){
-                    const company_candidates = MainStore().uniquePrimitives( items.map(d=>d.primitives.source.allItems.flatMap(d=>d.findParentPrimitives({referenceId: [29], first: true}))).flat(Infinity) )
+                    const sources = []
+                    const track = new Set()
+                    function expandSources(d){
+                        if( Object.keys(d.primitives ?? {}).includes("source")){
+                            for(const d2 of d.primitives.source.allItems){
+                                if( !track.has(d2.id)){
+                                    track.add(d2.id)
+                                    sources.push(d2)
+                                    expandSources(d2)
+                                }
+                            }
+                        }
+                    }
+                    items.forEach(d=>expandSources(d))
+                    const company_candidates = MainStore().uniquePrimitives( sources.flatMap(d=>d.findParentPrimitives({referenceId: [29], first: true}))).flat(Infinity) 
                     myState[stateId].renderData = {
                         company_candidates
                     }
@@ -1828,7 +1842,7 @@ export default function BoardViewer({primitive,...props}){
         if( !position){
             position = findSpace()
         }
-        myState[d.id] = {id: d.id}
+        myState[d.id] = {id: d.id, primitive: d}
         if( d.type === "element"){
             myState[d.id].inPage = true
             myState[d.id].page = myState[d.origin.id]

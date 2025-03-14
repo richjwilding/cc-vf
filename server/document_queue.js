@@ -540,7 +540,7 @@ async function doDataQuery( options ) {
                 if( config.onlyNew ){
                     console.log(`Filtering for only new items on ${primitive.plainId} (${items.length})`)
                     const existing = await primitiveChildren(primitive)
-                    const linked = existing.map(d=>d.primitives?.link).flat().filter(d=>d)
+                    const linked = existing.flatMap(d=>[d.primitives?.link, d.primitives?.source]).flat().filter((d,i,a)=>d && a.indexOf(d)===i)
                     console.log(`Have ${existing.length} existing / ${linked.length}`)
                     items = items.filter(d=>!linked.includes(d.id) )
                     console.log(`Filtered scepe to ${items.length} without results`)

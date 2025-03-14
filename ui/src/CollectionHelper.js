@@ -317,6 +317,9 @@ class CollectionUtils{
 
             function process(parameters, category){
                 function processParameter( param, parent, path = "" ){
+                    if(!parent[param]){
+                        return
+                    }
                     let  parameter = path.length > 0 ? `${path}.${param}` : param
                     const type = parent[param].type
 

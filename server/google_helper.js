@@ -811,7 +811,7 @@ export async function fecthUSDFXRate(currency){
 export async function getGoogleAdKeywordMetrics(keywords, req, retries = 3){
     const customerId = "3063204472" 
 
-    {
+/*    {
         if( !adconfig.currency ){
             const headers = {
                 'Authorization': `Bearer ${req.user.accessToken}`,
@@ -861,11 +861,11 @@ export async function getGoogleAdKeywordMetrics(keywords, req, retries = 3){
 
     if(! adconfig.fxRate ){
         console.log(`fx rate not known, assuming 1`)        
-    }
+    }*/
 
 
 
-    const url = `https://googleads.googleapis.com/v16/customers/${customerId}:generateKeywordHistoricalMetrics`
+    const url = `https://googleads.googleapis.com/v18/customers/${customerId}:generateKeywordHistoricalMetrics`
 
     const headers = {
         'Authorization': `Bearer ${req.user.accessToken}`,

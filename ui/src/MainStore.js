@@ -2532,17 +2532,21 @@ function MainStore (prims){
                     for(const d of Object.keys(category.ai.process.context.fields ?? [])){
                         const source = category.ai?.process?.context.fields[d]
                         if( source instanceof Object){
-                            if( source.referenceId){
+                            if( source.referenceId || source.target){
                                 let header = source.title
                                 let showCount = false
-                                const children = receiver.primitives.uniqueAllItems.filter(d=>d.referenceId === source.referenceId)
+                                let children = source.path ? receiver.primitives[source.target].uniqueAllItems : receiver.primitives.uniqueAllItems
+                                if( source.referenceId ){
+                                    children = children.filter(d=>d.referenceId === source.referenceId)
+                                }
                                 if( children && children.length > 0){
                                     if( out.length > 0){
                                         out += ".\n"
                                     }
                                     out += (header?.length > 0 ? `${header}:` : "") + children.map((d,i)=>{
-                                        let interim = `${(source.prefix + " ") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
-                                        for(const p of Object.keys(d.referenceParameters ?? {})){
+                                        let interim = `${(source.prefix ? source.prefix + " " : "") ?? ""}${showCount ? i + " - " : ""} ${d.title}`
+                                        let fields = source.fields ?? Object.keys(d.referenceParameters ?? {})
+                                        for(const p of fields){
                                             const val = [d.referenceParameters[p]].flat().filter(d=>d)
                                             if( val.length > 0){
                                                 interim += `\n${p}: ${val.join(", ")}`

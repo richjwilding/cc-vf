@@ -255,13 +255,16 @@ let mainstore = MainStore()
             }).flat())
             const itp = items.map(d=>d.itemsForProcessing).flat()
             let lookups = mainstore.uniquePrimitives([itp, itp.map(d=>d.primitives.directDescendants)].flat(Infinity))
-            lookups = [...items, ...lookups]
-            itemCountByType = {}
-            for(const d of lookups){
-              itemCountByType[d.referenceId] = (itemCountByType[d.referenceId] ?? 0) + 1
+            if( lookups.length > 0){
+
+              lookups = [...items, ...lookups]
+              itemCountByType = {}
+              for(const d of lookups){
+                itemCountByType[d.referenceId] = (itemCountByType[d.referenceId] ?? 0) + 1
+              }
+              const ids = lookups.map(d=>d.referenceId).flat().filter((d,i,a)=>a.indexOf(d) === i)
+              available = available.filter(d=>ids.includes(d.id))
             }
-            const ids = lookups.map(d=>d.referenceId).flat().filter((d,i,a)=>a.indexOf(d) === i)
-            available = available.filter(d=>ids.includes(d.id))
           }else{
            // available = []
           }

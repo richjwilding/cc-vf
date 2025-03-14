@@ -111,6 +111,14 @@ class RoundedArrow extends Shape {
       // Method to draw the rounded polyline
     _sceneFunc(ctx, shape) {
         let points = shape.points()
+        if( this.attrs.direct ){
+            const n = points.length
+            ctx.moveTo(points[0],points[1]);
+            ctx.lineTo(points[n-2],points[n-1]);
+
+            ctx.strokeShape(shape);
+            return
+        }
         roundCornersPath( points, ctx, this.attrs.radius)
         ctx.strokeShape(shape);
 
@@ -118,25 +126,30 @@ class RoundedArrow extends Shape {
             const n = points.length
             const dx = points[n - 2] - points[n - 4];
             const dy = points[n - 1] - points[n - 3];
+            const hyp = Math.hypot(dx,dy)
             const radians = (Math.atan2(dy, dx) + PI2) % PI2;
-            const length = this.pointerLength();
-            const width = this.pointerWidth();
-            ctx.save();
-            ctx.beginPath();
-            ctx.translate(points[n - 2], points[n - 1]);
-            ctx.rotate(radians);
-            ctx.moveTo(0, 0);
-            ctx.lineTo(-length, width / 2);
-            ctx.lineTo(-length, -width / 2);
-            ctx.closePath();
-            ctx.restore();
-            ctx.fillStrokeShape(this);
+            if( hyp > this.pointerLength()){
+
+                const length = this.pointerLength();
+                const width = this.pointerWidth();
+                ctx.save();
+                ctx.beginPath();
+                ctx.translate(points[n - 2], points[n - 1]);
+                ctx.rotate(radians);
+                ctx.moveTo(0, 0);
+                ctx.lineTo(-length, width / 2);
+                ctx.lineTo(-length, -width / 2);
+                ctx.closePath();
+                ctx.restore();
+                ctx.fillStrokeShape(this);
+            }
           }
 
       }
     }
 Factory.addGetterSetter(RoundedArrow, 'pointerLength', 10, getNumberValidator());
 Factory.addGetterSetter(RoundedArrow, 'pointerWidth', 10, getNumberValidator());
+Factory.addGetterSetter(RoundedArrow, 'direct', false)
 Factory.addGetterSetter(RoundedArrow, 'points', [], getNumberArrayValidator());
 Factory.addGetterSetter(RoundedArrow, 'pointerAtEnding', true);
 
