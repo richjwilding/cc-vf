@@ -21,7 +21,7 @@ const defaultWidthByCategory = {
 
 export const heatMapPalette = PrimitiveConfig.heatMapPalette
 
-export const categoryColors = [ "#4e79a7",
+export const categoryColors2 = [ "#4e79a7",
                                 "#f28e2c",
                                 "#e15759",
                                 "#76b7b2",
@@ -31,6 +31,23 @@ export const categoryColors = [ "#4e79a7",
                                 "#ff9da7",
                                 "#9c755f",
                                 "#bab0ab"]
+
+
+export const categoryColors_BRIGHT = [
+                                    '#1F77B4', '#FF7F0E', '#2CA02C', '#D62728', '#9467BD',
+                                    '#8C564B', '#E377C2', '#7F7F7F', '#BCBD22', '#17BECF',
+                                    '#AEC7E8', '#FFBB78', '#98DF8A', '#FF9896', '#C5B0D5'
+                                  ];
+export const categoryColors_MUTED = [
+    '#6B8E9E', '#D4A76A', '#8FBC8F', '#C85A5A', '#A48ABF',
+    '#B07F68', '#D6A5C7', '#A0A0A0', '#C4B76E', '#73A2A8',
+    '#B0C4DE', '#F4C2C2', '#BFD8B8', '#E6A19F', '#D0C4D6'
+  ];
+export const categoryColors = [
+    '#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F',
+    '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F', '#BAB0AC',
+    '#86BCB6', '#F4A261', '#D98880', '#A5A58D', '#C3C1E3'
+  ];
 
 export const tagColors =  {
     Blue: ["#dbeafe", "#bfdbfe", "#93c5fd", "#60a5fa", "#3b82f6", "#2563eb"],
@@ -763,14 +780,15 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
 
         if( primitive.renderConfig?.group_by === "row"){
             range = options.rowRange[options.rIdx]
-            title = options.rowTitles[options.rIdx]
+            title = options.colTitles[options.cIdx]
         }else if( primitive.renderConfig?.group_by === "col"){
             range = options.colRange[options.cIdx]
-            title = options.colTitles[options.cIdx]
+            title = options.rowTitles[options.rIdx]
         }
     }
 
     const colors = heatMapPalette.find(d=>d.name === (primitive?.renderConfig?.colors ?? "default"))?.colors ?? heatMapPalette[0].colors
+    const textColors = heatMapPalette.find(d=>d.name === (primitive?.renderConfig?.colors ?? "default"))?.text_colors ?? colors.map(d=>"black")
     const spread = range[1] - range[0] + 1
     
     
@@ -809,6 +827,7 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
             y: (config.height - 20) / 2,
             text: items.length,
             fontSize: 16,
+            fill: textColors[idx],
             width: config.width - config.padding[3] - config.padding[1],
             align:'center',
             height:20,
@@ -825,8 +844,11 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
             text: title,
             fontSize: 16,
             width: config.width - config.padding[3] - config.padding[1],
+            fill: textColors[idx],
+            wrap: true,
+            ellipses: true,
             align:'center',
-            height:20,
+            //height:20,
             bgFill: 'transparent',
             refreshCallback: options.imageCallback
         })
@@ -1811,6 +1833,12 @@ function baseGridRender( options, config){
         if( idx === config.columns){
             idx = 0
             x = config.padding[3] + config.spacing[1]
+            /*if( config.alignParts){
+                const namedParts = thisRow.flatMap(d=>d.find(d=>d.name().includes(config.alignParts)))
+                const names = namedParts.map(d=>d.name().split(" ").filter(d=>d.startsWith( config.alignParts +"_")))
+                console.log(namedParts)
+                console.log(names)
+            }*/
 
             if( config.alignHeight ){
                 const maxY = Math.max(...columnYs)
@@ -2528,7 +2556,7 @@ registerRenderer( {type: "categoryId", id: 82, configs: "default"}, function ren
     return categoryMaps[109]["default"](primitive, {...options, field:"description"})
 })
 registerRenderer( {type: "categoryId", id: 109, configs: "set_summary_section"}, function renderFunc(primitive, options = {}){
-    const config = {itemWidth: 600, minColumns: 1, spacing: [40,40], alignHeight: true, itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    const config = {alignParts: "section", itemWidth: 600, minColumns: 1, spacing: options.items?.length > 1 ? [40,40] : [0,0], alignHeight: true, itemPadding: [20,20,20,20], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     return baseGridRender(options, config)
 })
 registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, function renderFunc(primitive, options = {}){
@@ -2575,6 +2603,9 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             let bestScore = 0, bestCandidate
             function inner(target, start = data){
                 for(const candidate of start){
+                    if( candidate.subsections){
+                        inner(target,candidate.subsections)
+                    }
                     if( !candidate?.heading){
                         continue
                     }
@@ -2599,29 +2630,33 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             }
             return bestCandidate
         }
-        let title = findSection( "title") 
+        let title = findSection( ["title", "analysis title", "summary title"]) 
         let summary = findSection( ["description", "summary", "overview"])
         if( !title && !summary){
             title = {content: data[0].heading}
             summary = data[0]
         }
-        const quotes = findSection( ["quotes", "examples"])
+        const details = findSection( ["recurring topics", "themes"])
+        const quotes = findSection( ["quotes", "verbatim quotes", "examples", "evidence quotes"])
         const orgs = findSection( ["companies","organizations"])
+        const sentiment = findSection( ["overall sentiment","sentiment"])
         let y = config.padding[0]
-        let spaceY = config.fontSize * 0.5
+        let spaceY = config.fontSize * 1
 
         if( title ){
+            const titleText = title.content.replace(/^title\s*[-:]\s*/i,"")
             const t = new CustomText({
                 x: config.padding[3],
                 y,
                 fontSize: config.fontSize * 1.5,
                 fontFamily: "Poppins",
                 lineHeight: 1.3,
-                text: `**${title.content}**`,
+                text: `**${titleText}**`,
                 withMarkdown: true,
                 fill: '#334155',
                 wrap: true,
                 width: availableWidth,
+                name: `section section_title`
             })
             g.add(t)
             y += t.height() + spaceY
@@ -2630,7 +2665,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             const t = new CustomText({
                 x: config.padding[3],
                 y,
-                fontSize: config.fontSize * 1,
+                fontSize: config.fontSize * (details ? 1.2 : 1),
                 fontFamily: "Poppins",
                 lineHeight: 1.3,
                 text: summary.content,
@@ -2638,11 +2673,41 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
                 fill: '#334155',
                 wrap: true,
                 width: availableWidth,
+                name: `section section_summary`
+            })
+            g.add(t)
+            y += t.height() + spaceY
+        }
+        if( details ){
+            let content = details.content ? details.content.split(/\n/) : details.subsections?.map(d=>d.content)
+            
+            content = content.map(d => d.replace(/^(\s*-?\s*)([^:]+):/, (match, p1, p2) => {
+                if( p2.startsWith("[")){p2 = p2.slice(1)}
+                if( p2.endsWith("]")){p2 = p2.slice(0,-1)}
+                return `**${p2.trim()}**:`
+            })).join("\n")
+            const t = new CustomText({
+                x: config.padding[3],
+                y,
+                fontSize: config.fontSize * 1,
+                fontFamily: "Poppins",
+                lineHeight: 1.3,
+                text: content,
+                withMarkdown: true,
+                fill: '#334155',
+                wrap: true,
+                width: availableWidth,
+                name: `section section_details`
             })
             g.add(t)
             y += t.height() + spaceY
         }
         if( quotes ){
+            let content = (quotes.content ? quotes.content.split(/\n/) : quotes.subsections?.map(d=>d.content)).join("\n")
+            const regex = /\(?[Ff]ragments?:? ?(?:\d+(?:, ?\d+)*|\d+(?: and \d+)*|\d+)\)?/g;
+            
+            content = content.replace(regex, '').replace(/[ \t]{2,}/g, ' ').trim()    
+
             const t = new CustomText({
                 x: config.padding[3] * 2,
                 y,
@@ -2650,14 +2715,92 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
                 fontFamily: "Poppins",
                 fontStyle:"light",
                 lineHeight: 1.1,
-                text: quotes.content,
+                text: content,
                 withMarkdown: true,
                 fill: '#334155',
                 wrap: true,
                 width: availableWidth - (config.padding[3] * 3),
+                name: `section section_qoutes`
             })
             g.add(t)
             y += t.height() + spaceY
+        }
+        if( sentiment ){
+            y += spaceY
+            let ly = 0
+            const g2 = new Konva.Group({
+                x: config.padding[3],
+                y,
+                name: `section section_sentiment`
+            })
+            g.add(g2)
+            const t = new CustomText({
+                x: 0,
+                y: 0,
+                fontSize: config.fontSize * 1,
+                fontFamily: "Poppins",
+                lineHeight: 1.3,
+                text: "Sentiment",
+                withMarkdown: true,
+                fill: '#334155',
+                wrap: true,
+                width: availableWidth,
+            })
+            g2.add(t)
+            ly += t.height() + spaceY / 2
+            const steps =  ["overwhelmingly negative", "mostly negative", ["neutral", "mixed"], "mostly positive", "overwhelmingly positive"]
+            const stepText =  ["Overwhelmingly Negative", "Mostly Negative", "Neutral / Mixed", "Mostly Positive", "Overwhelmingly Positive"]
+            //const colors = ['#de736f', '#f1a341', '#7abbf7', '#4498f7','#96cd79']
+            const colors = ['#eeb9b7', '#f8d1a0', '#bcddfb', '#a2ccfb', '#cbe6bc']
+            const sentimentText = sentiment.content
+            const score = steps.findIndex(d=>{
+                return typeof(d) === "string" ? d === sentimentText : d.includes(sentimentText)
+            })
+            const stepWidth = availableWidth / steps.length 
+            const h = config.fontSize * 1.25
+            steps.forEach((d,i)=>{
+                g2.add(new Konva.Rect({
+                    x: stepWidth * i,
+                    y: ly,
+                    width: stepWidth,
+                    height: h,
+                    stroke: "#c2c2c2",
+                    fill: colors[i]
+                }))
+            })
+            ly += h + (score > -1 ? spaceY * 1 : spaceY * 0.5)
+            const t2 = new CustomText({
+                x: 0,
+                y: ly,
+                fontSize: config.fontSize * 1,
+                fontFamily: "Poppins",
+                lineHeight: 1.3,
+                text: score == -1 ? sentimentText : stepText[score],
+                withMarkdown: true,
+                fill: '#334155',
+                width: "auto",
+                align:"center",
+            })
+            if( score > -1 ){
+                const midX = ((score + 0.5) * stepWidth)
+                g2.add(t2)
+                t2.x( midX - t2.width() / 2)
+                g2.add(new Konva.Line({
+                    x: midX,
+                    y: ly - config.fontSize * 1.5,
+                    points: [
+                        0,0,
+                        config.fontSize / 2, config.fontSize,
+                        -config.fontSize / 2, config.fontSize
+                    ],
+                    closed: true,
+                    strokeWidth:0,
+                    fill: '#666',
+                }))
+            }
+            ly += t.height() + spaceY / 2
+            y += ly
+
         }
         if( orgs?.content){
             y += spaceY * 2
@@ -4495,6 +4638,7 @@ export function renderMatrix( primitive, list, options ){
 
         let w, h
         const widget = RenderPrimitiveAsKonva( primitive, {config: "widget", data: options.widgetConfig, imageCallback: options.imageCallback})
+        widget.name(widget.name() + " item_info")
         g.add( widget )
         w = widget.width()
         h = widget.height()
@@ -4850,7 +4994,41 @@ export function renderMatrix( primitive, list, options ){
         rowLabels = rowExtents.map((d,idx)=>{
             const cellConfig = cells.find(d=>d.rIdx === idx)?.config
             rowHeights[idx] = rowSize[idx] - textPadding[0] - textPadding[2] - cellConfig.padding[0] - cellConfig.padding[2]
-            if( options.axis?.row?.type === "icon"){
+            if( d.imageUrl ){
+                rowLabelAsText = false
+                const iconSize = 100
+                headerWidth = iconSize + textPadding[1] + textPadding[3] + cellConfig.padding[3] + cellConfig.padding[1]
+                const logo = new Konva.Group({
+                    x: cellConfig.padding[3] + textPadding[3],
+                    y: cellConfig.padding[0] + textPadding[0],
+                    width: iconSize,
+                    height: iconSize
+                })
+                logo.add( imageHelper( "/api/remoteImage?url=" + d.imageUrl, {
+                    x: iconSize * 0.1,
+                    y: 0,
+                    size: iconSize * 0.8,
+                    center: true,
+                    imageCallback: options.imageCallback,
+                    placeholder: options.placeholder !== false
+                }) )
+                logo.add( new CustomText({
+                    //fontFamily: "system-ui",
+                    fontSize: iconSize * 0.12,
+                    text: d.label  ?? "",
+                    wrap: true,
+                    align:"center",
+                    bgFill:"transparent",
+                   // verticalAlign:"middle",
+                    x: 0,
+                    y: iconSize * 0.9,
+                    width: iconSize,
+                    height: iconSize * 0.18,
+                    ellipsis: true,
+                    refreshCallback: options.imageCallback
+                }))
+                return logo
+            }else if( options.axis?.row?.type === "icon"){
                 rowLabelAsText = false
                 const iconSize = 100
                 headerWidth = iconSize + textPadding[1] + textPadding[3] + cellConfig.padding[3] + cellConfig.padding[1]
@@ -5007,6 +5185,54 @@ export function renderMatrix( primitive, list, options ){
 
 }
 
+function renderBarChart( segments, options = {}){
+    const config = {size: 20, ...options}
+
+    let r = config.size / 2
+    const g = new Konva.Group({
+        x: options.x ?? 0,
+        y: options.y ?? 0,
+        width: config.size,
+        height: config.size
+    })
+    const barWidth = config.size / segments.length
+    const barBase = config.size - 0.2
+    const barSize = barBase - 0.2
+    const maxValue = segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0)
+    const scale = barSize / maxValue 
+    let colors = options.colors ?? categoryColors
+
+
+    const fontSize = 8
+    let x = 0, idx = 0
+    for( const s of  segments){
+        const h = s.count * scale
+        var bar = new Konva.Rect({
+            x: x,
+            y: barBase - h,
+            width: barWidth,
+            height: h,
+            fill: s.color ?? colors[idx % colors.length],
+          });
+        g.add(bar)
+        const t = new CustomText({
+            x: x,
+            y: (barBase - h) - fontSize * 1.2,
+            fontSize: fontSize,
+            text: s.count,
+            align:"center",
+            fill: '#334155',
+            bgFill: 'transparent',
+            width: barWidth,
+            align: "center",
+            refreshCallback: options.imageCallback
+        })
+        g.add(t)
+        idx++
+        x += barWidth
+    }
+    return g
+}
 function renderPieChart( segments, options = {}){
     const config = {size: 20, ...options}
 
@@ -5085,6 +5311,8 @@ function renderSubCategoryChart( title, data, options = {}){
             const colArr = tagColorsArr[d.tag]
             d.color = colArr[idx % colArr.length]
         })
+    }else{
+        data = data.sort((a,b)=>b.count - a.count)
     }
 
     
@@ -5126,7 +5354,12 @@ function renderSubCategoryChart( title, data, options = {}){
         pieY = (config.fontSize * 2.5) + innerSpacing
     }
     const pieSize = (itemSize - innerPadding[3] - innerPadding[1]) * 0.95
-    sg.add( renderPieChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY, colors: colors}))
+    if( options.style ==="bar" || true){
+        sg.add( renderBarChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY, colors: colors}))
+    }else{
+
+        sg.add( renderPieChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY, colors: colors}))
+    }
 
     let ly = pieY + pieSize + (innerSpacing * 1.5) 
     if( !options.hideLegend){

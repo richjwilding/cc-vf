@@ -67,11 +67,32 @@ export class OrthogonalConnector{
             data
         })
     }
+    removeLink(data){
+        worker.postMessage({
+            type: "remove_link",
+            idx: this.idx,
+            data
+        })
+    }
     addShape(data){
         worker.postMessage({
             type: "add",
             idx: this.idx,
             data
+        })
+    }
+    addLink(data){
+        worker.postMessage({
+            type: "add_link",
+            idx: this.idx,
+            data
+        })
+    }
+    setFocus(f){
+        worker.postMessage({
+            type: "focus",
+            idx: this.idx,
+            f
         })
     }
     setScale(a, b){

@@ -687,7 +687,19 @@ class CollectionUtils{
             },
             "raw":(field)=>{
                 let out = interim.map((d)=>d[field]).flat().filter((v,idx,a)=>a.indexOf(v)===idx).sort()
-                return {labels: out, order: out, values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
+                const extents = {values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
+                if( axis.type === "parameter"){
+                    const hasImage = interim[0]?.primitive?.metadata?.parameters?.[axis.parameter]?.image
+                    if( hasImage ){
+                        extents.values.forEach(extent=>{
+                            const match = interim.find(d=>d[field] === extent.idx)
+                            if( match?.primitive ){
+                                extent.imageUrl = match.primitive.referenceParameters?.[hasImage]
+                            }
+                        })
+                    }
+                }
+                return extents
             },
             "boolean":(field)=>{
                 return {labels: ["True","False","Not specified"], order: [true, false , undefined], values: [

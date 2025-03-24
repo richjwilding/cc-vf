@@ -16,7 +16,7 @@ import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 import Konva from "konva";
 import { compareTwoStrings } from "./SharedTransforms";
                 
-export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
+export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "item_info", "widget", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
 const RENDERSUB = false//true
 
 function dropZoneToAxis(id){
@@ -822,7 +822,7 @@ let mainstore = MainStore()
                                 return {
                                     idx: d.idx,
                                     label: d.label,
-                                    tag: mainstore.primitive(d.idx).referenceParameters?.tag,
+                                    tag: mainstore.primitive(d.idx)?.referenceParameters?.tag,
                                     count: items.length,
                                     items
                                 }})
@@ -2136,7 +2136,7 @@ export default function BoardViewer({primitive,...props}){
                categoryList = [89]
             }else{
                 categoryList = [
-                    38, 130, 140, 131,142,118, 135, 109, 136, 137,132,133,
+                    38, 81, 130, 140, 131,142,118, 135, 109, 136, 137,132,133,
                     ...mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
                     ...(addToFlow ? [81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id)),
                 ].flat()

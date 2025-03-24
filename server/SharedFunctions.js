@@ -2305,7 +2305,7 @@ export async function getFilterName( scopeNode ){
 }
 
 export async function findParentPrimitivesOfType(primitive, types){
-    const candidates = Object.keys(primitive.parentPrimitives ?? {})
+    const candidates = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(d=>d !== "primitives.imports").length > 0)
     return await fetchPrimitives( candidates, {type: Array.isArray(types) ? {$in: types} : types} )
 }
 

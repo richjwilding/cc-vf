@@ -33,6 +33,7 @@ function getAllCombinations(axisValues) {
   }
 
 export async function getSegemntDefinitions( primitive, customAxis, config, withItems = false ){
+    try{
     if( !config ){
         config = await getConfig( primitive )
     }
@@ -128,7 +129,7 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
                     data = item
             }
 
-            if( data.length === 0){
+            if( data?.length === 0){
                 data = [undefined]
             }
 
@@ -179,6 +180,9 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
         
     }).filter(d=>d)
     return importConfigList
+}catch(error){
+    logger.error(`Error in getSegemntDefinitions`, error)
+}
 
 }
 
@@ -1747,7 +1751,55 @@ export async function summarizeWithQuery( primitive ){
 
                 let asList, outputList = []
                 if( primitiveConfig.split ){
-                    asList = nodeResult[0]?.content ? nodeResult.map(d=>({nodeResult: [d]})) : nodeResult.map(d=>({heading:d.heading, nodeResult: d.subsections}))
+                    if( nodeResult[0]?.content){
+                        const sectionCandidates = nodeResult.reduce((a,d)=>{
+                            a[d.heading] = (a[d.heading] ?? 0) + 1
+                            return a
+                        },{})
+                        if(Object.keys(sectionCandidates).length > 1 ){
+                            logger.info(`Results look to be fragmented - ${Object.keys(sectionCandidates).join(", ")} - joining`)
+                            let idx = 0, current, track = new Set()
+                            asList = []
+                            for(const entry of nodeResult){
+                                if( track.has( entry.heading) ){
+                                    asList.push(current)
+                                    current = undefined
+                                    track = new Set()
+                                }
+                                if( !current ){
+                                    idx++
+                                    current = {nodeResult: [], title: `Item ${idx}`}
+                                    console.log(`Creating section ${idx}`)
+                                }
+                                current.nodeResult.push( entry )
+                                console.log(`-- Adding section ${entry.heading}`)
+                                track.add( entry.heading)
+                            }
+                            if( current.nodeResult.length > 0){
+                                    asList.push(current)
+                            }
+
+                        }else{
+                            asList = nodeResult.map(d=>({nodeResult: [d]}))
+                        }
+                    }else{
+                        if( nodeResult[0].sections ){
+                            asList = nodeResult.map((d,i)=>({nodeResult: d.sections}))
+                        }else if( nodeResult[0].structure ){
+                            asList = nodeResult.map((d,i)=>({nodeResult: d.structure}))
+                        }else if( nodeResult[0].group && nodeResult[0].details){
+                            asList = nodeResult.map((d,i)=>({nodeResult: d.details}))
+                        }else if( nodeResult[0].subsections){
+                            asList = nodeResult.map((d,i)=>({heading:d.heading ?? `Section ${i}`, nodeResult: d.subsections}))
+                        }else{
+                            asList = nodeResult.map((d,i)=>({nodeResult: d}))
+                        }
+                    }                   
+                    if( !asList || asList.length === 0){
+                        console.log(`GOT EMPTY AFTER SPLIT`)
+                        console.log( nodeResult )
+                        console.log( nodeResult[0] )
+                    }
                 }else{
                     asList = [{nodeResult}]
                 }

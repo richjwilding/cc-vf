@@ -35,6 +35,12 @@ const heatMapPalette = [
             "#fc8c3c",
             "#f03b20",
             "#bd0026"
+        ],text_colors:[
+            "#222",
+            "#222",
+            "#222",
+            "#f2f2f2",
+            "#f2f2f2"
         ]
     },{
         title: "Green",
@@ -45,6 +51,12 @@ const heatMapPalette = [
             "#5ee9b5",
             "#00bc7d",
             "#007a55"
+        ],text_colors:[
+            "#222",
+            "#222",
+            "#222",
+            "#f2f2f2",
+            "#f2f2f2"
         ]
     },
     {
@@ -1006,15 +1018,19 @@ const PrimitiveConfig = {
                     data = scope.filter(d=>parentIds.includes(d))
                 }else if( resolvedFilterType === "segment_filter"){
                     data = lookups[idx].map(d=>{
-                        const imSections = d.referenceParameters?.importConfig.filter(d=>scope.includes(d.id))
-                        const alignSections = imSections.map(d=>{
-                            return d.filters.flatMap(d=>{
-                                //if(d.type == "parent" ){
-                                    return d.value
-                                //}
-                            }).filter(d=>d)
-                        })
-                        return alignSections.flat()
+                        const imSections = d.referenceParameters?.importConfig?.filter(d=>scope.includes(d.id))
+                        if( imSections){
+
+                            const alignSections = imSections.map(d=>{
+                                return d.filters.flatMap(d=>{
+                                    //if(d.type == "parent" ){
+                                        return d.value
+                                        //}
+                                    }).filter(d=>d)
+                                })
+                                return alignSections.flat()
+                        }
+                        return []
                     })                        
                     data = fastUnique(data)
                 }else if( resolvedFilterType === "parent"){

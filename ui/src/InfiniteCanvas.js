@@ -86,11 +86,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
 
     useEffect(() => {
+        cleanUpRouting()
         return () => {
-          console.log('Component unmounting, shutting down router');
             const router = myState.current.routing.router
             if (router && typeof router.shutdown === 'function') {
-                router.shutdown();
+                cleanUpRouting()
+                myState.current.routing = undefined
             }
         };
       }, []);
@@ -101,6 +102,17 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
     const chunkWidth = 800
     const chunkHeight = 800
+
+    function cleanUpRouting(){
+        if( myState.current?.routing?.router ){
+            myState.current.routing.router.shutdown();
+            if(myState.current.frames){
+                for(const frame of myState.current.frames){
+                    removeRoutingForFrame(frame)
+                }
+            }
+        }
+    }
 
     const frameData = (id)=>{
         if(!myState.current?.frames){
@@ -965,15 +977,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
     function rescaleLinks(){
         let scale = myState.current.viewport?.scale ?? 1
-        if( myState.current.routing ){
-            const linkScale = scale // Math.ceil(scale / 3 * 1000) / 1000
-            if( linkScale !== myState.current.routing.linkScale){
-                myState.current.routing.router.setScale(linkScale, linkScale)
-                myState.current.routing.router.route()
-                myState.current.routing.linkScale = linkScale
-            }
-
-        }
         let pw = linkArrowSize / scale
         
         if( myState.current.frameLinks ){
@@ -1024,19 +1027,22 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }*/
     function removeRoutingForFrame( frame ){
         if( frame.routing){
-            myState.current.routing.routerLinks = myState.current.routing.routerLinks.filter(d=>{
-                let [leftFull,rightFull] = d.id.split("~")
-                let [left, lPin] = leftFull.split(".")
-                let [right, rPin] = rightFull.split(".")
-                if( left === frame.id || right === frame.id){
-                    //myState.current.routing.router.deleteConnector( d.route )     
-                    return false
-                }
-                return true
-            })
-            myState.current.routing.router.removeShape({id: frame.id})
-            //for(const d of Object.values(frame.routing)){
-            //}
+            if( myState.current.routing?.routerLinks){
+                myState.current.routing.routerLinks = myState.current.routing.routerLinks.filter(d=>{
+                    let [leftFull,rightFull] = d.id.split("~")
+                    let [left, lPin] = leftFull.split(".")
+                    let [right, rPin] = rightFull.split(".")
+                    if( left === frame.id || right === frame.id){
+                        myState.current.routing.router.removeLink( d.id)
+                        return false
+                    }
+                    return true
+                })
+            }
+            if(myState.current.routing?.router){
+                myState.current.routing.router.removeShape({id: frame.id})
+            }
+            delete frame["routing"]
         }
     }
 
@@ -1046,6 +1052,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         let position = framePosition(fId)?.scene
 
         const pins = []
+
         if( frame.pins ){
 
             if( frame.pins.input ){
@@ -1122,9 +1129,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         for(const d of frameList.values()){
             const frame = myState.current.frames.find(d2=>d2.id === d)
-            removeRoutingForFrame(frame)
-            addRoutingForFrame(frame)
+            if( frame ){
+                removeRoutingForFrame(frame)
+                addRoutingForFrame(frame)
+            }
         }
+        myState.current.routing.didLinks = false
 
         refreshLinks()
     }
@@ -1162,7 +1172,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 // Define the graph with fixed node positions and edges
                 
                 for(const frame of myState.current.frames){
-                    if( !frame.routing ){
+                    if( !frame.routing){
                         addRoutingForFrame(frame)
                     }
                 }
@@ -1175,13 +1185,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     const left =  {id: target.left}
                     const right = {id: target.right}
                     
-                    if( left && right){
+                    if( left && right && myState.current.frames.find(d=>d.id === left.id) && myState.current.frames.find(d=>d.id === right.id)){
                         let leftPin = target.leftPin ?? 1
                         let rightPin = target.rightPin ?? 1
                         const id = `${leftName}.${leftPin}~${target.right}.${rightPin}` 
 
                         if( !myState.current.routing.routerLinks.find(d=>d.id===id)){
-                            myState.current.routing.routerLinks.push({
+                            const link = {
                                 id: id,
                                 pointA: {
                                     shape: left,
@@ -1193,7 +1203,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                     side: "left",
                                     distance: 0.5
                                 }
-                            })
+                            }
+                            if( myState.current.routing.didLinks ){
+                                myState.current.routing.router.addLink( link )
+                            }else{
+                                myState.current.routing.routerLinks.push(link)
+                            }
                         }
                         activeLinks.add(id)
                     }
@@ -1370,7 +1385,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             kLink.points(allPoints)
             kLink.pointerLength( pw )
             kLink.pointerWidth( pw )
-            kLink.direct( link.mode === 3)
+           // kLink.direct( link.mode === 3)
         }else{
             kLink = new RoundedArrow({
                 id: link.id,
@@ -1900,12 +1915,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             let fhx = Math.floor(((fx ) - (myState.current.flipping.last.fsx / myState.current.flipping.last.scale * scale) ) / tw) 
             let fhy = Math.floor(((fy ) - (myState.current.flipping.last.fsy / myState.current.flipping.last.scale * scale) ) / th) 
 
-            //let cx = Math.max(0,Math.floor(-tx / scale / chunkWidth)) * chunkWidth
-            //let cy = Math.max(0,Math.floor(-ty / scale / chunkHeight)) * chunkHeight
 
             let cx = Math.floor(-tx / scale / chunkWidth) * chunkWidth
             let cy = Math.floor(-ty / scale / chunkHeight) * chunkHeight
-
 
             const isZooming = myState.current.flipping.last.callScale !== scale
 
@@ -1952,8 +1964,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
            if( !isZooming ){
                 if(myState.current.flipping.last.fhx !== fhx || myState.current.flipping.last.fhy !== fhy){
-                    //console.log("FLIP", fx - myState.current.flipping.last.fsx, fhx - myState.current.flipping.last.fhx)
-                    
                     let q = quantizeFrame( fx, fy)
                     
                     myState.current.flipping.last.fsx = q[0]
@@ -1993,6 +2003,30 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     myState.current.transformCount = (myState.current.transformCount || 0) + 1
                     stageRef.current.position({x:-vx, y: -vy})
                     stageRef.current.batchDraw()
+
+                    if( myState.current.routing?.router){
+                        if( scale !== myState.current.routing.linkScale ){
+                            myState.current.routing.linkScale = scale 
+                            myState.current.routing.router.setScale(myState.current.routing.linkScale * 2 )
+                        }
+                        const blur = 50
+                        let w = myState.current.width * 2 / scale
+                        let h = myState.current.height * 2 / scale
+                        if( w < chunkWidth * 2){ 
+                            w = chunkWidth * 2
+                        }
+                        if( h < chunkHeight * 2){ 
+                            h = chunkHeight * 2
+                        }
+                        myState.current.routing.router.setFocus({
+                                left: cx, 
+                                top: cy, 
+                                width: w, 
+                                height: h,
+                                blur})
+                        myState.current.routing.router.route()
+                    }
+
                 }else if( hasChanged ){
                     requestAnimationFrame(()=>{
                         myState.current.frames.forEach((f)=>{
@@ -2236,9 +2270,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         dy = y - minY
                         cloneScale = scale 
                     }else if(isPin){
-                        const Avoid = myState.current.routing.avoid
-                        if( Avoid){
-
                             const sourcePinName = item.attrs.id
                             const [sourceItem, sourcePin] = sourcePinName.split("_")
                             const shapeForPin = addShapeToRouter( "pin" , x, y, x + 2, y +2, [{idx: 1, x: 0.5, y:0.5, dir: 15}])
@@ -2248,18 +2279,35 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                             const connectTo = pinDef.output ? "input" : "output"
                             
+                            /*
                             const leftConnEnd = new Avoid.ConnEnd(sourceShape, sourcePin)
                             const rightConnEnd = new Avoid.ConnEnd(shapeForPin, 1)
                             const connectorForPin = new Avoid.ConnRef(myState.current.routing.router);
                             connectorForPin.setSourceEndpoint(leftConnEnd);
                             connectorForPin.setDestEndpoint(rightConnEnd);
-                            connectorForPin.setCallback( renderLink, connectorForPin)
+                            connectorForPin.setCallback( renderLink, connectorForPin)*/
+
+                            const link = {
+                                id: "pin_drag",
+                                pointA:{
+                                    shape: {id: "pin"},
+                                    side: "right",
+                                    distance: 0.5
+                                },
+                                pointB:{
+                                    shape: {id: sourceItem},
+                                    side: "left",
+                                    distance: 0.1
+                                }
+                            }
                             
-                            myState.current.routing.routerLinks.push({
+                            myState.current.routing.router.addLink( link )
+
+                            /*myState.current.routing.routerLinks.push({
                                 id: "pin_drag",
                                 reverse: !pinDef.output,
                                 route: connectorForPin
-                            })
+                            })*/
 
                             const pinCache = []
                             for(const frame of myState.current.frames){
@@ -2280,11 +2328,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 sourcePin: pinDef.name,
                                 sourceItem,
                                 shapeForPin,
-                                connectorForPin,
+                                //connectorForPin,
                                 pinCache
                             }
                             console.log( myState.current.dragging )
-                        }
                     }else{
                         cloneScale = item.scaleX() * cloneScale
                         clone = item.clone()                    
@@ -2423,9 +2470,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         ])
                     
                     if( state.last ){
-                        myState.current.routing.routerLinks = myState.current.routing.routerLinks.filter(d=>d.id !== "pin_drag")
-                        myState.current.routing.router.deleteShape( myState.current.dragging.shapeForPin )
-                        myState.current.routing.router.deleteConnector( myState.current.dragging.connectorForPin )
+                       // myState.current.routing.router.removeLink( {id: "pin_drag"} )
+                        myState.current.routing.router.removeShape( {id: "pin"} )
 
 
                         if( myState.current.dragging.dropData ){

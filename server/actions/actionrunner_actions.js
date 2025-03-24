@@ -293,20 +293,25 @@ registerAction( "custom_query", undefined, async (primitive, action, options = {
         parentForScope = (await findParentPrimitivesOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
     }
 
-    if( thisCategory.type === "aggregator"){
-        await aggregateItems( parentForScope, primitive, options )
-    }else if( thisCategory.type === "comparator"){
-        await compareItems( parentForScope, primitive, options )
-    }else if( thisCategory.type === "ai_prompt"){
-        await QueueAI().runPromptOnPrimitive( primitive, options)
-    }else if( thisCategory.type === "iterator"){
-        await iterateItems( parentForScope, primitive, options )
-    }else  if( thisCategory.type === "lookup"){
-        await resourceLookupQuery( parentForScope, primitive, options )
-    }else if( config.useAxis && !options?.scope){
-        await queryByAxis( parentForScope, primitive, options )                
-    }else{
-        await QueueDocument().doDataQuery( primitive, {...action, ...options})
+    if( !parentForScope ){
+            await QueueDocument().doDataQuery( primitive, {...action, ...options})
+
+    }   else{
+        if( thisCategory.type === "aggregator"){
+            await aggregateItems( parentForScope, primitive, options )
+        }else if( thisCategory.type === "comparator"){
+            await compareItems( parentForScope, primitive, options )
+        }else if( thisCategory.type === "ai_prompt"){
+            await QueueAI().runPromptOnPrimitive( primitive, options)
+        }else if( thisCategory.type === "iterator"){
+            await iterateItems( parentForScope, primitive, options )
+        }else  if( thisCategory.type === "lookup"){
+            await resourceLookupQuery( parentForScope, primitive, options )
+        }else if( config.useAxis && !options?.scope){
+            await queryByAxis( parentForScope, primitive, options )                
+        }else{
+            await QueueDocument().doDataQuery( primitive, {...action, ...options})
+        }     
     }
 })
 registerAction( "run_categorizer", undefined, async (primitive, action, options, req)=>{

@@ -893,6 +893,7 @@ async function doDataQuery( options ) {
                                 if( options.inheritField ){
                                     extracts[options.inheritField] = options.inheritValue
                                 }
+                                const ids = typeof(d.ids) === "string" ? d.ids.split(",").map(d=>parseInt(d.trim())) : d.ids.map(d=>d)
                                 const newData = {
                                     workspaceId: primitive.workspaceId,
                                     parent: primitive.id,
@@ -906,7 +907,7 @@ async function doDataQuery( options ) {
                                             ...extracts,
                                             quote:d.quote
                                         },
-                                        source: d.ids?.map(d=>{return {primitive: d.id, part: d.part}})
+                                        source: ids?.map(d=>{return {primitive: d.id, part: d.part}})
                                     }
                                 }
                                 const newPrim = await createPrimitive( newData )
@@ -916,9 +917,9 @@ async function doDataQuery( options ) {
                                         await addRelationship(scopeNode.id, newPrim.id, "auto")
 
                                     }
-                                    if( d.ids ){
+                                    if( ids ){
 
-                                        const primitiveIds = d.ids.map(idx=>fragmentList[idx]?.id).filter((d,i,a)=>a.indexOf(d) === i )
+                                        const primitiveIds = ids.map(idx=>fragmentList[idx]?.id).filter((d,i,a)=>a.indexOf(d) === i )
                                         console.log(`need to link in ${primitiveIds.join(", ")} as ${options.linkAsChild ? "child" : "parent"}`)
                                         for(const id of primitiveIds){
                                             if( options.linkAsChild ){

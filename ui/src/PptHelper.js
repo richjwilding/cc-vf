@@ -55,10 +55,34 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
         maxX = maxX - minX
         maxY = maxY - minY
     }else{
-        rootScale = stage.scaleX() 
+        const thisScale = stage.scaleX() 
+        /*rootScale = stage.scaleX() 
         maxX = stage.width()  * rootScale
         maxY = stage.height() * rootScale
-        rootScale = 1
+        rootScale = 1*/
+        
+        for( const konvaNode of stage.children ){
+            const nodeClass = konvaNode.name().split(" ")
+            if( options.removeNodes && options.removeNodes.filter(d=>nodeClass.includes(d)).length > 0){
+                continue
+            }
+            const l = konvaNode.x() 
+            const t = konvaNode.y() 
+            if( l < minX){ minX = l}
+            if( t < minY){ minY = t}
+            const r = konvaNode.x() + konvaNode.width() * konvaNode.scaleX()
+            const b = konvaNode.y() + konvaNode.height() * konvaNode.scaleY()
+            if( r > maxX){ maxX = r}
+            if( b > maxY){ maxY = b}
+        }
+        /*minX *= thisScale
+        minY *= thisScale
+        maxX *= thisScale
+        maxY *= thisScale*/
+        rootScale =  1//thisScale
+        maxX -= minX
+        maxY -= minY
+        
 
     }
 
@@ -261,7 +285,8 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                                     breakLine: lastEndList ? true : false 
                                 }
                             if( bulletNeedsFlushing && lastIndent ){
-                                options.bullet = {indent: (fontScale * konvaNode.fontSize() * 0.4).toFixed(3)}
+                                //options.bullet = {indent: (fontScale * konvaNode.fontSize() * 0.4).toFixed(3)}
+                                options.bullet = {indent: (useFontSize * 0.4).toFixed(3)}
                                 options.indentLevel = lastIndent 
                             }
                             stack.push({
@@ -292,6 +317,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     tIdx++
                 }
                 if( agg.length > 0){
+                    const useFontSize = (lastLarge ?  largeFontSize : fontSize)
                     let options = {
                             paraSpaceBefore: spacingBefore,
                             paraSpaceAfter: spacingAfter,
@@ -299,8 +325,9 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             fontSize: (lastLarge ?  largeFontSize : fontSize).toFixed(3),
                             breakLine: lastEndList ? true : false 
                         }
-                    if( (lastBullet ?? bulletNeedsFlushing) && lastIndent ){
-                        options.bullet = {indent: (fontScale * konvaNode.fontSize() * 0.4).toFixed(3)}
+                    if( (lastBullet || bulletNeedsFlushing) && lastIndent ){
+                        //options.bullet = {indent: (fontScale * konvaNode.fontSize() * 0.4).toFixed(3)}
+                        options.bullet = {indent: (useFontSize * 0.4).toFixed(3)}
                         options.indentLevel = lastIndent 
                     }
                     stack.push({
@@ -543,11 +570,11 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 if( r === undefined || x > r){r = x}
                 if( b === undefined || y > b){b = y}
             }
-            console.log(nodes)
-            console.log(l,t,r,b)
             const sx = r-l
             const sy = b-t
-            console.log(sx,sy)
+            if( konvaNode.closed ){
+                nodes.push(nodes[0])
+            }
 
             const outNodes = nodes.map(d=>({x: (d[0] - l) * thisScale * scale, y: (d[1] - t) * thisScale *  scale }))
             console.log(outNodes)
@@ -557,7 +584,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 y: ry + (t * scale * thisScale),
                 w: sx * scale * thisScale,
                 h: sy * scale * thisScale,
-                fill: gradientFill,
+                fill: gradientFill ?? konvaNode.closed() ? toHex(konvaNode.fill()) :  undefined,
                 line: konvaNode.strokeEnabled() ? { color: toHex(konvaNode.stroke()), width: konvaNode.strokeWidth() } : undefined,
                 points: outNodes
             });
@@ -575,7 +602,11 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             }
         }
     }else{
-        processNode(stage, 0, 0, rootScale, true)
+        //processNode(stage, 0, 0, rootScale, true)
+        for(const child of stage.children){
+            processNode( child, -minX + (slidePadding[3] / gScale), -minY + (slidePadding[0] / gScale), rootScale )
+            //processNode( child, -minX , -minY , rootScale )
+        }
     }
     if( options.title ){
         slide.addText(options.title, {

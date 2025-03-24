@@ -418,6 +418,7 @@ getAverageColor(ctx, width, height) {
         url = 'data:image/svg+xml;utf8,' + encodeURIComponent( url )
       }
   
+      img.crossOrigin = 'Anonymous';
       img.src = url
     });
   }

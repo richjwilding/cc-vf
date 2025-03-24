@@ -1671,9 +1671,9 @@ export async function processQueue(job){
                                         workspaceId: primitive.workspaceId,
                                         functionName:"categorize_evaluate",
                                         opener,
-                                        output: runInBatch ? "Be very careful in your assessment. Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed, a 'ratonale' field with a 10 word explanation for your assessment, and a field called 'likelihood' set to your assessment for that item.  Do not include anything other than the json object in the response."
+                                        output: runInBatch ? "Be very careful in your assessment. Provide the result as a json object called 'results' containing an array with each entry being a json object with a field called 'id' set to the number of the item assessed, a 'rationale' field with a 10 word explanation for your assessment, and a field called 'likelihood' set to your assessment for that item.  Do not include anything other than the json object in the response."
                                                             : `Provide the result as a json object called 'results' waith the following structure: 
-                                                    {likelihood:<<your assessment for this item using the scale provided>>, ratonale:<<10 word explanation for your assessment>>}`,
+                                                    {likelihood:<<your assessment for this item using the scale provided>>, rationale:<<10 word explanation for your assessment>>}`,
                                         field: "results",
                                         prompt,
                                         engine: primitiveConfig.engine ?? "gpt4p",
@@ -1695,23 +1695,26 @@ export async function processQueue(job){
                                             if( !resultCache[d.likelihood] ){
                                                 console.log(`no items for ${d.likelihood}`)
                                             }else{
-
                                                 resultCache[d.likelihood].rationale[list[d.id]?.id] = d.rationale
                                             }
                                         })
 
                                         for(const d of result){
-                                            const item = list[d.id]
-                                            let category = resultCache[d.likelihood]
-                                            if(!d.rationale){
-                                                console.log(`No rationale for ${item.id}`)
-                                                console.log(d)
-                                            }
-                                            if( !category ){
-                                                console.log(`WARN: couldnt align`, d)
-                                            }
-                                            if( item && category){
-                                                category.ids.push(item.id)
+                                            if( d ){
+                                                const item = list[d.id]
+                                                let category = resultCache[d.likelihood]
+                                                if(!d.rationale){
+                                                    console.log(`No rationale for ${item.id}`)
+                                                    console.log(d)
+                                                }
+                                                if( !category ){
+                                                    console.log(`WARN: couldnt align`, d)
+                                                }
+                                                if( item && category){
+                                                    category.ids.push(item.id)
+                                                }
+                                            }else{
+                                                console.log(`Got empty result`)
                                             }
                                         }
                                     }

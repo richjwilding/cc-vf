@@ -282,6 +282,9 @@ function makePt(x, y) {
     contains(p) {
       return p.x >= this.left && p.x <= this.right && p.y >= this.top && p.y <= this.bottom;
     }
+    within(p) {
+      return p.x > this.left && p.x < this.right && p.y > this.top && p.y < this.bottom;
+    }
   
     inflate(horizontal, vertical, snap) {
       if( snap !== undefined){
@@ -601,6 +604,7 @@ function makePt(x, y) {
     const spots = [];
     const seen = new Set();
     const obsLen = obstacles.length;
+
   
     function addPoint(p) {
         for (const ob of obstacles) {
@@ -610,6 +614,7 @@ function makePt(x, y) {
         }
         spots.push(p);
     }
+    
   
     // 1. Add intersections (vertical x, horizontal y)
     for (const x of verticals) {
@@ -870,7 +875,7 @@ function makePt(x, y) {
           }
   
           // Check for collision at the candidate position.
-          if (canAdd(candidate, A)){
+          if (canAdd(candidate, A) && canAdd(candidate, D)){
               // Replace B and C with the candidate.
               result.splice(i + 1, 2, candidate);
               changed = true;
@@ -898,7 +903,7 @@ function makePt(x, y) {
     let modified = true;
     while (modified) {
       modified = false;
-      for (let i = 0; i <= simplified.length - 5; i++) {
+      for (let i = 1; i <= simplified.length - 6; i++) {
         const A = simplified[i];
         const B = simplified[i + 1];
         const C = simplified[i + 2];
@@ -1090,6 +1095,11 @@ function makePt(x, y) {
       this.pathCache = new Map();
       this.scale = options.scale ? (options.scale  / 2) : 1
 
+      if(options.focus){
+        this.focus = options.focus
+        this.focus.r = Rectangle.fromRect(this.focus)
+      }
+
         this.debug = options.debug
 
 
@@ -1102,11 +1112,17 @@ function makePt(x, y) {
       return this.shapes
     }
     setupBase(){
-      const sz = (this.shapeMargin * 2) / this.scale
       this.verticals = new Set();
       this.horizontals = new Set();
       for (const b of Object.values(this.inflatedRects)) {
-
+        let scale = this.scale
+        if( this.focus ){
+          if( !this.focus.r.intersects(b)){
+            scale = this.focus.blur
+          }
+        }
+        
+        const sz = (this.shapeMargin * 2) / scale
         this.verticals.add(Math.floor(b.left / sz) * sz);
         this.verticals.add(Math.ceil(b.right / sz) * sz);
         this.horizontals.add(Math.floor(b.top / sz) * sz);
@@ -1117,7 +1133,15 @@ function makePt(x, y) {
     }
     inflateShape(shape){
       let shapeMargin = this.shapeMargin / (this.scale * 2 )
-      return Rectangle.fromRect(shape).inflate(shapeMargin, shapeMargin)
+      const rect = Rectangle.fromRect(shape)
+      if( this.focus && this.scale){
+        if( !rect.intersects(this.focus.r) ){
+          const newMargin = this.shapeMargin / (this.focus.blur * 2 )
+          shapeMargin = newMargin
+
+        }
+      }
+      return rect.inflate(shapeMargin, shapeMargin)
     }
     inflateShapes(){
       this.inflatedRects = Object.values(this.shapes).reduce((a,d) => {a[d.id] = this.inflateShape(d); return a}, {})
@@ -1184,7 +1208,7 @@ function makePt(x, y) {
 
       if( existing ){
         this.links = this.links.filter(d=>{
-          if( d.pointA.shape === existing || d.pointB.shape === existing){
+          if( d.pointA.shape.id === shape.id || d.pointB.shape.id === shape.id){
             const key = OrthogonalConnector.getConnectionKey(d);
             console.log(`REMOVE LINK ${key}`)            
             this.pathCache.delete(key)
@@ -1230,6 +1254,16 @@ function makePt(x, y) {
       this.setupBase()
     }
     
+    removeLink(id){
+      if( this.links ){
+        this.links= this.links.filter(d=>d.id !== id)
+      }
+    }
+    addLink(link){
+      if( this.links ){
+        this.links.push( link )
+      }
+    }
   
 
     static getConnectionKey({ id, pointA, pointB }) {
@@ -1244,9 +1278,26 @@ function makePt(x, y) {
   
 
     static route(links, target) {
-      if(target.rescale ){
-        target.scale = (target.rescale.a / 2)
-        console.log(`RESCALED ROUTE = ${target.scale}`)
+      let forceRedo = false
+      if(target.rescale || target.refocus){
+        if( target.rescale ){
+          forceRedo = true
+          target.scale = (target.rescale.a / 2)
+          if(target.scale > 1){
+            target.scale = 1
+          }
+          if( target.focus){
+            target.focus.blur = target.scale / 100 
+          }            
+          delete target["rescale"]
+        }
+        if( target.refocus ){
+          forceRedo = true
+          target.focus = target.refocus
+          target.focus.r = Rectangle.fromRect(target.focus)
+          target.focus.blur = target.scale / 100 
+          delete target["refocus"]
+        }
         target.inflateShapes()
         target.setupBase()
       }
@@ -1260,47 +1311,68 @@ function makePt(x, y) {
       
       let shapeMargin = target.shapeMargin / (target.scale * 2 )
       
-      //const inflatedRects = Object.values(target.inflatedRects)
+      const inflatedRects = Object.values(target.inflatedRects)
       const rects = Object.values(target.shapes).map(d=>Rectangle.fromRect(d))
   
-      // Curated bounds to stick to
-      // Add edges to rulers
       let verticals = [...target.verticals]
       let horizontals = [...target.horizontals]
 
       const vs = new Set(verticals)
       const hs = new Set(horizontals)
 
-      //const keepPoints = []
       const shapesWithConnectors = []
       const shapeTracker = new Set()
       const termPoints = {}
-      function makePt(x, y) {
-        x = target.scale === 1 ? x : (Math.floor(x * target.scale) / target.scale)
-        y = target.scale === 1 ? y : (Math.floor(y * target.scale) / target.scale)
+      function makePt(x, y, scale) {
+        x = scale === 1 ? x : (Math.floor(x * scale) / scale)
+        y = scale === 1 ? y : (Math.floor(y * scale) / scale)
         return { x, y };
       }
-      function computePt(p, side) {
+      function computePt(p, side, scale) {
         const b = Rectangle.fromRect(p.shape);
         switch (side ?? p.side) {
           case "bottom":
-            return makePt(b.left + b.width * p.distance, b.bottom);
+            return makePt(b.left + b.width * p.distance, b.bottom, scale);
           case "top":
-            return makePt(b.left + b.width * p.distance, b.top);
+            return makePt(b.left + b.width * p.distance, b.top, scale);
           case "left":
-            return makePt(b.left, b.top + b.height * p.distance);
+            return makePt(b.left, b.top + b.height * p.distance, scale);
           case "right":
-            return makePt(b.right, b.top + b.height * p.distance);
+            return makePt(b.right, b.top + b.height * p.distance, scale);
         }
       }
       
       for(const opts of links){
         const { id, pointA, pointB } = opts;
         const key = this.getConnectionKey(opts)
-        const shapeA = Rectangle.fromRect(target.shapes[pointA.shape.id])
-        const shapeB = Rectangle.fromRect(target.shapes[pointB.shape.id])
+        const _shapeA = target.shapes[pointA.shape.id]
+        const _shapeB = target.shapes[pointB.shape.id]
+        if(!_shapeA  ){
+          console.warn(`Cant find ${pointA.shape.id} for routing`)
+        }
+        if(!_shapeB  ){
+          console.warn(`Cant find ${pointB.shape.id} for routing`)
+        }
+        if( !_shapeA || !_shapeB){
+          continue 
+        }
+        const shapeA = Rectangle.fromRect(_shapeA)
+        const shapeB = Rectangle.fromRect(_shapeB)
+        //const shapeA = Rectangle.fromRect(target.shapes[pointA.shape.id])
+        //const shapeB = Rectangle.fromRect(target.shapes[pointB.shape.id])
 
-        const innerMargin = 0//(target.shapeMargin - 1) / (target.scale * 2 )
+        let scale = target.scale
+        if( target.focus ){
+          if(!(shapeA.intersects(target.focus.r) || shapeB.intersects(target.focus.r))){
+            scale = target.focus.blur
+          }
+        } 
+        if( id === "pin_drag"){
+          console.log(`Pin focus = ${scale}`)
+        }
+
+        /*
+        const innerMargin = (target.shapeMargin - 1) / (target.scale * 2 )
         let inflatedA = shapeA.inflate(innerMargin, innerMargin);
         let inflatedB = shapeB.inflate(innerMargin, innerMargin);
     
@@ -1317,7 +1389,7 @@ function makePt(x, y) {
         if( !shapeTracker.has( pointB.shape) ){
           shapeTracker.add( pointB.shape)
           shapesWithConnectors.push(inflatedB)
-        }
+        }*/
 
 
         termPoints[key] = {a:[], b:[], oa:[], ob:[]}
@@ -1338,7 +1410,7 @@ function makePt(x, y) {
         let termination = "a"
         for(const point of [pointA, pointB]){
           for(const side of [point.side].flat()){
-            const p = computePt({...point, shape: target.shapes[point.shape.id]}, side);
+            const p = computePt({...point, shape: target.shapes[point.shape.id]}, side, scale);
 
             if (isVerticalSide(side)) {
               addVertical(p.x);
@@ -1356,22 +1428,22 @@ function makePt(x, y) {
     
             switch (side) {
               case "top":
-                const rt = Math.floor((p.y - shapeMargin) * target.scale) / target.scale
+                const rt = Math.floor((p.y - shapeMargin) * scale) / scale
                 add(p.x, rt);
                 addHorizontal(rt);
                 break;
               case "right":
-                const rr = Math.ceil((p.x + shapeMargin) * target.scale) / target.scale
+                const rr = Math.ceil((p.x + shapeMargin) * scale) / scale
                 add(rr, p.y);
                 addVertical(rr, true);
                 break;
               case "bottom":
-                const rb = Math.ceil((p.y + shapeMargin) * target.scale) / target.scale
+                const rb = Math.ceil((p.y + shapeMargin) * scale) / scale
                 add(p.x, rb);
                 addHorizontal(rb, true);
                 break;
               case "left":
-                const rl = Math.floor((p.x - shapeMargin) * target.scale) / target.scale
+                const rl = Math.floor((p.x - shapeMargin) * scale) / scale
                 addVertical(rl);
                 add(rl, p.y);
                 break;
@@ -1381,13 +1453,19 @@ function makePt(x, y) {
         }
       }
   
-      // Sort rulers
       verticals.sort((a, b) => a - b)
       horizontals.sort((a, b) => a - b)
   
-      const blocksToClear = []//inflatedRects
+      const terminations = Object.values(termPoints).flatMap(d=>[d.a,d.b]).flat()
+      const blocksToClear = Object.keys(target.shapes).map(d=>{
+        const inflated = target.inflatedRects[d]
+        if( terminations.some(d=>inflated.contains(d))){
+          return Rectangle.fromRect(target.shapes[d])
+        }
+        return inflated
+      })
   
-      const spots = rulersToSpotsFull(verticals, horizontals,  [...blocksToClear, ...shapesWithConnectors], 5 / target.scale);
+      const spots = rulersToSpotsFull(verticals, horizontals,  blocksToClear, 100 )/// target.scale);
       
       this.byproduct.spots = spots;
       this.byproduct.vRulers = verticals;
@@ -1401,24 +1479,34 @@ function makePt(x, y) {
       const { graph, connections } = createGraph(spots);
       this.byproduct.connections = connections;
       
-      console.log(`Spots = ${spots.length} verticals = ${verticals.length}`)
       const paths = []
       for(const link of links){
         const key = this.getConnectionKey(link);
-        const shapeA = Rectangle.fromRect(target.shapes[link.pointA.shape.id])
-        const shapeB = Rectangle.fromRect(target.shapes[link.pointB.shape.id])
+        const _shapeA = target.shapes[link.pointA.shape.id]
+        const _shapeB = target.shapes[link.pointB.shape.id]
+        if(!_shapeA  ){
+          console.warn(`Cant find ${link.pointA.shape.id} for routing`)
+        }
+        if(!_shapeB  ){
+          console.warn(`Cant find ${link.pointB.shape.id} for routing`)
+        }
+        if( !_shapeA || !_shapeB){
+          continue 
+        }
+        const shapeA = Rectangle.fromRect(_shapeA)
+        const shapeB = Rectangle.fromRect(_shapeB)
 
           const usablePoints = termPoints[key].ob.filter(d=>!shapeA.contains(d))
           if( usablePoints.length === 0){
-            console.log(`SKIPPING`)
+           // console.log(`SKIPPING`)
             paths.push({id: key, updated: true,path: [], mode: 4});
             continue
           }
 
         let cached
-        if (target.pathCache.has(key)) {
+        if (!forceRedo && target.pathCache.has(key)) {
           cached = target.pathCache.get(key);
-          if ( !target.rescale && !cached.redo){
+          if ( !cached.redo){
             continue;
           }
         }
@@ -1509,7 +1597,6 @@ function makePt(x, y) {
         
         paths.push({id: key, updated: true,path: externalPath, mode: bestMode});
       }
-      delete target["rescale"]
       return paths
     }
   }
@@ -1522,17 +1609,31 @@ function makePt(x, y) {
     if(data.type === "create"){
       classTracker[data.idx] = new OrthogonalConnector(data.options)
     }else if(data.type === "destroy"){
+      if( !classTracker[data.idx]){return}
       delete classTracker[data.idx]
     }else if(data.type === "move"){
+      if( !classTracker[data.idx]){return}
       classTracker[data.idx].moveShape(data.id, data.position)
+    }else if(data.type === "remove_link"){
+      if( !classTracker[data.idx]){return}
+      classTracker[data.idx].removeLink(data.data)
     }else if(data.type === "remove"){
+      if( !classTracker[data.idx]){return}
       classTracker[data.idx].removeShape(data.data)
     }else if(data.type === "add"){
+      if( !classTracker[data.idx]){return}
       classTracker[data.idx].addShape(data.data)
+    }else if(data.type === "add_link"){
+      if( !classTracker[data.idx]){return}
+      classTracker[data.idx].addLink(data.data)
     }else if(data.type === "setScale"){
-      console.log(`RESCALED request = ${data.a}`)
+      if( !classTracker[data.idx]){return}
       classTracker[data.idx].rescale = {a: data.a, b: data.b}
+    }else if(data.type === "focus"){
+      if( !classTracker[data.idx]){return}
+      classTracker[data.idx].refocus = data.f
     }else if(data.type === "route"){
+      if( !classTracker[data.idx]){return}
       console.time("route")
       const paths = OrthogonalConnector.route(data.options.links, classTracker[data.idx])
       console.timeEnd("route")

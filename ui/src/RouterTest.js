@@ -7,6 +7,7 @@ import { OrthogonalConnector } from "./router";
 let move = undefined, dx, dy, t = 0
 let wasDrag = false
 const s = 0.04
+let focus = {left: 10, top: 1000, width: 10000, height: 10000, blur: 0.02}
     let paths = {}
 
 export default function RouterTest(){
@@ -721,7 +722,8 @@ export default function RouterTest(){
             shapeMargin: 10,
             globalBoundsMargin: 10,
             globalBounds: {left: 0, top: 0, width: 1500, height: 1500},
-            scale: s,
+            focus,
+            scale: 1,
             debug: true,
             renderCallback,
         })
@@ -3119,7 +3121,7 @@ export default function RouterTest(){
         context.fillRect(-200 / s, -200/s, 1400 / s, 1400 / s);
         
         context.lineWidth = 1/s
-        if( true){
+        if( true ){
 
             
             context.strokeStyle ="#e2e2e2"
@@ -3144,6 +3146,12 @@ export default function RouterTest(){
             }
             }
             
+            if( focus){
+                context.strokeStyle ="red"
+                context.lineWidth = 5/s
+                context.strokeRect(focus.left, focus.top, focus.width, focus.height);
+                context.lineWidth = 1/s
+            }
             context.strokeStyle ="purple"
             
             // Draw shapes
@@ -3232,6 +3240,17 @@ export default function RouterTest(){
                 //setTarget({left: event.pageX - rect.x, top: event.pageY - rect.y})
                 const left = (event.pageX - rect.x - 200)/s
                 const top = (event.pageY - rect.y - 200)/s 
+                if(focus){
+                    
+                    focus = {
+                        left: left - focus.width / 2,
+                        top: top - focus.height / 2,
+                        width: focus.width,
+                        height: focus.height,
+                        blur: focus.blur
+                    }
+                    router.focus(focus)
+                }
                 router.moveShape(move, {
                     left: left - dx,
                     top: top - dy

@@ -63,8 +63,7 @@ Each section of the of the output should be an element of an array. If a section
                         type: what format the content should be (one of markdown formatted bullet list, markdown formatted string, number, boolean, markdown formatted table),
                     } 
 
-                    
-
+                    Take note of any instructions from the user about what constitutes a single part of your answer and / or what to group , and ensure the structure aligns to it by nesting items where appropriate 
                    
 
                     Here is the future task::`.replaceAll(/\s+/g," ")
