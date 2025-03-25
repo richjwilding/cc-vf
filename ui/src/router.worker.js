@@ -429,20 +429,27 @@ function makePt(x, y) {
     }
 
     add(p) {
-      const key = this._key(p);
+      //const key = this._key(p);
+      const key = (p.x * 2) * 0x100000000 + (p.y * 2);
       if (!this.index.has(key)) {
+
         this.index.set(key, new PointNode(p));
       }
     }
   
     // Retrieve the node for a given point.
     get(p) {
-      return this.index.get(this._key(p)) || null;
+      const key = (p.x * 2) * 0x100000000 + (p.y * 2);
+      return this.index.get(key) || null;
     }
   
     // Check if the graph contains a point.
     has(p) {
-      return this.index.has(this._key(p));
+      /*if( p._key ){
+        return this.index.has(p._key);
+      }*/
+      const key = (p.x * 2) * 0x100000000 + (p.y * 2);
+      return this.index.has(key);
     }
   
     getLowestDistanceNode(unsettledNodes) {
@@ -578,13 +585,14 @@ function makePt(x, y) {
     directionOfNodes(a, b) {
       return this.directionOf(a.data, b.data);
     }
-    connectBoth(a, b) {
+    connectBoth(nodeA, nodeB) {
+    /*connectBoth(a, b) {
       const nodeA = this.get(a);
-      const nodeB = this.get(b);
+      const nodeB = this.get(b);*/
       if (!nodeA || !nodeB) {
         throw new Error(`A point was not found`);
       }
-      const w = distance(a, b);
+      const w = distance(nodeA.data, nodeB.data);
       //nodeA.adjacentNodes.set(nodeB, w);
       //nodeB.adjacentNodes.set(nodeA, w);
       nodeA.addNeighbor(nodeB, w);
@@ -600,11 +608,8 @@ function makePt(x, y) {
     return side === "top" || side === "bottom";
   }
   
-  function rulersToSpotsFull(verticals, horizontals,  obstacles = [], midThresh) {
+  /*function rulersToSpotsFull(verticals, horizontals,  obstacles = [], midThresh) {
     const spots = [];
-    const seen = new Set();
-    const obsLen = obstacles.length;
-
   
     function addPoint(p) {
         for (const ob of obstacles) {
@@ -684,35 +689,157 @@ function makePt(x, y) {
     hotXs.sort((a, b) => a - b);
     hotYs.sort((a, b) => a - b);
   
-    const inHotIndex = (p) => graph.has(p);
+    //const inHotIndex = (p) => graph.has(p);
   
     for (let i = 0; i < hotYs.length; i++) {
       for (let j = 0; j < hotXs.length; j++) {
         const b = makePt(hotXs[j], hotYs[i]);
   
-        if (!inHotIndex(b)) continue;
+        if (!graph.has(b)) continue;
   
         if (j > 0) {
           const a = makePt(hotXs[j - 1], hotYs[i]);
-          if (inHotIndex(a)) {
+          if (graph.has(a)) {
             graph.connectBoth(a, b);
-            //connections.push([a,b])
           }
         }
   
         if (i > 0) {
           const a = makePt(hotXs[j], hotYs[i - 1]);
-          if (inHotIndex(a)) {
+          if (graph.has(a)) {
             graph.connectBoth(a, b);
-          //  connections.push([a,b])
           }
         }
       }
     }
   
     return { graph, connections };
-  }
+  }*/
+
+    function rulersToSpotsAndGraph(verticals, horizontals, obstacles = [], midThresh, hotXsSet, hotYsSet) {
+      const graph = new PointGraph(); // Reuse your PointGraph class
+      const oLen = obstacles.length;
+      function addPoint(x, y, mid) {
+        for (let i = 0; i < oLen; i++) {
+          const ob = obstacles[i];
+          if (x >= ob.left && x <= ob.right && y >= ob.top && y <= ob.bottom) {
+            return;
+          }
+        }
+          const p = mid === undefined ? { x, y } : { x, y, mid };
+        graph.add(p); // Add to the graph immediately.
+        hotXsSet.add(p.x)
+        hotYsSet.add( p.y )
+      }
+
+      const vLen = verticals.length;
+      const hLen = horizontals.length;
+    
+      for (let i = 0; i < vLen; i++) {
+        const x = verticals[i];
+        for (let j = 0; j < hLen; j++) {
+          addPoint(x, horizontals[j]);
+        }
+      }
+    
+      // 2. Add horizontal edge midpoints: For each horizontal line, midpoint between adjacent verticals.
+      for (let i = 0; i < vLen - 1; i++) {
+        if ((verticals[i + 1] - verticals[i]) > midThresh) {
+          const xMid = (verticals[i] + verticals[i + 1]) / 2;
+          for (let j = 0; j < hLen; j++) {
+            const y = horizontals[j];
+            addPoint(xMid, y, 1 );
+          }
+        }
+      }
+    
+      // 3. Add vertical edge midpoints: For each vertical line, midpoint between adjacent horizontals.
+      for (let j = 0; j < horizontals.length - 1; j++) {
+        if ((horizontals[j + 1] - horizontals[j]) > midThresh) {
+          const yMid = (horizontals[j] + horizontals[j + 1]) / 2;
+          for (let i = 0; i < vLen; i++) {
+            const x = verticals[i];
+            addPoint(x, yMid, 2 );
+          }
+        }
+      }
+    
+      // 4. Add cell centers: For each cell defined by adjacent verticals and horizontals.
+      for (let i = 0; i < vLen - 1; i++) {
+        if ((verticals[i + 1] - verticals[i]) > midThresh){
+          const xMid = (verticals[i] + verticals[i + 1]) / 2;
+          for (let j = 0; j < hLen - 1; j++) {
+            if((horizontals[j + 1] - horizontals[j]) > midThresh) {
+              const yMid = (horizontals[j] + horizontals[j + 1]) / 2;
+              addPoint( xMid, yMid, 4 );
+            }
+          }
+        }
+      }
+    
+      return { graph}//, spots}//, hotXs, hotYs };
+    }
+
+
+    // Modified createGraph that uses the pre-built graph and simply adds connections between adjacent nodes.
+    function createGraphFromSpots({ graph, hotXs, hotYs}) {
+      for (let i = 0; i < hotYs.length; i++) {
+        for (let j = 0; j < hotXs.length; j++) {
+          const p = { x: hotXs[j], y: hotYs[i] };
+
+          const nodeA = graph.get(p)
+          if( !nodeA ){continue}
+
+          //if (!graph.has(p)) continue;
+          if (j > 0) {
+            const leftPoint = { x: hotXs[j - 1], y: hotYs[i] };
+            const nodeB = graph.get(leftPoint)
+            //if (graph.has(leftPoint)) {
+            if (nodeB) {
+              //graph.connectBoth(p, leftPoint);
+              graph.connectBoth(nodeA, nodeB);
+            }
+          }
+          if (i > 0) {
+            const topPoint = { x: hotXs[j], y: hotYs[i - 1] };
+            const nodeB = graph.get(topPoint)
+            //if (graph.has(topPoint)) {
+            if (nodeB) {
+              //graph.connectBoth(p, topPoint);
+              graph.connectBoth(nodeA, nodeB);
+            }
+          }
+        }
+      }
+      return graph;
+    }
+
+    // Example usage within your routing function:
+    function routeWithIntegratedGraph(verticals, horizontals, obstacles, midThresh, interimSpots = []) {
+      const hotXsSet = new Set();
+      const hotYsSet = new Set();
+      
+
+      const { graph, spots} = rulersToSpotsAndGraph(verticals, horizontals, obstacles, midThresh, hotXsSet, hotYsSet);
+      
+      interimSpots.forEach(pt => {
+        if (!graph.has(pt)) {
+          graph.add(pt);
+          hotXsSet.add( pt.x )
+          hotYsSet.add( pt.y )
+        }
+      });
+      
+      const hotXs = Array.from(hotXsSet).sort((a, b) => a - b);
+      const hotYs = Array.from(hotYsSet).sort((a, b) => a - b);
+      const finalGraph = createGraphFromSpots({ graph, hotXs, hotYs });
+      
+      return finalGraph
+    }
+
   function findDirectPath( origin, destination, margin){
+
+
     const [start, end] = [origin, destination].sort((a, b) => a.data.x - b.data.x);
     const xsA = {}
     const xsB = {}
@@ -778,7 +905,30 @@ function makePt(x, y) {
   }
   
   // Solves the shortest path for the origin-destination path of the graph
-  function shortestPath(graph, origin, destinationPoints, lastPath, startHorz, endHorz, margin) {
+  function shortestPath(graphData, origin, destinationPoints, lastPath, startHorz, endHorz, margin, obstacles) {
+
+    const a = origin
+    const b = destinationPoints[0]
+    const midX = (a.x + b.x) / 2
+    const testPath = [
+      {x: a.x, y: a.y},
+      {x: midX, y: a.y},
+      {x: midX, y: b.y},
+      {x: b.x, y: b.y}
+    ]
+    if( !obstacles.some((d=>OrthogonalConnector.doesPathCutThroughRectangle( d, testPath ))) ){
+      return {path: testPath, node: {data: origin}, distance: 0, mode: 2}
+    }
+
+    if( !graphData.computed ){
+      graphData.computed = graphData.compute()
+    }else{
+      graphData.computed.startNewSearch()
+    }
+
+    const graph = graphData.computed
+
+
     const originNode = graph.get(origin);
     const destinationNodes = destinationPoints.map((d,i)=>{
       const pt = graph.get(d)
@@ -798,6 +948,7 @@ function makePt(x, y) {
       return directPath
     }
   
+
   
     const matchNode = graph.calculateShortestPathFromSource(graph, originNode, destinationNodes, lastPath, startHorz, endHorz);
   
@@ -1311,7 +1462,7 @@ function makePt(x, y) {
       
       let shapeMargin = target.shapeMargin / (target.scale * 2 )
       
-      const inflatedRects = Object.values(target.inflatedRects)
+      //const inflatedRects = Object.values(target.inflatedRects)
       const rects = Object.values(target.shapes).map(d=>Rectangle.fromRect(d))
   
       let verticals = [...target.verticals]
@@ -1358,8 +1509,6 @@ function makePt(x, y) {
         }
         const shapeA = Rectangle.fromRect(_shapeA)
         const shapeB = Rectangle.fromRect(_shapeB)
-        //const shapeA = Rectangle.fromRect(target.shapes[pointA.shape.id])
-        //const shapeB = Rectangle.fromRect(target.shapes[pointB.shape.id])
 
         let scale = target.scale
         if( target.focus ){
@@ -1367,30 +1516,6 @@ function makePt(x, y) {
             scale = target.focus.blur
           }
         } 
-        if( id === "pin_drag"){
-          console.log(`Pin focus = ${scale}`)
-        }
-
-        /*
-        const innerMargin = (target.shapeMargin - 1) / (target.scale * 2 )
-        let inflatedA = shapeA.inflate(innerMargin, innerMargin);
-        let inflatedB = shapeB.inflate(innerMargin, innerMargin);
-    
-        // Check bounding boxes collision
-        if (inflatedA.intersects(inflatedB)) {
-          shapeMargin = 0;
-          inflatedA = shapeA;
-          inflatedB = shapeB;
-        }
-        if( !shapeTracker.has( pointA.shape) ){
-          shapeTracker.add( pointA.shape)
-          shapesWithConnectors.push(inflatedA)
-        }
-        if( !shapeTracker.has( pointB.shape) ){
-          shapeTracker.add( pointB.shape)
-          shapesWithConnectors.push(inflatedB)
-        }*/
-
 
         termPoints[key] = {a:[], b:[], oa:[], ob:[]}
 
@@ -1420,7 +1545,7 @@ function makePt(x, y) {
             termPoints[key]["o" + termination].push(p)
 
             const add = (x,y) => {
-              const pt = {x,y}
+              const pt = {x,y, term: true}
               interimSpots.push(pt)
               termPoints[key][termination].push(pt)
             };
@@ -1465,6 +1590,7 @@ function makePt(x, y) {
         return inflated
       })
   
+      /*
       const spots = rulersToSpotsFull(verticals, horizontals,  blocksToClear, 100 )/// target.scale);
       
       this.byproduct.spots = spots;
@@ -1472,12 +1598,17 @@ function makePt(x, y) {
       this.byproduct.hRulers = horizontals;
       target.byproduct = this.byproduct
 
-
-      
       // Add to spots
       spots.push(...interimSpots);
-      const { graph, connections } = createGraph(spots);
-      this.byproduct.connections = connections;
+      const { graph, connections } = createGraph(spots);*/
+
+      //const { graph, connections } = routeWithIntegratedGraph( verticals, horizontals, blocksToClear, 100, interimSpots)
+      const graph = {
+        computed: false,
+        compute: ()=>routeWithIntegratedGraph( verticals, horizontals, blocksToClear, 100, interimSpots)
+      }
+
+      //this.byproduct.connections = connections;
       
       const paths = []
       for(const link of links){
@@ -1498,7 +1629,6 @@ function makePt(x, y) {
 
           const usablePoints = termPoints[key].ob.filter(d=>!shapeA.contains(d))
           if( usablePoints.length === 0){
-           // console.log(`SKIPPING`)
             paths.push({id: key, updated: true,path: [], mode: 4});
             continue
           }
@@ -1519,12 +1649,12 @@ function makePt(x, y) {
         let bestMode = 0
         const aSide = [pointA.side].flat()
         for( const side of aSide){
-          const origin = termPoints[key].a[sideIdx]//extrudeCp(pointA, shapeMargin);
-          const start = termPoints[key].oa[sideIdx]//extrudeCp(pointA, shapeMargin);
+          const origin = termPoints[key].a[sideIdx]
+          const start = termPoints[key].oa[sideIdx]
 
           
-          graph.startNewSearch()
-          const {path, node, distance, mode} = shortestPath(graph, origin, termPoints[key].b, cached?.path, side === "left" || side === "right", true, shapeMargin) 
+          //graph.startNewSearch()
+          const {path, node, distance, mode} = shortestPath(graph, origin, termPoints[key].b, cached?.path, side === "left" || side === "right", true, shapeMargin, blocksToClear) 
           if( distance < bestScore ){
             bestPath = path ?? []
             bestEnd = node
@@ -1573,7 +1703,7 @@ function makePt(x, y) {
             if( !bestMode){
               pathForCache = fullPath
               fullPath = simplifyConnector(fullPath, (p, prev)=>{
-                  if( graph.has(p)){
+                  if( graph.computed && graph.computed.has(p)){
                     return !rects.some(d=>OrthogonalConnector.doesSegmentIntersectRectangle(prev, p, d))
                   }
                   return false

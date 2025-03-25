@@ -1180,6 +1180,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                 let activeLinks = new Set()
 
+                if( myState.current.dragging?.sourcePin ){
+                    activeLinks.add("pin_drag")
+                }
+
                 for(const target of myState.current.baseLinks){
                     const leftName = target.left + (target.cell ? `:${target.cell}` : "")
                     const left =  {id: target.left}
@@ -2276,6 +2280,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const sourceFrame = myState.current.frames.find(d2=>d2.id === sourceItem)
                             const sourceShape = sourceFrame.routing[sourceItem]?.shape
                             const pinDef = [...sourceFrame.pins.input, ...sourceFrame.pins.output].find(d=>d.idx == sourcePin)
+                            const reverse = !pinDef.output
 
                             const connectTo = pinDef.output ? "input" : "output"
                             
@@ -2287,18 +2292,21 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             connectorForPin.setDestEndpoint(rightConnEnd);
                             connectorForPin.setCallback( renderLink, connectorForPin)*/
 
+                            const pinPoint = {
+                                shape: {id: "pin"},
+                                side: reverse ? "right" : "left",
+                                distance: 0.5
+                            }
+                            const shapePoint = {
+                                shape: {id: sourceItem},
+                                side: reverse ? "left" : "right" ,
+                                distance: pinDef.y / sourceFrame.node.attrs.height
+                            }
+
                             const link = {
                                 id: "pin_drag",
-                                pointA:{
-                                    shape: {id: "pin"},
-                                    side: "right",
-                                    distance: 0.5
-                                },
-                                pointB:{
-                                    shape: {id: sourceItem},
-                                    side: "left",
-                                    distance: 0.1
-                                }
+                                pointA: reverse ? pinPoint : shapePoint,
+                                pointB: reverse ? shapePoint : pinPoint
                             }
                             
                             myState.current.routing.router.addLink( link )
@@ -2470,7 +2478,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         ])
                     
                     if( state.last ){
-                       // myState.current.routing.router.removeLink( {id: "pin_drag"} )
+                       // myState.current.routing.routereremoveLink( {id: "pin_drag"} )
                         myState.current.routing.router.removeShape( {id: "pin"} )
 
 
