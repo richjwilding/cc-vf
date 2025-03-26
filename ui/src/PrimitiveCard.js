@@ -1681,7 +1681,7 @@ const Categories = function({primitive, ...props}){
             </button>
             </div>
           }
-          {list.map((primitive, idx) => <CategoryCard key={primitive.id} primitive={primitive} {...props} disableHover/>)}
+          {list.map((category, idx) => <CategoryCard key={category.id} primitive={category} parentView={primitive} {...props} disableHover/>)}
         </ul>
       </dd>
   </>

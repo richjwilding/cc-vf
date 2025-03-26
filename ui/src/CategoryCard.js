@@ -84,7 +84,7 @@ export default function CategoryCard({primitive, ...props}){
                             markOnProcess
                             primitive={primitive} 
                             process={async ()=>{
-                                await MainStore().doPrimitiveAction(primitive.origin, "mark_categories", {source: primitive.id, scope: props.scope})
+                                await MainStore().doPrimitiveAction(props.parentView ?? primitive.origin, "mark_categories", {source: primitive.id, scope: props.scope})
                             }}
                             />
                     }

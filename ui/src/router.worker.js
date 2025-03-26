@@ -1361,7 +1361,6 @@ function makePt(x, y) {
         this.links = this.links.filter(d=>{
           if( d.pointA.shape.id === shape.id || d.pointB.shape.id === shape.id){
             const key = OrthogonalConnector.getConnectionKey(d);
-            console.log(`REMOVE LINK ${key}`)            
             this.pathCache.delete(key)
             return false
           }
@@ -1464,6 +1463,7 @@ function makePt(x, y) {
       
       //const inflatedRects = Object.values(target.inflatedRects)
       const rects = Object.values(target.shapes).map(d=>Rectangle.fromRect(d))
+      const avoidRects = Object.values(target.shapes).filter(d=>d.obstacle).map(d=>Rectangle.fromRect(d))
   
       let verticals = [...target.verticals]
       let horizontals = [...target.horizontals]
@@ -1582,7 +1582,7 @@ function makePt(x, y) {
       horizontals.sort((a, b) => a - b)
   
       const terminations = Object.values(termPoints).flatMap(d=>[d.a,d.b]).flat()
-      const blocksToClear = Object.keys(target.shapes).map(d=>{
+      const blocksToClear = Object.keys(target.shapes).filter(d=>target.shapes[d].obstacle).map(d=>{
         const inflated = target.inflatedRects[d]
         if( terminations.some(d=>inflated.contains(d))){
           return Rectangle.fromRect(target.shapes[d])
@@ -1627,7 +1627,7 @@ function makePt(x, y) {
         const shapeA = Rectangle.fromRect(_shapeA)
         const shapeB = Rectangle.fromRect(_shapeB)
 
-          const usablePoints = termPoints[key].ob.filter(d=>!shapeA.contains(d))
+          const usablePoints = _shapeA.obstacle ? termPoints[key].ob.filter(d=>!shapeA.contains(d)) : termPoints[key].ob
           if( usablePoints.length === 0){
             paths.push({id: key, updated: true,path: [], mode: 4});
             continue
@@ -1704,7 +1704,7 @@ function makePt(x, y) {
               pathForCache = fullPath
               fullPath = simplifyConnector(fullPath, (p, prev)=>{
                   if( graph.computed && graph.computed.has(p)){
-                    return !rects.some(d=>OrthogonalConnector.doesSegmentIntersectRectangle(prev, p, d))
+                    return !avoidRects.some(d=>OrthogonalConnector.doesSegmentIntersectRectangle(prev, p, d))
                   }
                   return false
                 })
@@ -1764,9 +1764,9 @@ function makePt(x, y) {
       classTracker[data.idx].refocus = data.f
     }else if(data.type === "route"){
       if( !classTracker[data.idx]){return}
-      console.time("route")
+      //console.time("route")
       const paths = OrthogonalConnector.route(data.options.links, classTracker[data.idx])
-      console.timeEnd("route")
+      //console.timeEnd("route")
       result = {
         type: "paths",
         idx: data.idx,

@@ -118,19 +118,20 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     const complete = stepsToProcess.every(d=>d.status === "Done")
     console.log(stepsToProcess)
     
+    const flow = primitive.findParentPrimitives({type:"flow"})[0]
 
 
     const renderedSet = Object.keys(outputs ?? {}).map(pin=>(outputs[pin]?.items ?? []).map(d=>{
         myState[d.id] = {id: d.id, renderSubPages: true}
         const renderConfig = BoardViewer.prepareBoard(d, myState)
-        myState[d.id].title = `Output for ${pin}`
+        const inputPin = pin.split("_")[1]
+        myState[d.id].title = flow.referenceParameters?.outputPins?.[inputPin]?.name ??  `Output for ${pin}`
         //myState[d.id].renderSubPages = true
         return BoardViewer.renderBoardView(d, primitive, myState)
     })).flat()
 
 
     function inputPinPane(){
-        const flow = primitive.findParentPrimitives({type:"flow"})[0]
         const pins = flow.referenceParameters?.inputPins ?? {}
         const pinNames = Object.keys(pins)
         return <div className="flex w-full @container  max-h-[min(70vh,_50rem)] min-h-0">

@@ -741,7 +741,22 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 </div>
             </div>
             {!filters && (frame.type === "flow") && <UIHelper.Button outline title="New Instance" onClick={()=>mainstore.doPrimitiveAction(frame,"create_flowinstance")}/>}
-            {!filters && (frame.type === "flow") && <UIHelper.Button outline title="Scaffold" onClick={()=>mainstore.doPrimitiveAction(frame,"workflow_scaffold")}/>}
+            {!filters && (frame.type === "flow") && 
+                <UIHelper.Button outline title="Scaffold" onClick={()=>{
+                    if( frame.flowElement){
+                        const parentFlow = frame.origin
+                        if( parentFlow.type === "flow"){
+                            const flowInstances = parentFlow.primitives.origin.allFlowinstance.sort((a,b)=>a.plainId - b.plainId)
+                            const flowInstanceToShow = flowInstances[parentFlow.referenceParameters?.explore?.view ?? 0]
+                            if( flowInstanceToShow ){
+                                mainstore.doPrimitiveAction(frame,"workflow_scaffold", {subFlowForInstanceId: flowInstanceToShow.id})
+                            }
+                        }
+                    }else{
+                        mainstore.doPrimitiveAction(frame,"workflow_scaffold")
+                    }
+                }}
+                />}
             </>
         }
 

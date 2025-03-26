@@ -18,7 +18,7 @@ import BrightDataQueue from './brightdata_queue';*/
 
 const asyncLocalStorage = require('./asyncLocalStorage');
 
-const logger = getLogger('queue-manager'); // Debug level for moduleA
+const logger = getLogger('queue-manager', "info"); // Debug level for moduleA
 
 
 class QueueManager {

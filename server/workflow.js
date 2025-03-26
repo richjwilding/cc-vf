@@ -1,6 +1,6 @@
 import { registerAction } from "./action_helper";
 import { getLogger } from "./logger";
-import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getFilterName, primitiveChildren, primitiveDescendents, primitiveParentsOfType, removeRelationship } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getFilterName, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, removeRelationship } from "./SharedFunctions";
 import { checkAndGenerateSegments, getItemsForQuery, getSegemntDefinitions } from "./task_processor";
 import PrimitiveParser from './PrimitivesParser';
 import FlowQueue from "./flow_queue";
@@ -105,6 +105,12 @@ export async function createWorkflowInstance( flow, options = {} ){
 }
 
 export async function scaffoldWorkflow( flow, options = {} ){
+    const isSubFlow = flow.flowElement === true
+    if( isSubFlow && !options.subFlowForInstanceId ){
+        throw "Cant scaffold subflow without parent flow instance"
+    }
+    let parentFlow = flow.flowElement ? await fetchPrimitive( primitiveOrigin(flow) ) : undefined
+
     const parser = PrimitiveParser()
     const pp = new Proxy(flow.primitives, parser)
     let customAxis 
@@ -115,12 +121,32 @@ export async function scaffoldWorkflow( flow, options = {} ){
     let sources
     if( importIds.length ){
         sources = await fetchPrimitives( importIds )
+        if( isSubFlow ){
+            const instanceSources =[]
+            for(const source of sources){
+                if(!source.flowElement){
+                    throw `${source.id} is not a flow element in trying to scaffold subflow ${flow.id}`
+                }
+                const instanceSteps = await primitivePrimitives( source, "primitives.config" )
+                const sourceForInstance = instanceSteps.find(d=>Object.keys(d.parentPrimitives).includes( options.subFlowForInstanceId ))
+                if( sourceForInstance ){
+                    logger.debug(`- Found instance step for subflow import ${sourceForInstance.id} / ${sourceForInstance.plainId}`)
+                    instanceSources.push( sourceForInstance)
+                }else{
+                    logger.debug(`- Couldnt find instance step for subflow import ${flow.id} / ${flow.plainId} - ${options.subFlowForInstanceId}, parent ${parentFlow.id}`)
+                }
+
+            }
+            sources = instanceSources
+        }
     }
     let instanceList = []
+    
 
 
     logger.info(`Scaffold workflow`, {flow: flow.id});
     logger.info(`Flow has ${steps.length} steps, ${sources?.length} sources, ${baseInstances.length} instances`, {primitive: flow.id});
+
     
 
     if( sources ){
@@ -131,6 +157,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
             const segments = await checkAndGenerateSegments( source, flow, {...options, by_axis: true})
             logger.debug(`-- got ${segments.length} segments`, {flow: flow.id, source: source.id});
             
+    throw "done"
             for( const segment of segments){
                 let existing = baseInstances.find(d=>Object.keys(d.parentPrimitives).includes(segment.id))
                 
@@ -402,7 +429,25 @@ async function duplicateStep( step, parent){
     
     await addRelationship(step.id, stepInstance.id, "auto")
     await addRelationship(step.id, stepInstance.id, "config")
+    
+    if(step.type === "categorizer"){
+        const nested = (await primitiveChildren( step, "category"))[0]
+        if( nested){
+            logger.info(`Adding nested category for categrizer (${stepInstance.id}) (inheriting from ${nested.id} / ${nested.referenceId}`)
+            await createPrimitive({
+                workspaceId: step.workspaceId,
+                parent: stepInstance.id,
+                data:{
+                    type: nested.type,
+                    referenceId: nested.referenceId,
+                    title: `Category for ${stepInstance.plainId}`
+                }
+            })
+        }
+
+    }
     stepInstance = await fetchPrimitive(stepInstance.id)
+
 
     return stepInstance
 }

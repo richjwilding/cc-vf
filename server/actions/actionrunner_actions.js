@@ -1,7 +1,7 @@
 import { registerAction } from "../action_helper"
 import QueueAI from "../ai_queue";
 import QueueDocument from "../document_queue";
-import { decodeBase64ImageToStorage, uploadDataToBucket } from "../google_helper";
+import { decodeBase64ImageToStorage, getGoogleAdKeywordMetrics, uploadDataToBucket } from "../google_helper";
 import { getLogger } from "../logger";
 import Category from "../model/Category";
 import { categorize, generateImage, processPromptOnText } from "../openai_helper";
@@ -412,6 +412,26 @@ registerAction( "run_categorizer", undefined, async (primitive, action, options,
                 await QueueAI().markCategories( targetCategoryObject, {id: targetId})
             }
 
+        }else if( category.mode === "evaluate"){
+            let targetCategoryObject = (await primitiveChildren(primitive, "category"))?.[0]
+            if( !targetCategoryObject ){
+                logger.info(`Evaluator needs internal category - creating`)
+                targetCategoryObject = await createPrimitive({
+                    workspaceId: primitive.workspaceId,
+                    paths: ["origin", "config"],
+                    parent: primitive.id,
+                    data:{
+                        title: `Category for ${primitive.plainId}`,
+                        referenceId: 90,
+                        type: "category"
+                    }
+                })
+            }
+            if( targetCategoryObject ){
+                console.log(`Will run evaluator ${targetId}`)
+                await QueueAI().markCategories( targetCategoryObject, {id: targetId})
+                console.log(`BACK FROM VAL`)
+            }
         }else if( category.mode === "build"){
             await QueueAI().categorize( primitive, {id: targetId}, {textOnly: true })
         }
@@ -474,5 +494,24 @@ registerAction( "split_summary", {id: "summary"}, async (primitive, action, opti
         }
     }catch(e){
         logger.error(e)
+    }
+})
+registerAction( "keyword_metrics", undefined, async (primitive, action, options = {}, req)=>{
+    const result = await getGoogleAdKeywordMetrics(options.keywords, options.geo, req)
+    let data
+    //const result = await getGoogleAdKeywordMetrics(primitive.title, req)
+
+    if( result.success){
+        data = result.results[0]
+        let updated  = {
+            "avg_monthly": data.monthly ? parseInt(data.monthly.reduce((a,c)=>a+c,0) / 12) : 0,
+            "last_12_mo":data.monthly,
+            "competition": data.competition,
+            "bid_high": data.highBid,
+            "bid_low": data.lowBid
+        }
+        //await dispatchControlUpdate(primitive.id, "referenceParameters", updated)
+        //console.log(updated)
+        return updated
     }
 })

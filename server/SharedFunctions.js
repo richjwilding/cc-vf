@@ -611,14 +611,33 @@ export async function getPrimitiveOutputs(primitive){
     let outputMap = PrimitiveConfig.getOutputMap(primitive)
     const out = {}
     const c = {}
+    let pMeta
     for(const d of outputMap){
         let targetMap = c[d.targetId]
-        if(!targetMap){
-            const target = await fetchPrimitive( d.targetId )
-            targetMap = await getPrimitiveInputs( target, primitive.id)
-            c[d.targetId] = targetMap
+        if( d.outputPin !== "impout" && d.targetPin === "impin"){
+            let querySteps = undefined
+            if( primitive.type === "categorizer" || primitive.type === "action" ||primitive.type === "actionrunner" || primitive.type === "action" || primitive.type === "search"){
+                if( !pMeta ){
+                    pMeta = await Category.findOne({id: primitive.referenceId})
+                }
+                const queryname = pMeta?.pins?.output?.[d.outputPin]?.query
+                if( queryname ){
+                    querySteps = pMeta?.queries?.[queryname]?.steps
+                }
+            }
+            if( querySteps ){
+                out[d.outputPin] = {data: runQueryOnPrimitive(primitive, querySteps)}
+            }else{
+                console.error(`Cant handle pin connected to import without query`, d)
+            }
+        }else{
+            if(!targetMap){
+                const target = await fetchPrimitive( d.targetId )
+                targetMap = await getPrimitiveInputs( target, primitive.id)
+                c[d.targetId] = targetMap
+            }
+            out[d.outputPin] = targetMap[d.targetPin]
         }
-        out[d.outputPin] = targetMap[d.targetPin]
     }
     return out
 }
@@ -1675,12 +1694,25 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 const instances = await primitiveChildren( imp, "flowinstance")
                 let list = []
                 for( const instance of instances){
-                    const outputs = await instance.getPrimitiveOutputs()
+                    const outputs = await getPrimitiveOutputs(instance)
                     if( outputs ){
                         list.push( outputs )
                     }
                 }
                 return uniquePrimitives(outputs)
+            }
+        }else{
+            if( Object.keys(imp.primitives??{}).includes("outputs")){
+                const pp = new Proxy(imp.primitives.outputs ?? {}, parser)
+                const address = pp.paths(source.id)[0]
+                if( address && address !== '.impout_impin' && address !== '.impin_impin'){
+                    const [outputPin, inputPin] = address.slice(1).split("_")
+                    const outputs = await getPrimitiveOutputs( imp )
+                    if( outputs ){
+                        return outputs[outputPin]?.data ?? []
+                    }
+                    return []
+                }
             }
         }
 
@@ -1720,6 +1752,9 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         }
         if( params.type ){
             list = list.filter(d=>d.referenceId === params.type) 
+        }
+        if( source.type === "actionrunner"){
+            list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
         }
         if( filterConfig && filterConfig.length > 0){
             let filterOut
@@ -2308,6 +2343,14 @@ export async function findParentPrimitivesOfType(primitive, types){
     const candidates = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(d=>d !== "primitives.imports").length > 0)
     return await fetchPrimitives( candidates, {type: Array.isArray(types) ? {$in: types} : types} )
 }
+export async function findParentPrimitivesOfTypeMulti(primitives, types){
+    const candidates = primitives.flatMap(primitive=>Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(d=>d !== "primitives.imports").length > 0)).filter((d,i,a)=>a.indexOf(d)===i)
+    return await fetchPrimitives( candidates, {type: Array.isArray(types) ? {$in: types} : types} )
+}
+export async function findParentPrimitivesOfRefIdMulti(primitives, refIds){
+    const candidates = primitives.flatMap(primitive=>Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(d=>d !== "primitives.imports").length > 0)).filter((d,i,a)=>a.indexOf(d)===i)
+    return await fetchPrimitives( candidates, {referenceId: Array.isArray(refIds) ? {$in: refIds} : refIds} )
+}
 
 
 export async function primitiveParents(primitive, path){
@@ -2401,6 +2444,10 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     const frameworkResult = await runAction(primitive, actionKey, options, req)
     if( frameworkResult.success ){
         return frameworkResult.result
+    }
+    if( actionKey === "pq_test"){
+        let items = await runQueryOnPrimitive(primitive, options.steps)
+        return items
     }
     if( actionKey === "itp_test"){
         let items = await getDataForImport( primitive )
@@ -3054,23 +3101,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     console.log(`DONE CHECKS`)
                 }
             }
-            if(command === "keyword_metrics"){
-                //const result = await getGoogleAdKeywordMetrics(options.keywords, req)
-                let data
-                const result = await getGoogleAdKeywordMetrics(primitive.title, req)
-                if( result.success){
-                    data = result.results[0]
-                    let updated  = {
-                        "avg_monthly": data.monthly ? parseInt(data.monthly.reduce((a,c)=>a+c,0) / 12) : 0,
-                        "last_12_mo":data.monthly,
-                        "competition": data.competition,
-                        "bid_high": data.highBid,
-                        "bid_low": data.lowBid
-                    }
-                    await dispatchControlUpdate(primitive.id, "referenceParameters", updated)
-                    console.log(updated)
-                }
-            }
+           
             if( command === "screenshot"){
                 if( primitive.referenceId === 100){
                     const protocol = "https"//req.protocol;
@@ -5150,4 +5181,84 @@ export async function doPurge(count ){
     }
 
 
+}
+
+export async function runQueryOnPrimitive(receiver, steps){
+    let out = [receiver]
+    if( steps ){
+        for(const d of steps){
+            out = await doStep(out, d)
+        }
+    }
+    return out
+}
+
+async function doStep(data, step){
+    let out = data
+    const instructions = Object.keys(step) 
+    for(const instruction of instructions){
+        const config = step[instruction]
+        switch(instruction){
+            case "fetch_items":{
+                let temp = []
+                for(const d of out ){
+                    temp.push(...(await getDataForImport( d )).filter(d=>d))
+                }
+                if( config.referenceId ){
+                    temp = temp.filter(d=>d.referenceId === config.referenceId)
+                }
+                out = temp
+                break
+            }
+            case "fetch_children":{
+                let temp = out.flatMap(d=>[...d.primitives.origin.allItems,...d.primitives.results.allItems]).filter(d=>d)
+                for(const d of out ){
+                    temp.push( ...(await primitivePrimitives(d, 'primitives.origin.allItems' )).filter(d=>d) )
+                    temp.push( ...(await primitivePrimitives(d, 'primitives.results.allItems' )).filter(d=>d) )
+                }
+                temp = uniquePrimitives(temp)
+                if( config.referenceId ){
+                    temp = temp.filter(d=>d.referenceId === config.referenceId)
+                }
+                out = temp
+                break
+            }
+            case "fetch_ancestor":{
+                if( config.referenceId ){
+                    out = await findParentPrimitivesOfRefIdMulti( out, config.referenceId)
+                }else{
+                    out = await multiPrimitiveAtOrginLevel(out, 1)
+                }
+                break
+            }
+            case "filter":{
+                let categoryIds
+                if( config.category_label ){
+                    const comp = [config.category_label].flat()
+                    const categories = await findParentPrimitivesOfTypeMulti( out, "category" )
+                    categoryIds = categories.filter(d=>comp.includes(d.title )).map(d=>d.id)
+                }
+                const res = []
+                for(const d of out){
+                    let scope = d
+                    let pass = true
+                    if( config.fetch_children ){
+                        scope = await doStep( [d], {fetch_children: config.fetch_children})
+                        if( config.count !== undefined){
+                            pass = scope.length === config.count
+                        }
+                    }else if( categoryIds){
+                        pass = Object.keys(d.parentPrimitives ?? {}).find(d=>categoryIds.includes(d))
+                    }
+                    if( pass ){
+                        res.push( d )
+                    }
+                }
+                out = res
+                break
+            }
+        }
+    }
+    return out
+    
 }

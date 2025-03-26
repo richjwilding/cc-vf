@@ -88,7 +88,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     useEffect(() => {
         cleanUpRouting()
         return () => {
-            const router = myState.current.routing.router
+            const router = myState.current.routing?.router
             if (router && typeof router.shutdown === 'function') {
                 cleanUpRouting()
                 myState.current.routing = undefined
@@ -728,6 +728,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             frame.canChangeSize = options.canChangeSize
             frame.canvasMargin = framePadding
             frame.resizeForChildren = options.resizeForChildren
+            frame.routeInternal = options.routeInternal
             
             if( frame.bg){
                 frame.bg.width(maxX)
@@ -988,14 +989,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
 
     }
-    function addShapeToRouter(id, l,t,r,b, pins = []){
+    function addShapeToRouter(id, l,t,r,b, pins = [], obstacle = true){
         if( !myState.current.routing ){return}
         myState.current.routing.router.addShape({
             id,
             left: l,
             top: t,
             width: r-l,
-            height: b-t
+            height: b-t,
+            obstacle
         })
     }
     /*function removeRoutingForFrame( frame ){
@@ -1088,7 +1090,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         frame.routing = {
             [fId]: {
-                shape: addShapeToRouter( fId, position.l, position.t, position.r, position.b, pins)
+                shape: addShapeToRouter( fId, position.l, position.t, position.r, position.b, pins, !frame.routeInternal)
             }
         }
 
@@ -1188,24 +1190,31 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     const leftName = target.left + (target.cell ? `:${target.cell}` : "")
                     const left =  {id: target.left}
                     const right = {id: target.right}
+
+                    const leftShape = myState.current.frames.find(d=>d.id === left.id)
+                    const rightShape = myState.current.frames.find(d=>d.id === right.id)
+
                     
-                    if( left && right && myState.current.frames.find(d=>d.id === left.id) && myState.current.frames.find(d=>d.id === right.id)){
+                    if( left && right && leftShape && rightShape ){
                         let leftPin = target.leftPin ?? 1
                         let rightPin = target.rightPin ?? 1
                         const id = `${leftName}.${leftPin}~${target.right}.${rightPin}` 
+
+                        const leftPinDef = Object.values(leftShape.pins).flat().find(d=>d.idx === leftPin)
+                        const rightPinDef = Object.values(rightShape.pins).flat().find(d=>d.idx === rightPin)
 
                         if( !myState.current.routing.routerLinks.find(d=>d.id===id)){
                             const link = {
                                 id: id,
                                 pointA: {
                                     shape: left,
-                                    side: "right",
-                                    distance: 0.5
+                                    side: leftPinDef.internal ? "left" : "right",
+                                    distance: leftPinDef.y / leftShape.node.height()
                                 },
                                 pointB: {
                                     shape: right,
-                                    side: "left",
-                                    distance: 0.5
+                                    side: rightPinDef.internal ? "right" : "left",
+                                    distance: rightPinDef.y / rightShape.node.height()
                                 }
                             }
                             if( myState.current.routing.didLinks ){

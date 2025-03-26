@@ -47,12 +47,20 @@ export function uniquePrimitives(list) {
     return result; // Return the array of unique primitives
 }
 
-function doStep(data, step, currentInstruction){
+function doStep(data, step){
     let out = data
     const instructions = Object.keys(step) 
     for(const instruction of instructions){
         const config = step[instruction]
         switch(instruction){
+            case "fetch_items":{
+                let temp = out.flatMap(d=>d.itemsForProcessing).filter(d=>d)
+                if( config.referenceId ){
+                    temp = temp.filter(d=>d.referenceId === config.referenceId)
+                }
+                out = temp
+                break
+            }
             case "fetch_children":{
                 let temp = out.flatMap(d=>[...d.primitives.origin.allItems,...d.primitives.results.allItems]).filter(d=>d)
                 if( config.referenceId ){
@@ -71,6 +79,12 @@ function doStep(data, step, currentInstruction){
                 break
             }
             case "filter":{
+                let categoryIds
+                if( config.category_label ){
+                    const comp = [config.category_label].flat()
+                    const categories = uniquePrimitives(out.flatMap(d=>d.findParentPrimitives({type: "category"})))
+                    categoryIds = categories.filter(d=>comp.includes(d.title )).map(d=>d.id)
+                }
                 out = out.filter(d=>{
                     let scope = d
                     if( config.fetch_children ){
@@ -79,6 +93,10 @@ function doStep(data, step, currentInstruction){
                             return scope.length === config.count
                         }
                     }
+                    if( categoryIds){
+                        return Object.keys(d._parentPrimitives ?? {}).find(d=>categoryIds.includes(d))
+                    }
+
                 })
                 break
             }
@@ -1974,6 +1992,9 @@ function MainStore (prims){
                                     if( params.type ){
                                         list = list.filter(d=>d.type === params.type) 
                                     }
+                                    if( receiver.type === "actionrunner"){
+                                        list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
+                                    }
                                     let config
                                     
                                     config = receiver.referenceParameters?.importConfig?.filter(d=>d.id === source.id)
@@ -2015,6 +2036,8 @@ function MainStore (prims){
                                     fullList = receiver.filterItems(fullList, viewFilters)
                                 }
                                 return uniquePrimitives(fullList)
+                            }else if(receiver.type === "flowinstance"){
+                                return []
                             }else if(receiver.type === "summary"){
                                 return [receiver]
                             }else{

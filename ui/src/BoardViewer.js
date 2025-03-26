@@ -380,7 +380,7 @@ let mainstore = MainStore()
                 bgFill: "white"}
         }else if( view.config === "flow"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, parentRender: view.parentRender, resizeForChildren: true, indicators, pins, frameless, title, titleAlwaysPresent, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#ffffef"}
+            return {id: d.id, parentRender: view.parentRender, resizeForChildren: true, routeInternal: true, indicators, pins, frameless, title, titleAlwaysPresent, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#ffffef"}
         }else if( view.config === "widget"){
             const data = view.renderData
             if( view.inFlow ){
@@ -1011,8 +1011,6 @@ let mainstore = MainStore()
         }else if( renderType === "flow" ){
             let childNodes = d.primitives.origin.uniqueAllItems
             const flowInstances = childNodes.filter(d=>d.type === "flowinstance").sort((a,b)=>a.plainId - b.plainId)
-
-            
             const flowInstanceToShow = flowInstances[d.referenceParameters?.explore?.view ?? 0]
             childNodes = childNodes.filter(d=>d.type !== "flowinstance")
             didChange ||= d.referenceParameters?.explore?.view !== myState[stateId].lastView
@@ -1466,6 +1464,9 @@ export default function BoardViewer({primitive,...props}){
                                     }
                                 }                       
                             }
+                            if( left.primitives.paths(right.id).filter(d=>d.startsWith(".axis.")).length > 0){
+                                return
+                            }
                             const leftPin = myState[left.id].outputPins.impout?.idx
                             const rightPin = myState[right.id].inputPins.impin?.idx
                             return {left: left.id, right: right.id, leftPin, rightPin }
@@ -1657,25 +1658,52 @@ export default function BoardViewer({primitive,...props}){
             let clearList
             const primitiveForPin = mainstore.primitive(myState.activePin.frameId)
             if( myState.activePin.name === "impin"){
+                clearList = []
                 primitiveForPin.primitives.imports.uniqueAllItems.map(d=>{
-                    clearList = [{
+                    Object.keys(d.primitives.outputs ?? {}).filter(d=>d.endsWith(`_impin`)).map(r=>{
+                        if( d.primitives.outputs[r].includes(primitiveForPin.id)){
+                            clearList.push({
+                                    parent: d,
+                                    target: primitiveForPin,
+                                    rel: `outputs.${r}`
+                                })
+                        }
+                    })
+                    clearList.push({
                             parent: primitiveForPin,
                             target: d,
                             rel: "imports"
-                        }]
+                        })
                 })
             }else{
                 if( myState.activePin.output){
                     clearList = Object.keys(primitiveForPin._parentPrimitives ?? {}).map(d=>{
                         let matches = primitiveForPin._parentPrimitives[d].map(d=>d === `primitives.imports` ||  d.startsWith(`primitives.outputs.${myState.activePin.name}_`) || d.startsWith(`primitives.inputs.${myState.activePin.name}_`) ? d : undefined).filter(d=>d)
+                        
                         if(matches.length > 0){
-                            return matches.map(rel=>{
+                            const src = mainstore.primitive(d)
+
+                            if( matches.includes("primitives.imports")){
+                                console.log(`Checking imports for named import`)
+                                const named = primitiveForPin._parentPrimitives[d].filter(d=>d.endsWith(`_impin`))
+                                console.log(`Got ${named.length}`, named.join(", "))
+                                const filtered = named.filter(d=>!matches.includes(d))
+                                console.log(`Got ${filtered.length} filtered`, filtered.join(", "))
+                                if( filtered.length > 0){
+                                    console.log(`Preserving main import for outstanding named import`)
+                                    matches = matches.filter(d=>d !== "primitives.import")
+                                }
+                            }
+
+                            const set = matches.map(rel=>{
                                 return {
-                                    parent: mainstore.primitive(d),
+                                    parent: src,
                                     target: primitiveForPin,
                                     rel: rel.slice(11)
                                 }
                             })
+                            console.log(set)
+                            return set
                         }
                     }).flat(Infinity).filter(d=>d)
                 }else{
@@ -1702,7 +1730,7 @@ export default function BoardViewer({primitive,...props}){
             if( clearList ){
                 for(const d of clearList){
                     d.parent.removeRelationship(d.target, d.rel)
-                    //console.log(`Remove relation ${d.rel} from parent ${d.parent.plainId} to ${d.target.plainId}`)
+                    console.log(`Remove relation ${d.rel} from parent ${d.parent.plainId} to ${d.target.plainId}`)
                 }
             }
         }
@@ -1898,6 +1926,11 @@ export default function BoardViewer({primitive,...props}){
                     await addBlankView( undefined, bp.id, undefined, {referenceId: resultCategoryIds})
                 }
                 
+            }else if( bp.type === "action" || bp.type === "actionrunner" || bp.type === "categorizer"){
+                let resultCategoryIds = bp.itemsForProcessing.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).filter(d=>["entity","result","evidence"].includes(mainstore.category(d).primitiveType))
+                if( resultCategoryIds.length > 0 ){
+                    await addBlankView( undefined, bp.id, undefined, {referenceId: resultCategoryIds})
+                }
             }
         }
     }
@@ -2136,7 +2169,7 @@ export default function BoardViewer({primitive,...props}){
                categoryList = [89]
             }else{
                 categoryList = [
-                    38, 81, 130, 140, 131,142,118, 135, 109, 136, 137,132,133,
+                    38, 81, 130, 140, 131,142,118, 135,  136, 137,132,133,144,
                     ...mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
                     ...(addToFlow ? [81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id)),
                 ].flat()
@@ -2560,11 +2593,13 @@ export default function BoardViewer({primitive,...props}){
                                             if( canConnect){
                                                 const baseRel = canConnect.isInternalFlowPin ? "outputs" : "inputs"
                                                 if( targetPin === "impin"){
-                                                    const rel = `outputs.${sourcePin}_${targetPin}`
                                                     console.log(`Will connect target ${canConnect.targetPrimitive.plainId} to source ${canConnect.sourcePrimitive.plainId} as import`)
                                                     canConnect.targetPrimitive.addRelationship( canConnect.sourcePrimitive, "imports")
-                                                    console.log(`Will connect target ${canConnect.sourcePrimitive.plainId} to source ${canConnect.targetPrimitive.plainId} at ${rel}`)
-                                                    canConnect.sourcePrimitive.addRelationship( canConnect.targetPrimitive, rel)
+                                                    if( sourcePin !== "impout"){
+                                                        const rel = `outputs.${sourcePin}_${targetPin}`
+                                                        console.log(`Will connect target ${canConnect.sourcePrimitive.plainId} to source ${canConnect.targetPrimitive.plainId} at ${rel}`)
+                                                        canConnect.sourcePrimitive.addRelationship( canConnect.targetPrimitive, rel)
+                                                    }
                                                 }else{
                                                     const rel = `${baseRel}.${sourcePin}_${targetPin}`
                                                     canConnect.targetPrimitive.addRelationship( canConnect.sourcePrimitive, rel)

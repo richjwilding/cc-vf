@@ -808,10 +808,10 @@ export async function fecthUSDFXRate(currency){
     return await lookup()
 }
 
-export async function getGoogleAdKeywordMetrics(keywords, req, retries = 3){
+export async function getGoogleAdKeywordMetrics(keywords, geo, req, retries = 3){
     const customerId = "3063204472" 
 
-/*    {
+    {
         if( !adconfig.currency ){
             const headers = {
                 'Authorization': `Bearer ${req.user.accessToken}`,
@@ -824,7 +824,7 @@ export async function getGoogleAdKeywordMetrics(keywords, req, retries = 3){
                 query: 'SELECT customer.currency_code FROM customer'
             });
             
-            const response = await fetch(`https://googleads.googleapis.com/v16/customers/${customerId}/googleAds:search`, {
+            const response = await fetch(`https://googleads.googleapis.com/v18/customers/${customerId}/googleAds:search`, {
                 method: 'POST',
                 headers: headers,
                 body: body
@@ -835,7 +835,7 @@ export async function getGoogleAdKeywordMetrics(keywords, req, retries = 3){
                     if( retries > 0){
                         console.log(`refreshing token`)
                         if(await refreshToken( req )){
-                            return await getGoogleAdKeywordMetrics( keywords, req, retries - 1 )
+                            return await getGoogleAdKeywordMetrics( keywords, geo, req, retries - 1 )
                         }
                     }
 
@@ -861,7 +861,7 @@ export async function getGoogleAdKeywordMetrics(keywords, req, retries = 3){
 
     if(! adconfig.fxRate ){
         console.log(`fx rate not known, assuming 1`)        
-    }*/
+    }
 
 
 
@@ -873,12 +873,30 @@ export async function getGoogleAdKeywordMetrics(keywords, req, retries = 3){
         'developer-token': process.env.GOOGLE_AD_DEV
       };
       
-      const body = JSON.stringify({
-        "language": "languageConstants/1000", // This is the criterion ID for English.
-        "geoTargetConstants": ["geoTargetConstants/2840"], // Example criterion ID for the United States.
+      const qopts = {
+       // "language": "languageConstants/1000", // This is the criterion ID for English.
+        //"geoTargetConstants": ["geoTargetConstants/2840"], // Example criterion ID for the United States.
         "keywordPlanNetwork": "GOOGLE_SEARCH_AND_PARTNERS",
+        "aggregateMetrics": 
+           {
+            "aggregateMetricTypes":["DEVICE"]
+           }, 
+        historical_metrics_options:{
+            include_average_cpc: true,
+            year_month_range: {
+                start: {month: "March", year: 2021},
+                end: {month: "March", year: 2025},
+            }
+        },
         "keywords": [keywords].flat(),
-      });
+      }
+
+      if( geo ){
+          qopts.geoTargetConstants = [`geoTargetConstants/${geo}`]
+          
+      }
+
+      const body = JSON.stringify(qopts)
       
       try{
           const response = await fetch(url, {
@@ -892,13 +910,13 @@ export async function getGoogleAdKeywordMetrics(keywords, req, retries = 3){
                     if( retries > 0){
                         console.log(`refreshing token`)
                         if(await refreshToken( req )){
-                            return await getGoogleAdKeywordMetrics( keywords, req, retries - 1 )
+                            return await getGoogleAdKeywordMetrics( keywords, geo, req, retries - 1 )
                         }
                     }
                 }else if(data.error.code === 429){
                     console.log(`Throttled - sleeping`)
-                    await sleep(1500)
-                    return await getGoogleAdKeywordMetrics( keywords, req, retries - 1 )
+                    await sleep(4500)
+                    return await getGoogleAdKeywordMetrics( keywords, geo, req, retries - 1 )
                 }
             }
                 

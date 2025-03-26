@@ -3983,7 +3983,7 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
 
 registerRenderer( {type: "type", id: "actionrunner", configs: "default"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, typeText: "Action", typeIcon: <HeroIcon icon='FARun'/>}))
 registerRenderer( {type: "type", id: "summary", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Summary", typeIcon: <HeroIcon icon='FARun'/>}))
-registerRenderer( {type: "type", id: "categorizer", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Summary", typeIcon: <HeroIcon icon='FARun'/>}))
+registerRenderer( {type: "type", id: "categorizer", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Action", typeIcon: <HeroIcon icon='FARun'/>}))
 registerRenderer( {type: "type", id: "query", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "Query", typeIcon: <HeroIcon icon='FARobot'/>}))
 registerRenderer( {type: "type", id: "action", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "Action", typeIcon: <HeroIcon icon='FARobot'/>}))
 registerRenderer( {type: "type", id: "search", configs: "default"}, renderDefaultActionPrimitive)
