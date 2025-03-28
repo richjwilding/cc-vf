@@ -380,7 +380,7 @@ let mainstore = MainStore()
                 bgFill: "white"}
         }else if( view.config === "flow"){
             let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, parentRender: view.parentRender, resizeForChildren: true, routeInternal: true, indicators, pins, frameless, title, titleAlwaysPresent, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, bgFill: "#ffffef"}
+            return {id: d.id, parentRender: view.parentRender, resizeForChildren: true, routeInternal: true, indicators, pins, frameless, title, titleAlwaysPresent, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, flow: true}
         }else if( view.config === "widget"){
             const data = view.renderData
             if( view.inFlow ){
@@ -535,15 +535,19 @@ let mainstore = MainStore()
 
                         }
                         myState[stateId].originalList = inputs
-                        if( config.ancestor){
-                            const rel = config.ancestor
-                            if( rel && rel[0] === "SEGMENT"){
-                                inputs = uniquePrimitives( inputs.flatMap(d=>d.findParentPrimitives({type: ["segment"]})) ).slice(-1)
-                            }else{
-                                inputs = uniquePrimitives( inputs.flatMap(d=>d.relationshipAtLevel(rel,rel.length)) ).slice(-1)
-                            }
-                            if( inputs[0]?.type === "flowinstance"){
-                                inputs = uniquePrimitives(inputs.flatMap(d=>d.itemsForProcessing))
+                        if( config.flowinstance){
+                            inputs = pageInstance.findParentPrimitives({type: "flowinstance", first:true})
+                        }else{
+                            if( config.ancestor){
+                                const rel = config.ancestor
+                                if( rel && rel[0] === "SEGMENT"){
+                                    inputs = uniquePrimitives( inputs.flatMap(d=>d.findParentPrimitives({type: ["segment"]})) ).slice(-1)
+                                }else{
+                                    inputs = uniquePrimitives( inputs.flatMap(d=>d.relationshipAtLevel(rel,rel.length)) ).slice(-1)
+                                }
+                                if( inputs[0]?.type === "flowinstance"){
+                                    inputs = uniquePrimitives(inputs.flatMap(d=>d.itemsForProcessing))
+                                }
                             }
                         }
                     }
@@ -716,7 +720,7 @@ let mainstore = MainStore()
         let widgetConfig = {}
         const showItems = basePrimitive.findParentPrimitives({type: basePrimitive.inFlow ? "flow" : "board"})[0]?.frames?.[stateId]?.showItems
         
-        if( true || myState[stateId].inFlow ){
+        if( !myState.hideWidgets){
 
             if( primitiveToPrepare.type=== "query"){
                 let useQuery = basePrimitive.referenceId === 81 
@@ -839,11 +843,12 @@ let mainstore = MainStore()
                 columnAxis.allowMove = columnAxis.access === 0 && !columnAxis.relationship
                 rowAxis.allowMove = rowAxis.access === 0 && !rowAxis.relationship
 
-                let viewFilters = []//d.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(d, i)) ?? []
-                let filterApplyColumns = primitiveToPrepare.referenceParameters?.explore?.axis?.column?.filter ?? []
-                let filterApplyRows = primitiveToPrepare.referenceParameters?.explore?.axis?.row?.filter ?? []
-                let hideNull = primitiveToPrepare.referenceParameters?.explore?.hideNull
-                let viewPivot = primitiveToPrepare.referenceParameters?.explore?.viewPivot
+                const primitiveConfig = primitiveToPrepare.getConfig
+                let viewFilters = []
+                let filterApplyColumns = primitiveConfig?.explore?.axis?.column?.filter ?? []
+                let filterApplyRows = primitiveConfig?.explore?.axis?.row?.filter ?? []
+                let hideNull = primitiveConfig?.explore?.hideNull
+                let viewPivot = primitiveConfig?.explore?.viewPivot
 
                 let liveFilters = primitiveToPrepare.primitives.allUniqueCategory.filter(d=>primitiveToPrepare.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
                     return {
@@ -918,7 +923,7 @@ let mainstore = MainStore()
                         }
                     }
                     items.forEach(d=>expandSources(d))
-                    const company_candidates = MainStore().uniquePrimitives( sources.flatMap(d=>d.findParentPrimitives({referenceId: [29], first: true}))).flat(Infinity) 
+                    const company_candidates = MainStore().uniquePrimitives( sources.flatMap(d=>d.referenceId === 29 ? d : d.findParentPrimitives({referenceId: [29], first: true}))).flat(Infinity) 
                     myState[stateId].renderData = {
                         company_candidates
                     }
@@ -1049,7 +1054,7 @@ let mainstore = MainStore()
                 myState[child.id].showItems = showItems
 
 
-                if( flowInstanceToShow ){
+                if( flowInstanceToShow && child.type !== "flow"){
                     const instanceChild = flowInstanceToShow.primitives.uniqueAllItems.find(d=>d.parentPrimitiveIds.includes(child.id))
                     if( instanceChild ){
                         myState[child.id].underlying = instanceChild
@@ -1224,8 +1229,11 @@ export default function BoardViewer({primitive,...props}){
                                     }else if(info.startsWith('frames.') ){
                                         if((info.endsWith('.height') || info.endsWith('.width'))){
                                             resized = true
+                                            needRebuild = true
+                                        }else{
+                                            needRefresh = true
+                                            //needRebuild = true
                                         }
-                                        needRebuild = true
                                         if( mainstore.primitive(ids[0])?.type === "page"){
                                             myState[frameId].subpages = {}
                                             resized = true
@@ -1454,14 +1462,13 @@ export default function BoardViewer({primitive,...props}){
                         }else{
                             if(right.primitives.imports.allIds.includes(left.id)){
                                 if(left.primitives.outputs.allIds.includes(right.id)){
-                                    const rel = left.primitives.paths(right.id,"outputs")[0]
-                                    if( rel ){
-                                        const pinNames = rel.substring(rel.lastIndexOf(".") + 1);
-                                        const [leftPinName, rightPinName] = pinNames.split("_")
-                                        const leftPin = myState[left.id].outputPins[leftPinName]?.idx
-                                        const rightPin = myState[right.id].inputPins[rightPinName]?.idx
-                                        return {left: left.id, right: right.id, leftPin, rightPin }
-                                    }
+                                    return left.primitives.paths(right.id,"outputs").map(rel=>{
+                                            const pinNames = rel.substring(rel.lastIndexOf(".") + 1);
+                                            const [leftPinName, rightPinName] = pinNames.split("_")
+                                            const leftPin = myState[left.id].outputPins[leftPinName]?.idx
+                                            const rightPin = myState[right.id].inputPins[rightPinName]?.idx
+                                            return {left: left.id, right: right.id, leftPin, rightPin }
+                                    })
                                 }                       
                             }
                             if( left.primitives.paths(right.id).filter(d=>d.startsWith(".axis.")).length > 0){
@@ -1476,8 +1483,9 @@ export default function BoardViewer({primitive,...props}){
                         const rightPin = myState[right.id].inputPins.impin?.idx
                         return {left: left.id, right: right.id, leftPin, rightPin }
                     }else if( right.type === "flow" && right.primitives.outputs.allIds.includes(left.id)){
-                        const rel = right.primitives.paths(left.id,"outputs")[0]
-                        if(rel ){
+                        const rels = right.primitives.paths(left.id,"outputs")
+                        const relPins = rels.map(rel=>{
+
                             const pinNames = rel.substring(rel.lastIndexOf(".") + 1);
                             const [leftPinName, rightPinName] = pinNames.split("_")
                             const leftPin = myState[left.id].outputPins[leftPinName]?.idx
@@ -1485,8 +1493,10 @@ export default function BoardViewer({primitive,...props}){
                             if( leftPin !== undefined && rightPin !== undefined){
                                 return {left: left.id, right: right.id, leftPin, rightPin}
                             }
+                        })
+                        if( relPins.length > 0 ){
+                            return relPins
                         }
-
 
                     }else if(right.primitives.inputs.allIds.includes(left.id)){
                             const rel = right.primitives.paths(left.id,"inputs")[0]
@@ -2383,7 +2393,7 @@ export default function BoardViewer({primitive,...props}){
                             root.oldParent = root.node.parent
                             aggNode.add( root.node )
                         }
-                        await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [0,0,0,0]} )
+                        await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,   noFraming: true, padding: [0,0,0,0]} )
                         for(const root of childFrames){
                             root.node.x( root.x )
                             root.node.y( root.y )
@@ -2414,7 +2424,7 @@ export default function BoardViewer({primitive,...props}){
                                     child.oldParent = child.parent
                                     aggNode.add( child )
                                 }
-                                await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [0,0,0,0]} )
+                                await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  noFraming: true, padding: [0,0,0,0]} )
                                 for(const child of childFrames){
                                     child.x( child.ox )
                                     child.y( child.oy )
@@ -2510,7 +2520,7 @@ export default function BoardViewer({primitive,...props}){
         const sourcePrimitive = mainstore.primitive(sourceId)
         const targetPrimitive = mainstore.primitive(targetId)
         if( sourcePrimitive && targetPrimitive){
-            const isInternalFlowPin = (sourcePrimitive.inFlow && targetPrimitive.type === "flow")
+            const isInternalFlowPin = (sourcePrimitive.inFlow && targetPrimitive.type === "flow") && targetPrimitive.parentPrimitiveIds.includes(sourcePrimitive.id)
             let targetIsPageElement 
             if( targetPrimitive.type === "element"){
                 const topElement = targetPrimitive.configParent ?? targetPrimitive

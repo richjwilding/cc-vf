@@ -567,13 +567,12 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
             }
         );
 
-        let receiverPrim
         await doRemovePrimitiveLink(receiver, target, path)
+        let receiverPrim =  await Primitive.findOne(
+            {
+                "_id": new ObjectId(receiver)
+            })
         if( !skip_notify ){
-            receiverPrim =  await Primitive.findOne(
-                {
-                    "_id": new ObjectId(receiver)
-                })
             SIO.notifyPrimitiveEvent( receiverPrim,
                 [{
                     type: "remove_relationship",
@@ -582,13 +581,7 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
                     path:  path
                 }])
         }
-        if(rTarget?.flowElement){
-            if( !receiverPrim){
-                receiverPrim =  await Primitive.findOne(
-                    {
-                        "_id": new ObjectId(receiver)
-                    })
-            }
+        if(rTarget?.flowElement || receiverPrim?.flowElement){
             await replicateRelationshipUpdateToFlowInstance( receiverPrim, rTarget, path, "remove")
         }
     }
@@ -905,42 +898,78 @@ export async function addRelationship(receiver, target, path, skipParent = false
                                             path:  path
                                         }])
 
-    if(rObject?.flowElement){
+    if(check?.flowElement || rObject?.flowElement){
         await replicateRelationshipUpdateToFlowInstance( rObject, check, path, "add")
     }
 }
 
 async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, relationship, mode){
+    if( !rObject ){
+        logger.error(`!!!! Got undefined rObject for ${relationship} ${add}`)
+    }
+    if( !tObject ){
+        logger.error(`!!!! Got undefined tObject for ${relationship} ${add}`)
+    }
+    if( rObject.type === "flow" && tObject.type === "flowinstance"){
+        if( Object.keys(tObject.parentPrimitives ?? {}).includes( rObject.id) ){
+            return
+        }
+    }
     if( (!rObject.flowElement && rObject.type !== "flow")|| (!tObject.flowElement && tObject.type !== "flow")){
-        logger.error(`${rObject.plainId} / ${rObject.id} > ${tObject.plainId} / ${tObject.id} is not a flowElement for relationship update ${relationship} ${mode}`)
+        if( rObject.type !== "segment" || tObject.type !== "segment"){
+            logger.error(`${rObject.plainId} / ${rObject.id} > ${tObject.plainId} / ${tObject.id} is not a flowElement for relationship update ${relationship} ${mode}`)
+        }
         return 
     }
-    const instancesOfElement = await fetchPrimitives( rObject.primitives?.config ?? [])
-    logger.debug(`Relationship update on flowElement - got ${instancesOfElement.length} instances to update`)
-    const instancesOfTarget =  await fetchPrimitives( tObject.primitives?.config ?? [])
-    logger.debug(`Found ${instancesOfTarget.length} instances of target`)
-    for(const ie of instancesOfElement){
-        let useTarget
-        if( tObject.type === "flow"){
-            useTarget = tObject.id
-        }else{
-            const flowInstanceId = primitiveOrigin( ie )
-            const it = instancesOfTarget.find(d=>d.parentPrimitives[flowInstanceId]?.includes("primitives.origin"))
-            if( it ){
-                if( it.type == "categorizer"){
-                    logger.debug(` - Instance target is categroizer - redirecting to nested primitive`)
-                    useTarget = it.primitives?.origin?.[0]
-                }else{
-                    useTarget = it.id
+    if( rObject.type === "flow" ){
+        const instancesOfTarget =  await fetchPrimitives( tObject.primitives?.config ?? [])
+        logger.debug(`Found ${instancesOfTarget.length} instances of target - linking to subflow input`)
+
+        const subFlowInstances = await primitivePrimitives(rObject, 'primitives.config', "flowinstance" )
+
+        for( const it of instancesOfTarget ){
+            const flowInstanceIdOfTarget = primitiveOrigin( it )
+            const theseSubFIs = subFlowInstances.filter(d=>Object.keys(d.parentPrimitives ?? {}).includes( flowInstanceIdOfTarget ))
+            logger.debug(`-- Have ${theseSubFIs.length} sub flowinstances to link`)
+            for(const subFlow of theseSubFIs){
+                console.log(`${subFlow.id} -> ${it.id} ${relationship} ${mode}`)
+                if( mode == "add"){
+                    await addRelationship( subFlow.id, it.id, relationship)
+                }else if( mode == "remove"){
+                    await removeRelationship( subFlow.id, it.id, relationship)
                 }
-                logger.debug(` - Instance ${ie.id} / ${ie.plainId} match to ${it.id} / ${it.plainId} > ${useTarget} for ${relationship}`)
             }
         }
-        if( useTarget){
-            if( mode == "add"){
-                await addRelationship( ie.id, useTarget, relationship)
-            }else if( mode == "remove"){
-                await removeRelationship( ie.id, useTarget, relationship)
+
+    }else{
+
+        const instancesOfElement = await fetchPrimitives( rObject.primitives?.config ?? [])
+        logger.debug(`Relationship update on flowElement - got ${instancesOfElement.length} instances to update`)
+        const instancesOfTarget =  await fetchPrimitives( tObject.primitives?.config ?? [])
+        logger.debug(`Found ${instancesOfTarget.length} instances of target`)
+        for(const ie of instancesOfElement){
+            let useTarget
+            if( tObject.type === "flow"){
+                useTarget = tObject.id
+            }else{
+                const flowInstanceId = primitiveOrigin( ie )
+                const it = instancesOfTarget.find(d=>d.parentPrimitives[flowInstanceId]?.includes("primitives.origin"))
+                if( it ){
+                    if( it.type == "categorizer"){
+                        logger.debug(` - Instance target is categroizer - redirecting to nested primitive`)
+                        useTarget = it.primitives?.origin?.[0]
+                    }else{
+                        useTarget = it.id
+                    }
+                    logger.debug(` - Instance ${ie.id} / ${ie.plainId} match to ${it.id} / ${it.plainId} > ${useTarget} for ${relationship}`)
+                }
+            }
+            if( useTarget){
+                if( mode == "add"){
+                    await addRelationship( ie.id, useTarget, relationship)
+                }else if( mode == "remove"){
+                    await removeRelationship( ie.id, useTarget, relationship)
+                }
             }
         }
     }
@@ -1608,6 +1637,8 @@ async function __OLD__filterItems(list, filters){
 export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}}, forceImport = false, first = true ){
     let fullList = []
 
+    const sourceConfig = await getConfig(source)
+
     let requesterInFlow
     if((source.type === "query" || source.type === "summary" || source.type === "search") && forceImport !== true){
         let list 
@@ -1621,7 +1652,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
             list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
             
-            const viewFilters = getBaseFilterForView( source ).map(d=>{
+            const viewFilters = (await getBaseFilterForView( source, sourceConfig )).map(d=>{
                 if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
                     return {
                         ...d,
@@ -1645,9 +1676,8 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             list = await fetchPrimitives( ids)
         }
 
-        const params = await getConfig( source) 
-        if( params.extract ){
-            const check = [params.extract].flat()
+        if( sourceConfig.extract ){
+            const check = [sourceConfig.extract].flat()
             list = list.filter(d=>check.includes(d.referenceId))
         }
         list = list.filter(d=>!["segment", "category", "query", "report", "reportinstance"].includes(d.type))
@@ -1797,7 +1827,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
     
 
     if(source.type === "view" ){
-        let viewFilters = getBaseFilterForView( source ).map(d=>{
+        let viewFilters = (await getBaseFilterForView( source, sourceConfig )).map(d=>{
             if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
                 return {
                     ...d,
@@ -1806,7 +1836,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             }
             return d
         })
-        if( viewFilters.length == 0 ){
+       /* if( viewFilters.length == 0 ){
             const configParent = await getConfigParent( source )
             if( configParent && configParent.flowElement){
                 viewFilters = getBaseFilterForView( configParent ).map(d=>{
@@ -1820,7 +1850,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 })
             }
 
-        }
+        }*/
         fullList = await filterItems( fullList, viewFilters)
     }
     
@@ -1839,25 +1869,28 @@ export async function getDataForImport( source, cache = {imports: {}, categories
     }
     return out
 }
-export function getBaseFilterForView( primitive){
+export async function getBaseFilterForView( primitive, config){
+    if( !config ){
+        config = await getConfig(primitive)
+    } 
     return [
             "column",
             "row",
-            (primitive.referenceParameters?.explore?.filters ?? []).map((d,i)=>i)
-        ].flat().map(d=>primitiveAxis(primitive,d)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
+            (config?.explore?.filters ?? []).map((d,i)=>i)
+        ].flat().map(d=>primitiveAxis(primitive, config, d)).filter(d=>d).map(d=>PrimitiveConfig.encodeExploreFilter(d, d.filter, true)).filter(d=>d)
 }
-function primitiveAxis( primitive, axisName){
+function primitiveAxis( primitive, config, axisName){
     let axis 
     if( axisName === "column" || axisName === "row"){
-        axis = primitive.referenceParameters?.explore?.axis?.[axisName]
+        axis = config?.explore?.axis?.[axisName]
     }else{
-        axis = primitive.referenceParameters?.explore?.filters?.[ axisName]
+        axis = config?.explore?.filters?.[ axisName]
     }
     if( axis ){
         if( ["question", "parameter", "title", "type"].includes(axis.type)){
             return {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
         }
-        const connectedPrim = isNaN(axisName) ? primitive.primitives?.axis?.[axisName]?.[0] : primitive.referenceParameters?.explore.filters?.[axisName]?.sourcePrimId            
+        const connectedPrim = isNaN(axisName) ? primitive.primitives?.axis?.[axisName]?.[0] : config?.explore.filters?.[axisName]?.sourcePrimId            
         if( connectedPrim ){
             return {filter: [], ...axis, primitiveId: connectedPrim}
         }

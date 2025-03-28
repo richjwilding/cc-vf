@@ -12,7 +12,7 @@ import { createPptx, exportKonvaToPptx } from "./PptHelper";
 import Konva from "konva";
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list";
 
-export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
+export function FlowInstanceInfo({primitive, inputPrimitives, steps,...props}){
     const [expand, setExpand] = useState(false)
     const [showFeed, setShowFeed] = useState(true)
     const myState = useRef({})
@@ -44,7 +44,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
                         child.oldParent = child.parent
                         aggNode.add( child )
                     }
-                    await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  padding: [0,0,0,0]} )
+                    await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT, noFraming: true, padding: [0,0,0,0]} )
                     for(const child of childFrames){
                         child.x( child.ox )
                         child.y( child.oy )
@@ -61,6 +61,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     }
 
     myState.renderSubPages = true
+    myState.hideWidgets = true
 
     const bg = props.bg ?? "bg-white"
     const ring = bg.replace("bg-", "ring-")
@@ -74,10 +75,17 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     const outputs = outputPins.reduce((a,c)=>{
         const [pinSource, pinInput] = c.split("_")
         if( flowOutputPins[pinInput]){
+            let items
+            const pinContent = primitive.outputs[pinInput]
+            if( pinContent?.config === "primitive"){
+                items = pinContent.data
+            }
+
             a[c] = {
                 id: c,
                 name: flowOutputPins[pinInput]?.name ?? pinInput,
-                items: primitive.primitives.outputs[c].allUniqueItems
+                //items: primitive.primitives.outputs[c].allUniqueItems
+                items
             }
         }
         return a}, {})
@@ -134,7 +142,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
     function inputPinPane(){
         const pins = flow.referenceParameters?.inputPins ?? {}
         const pinNames = Object.keys(pins)
-        return <div className="flex w-full @container  max-h-[min(70vh,_50rem)] min-h-0">
+        return <div className="flex w-full @container  max-h-[min(70vh,_50rem)] min-h-0 overflow-y-scroll">
             <DescriptionList inContainer={true}>
                 {pinNames.map((pinId)=>(
                     <>
@@ -146,18 +154,22 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
         </div>
 
     }
+    const hasInputPrimitives = inputPrimitives && inputPrimitives.length > 0
+    const singleInputPrimitive = inputPrimitives && inputPrimitives.length === 1
+    const inputPrimitive = singleInputPrimitive ? inputPrimitives[0] : undefined
 
     return (<>
-        <div className={`${bg} ${padding} @container flex flex-col`}>
+        <div className={`${bg} ${padding} @container flex flex-col text-md`}>
             <div className="flex justify-between">
             <span>{inputPrimitive?.title ?? primitive.title}</span>
             <UIHelper.IconButton 
                 icon={<DocumentArrowDownIcon className={`size-5`}/>}
                 action={downloadAll}/>
             </div>
-            {inputPrimitive && <PrimitiveCard.Title primitive={inputPrimitive} compact={true}/>}
-            {expand && inputPrimitive && <PrimitiveCard.Parameters primitive={inputPrimitive} fullList={true}/>}
-            {expand && !inputPrimitive && inputPinPane()}
+            {singleInputPrimitive && inputPrimitive && <PrimitiveCard.Title primitive={inputPrimitive} compact={true}/>}
+            {!singleInputPrimitive && hasInputPrimitives && <p>{inputPrimitives.length} inputs</p>}
+            {expand && singleInputPrimitive && inputPrimitive && <PrimitiveCard.Parameters primitive={inputPrimitive} fullList={true}/>}
+            {expand && !hasInputPrimitives && inputPinPane()}
             {expand && <div className="mt-auto -mb-3">
                 <PrimitiveCard.Title primitive={primitive} compact={true}/>
             </div>}
@@ -172,6 +184,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
                 <div className="flex h-full w-full max-h-[min(70vh,_50rem)] min-h-inherit relative border rounded-lg border-gray-200 overflow-hidden mb-2"><InfiniteCanvas
                         primitive={primitive}
                         board
+                        hideWidgets={true}
                         ref={canvas}
                         //background="#f9fafb"
                         background="white"
@@ -215,7 +228,7 @@ export function FlowInstanceInfo({primitive, inputPrimitive, steps,...props}){
                         }}
                         render={renderedSet}/>
                 </div>
-                {<div className={`flex flex-col p-4 rounded-lg px-4 py-2 ${bg}  @container border mb-2`}>
+                {<div className={`flex flex-col p-4 rounded-lg px-4 py-2 ${bg}  @container border mb-2 flex w-full @container  max-h-[min(70vh,_50rem)] min-h-0 overflow-y-scroll`}>
                     <div className="flex space-x-2 place-items-center justify-between mb-2">
                         {showFeed && <p className="text-gray-500 font-semibold text-sm">Steps</p>}
                         <UIHelper.IconButton 

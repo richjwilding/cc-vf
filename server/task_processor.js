@@ -307,8 +307,8 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
         if( toClear.length > 0){
             logger.debug(`${toClear.length} of ${currentSegments.length} to be cleared`)
             for(const d of toClear){await removePrimitiveById( d )}
-            logger.debug("Cleared")
         }
+        return {segments: out, cleared: toClear}
     }
     return out
 } 

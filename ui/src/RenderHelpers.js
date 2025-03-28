@@ -2806,7 +2806,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             y += spaceY * 2
             let x = config.padding[3]
             let companySizing = 96
-            const names = Array.isArray(orgs.content) ? orgs.content : orgs.content.split(/[,\n]/).map(d=>d.replace(/^\s*-\s+/,""))
+            const names = Array.isArray(orgs.content) ? orgs.content : orgs.content.split(/[,\n]/).map(d=>d.replace(/^\s*-\s+/,"").trim())
             const candidates = options?.data?.company_candidates ?? []
             const primitives = names.map(name=>{
                 let variants = name.split(" ").map((d,i,a)=>a.slice(0,i + 1).join(" ")).reverse()

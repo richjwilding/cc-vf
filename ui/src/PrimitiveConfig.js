@@ -821,6 +821,12 @@ const PrimitiveConfig = {
                             sourceTransform: "filter_imports"
                         })
                     }
+                }else if( input.sourcePrimitive?.type === "flow"){
+                    out.push({
+                            ...input,
+                            useConfig: "primitive",
+                            sourceTransform: "pin_relay",
+                    })
                 }else{
                     if( !sourcePinConfig && (input.sourcePin === "rowAxis" || input.sourcePin === "colAxis")){
                         out.push({
@@ -895,7 +901,7 @@ const PrimitiveConfig = {
                                 out[input.inputPin].config = input.passThroughCoonfig
                             }
                             out[input.inputPin].data.push( ...[input.pass_through].flat())
-                        }else{
+                        }else if(input.useConfig){
                             let sourceField = input.sourcePinConfig.source.replace(/^param./,"")
                             function extractDataFromSource( sources){
                                 let result = []

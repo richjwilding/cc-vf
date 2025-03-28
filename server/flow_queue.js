@@ -42,7 +42,7 @@ class FlowQueueClass extends BaseQueue {
                     status: "complete"
                 }
                 await dispatchControlUpdate(primitive.id, "processing.flow", update)
-                if( update.last_run ){
+                if( update.last_run?.steps ){
                     await this.runFlowInstance( primitive, { continue: true} )
                 }
             }

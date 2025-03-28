@@ -77,8 +77,8 @@ export default function AnalysisPage({primitive, ...props}){
                 {flowInstances.map(flowInstance=>{
                     //const flowInstance = flowInstances.find(d=>d.itemsForProcessing.map(d=>d.id).includes(input.id))
                     //const input = flowInstance.primitives.imports.allItems[0]
-                    const input = flowInstance.itemsForProcessing[0]
-                    return <FlowInstanceInfo primitive={flowInstance} inputPrimitive={input} steps={steps} hideProgressAt="@4xl"/>
+                    const inputs = flowInstance.itemsForProcessing
+                    return <FlowInstanceInfo primitive={flowInstance} inputPrimitives={inputs} steps={steps} hideProgressAt="@4xl"/>
                 })}
             </div>
         </div>

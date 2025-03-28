@@ -645,7 +645,6 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         </div>
                     </div>
         }
-        function flowPanel(){
             function pinSet(title, target ){
                 const pins = frame.referenceParameters?.[target] ?? {}
                 const pinIds = Object.keys(pins)
@@ -723,6 +722,15 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         </UIHelper.Panel>
 
             }
+        function flowPanel(){
+            let flowInstanceToShow
+            if( frame.type === "flow" && frame.flowElement ){
+                const parentFlow = frame.origin
+                if( parentFlow.type === "flow"){
+                    const flowInstances = parentFlow.primitives.origin.allFlowinstance.sort((a,b)=>a.plainId - b.plainId)
+                    flowInstanceToShow = flowInstances[parentFlow.referenceParameters?.explore?.view ?? 0]
+                }
+            }
 
             return <><div className="space-y-2">
                 <div className="border rounded-md bg-gray-50">
@@ -740,18 +748,12 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     }
                 </div>
             </div>
-            {!filters && (frame.type === "flow") && <UIHelper.Button outline title="New Instance" onClick={()=>mainstore.doPrimitiveAction(frame,"create_flowinstance")}/>}
+            {!filters && (frame.type === "flow" && !frame.flowElement) && <UIHelper.Button outline title="New Instance" onClick={()=>mainstore.doPrimitiveAction(frame,"create_flowinstance")}/>}
+            {!filters && (frame.type === "flow" && frame.flowElement && flowInstanceToShow) && <UIHelper.Button outline title="Run subflow" onClick={()=>mainstore.doPrimitiveAction(flowInstanceToShow,"run_subflow", {subFlowId: frame.id})}/>}
             {!filters && (frame.type === "flow") && 
                 <UIHelper.Button outline title="Scaffold" onClick={()=>{
-                    if( frame.flowElement){
-                        const parentFlow = frame.origin
-                        if( parentFlow.type === "flow"){
-                            const flowInstances = parentFlow.primitives.origin.allFlowinstance.sort((a,b)=>a.plainId - b.plainId)
-                            const flowInstanceToShow = flowInstances[parentFlow.referenceParameters?.explore?.view ?? 0]
-                            if( flowInstanceToShow ){
-                                mainstore.doPrimitiveAction(frame,"workflow_scaffold", {subFlowForInstanceId: flowInstanceToShow.id})
-                            }
-                        }
+                    if( flowInstanceToShow ){
+                        mainstore.doPrimitiveAction(frame,"workflow_scaffold", {subFlowForInstanceId: flowInstanceToShow.id})
                     }else{
                         mainstore.doPrimitiveAction(frame,"workflow_scaffold")
                     }
@@ -882,6 +884,23 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         {showDetails && <>
                             <div className="p-2 ">
                                 <PrimitiveCard.Parameters primitive={frame} includeTitle editing leftAlign compactList className="text-xs text-slate-500" fullList />
+                            </div>
+                        </>
+                        }
+                    </div>
+                </div>
+            }
+            {frame.type === "page" && 
+                <div className="space-y-2">
+                    <div className="border rounded-md bg-gray-50">
+                        <div onClick={()=>setShowDetails(!showDetails)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">
+                            <p className="font-medium ">{frame.metadata.title} details</p>
+                            <ChevronRightIcon strokeWidth={2} className={`ml-auto w-5 h-5 ${showDetails ? '-rotate-90 transform' : ''}`}/>
+                        </div>
+                        {showDetails && <>
+                            <div className="px-4 pb-2 space-y-2 text-sm text-gray-600">
+                                {pinSet("Inputs", "inputPins")}
+                                {pinSet("Outputs", "outputPins")}
                             </div>
                         </>
                         }

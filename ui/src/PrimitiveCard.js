@@ -2534,6 +2534,8 @@ function RenderPinValues({values, pin}){
             return <p>{pinValue.data.join(", ")}</p>
         }else if(renderAs === "string"){
             return <p>{pinValue.data}</p>
+        }else if(renderAs === "object_list"){
+          return <ul>{pinValue.data.map(d=>Object.keys(d).map(k=><li>{k}:{d[k]}</li>))}</ul>
         }else if(renderAs === "primitive"){
             return <div className='flex flex-col space-y-2'>
                 {pinValue.data.map(d=><PrimitiveCard primitive={d}/>)}

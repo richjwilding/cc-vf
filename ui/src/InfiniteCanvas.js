@@ -132,7 +132,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             const tl = convertSceneCoordToScreen( d.x, d.y)
             const br = convertSceneCoordToScreen( d.x + (d.node.attrs.width * d.node.attrs.scaleX), d.y + (d.node.attrs.height * d.node.attrs.scaleY))
                 
-            return {
+            const positions = {
                 scene:{
                     x: d.x,
                     y: d.y,
@@ -151,6 +151,17 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     b: br[1]
                 }
             }
+
+            if( d.parentRender ){
+                let {x:px, y:py, s:ps} = getFramePosition(d.parentRender)
+                positions.relative = {
+                    x: (positions.scene.x - px) / ps,
+                    y:  (positions.scene.y - py) / ps,
+                    s: positions.scene.s / ps,
+                }
+            }
+
+            return positions
         })
         return id ? mapped[0] : mapped
     }
@@ -392,8 +403,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             y:0,
             width: 1000,
             height: 10,
-            fill: options.frameless ? "transparent" : options.bgFill ?? "#fcfcfc",
-            cornerRadius: options.frameless ? undefined : 10,
+            fill: options.frameless ? "transparent" : options.bgFill ?? "#fafafa",
+            cornerRadius: options.flow ? 50 : options.frameless ? undefined : 10,
             strokeScaleEnabled: false,
             visible: props.board,
             stroke: undefined,
@@ -406,12 +417,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             y:0,
             width: 1000,
             height: 10,
-            strokeWidth: 0.5,
+            strokeWidth: options.flow ? 1.0 : 0.5,
             fill:undefined,//"#fcfcfc",
-            cornerRadius: 10,
+            dash: options.flow ? [8, 4] : undefined,
+            //cornerRadius: 10,
+            cornerRadius: options.flow ? 50 : options.frameless ? undefined : 10,
             strokeScaleEnabled: false,
             visible: props.board,
-            stroke: options.frameless ? "transparent" : "#b8b8b8",
+            stroke: options.flow ? "#a0a0a0" : options.frameless ? "transparent" : "#b8b8b8",
             name:"frame_outline",
             id: `frame`,
         }) 
@@ -582,6 +595,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             addRoutingForFrame(frame)
             buildPositionCache(frame)
         }
+        if( frame.parentRender ){
+            resizeNestedFrame( frame.parentRender )
+        }
+        
 
     }
     function setupPins( frame, maxX, maxY ){
@@ -669,7 +686,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             removeRoutingForFrame( existing )
             myState.current.frames = myState.current.frames.filter(d=>d.id !== id) 
         }
-        const frame = createFrame({id: id, x, y, s, bgFill: options.bgFill, frameless: options.frameless})
+        const frame = createFrame({id: id, x, y, s, bgFill: options.bgFill, frameless: options.frameless, flow: options.flow})
         if( frame ){
             const frameBorder = frame.border//node.find('#frame')?.[0]
             let framePadding = [0,0,0,0]
@@ -763,6 +780,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             
 
             if( options.parentRender ){
+                frame.parentRender = options.parentRender
                 resizeNestedFrame( options.parentRender )
             }
         }

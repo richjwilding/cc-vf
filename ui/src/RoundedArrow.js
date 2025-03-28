@@ -35,7 +35,10 @@ function roundCornersPath(points, c, radius = 15) {
 
     function simplifyPath(points) {
         if (points.length <= 4) {
-            return points;
+            return [
+                {x: points[0], y: points[1]},
+                {x: points[2], y: points[3]}
+            ];
         }
         const r = [{x: points[0], y: points[1]}];
         for (let i = 2; i < points.length; i += 2) {
