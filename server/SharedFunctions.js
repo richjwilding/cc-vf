@@ -556,7 +556,10 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
                 projection: { _id: 1, workspaceId: 1, primitives: 1, flowElement: 1, type: 1}
             }
         );
-    
+        if( !rTarget){
+            return
+        }
+
         await Primitive.updateOne(
             {
                 "_id": new ObjectId(target),
@@ -905,10 +908,10 @@ export async function addRelationship(receiver, target, path, skipParent = false
 
 async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, relationship, mode){
     if( !rObject ){
-        logger.error(`!!!! Got undefined rObject for ${relationship} ${add}`)
+        logger.error(`!!!! Got undefined rObject for ${relationship} ${mode}`)
     }
     if( !tObject ){
-        logger.error(`!!!! Got undefined tObject for ${relationship} ${add}`)
+        logger.error(`!!!! Got undefined tObject for ${relationship} ${mode}`)
     }
     if( rObject.type === "flow" && tObject.type === "flowinstance"){
         if( Object.keys(tObject.parentPrimitives ?? {}).includes( rObject.id) ){

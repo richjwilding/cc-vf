@@ -384,6 +384,15 @@ const PrimitiveConfig = {
             },
             cat_overview: {id: 4,title:"Category overview", renderType: "cat_overview",parameters: {},
                 config:{
+                    "style":{
+                        type: "option_list",
+                        title: "Chart Type",
+                        default: true,
+                        options: [
+                            {id:"bar", title: "Bar graph"},
+                            {id:"pie", title: "Pie chart"},
+                        ]
+                    },
                     "show_none":{
                         type: "option_list",
                         title: "Show None",

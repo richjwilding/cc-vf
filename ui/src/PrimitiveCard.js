@@ -661,8 +661,11 @@ let mainstore = MainStore()
             callback={(v)=>{
                 const outputs = page.primitives.outputs
                 const existing = Object.keys(outputs).find(d=>outputs[d].includes( props.primitive.id ))
-                page.removeRelationship(props.primitive,`outputs.${existing}`)
-                page.addRelationship(props.primitive, `outputs.${v}_impin`)
+                const newPath = `${v}_impin`
+                if( existing !== newPath ){
+                  page.removeRelationship(props.primitive,`outputs.${existing}`)
+                  page.addRelationship(props.primitive, `outputs.${newPath}`)
+                }
             }}
         />
 

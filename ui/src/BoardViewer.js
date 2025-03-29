@@ -248,7 +248,270 @@ function renderSubBoard(d, stageOptions){
 }
 
 let mainstore = MainStore()
-    function SharedRenderView(d, primitive, myState){
+function SharedRenderView(d, primitive, myState) {
+    // Base view and options
+    const view = myState[d.id];
+    const renderOptions = { ...view.renderConfigOverride };
+    if (view.widgetConfig) {
+      renderOptions.widgetConfig = view.widgetConfig;
+    }
+  
+    // Merge size options if available
+    const configNames = ["width", "height"];
+    const sizeSource = view.parentRender ? myState[view.parentRender].primitive.frames : primitive.frames;
+    if (sizeSource?.[d.id]) {
+      configNames.forEach(name => {
+        if (sizeSource[d.id][name] !== undefined) {
+          renderOptions[name] = sizeSource[d.id][name];
+        }
+      });
+    }
+  
+    // Determine what primitive to render
+    const primitiveToRender = view.primitive.type === "element" ? view.primitive: (view.underlying ?? view.primitive);
+  
+    // Common properties
+    const pins =
+      view.primitive.type === "element" ? undefined: {
+            input: Object.values(view.inputPins),
+            output: Object.values(view.outputPins)
+          };
+    const frameless = view.inPage;
+    const titleAlwaysPresent = !view.noTitle && !(view.widgetConfig !== undefined || view.config === "widget");
+    const title = view.noTitle ? undefined : () =>
+          view.title ??
+          `${d.title} - #${d.plainId}${
+            view.underlying ? ` (${primitiveToRender.plainId})` : ""
+          }`;
+
+    const canvasMargin = view.inPage ? [0, 0, 0, 0] : (view.noTitle || view.inFlow) ? [0, 0, 0, 0] : [20, 20, 20, 20];
+  
+    // Optional indicator builder
+    const indicators = undefined//view.primitive.flowElement ? () => buildIndicators(primitiveToRender, undefined, undefined, myState) : undefined;
+  
+    const prepareSubBoards = d => preparePageElements(d, view);
+  
+    const mapMatrix = (stageOptions, d, view) => {
+      let dataSource = view;
+      if (view.axisSource) {
+        if (view.axisSource.inFlow && view.axisSource.configParent.flowElement) {
+          dataSource = myState[view.axisSource.configParent.id];
+        } else {
+          dataSource = myState[view.axisSource.id];
+        }
+        if (!dataSource) {
+          console.warn(`Couldn't find config for axis Source ${view.axisSource.id}`);
+          dataSource = view;
+        }
+      }
+      return renderMatrix(primitiveToRender, dataSource.list, {
+        axis: dataSource.axis,
+        columnExtents: dataSource.columns,
+        rowExtents: dataSource.rows,
+        viewConfig: view.viewConfig,
+        ...stageOptions,
+        ...renderOptions,
+        toggles: view.toggles,
+        data: view.renderData,
+        expand: Object.keys(primitive.frames?.[d.id]?.expand ?? {})
+      });
+    };
+  
+    // Build base render view object
+    const baseRenderView = {
+      id: d.id,
+      parentRender: view.parentRender,
+      pins,
+      frameless,
+      title,
+      titleAlwaysPresent,
+      indicators,
+      canvasMargin
+    };
+  
+    // Determine "items" and "canChangeSize" based on view.config
+    let renderView = null;
+    switch (view.config) {
+      case "plain_object":
+        renderView = {
+          ...baseRenderView,
+          canChangeSize: true,
+          items: stageOptions => {
+            const data = myState[d.id].object;
+            return renderPlainObject({ ...data, ...stageOptions, ...renderOptions });
+          }
+        };
+        break;
+  
+      case "full": {
+        let renderFunc = stageOptions =>
+          RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions });
+        // Special case for a reference
+        if (d.referenceId === 118) {
+          let boardToCombine = d.primitives.imports.allItems;
+          if (d.order) {
+            boardToCombine.sort((a, b) => d.order.indexOf(a.id) - d.order.indexOf(b.id));
+          }
+          if (boardToCombine.length > 0) {
+            renderFunc = stageOptions => {
+              const partials = boardToCombine.map(item => {
+                const board = myState[item.id];
+                return {
+                  primitive: item,
+                  axis: board.axis,
+                  columnExtents: board.columns,
+                  rowExtents: board.rows,
+                  viewConfig: board.viewConfig,
+                  list: board.list
+                };
+              });
+              return RenderPrimitiveAsKonva(primitiveToRender, {
+                ...stageOptions,
+                ...renderOptions,
+                partials
+              });
+            };
+          }
+        }
+        renderView = {
+          ...baseRenderView,
+          canChangeSize: "width",
+          items: renderFunc
+        };
+        break;
+      }
+  
+      case "cat_overview":
+      case "word_cloud":
+        renderView = {
+          ...baseRenderView,
+          canChangeSize: "width",
+          items: stageOptions =>
+            RenderPrimitiveAsKonva(primitiveToRender, {
+              ...stageOptions,
+              ...renderOptions,
+              config: view.config,
+              data: view.renderData
+            })
+        };
+        break;
+  
+      case "page": {
+        const renderFunc = stageOptions =>
+          RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, data: view.renderData });
+        renderView = {
+          ...baseRenderView,
+          utils: view.renderSubPages || RENDERSUB
+            ? { prepareBoards: prepareSubBoards, renderBoard: renderSubBoard }
+            : undefined,
+          canChangeSize: true,
+          canvasMargin: [0, 0, 0, 0],
+          items: renderFunc,
+          bgFill: "white"
+        };
+        break;
+      }
+  
+      case "flow": {
+        const renderFunc = stageOptions =>
+          RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, data: view.renderData });
+        renderView = {
+          ...baseRenderView,
+          resizeForChildren: true,
+          routeInternal: true,
+          canChangeSize: true,
+          canvasMargin: [0, 0, 0, 0],
+          items: renderFunc,
+          flow: true
+        };
+        break;
+      }
+  
+      case "widget": {
+        const data = view.renderData;
+        if (view.inFlow) {
+          data.basePrimitive = view.primitive;
+        }
+        const renderFunc = stageOptions =>
+          RenderPrimitiveAsKonva(primitiveToRender, {
+            ...stageOptions,
+            ...renderOptions,
+            config: "widget",
+            data
+          });
+        renderView = {
+          ...baseRenderView,
+          canChangeSize: "width",
+          canvasMargin: [2, 2, 2, 2],
+          items: renderFunc
+        };
+        break;
+      }
+  
+      case "report_set":
+        renderView = {
+          ...baseRenderView,
+          canChangeSize: "width",
+          items: stageOptions =>
+            RenderSetAsKonva(primitiveToRender, view.list, {
+              referenceId: primitiveToRender.referenceId,
+              ...stageOptions,
+              ...renderOptions,
+              axis: view.axis,
+              data: view.renderData,
+              extents: { column: view.columns, row: view.rows }
+            })
+        };
+        break;
+  
+      default:
+        if (d.type === "query" && d.processing?.ai?.data_query) {
+          renderView = {
+            ...baseRenderView,
+            canChangeSize: true,
+            items: stageOptions =>
+              RenderPrimitiveAsKonva(primitiveToRender, {
+                config: "ai_processing",
+                ...stageOptions,
+                ...renderOptions
+              })
+          };
+        } else if (view.viewConfig?.matrixType) {
+          renderView = {
+            ...baseRenderView,
+            canChangeSize: view?.viewConfig?.resizable,
+            items: stageOptions =>
+              RenderSetAsKonva(primitiveToRender, view.list, {
+                ...stageOptions,
+                ...renderOptions,
+                axis: view.axis,
+                extents: {
+                  column: view.columns.map(item => ({
+                    ...item,
+                    primitive: mainstore.primitive(item.idx)
+                  })),
+                  row: view.rows.map(item => ({
+                    ...item,
+                    primitive: mainstore.primitive(item.idx)
+                  }))
+                },
+                config: view.viewConfig?.matrixType
+              })
+          };
+        } else {
+          renderView = {
+            ...baseRenderView,
+            utils: { prepareBoards: prepareSubBoards, renderBoard: renderSubBoard },
+            canChangeSize: view?.viewConfig?.resizable,
+            items: stageOptions => mapMatrix(stageOptions, d, view)
+          };
+        }
+        break;
+    }
+  
+    return renderView;
+  }
+   /* function SharedRenderView(d, primitive, myState){
         const view = myState[d.id]
         const renderOptions = view.renderConfigOverride ?? {}
         const configNames = ["width", "height"]
@@ -442,7 +705,7 @@ let mainstore = MainStore()
 
         return {id: d.id ,parentRender: view.parentRender, pins, frameless, title, titleAlwaysPresent, indicators, utils: {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard},canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
 
-    }
+    }*/
     function getPageVariants( pageInputs, inputs, allItems = false ){
         const combos = []
         if(  pageInputs.group1 ){
@@ -788,7 +1051,22 @@ let mainstore = MainStore()
             if( viewConfig?.renderType === "cat_overview"){
                 let config = primitiveToPrepare.getConfig
                 let categoriesToMap
-                if( config.explore.axis?.column?.type === "category" || config.explore.axis?.row?.type === "category"){
+                if( config.view_axis ){
+                    let dataSource
+                    if( myState[stateId].axisSource.inFlow && myState[stateId].axisSource.configParent.flowElement){
+                        dataSource = myState[myState[stateId].axisSource.configParent.id] 
+                    }else{
+                        dataSource = myState[myState[stateId].axisSource.id] 
+                    }
+                    if( dataSource ){
+                        categoriesToMap = [
+                            dataSource.axis?.row?.type === "category" ?  dataSource.axis?.row?.primitiveId : undefined,
+                            dataSource.axis?.column?.type === "category" ?  dataSource.axis?.column?.primitiveId : undefined,
+                        ].filter(d=>d).map(d=>mainstore.primitive(d))
+
+                    }
+
+                }else if( config.explore.axis?.column?.type === "category" || config.explore.axis?.row?.type === "category"){
                     categoriesToMap = [
                         config.explore.axis?.column?.type === "category" ? primitiveToPrepare.primitives.axis.column.allItems : undefined,
                         config.explore.axis?.row?.type === "category" ? primitiveToPrepare.primitives.axis.row.allItems : undefined,
@@ -1884,6 +2162,8 @@ export default function BoardViewer({primitive,...props}){
         if( d.type === "element"){
             myState[d.id].inPage = true
             myState[d.id].page = myState[d.origin.id]
+            myState[d.id].parentRender = d.origin.id
+        }else if(d.flowElement){
             myState[d.id].parentRender = d.origin.id
         }
         prepareBoard( d )

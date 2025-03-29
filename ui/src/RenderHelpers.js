@@ -5354,7 +5354,7 @@ function renderSubCategoryChart( title, data, options = {}){
         pieY = (config.fontSize * 2.5) + innerSpacing
     }
     const pieSize = (itemSize - innerPadding[3] - innerPadding[1]) * 0.95
-    if( options.style ==="bar" || true){
+    if( options.style ==="bar" ){
         sg.add( renderBarChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY, colors: colors}))
     }else{
 
@@ -5450,7 +5450,16 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
     }
 
     for( const item of sets ){
-        const sg = renderSubCategoryChart(item.title, item.details, {x: x, y: y, itemSize, innerPadding, hideTitle: config.show_title === false, hideLegend: config.show_legend === false, byTag: config.by_tag})
+        const sg = renderSubCategoryChart(item.title, item.details, {
+                                                x: x, 
+                                                y: y, 
+                                                itemSize, 
+                                                innerPadding, 
+                                                style: config.style, 
+                                                hideTitle: config.show_title === false, 
+                                                hideLegend: config.show_legend === false, 
+                                                byTag: config.by_tag
+                                            })
         g.add(sg)
         rowCells.push( sg )
         
