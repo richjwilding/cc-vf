@@ -1534,9 +1534,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
 
     function orderNestedFrames(node, start = true){
-        const children = getNestedFrames( node.attrs.id)
+        let children = getNestedFrames( node.attrs.id)
         //let nextZ = startZ ?? node.zIndex() + 1
         if( children.length > 0){
+            children = children.sort((a,b)=>(a.canChangeSize === "plain" ? 0 : 1) - (b.canChangeSize === "plain" ? 0 : 1))
             for(const d of children){
                 const frame = myState.current.frames.find(d2=>d.id === d2.id)
                 if( frame ){
@@ -2078,10 +2079,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             let oy = (-ty - (myState.current.flipping.last.fsy / myState.current.flipping.last.scale * scale)) // (scale / myState.current.flipping.last.scale)
             
 
-            stageRef.current.container().style.transform = `translate(${-Math.floor(ox)}px, ${-Math.floor(oy)}px) scale(${scale / myState.current.flipping.last.scale}) `
+            let ns = scale / myState.current.flipping.last.scale
+            stageRef.current.container().style.transform = `translate(${-Math.floor(ox)}px, ${-Math.floor(oy)}px) scale(${ns}) `
             myState.current.flipping.last.callScale = scale
 
             myState.current.viewport = {x: tx, y: ty, scale: scale}
+            myState.current.stageTransform = {x: -ox, y: -oy, s: ns}
 
 
             return myState.current.viewport
@@ -3005,6 +3008,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             let doDraw = false
             let cleared 
             if( found ){
+                if( found.name().includes("no_hover")){return}
                 const thisItem = found
                 if( myState.current.hover[type] !== thisItem ){
                     if( myState.current.hover[type] ){
@@ -3242,6 +3246,31 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             e.evt.stopPropagation()
         }
+        function getAnchorLinesForNestedFrame( frame ){
+            if( !frame.parentRender ){
+                return {v:[], h:[]}
+            }
+            const v = new Set(), h = new Set()
+            const pPosition = framePosition(frame.parentRender)
+            v.add( pPosition.scene.l )
+            v.add( pPosition.scene.r )
+            h.add( pPosition.scene.t )
+            h.add( pPosition.scene.b )
+            for(const d of getNestedFrames(frame.parentRender)){
+                if( d.id === frame.id){
+                    continue
+                }
+                const childPosition = framePosition(d.id)
+                v.add( childPosition.scene.l )
+                v.add( childPosition.scene.r )
+                h.add( childPosition.scene.t )
+                h.add( childPosition.scene.b )
+            }
+
+            return {h: Array.from(h), v: Array.from(v)}
+
+
+        }
         function createFrameSelect(d){
             if( !myState.current.frameSelect ){
                 myState.current.frameSelect = {
@@ -3257,78 +3286,159 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             const frame = myState.current.frames?.find(d2=>d2.id === d.attrs.id) 
             const renderItem = myState.current.renderList.find(d2=>d2.id === d.attrs.id)
             myState.current.frameSelect.layer.add(node)
+
+
+            const handles = {
+                "plain": ['top-left', 'top-center','top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'],
+                "width": ['top-left', 'top-right', 'middle-right', 'bottom-left', 'bottom-right'],
+                true: ['top-left', 'top-right', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right']
+            } 
+
+            const enabledAnchors = handles[frame.canChangeSize] ?? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+
+
             const thisTransformer = new Konva.Transformer({
                 rotateEnabled:false, 
                 resizeEnabled: true,
                 flipEnabled: false,
-                enabledAnchors: frame?.canChangeSize === "width" ? 
-                        ['top-left', 'top-right', 'middle-right', 'bottom-left', 'bottom-right'] : 
-                        frame?.canChangeSize ? ['top-left', 'top-right', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right']
-                        : ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+                keepRatio: frame.canChangeSize !== "plain",
+                enabledAnchors
             })
+
+
+
             thisTransformer.on('transformstart',()=>{
                 myState.current.frameSelect.transforming = true
+                let snaps
+                if( renderItem.parentRender ){
+                    snaps = getAnchorLinesForNestedFrame( renderItem )
+                    console.log(snaps)
+
+                    function snapTo( v, snaps){
+                        const minDist = snaps.reduce((a,c)=>{
+                            const dist = Math.sqrt(Math.pow(v - c, 2));
+                            if( dist < a.d){
+                                a.d = dist
+                                a.v = c
+                            }
+                            return a
+                        },{d: Infinity})
+                        if (minDist.v !== undefined && minDist.d < 10) {
+                            return minDist.v
+                        }
+                        return v
+                    }
+
+                    thisTransformer.anchorDragBoundFunc((oldPos, newPos, e)=>{
+                        if( snaps ){
+                            let mx = newPos.x + myState.current.stageTransform.x
+                            let my = newPos.y + myState.current.stageTransform.y
+                            let [px, py] = convertStageCoordToScene(mx, my)
+                            const sx = snapTo( px, snaps.v )
+                            const sy = snapTo( py, snaps.h )
+                            let [ox, oy] = convertSceneCoordToScreen(sx, sy)
+                            return {
+                                x: ox - myState.current.stageTransform.x,
+                                y: oy - myState.current.stageTransform.y
+                            }
+                            //return {x: sx, y: sy}
+                        }
+                        return newPos
+                    })
+                }
             })
             thisTransformer.on('transformend',(e)=>{
                 myState.current.frameSelect.transforming = false
                 const frame = myState.current.frames?.find(d2=>d2.id === d.attrs.id) 
 
                 if( frame ){
-                    if( thisTransformer._movingAnchorName === "middle-right"){
+                    if( frame.canChangeSize === "plain"){
                         const newWidth = (thisTransformer.width() / myState.current.viewport.scale) / frame.scale
                         const innerWidth = newWidth - (frame.canvasMargin[1] + frame.canvasMargin[3])
-                        if( props.callbacks.resizeFrame ){
-                            props.callbacks.resizeFrame( frame.id, innerWidth)                        
-                        }
-                        return
-                    }else if( thisTransformer._movingAnchorName === "bottom-center"){
                         const newHeight = (thisTransformer.height() / myState.current.viewport.scale) / frame.scale
                         const innerHeight = newHeight - (frame.canvasMargin[0] + frame.canvasMargin[2])
+
+
+                        let fx = node.attrs.x
+                        let fy = node.attrs.y
+
+                        if( renderItem.parentRender ){
+                            let {x:px, y:py, s:ps} = getFramePosition(renderItem.parentRender)
+                            fx = (fx - px) / ps
+                            fy = (fy - py) / ps
+                        }
+
+                        //let {x,y,s} = getRelativeFramePosition(frame.id )
+                        /*if( thisTransformer._movingAnchorName.endsWith("-left") ){
+                            x = x + frame.node.attrs.width - - (frame.canvasMargin[1] + frame.canvasMargin[3]) - innerWidth
+                        }
+                        if( thisTransformer._movingAnchorName.startsWith("top-") ){
+                            y = y + frame.node.attrs.height - - (frame.canvasMargin[0] + frame.canvasMargin[2]) - innerHeight
+                        }*/
+
+
                         if( props.callbacks.resizeFrame ){
-                            props.callbacks.resizeFrame( frame.id, undefined, innerHeight)                        
+                            props.callbacks.resizeFrame( frame.id, {x: fx, y: fy, width: innerWidth, height: innerHeight})
                         }
                         return
                     }else{
-                        let newScale = thisTransformer.width() / myState.current.viewport.scale / frame.node.attrs.width
-                        let fx = node.attrs.x
-                        let fy = node.attrs.y
-                        frame.x = fx
-                        frame.y = fy
-                        frame.scale = newScale
-                        buildPositionCache(frame)
-                        frame.node.scale({x:1, y:1})
-                        frame.node.setPosition({x:fx, y:fy})
-                        frame.node.scale({x:newScale, y:newScale})
-                        
-                        alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
-                        
 
-                        removeRoutingForFrame( frame )
-                        addRoutingForFrame( frame )
-
-                        console.log(newScale)
-                        stageRef.current.batchDraw()
-                        
-                        if( props.callbacks?.frameMove ){
-                            if( renderItem.parentRender ){
-                                let {x:px, y:py, s:ps} = getFramePosition(renderItem.parentRender)
-                                fx = (fx - px) / ps
-                                fy = (fy - py) / ps
-                                newScale /= ps
-                            
-                                resizeNestedFrame( renderItem.parentRender )
+                        if( thisTransformer._movingAnchorName === "middle-right"){
+                            const newWidth = (thisTransformer.width() / myState.current.viewport.scale) / frame.scale
+                            const innerWidth = newWidth - (frame.canvasMargin[1] + frame.canvasMargin[3])
+                            if( props.callbacks.resizeFrame ){
+                                props.callbacks.resizeFrame( frame.id, {width: innerWidth})
                             }
-                            props.callbacks.frameMove({
-                                id: frame.id,
-                                x: fx,
-                                y: fy,
-                                s: newScale,
-                                width: frame.node.attrs.width,
-                                height: frame.node.attrs.height
-                            })
+                            return
+                        }else if( thisTransformer._movingAnchorName === "bottom-center"){
+                            const newHeight = (thisTransformer.height() / myState.current.viewport.scale) / frame.scale
+                            const innerHeight = newHeight - (frame.canvasMargin[0] + frame.canvasMargin[2])
+                            if( props.callbacks.resizeFrame ){
+                                props.callbacks.resizeFrame( frame.id, {height: innerHeight})                        
+                            }
+                            return
+                        }else{
+                            let newScale = thisTransformer.width() / myState.current.viewport.scale / frame.node.attrs.width
+                            let fx = node.attrs.x
+                            let fy = node.attrs.y
+                            frame.x = fx
+                            frame.y = fy
+                            frame.scale = newScale
+                            buildPositionCache(frame)
+                            frame.node.scale({x:1, y:1})
+                            frame.node.setPosition({x:fx, y:fy})
+                            frame.node.scale({x:newScale, y:newScale})
+                            
+                            alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
+                            
+                            
+                            removeRoutingForFrame( frame )
+                            addRoutingForFrame( frame )
+                            
+                            console.log(newScale)
+                            stageRef.current.batchDraw()
+                            
+                            if( props.callbacks?.frameMove ){
+                                if( renderItem.parentRender ){
+                                    let {x:px, y:py, s:ps} = getFramePosition(renderItem.parentRender)
+                                    fx = (fx - px) / ps
+                                    fy = (fy - py) / ps
+                                    newScale /= ps
+                                    
+                                    resizeNestedFrame( renderItem.parentRender )
+                                }
+                                props.callbacks.frameMove({
+                                    id: frame.id,
+                                    x: fx,
+                                    y: fy,
+                                    s: newScale,
+                                    width: frame.node.attrs.width,
+                                    height: frame.node.attrs.height
+                                })
+                            }
                         }
-                        refreshLinks()
                     }
+                    refreshLinks()
                 }
             })
             thisTransformer.nodes([node])

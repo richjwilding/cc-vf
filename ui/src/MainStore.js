@@ -1926,7 +1926,11 @@ function MainStore (prims){
                                         const address = source.primitives.outputs.paths(receiver.id)[0]
                                         if( address && address !== '.impout_impin' && address !== '.impin_impin'){
                                             const [outputPin, inputPin] = address.slice(1).split("_")
-                                            return source.outputs[outputPin]?.data ?? []
+                                            if( source.type === "flowinstance" && receiver.origin.id === source.id ){
+                                                return source.inputs[outputPin]?.data ?? []
+                                            }else{
+                                                return source.outputs[outputPin]?.data ?? []
+                                            }
                                         }
 
                                     }
@@ -2285,6 +2289,12 @@ function MainStore (prims){
                                             ...flow.referenceParameters?.inputPins?.[d.sourcePin],
                                             source: `param.${d.sourcePin}`
                                         }                                        
+                                    }else if( flow.referenceParameters?.outputPins?.[d.sourcePin]){
+                                        sourcePrimitive = sourcePrimitive
+                                        sourcePinConfig = {
+                                            ...flow.referenceParameters?.outputPins?.[d.sourcePin],
+                                            source: `param.${d.sourcePin}`
+                                        }                                        
                                     }
                                 }
                                 const inputMapSource = receiver.type === "flowinstance" ? receiver.origin : receiver
@@ -2345,10 +2355,10 @@ function MainStore (prims){
                                 }else if( d.sourceTransform === "pin_relay"){
                                     if( receiver.type === "flowinstance"){
                                         const fis = receiver.primitives.subfi.allItems.filter(d2=>Object.keys(d2._parentPrimitives ?? {}).includes(d.sourcePrimitive.id))
-                                        d.sources = fis.flatMap(d2=>d2.outputs[d.sourcePin].data)
+                                        d.sources = fis.flatMap(d2=>d2.outputs[d.sourcePin]?.data)
                                     }else{
                                         if( receiver.origin.type === "flowinstance"){
-                                            d.sources = receiver.origin.inputs[d.sourcePin].data
+                                            d.sources = receiver.origin.inputs[d.sourcePin]?.data
                                         }
                                     }
                                 }else if( d.sourceTransform === "get_axis"){

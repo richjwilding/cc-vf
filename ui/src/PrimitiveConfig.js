@@ -87,7 +87,8 @@ const PrimitiveConfig = {
         QUERY_RESULT: 82,
         GENERIC_SUMMARY: 109,
         EVALUATOR: 90,
-        SCORE: 120
+        SCORE: 120,
+        SHAPE_ELEMENT: 145,
 
     },
     "metadata":{
@@ -324,7 +325,25 @@ const PrimitiveConfig = {
                     }
 
                 }},
-            checktable: {id: 2,title:"Truth table", renderType: "checktable",parameters: {}},
+            checktable: {id: 2,title:"Truth table", renderType: "checktable",parameters: {},
+                config:{
+
+                    "max_cols":{
+                        type: "option_list",
+                        title: "Max columns",
+                        default: undefined,
+                        options: [
+                            {id: undefined, title: "No cap"},
+                            {id: 5, title: "5"},
+                            {id: 10, title: "10"},
+                            {id: 15, title: "15"},
+                            {id: 20, title: "20"},
+                            {id: 25, title: "25"},
+                            {id: 30, title: "30"},
+                        ]
+                    }
+                
+            }},
             score_dial: {id: 3,title:"Score dial", renderType: "dials",parameters: {},
                 config:{
                     "colors":{
@@ -471,6 +490,46 @@ const PrimitiveConfig = {
                         ]
                     },
                 }},
+            chart: {id: 8,title:"Distribution chart", renderType: "chart", configName: "chart", parameters: {},
+                config:{
+                    "show_none":{
+                        type: "option_list",
+                        title: "Show None",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_title":{
+                        type: "option_list",
+                        title: "Show Title",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "style":{
+                        type: "option_list",
+                        title: "Style",
+                        default: "pie",
+                        options: [
+                            {id:"bar", title: "Bar"},
+                            {id:"pie", title: "Pie"}
+                        ]
+                    },
+                    "show_legend":{
+                        type: "option_list",
+                        title: "Show Legend",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                }},
+
 
         },
     decodeParameter:(data, path)=>{
@@ -816,7 +875,7 @@ const PrimitiveConfig = {
                                 name:"Imports",
                                 types:['primitive']
                             },
-                            sourceTransform: input.inputMapConfig.segments ? "filter_imports" : "imports"
+                            sourceTransform: ["result","evidence"].includes(input.sourcePrimitive.type) ? "pass_through" : input.inputMapConfig.segments ? "filter_imports" : "imports"
                         })
                     }else{
                         out.push({
@@ -830,7 +889,7 @@ const PrimitiveConfig = {
                             sourceTransform: "filter_imports"
                         })
                     }
-                }else if( input.sourcePrimitive?.type === "flow"){
+                }else if( input.sourcePrimitive?.type === "flow" || input.sourcePrimitive?.type === "flowinstance"){
                     out.push({
                             ...input,
                             useConfig: "primitive",

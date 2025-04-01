@@ -129,7 +129,7 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
                             page={page}
                             pageItems={pageItems}
                             onEnter={(d)=>mainstore.sidebarSelect(d)}
-                            config={props.panelConfig?.columns ?? cardConfig} 
+                            config={props.panelConfig?.columns ?? items[0]?.metadata?.renderConfig?.table ?? cardConfig} 
                             primitives={items} 
                             className='w-full min-h-[24em] max-h-[60vh] !text-xs'/> 
                         </div>

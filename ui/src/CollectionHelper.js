@@ -271,7 +271,12 @@ class CollectionUtils{
                 if( category.referenceId === 53){
                     catIds[category.id] = category.primitives.params.source?.allUniqueCategory?.[0] ?? undefined
                 }else{
-                    catIds[category.id] = category
+                    if( category.origin.type === "categorizer"){
+                        const target = category.origin.flowElement ? category.origin : category.origin.configParent
+                        catIds[target.id] = target
+                    }else{
+                        catIds[category.id] = category
+                    }
                 }
             }
             return Object.values(catIds).map((d)=>{

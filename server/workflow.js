@@ -137,15 +137,20 @@ export async function scaffoldWorkflow( flow, options = {} ){
                 if(!source.flowElement){
                     throw `${source.id} is not a flow element in trying to scaffold subflow ${flow.id}`
                 }
-                const instanceSteps = await primitivePrimitives( source, "primitives.config" )
-                const sourceForInstance = instanceSteps.find(d=>Object.keys(d.parentPrimitives).includes( options.subFlowForInstanceId ))
-                if( sourceForInstance ){
-                    logger.debug(`- Found instance step for subflow import ${sourceForInstance.id} / ${sourceForInstance.plainId}`)
-                    instanceSources.push( sourceForInstance)
+                if( source.type === "flow"){
+                    logger.debug(`- Subflow imports from parent flow, redirecting to instances`)
+                    instanceSources.push(...(await primitiveChildren( source, "flowinstance" )))
+                    logger.debug(`- Found ${instanceSources.length} instances`)
                 }else{
-                    logger.debug(`- Couldnt find instance step for subflow import ${flow.id} / ${flow.plainId} - ${options.subFlowForInstanceId}`)
+                    const instanceSteps = await primitivePrimitives( source, "primitives.config" )
+                    const sourceForInstance = instanceSteps.find(d=>Object.keys(d.parentPrimitives).includes( options.subFlowForInstanceId ))
+                    if( sourceForInstance ){
+                        logger.debug(`- Found instance step for subflow import ${sourceForInstance.id} / ${sourceForInstance.plainId}`)
+                        instanceSources.push( sourceForInstance)
+                    }else{
+                        logger.debug(`- Couldnt find instance step for subflow import ${flow.id} / ${flow.plainId} - ${options.subFlowForInstanceId}`)
+                    }
                 }
-
             }
             sources = instanceSources
         }
@@ -263,6 +268,9 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, optio
         return a
     }, {})
 
+
+    const subFlows = []
+
     for(const step of steps){
         //let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
         let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
@@ -275,6 +283,7 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, optio
                 try{
                     if( step.type === "flow"){
                         logger.info("--- NEED TO SCAFFOLD SUB FLOW")
+                        subFlows.push( step )
                         continue
                     }else{
                         stepInstance = await duplicateStep( step, flowInstance)
@@ -315,9 +324,16 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, optio
                 logger.debug(`flow has output ${rel} from ${source} - need to map to ${mappedStep.instance.id} / ${mappedStep.instance.plainId} `)
                 targetImports.push({id: mappedStep.instance.id, paths } )
             }else{
-                logger.debug(`Cant find instance of ${source} `)
-                if( options.create ){
-                    throw "Missing step"
+                const linkedSubFlow = subFlows.find(d=>d.id === source)
+                if( linkedSubFlow ){
+                    logger.debug(`flow has output ${rel} from subflow ${source} - mapping idrectly`)
+                    targetImports.push({id: linkedSubFlow.id, paths } )
+
+                }else{
+                    logger.debug(`Cant find instance of ${source} `)
+                    if( options.create ){
+                        throw "Missing step"
+                    }
                 }
             }
 
@@ -368,7 +384,7 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, optio
                             }
                             if( rel.startsWith("axis") && originalImportStep.type === "categorizer"){
                                 const internalId = mappedImportStep.instance.primitives?.origin?.[0]
-                                logger.debug(` - Instance target is categroizer - redirecting to nested primitive ${internalId}`)
+                                logger.debug(` - Instance target is categorizer - redirecting to nested primitive ${internalId}`)
 
                                 targetImports.push({id: internalId, filters: mappedFilters, paths} )
                             }else{

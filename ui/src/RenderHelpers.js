@@ -33,7 +33,7 @@ export const categoryColors2 = [ "#4e79a7",
                                 "#bab0ab"]
 
 
-export const categoryColors_BRIGHT = [
+export const categoryColors = [
                                     '#1F77B4', '#FF7F0E', '#2CA02C', '#D62728', '#9467BD',
                                     '#8C564B', '#E377C2', '#7F7F7F', '#BCBD22', '#17BECF',
                                     '#AEC7E8', '#FFBB78', '#98DF8A', '#FF9896', '#C5B0D5'
@@ -43,7 +43,7 @@ export const categoryColors_MUTED = [
     '#B07F68', '#D6A5C7', '#A0A0A0', '#C4B76E', '#73A2A8',
     '#B0C4DE', '#F4C2C2', '#BFD8B8', '#E6A19F', '#D0C4D6'
   ];
-export const categoryColors = [
+export const categoryColors_STD = [
     '#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F',
     '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F', '#BAB0AC',
     '#86BCB6', '#F4A261', '#D98880', '#A5A58D', '#C3C1E3'
@@ -770,6 +770,7 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
     return g
 })
 registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options = {})=>{
+    const renderOptions = options.renderOptions
     const config = {width: 128, height: 128, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
     if( !options.list ){
         return undefined
@@ -778,17 +779,17 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
     let title = ""
     if(!options.inTable){
 
-        if( primitive.renderConfig?.group_by === "row"){
+        if( renderOptions?.group_by === "row"){
             range = options.rowRange[options.rIdx]
             title = options.colTitles[options.cIdx]
-        }else if( primitive.renderConfig?.group_by === "col"){
+        }else if( renderOptions?.group_by === "col"){
             range = options.colRange[options.cIdx]
             title = options.rowTitles[options.rIdx]
         }
     }
 
-    const colors = heatMapPalette.find(d=>d.name === (primitive?.renderConfig?.colors ?? "default"))?.colors ?? heatMapPalette[0].colors
-    const textColors = heatMapPalette.find(d=>d.name === (primitive?.renderConfig?.colors ?? "default"))?.text_colors ?? colors.map(d=>"black")
+    const colors = heatMapPalette.find(d=>d.name === (renderOptions?.colors ?? "default"))?.colors ?? heatMapPalette[0].colors
+    const textColors = heatMapPalette.find(d=>d.name === (renderOptions?.colors ?? "default"))?.text_colors ?? colors.map(d=>"black")
     const spread = range[1] - range[0] + 1
     
     
@@ -821,7 +822,7 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
         fill: items.length === 0 ? "white" : colors[idx]
     })
     g.add(r2)
-    if( primitive.renderConfig?.counts){
+    if( renderOptions?.counts){
         const t = new Konva.CustomText({
             x: config.padding[3],
             y: (config.height - 20) / 2,
@@ -837,7 +838,7 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
         g.add(t)
         t.y((config.height - t.height() ) /2)
 
-    }else if( primitive.renderConfig?.titles){
+    }else if( renderOptions?.titles){
         const t = new Konva.CustomText({
             x: config.padding[3],
             y: (config.height - 20) / 2,
@@ -3189,46 +3190,73 @@ export function renderPlainObject(renderOptions = {}){
         width,
         height,
         id: options.ids?.[0],
-        name:"inf_track primitive"
+        name:"inf_track primitive no_hover"
     })
-    if( options.fill || options.line || options.lineStyle){
-        const r = new Konva.Rect({
-            x: 0,
-            y: 0,
-            width,
-            height,
-            fill: options.fill,
-            stroke: options.line,
-            stroke: options.lineStyle,
-        })
-        g.add(r)
+    if( options.fill || options.stroke){
+        if( options.style === "line"){
+            const l = new Konva.Line({
+                points: [0,0,width,height],
+                //fill: options.fill,
+                stroke: options.stroke,
+            })
+            g.add(l)
+        }else{
+            const r = new Konva.Rect({
+                x: 0,
+                y: 0,
+                width,
+                height,
+                fill: options.fill,
+                stroke: options.stroke,
+            })
+            g.add(r)
+        }
     } 
-    if( type === "text"){
-        const padding = options.padding ?? [0,0,0,0]
+    if( options.style === "text" || type === "text"){
+        let useText = Array.isArray(text) ? text.join("\n") : text
+        if( options.compose){
+            useText = options.compose.replaceAll(`{text}`, text)
+        }
+        let padding = [0,0,0,0]
+
+        if( options.text_padding && typeof(options.text_padding) == "string"){
+            const parts = options.text_padding.split(",").map(d=>parseFloat(d.trim())).map(d=>isNaN(d) ? 0 : d)
+            if( parts.length === 4){
+                padding = [parts[0], parts[1], parts[2], parts[3]]
+            }else if(parts.length === 2){
+                padding = [parts[0], parts[1], parts[0], parts[1]]
+            }else{
+                padding = [parts[0], parts[0], parts[0], parts[0]]
+            }
+        }
+
         const t = new CustomText({
             x: padding[3],
             y: padding[1],
             width: width - padding[3] - padding[1],
             height: height - padding[2] - padding[0],
             lineHeight: options.lineHeight ?? 1.2,
-            text,
+            text: useText,
             withMarkdown: true,
+            fill: options.text_color ?? "black",
             fontFamily: fontFamily,
             fontSize: options.fontSize,
             fontStyle: options.fontStyle,
             refreshCallback: options.imageCallback
         })
         g.add(t)
-    } 
-    if( type === "structured_text"){
-        let y = 0
+    }else  if( type === "structured_text"){
+        let y = 0, idx = 0
         const padding = options.padding ?? [0,0,0,0]
-        for(const block of text){
+        for(const block of text ){
             for(const section of block){
                 const thisText = flattenStructuredResponse([section], [section])
                 const lineHeight = options.lineHeight ?? 1.2
                 const fontSize = section.fontSize ?? options.fontSize ?? 16
                 const fontStyle = section.fontStyle ?? options.fontStyle
+                if( section.sectionStart && idx > 0){
+                    y += fontSize * lineHeight * 0.5
+                }
                 const t = new CustomText({
                     x: padding[3],
                     y: padding[1] + y,
@@ -3243,10 +3271,11 @@ export function renderPlainObject(renderOptions = {}){
                     refreshCallback: options.imageCallback
                 })
                 g.add(t)
-                y += t.height() + (fontSize * lineHeight)
+                y += t.height() + (section.sectionStart ? fontSize * lineHeight * 0.25 : (fontSize * lineHeight))
             }
+            idx++
         }
-    } 
+    }
     return g
 
 }
@@ -4620,8 +4649,8 @@ export function plotWordCloud(options = {}){
 }
 
 export function renderMatrix( primitive, list, options ){
-    let columnExtents = options.columnExtents ? options.columnExtents.slice(0,200) : [{idx:0}]
-    let rowExtents = options.rowExtents ? options.rowExtents.slice(0,200) : [{idx:0}]
+    let columnExtents = options.columnExtents ? options.columnExtents.slice(0, options.max_cols ?? 200) : [{idx:0}]
+    let rowExtents = options.rowExtents ? options.rowExtents.slice(0,options.max_rows ??  200) : [{idx:0}]
     if( columnExtents.length === 0){
         columnExtents = [{idx:0}]
     }
@@ -4837,6 +4866,7 @@ export function renderMatrix( primitive, list, options ){
                 placeholder: options.placeholder !== false, 
                 imageCallback: options.imageCallback,
                 utils: options.utils,
+                renderOptions: options.renderOptions,
                 toggles: toggleMap,
     }
     if( asCounts ){
@@ -4892,7 +4922,7 @@ export function renderMatrix( primitive, list, options ){
     let recalc = false
     let recalcRow = false
     let columnLabelAsText = true
-    const iconSize = 100
+    const iconSize = [128, ...columnSize, ...rowSize].reduce((a,c)=>a < c ? a : c)
     let columnLabels
     let headerTextHeight = 0
 
@@ -4920,11 +4950,12 @@ export function renderMatrix( primitive, list, options ){
             const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding: [5,5,5,5]}
             if( options.axis?.column?.type === "icon"){
                 columnLabelAsText = false
+                const useSize = iconSize < headerHeight ? iconSize : headerHeight
                 const logo = imageHelper( `/api/image/${d.idx}`, {
-                    x: cellConfig.padding[3] + textPadding[3],
+                    x: (columnSize[idx] - useSize) /2,
                     y: cellConfig.padding[0] + textPadding[0],
-                    linkUrl: d.referenceParameters.url,
-                    size: iconSize,
+                    linkUrl: d.referenceParameters?.url,
+                    size: useSize, 
                     center: true,
                     imageCallback: options.imageCallback,
                     placeholder: options.placeholder !== false
@@ -5398,8 +5429,53 @@ function renderSubCategoryChart( title, data, options = {}){
     }
     ly += innerPadding[2]
     sg.height( ly )
+    r.height( ly )
     return sg
 }
+registerRenderer( {type: "default", configs: "chart"}, (primitive, options = {})=>{
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 400, padding: [0,0,0,0], ...options, ...(primitive.renderConfig ?? {})}
+
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+
+    const sets = options.data?.mappedCategories ?? []
+    const usableWidth = config.width - config.padding[1] - config.padding[3]
+    
+    let x = config.padding[3]// + spacing
+    let y = config.padding[0] //+ ySpacing
+    let maxY = 0
+    let cIdx = 0
+
+    let rHeight = 0
+    let rowCells = []
+    let innerPadding = [10,10,10,10]
+
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: usableWidth,
+        onClick: options.onClick,
+        name:"inf_track"
+    })
+
+    const sg = renderSubCategoryChart("NAME", options.data, {
+                                            x: x, 
+                                            y: y, 
+                                            itemSize: usableWidth, 
+                                            innerPadding, 
+                                            style: config.style, 
+                                            hideTitle: config.show_title === false, 
+                                            hideLegend: config.show_legend === false, 
+                                            byTag: config.by_tag
+                                        })
+    g.add(sg)
+    
+    g.height(sg.height())
+    return g
+})
 
 registerRenderer( {type: "default", configs: "word_cloud"}, (primitive, options = {})=>{
     const words = options.data.mappedCategories[0].details.map(d=>({text:d.label, size: d.items.length}))
@@ -5419,7 +5495,7 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
     
     const itemSize = config.itemSize
     const columns = Math.floor(usableWidth / (itemSize + 10))
-    const spacing = (usableWidth - (columns * itemSize)) / (columns - 1)
+    const spacing = columns > 1 ? (usableWidth - (columns * itemSize)) / (columns - 1) : 0
     let ySpacing = 30
     const actualColumns = Math.min(columns, setCount)
     

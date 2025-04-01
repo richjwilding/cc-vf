@@ -216,22 +216,51 @@ function preparePageElements( d, pageState ){
                 variant: tempState.masterVariants[vId][d.id]
             }
             SharedPrepareBoard( d, variantData[vId])
+            const state = {
+                [d.id]: variantData[vId][d.id],
+            }
+            if( variantData[vId][d.id].axisSource ){
+                let axisSource = variantData[vId][d.id].axisSource
+                if(!variantData[vId][axisSource.id]){
+                    let axisBoard = {}
+                    
+                    if (axisSource.inFlow && axisSource.configParent.flowElement) {
+                        const parent = axisSource.configParent
+                        const flowInstance = axisSource.origin
+                        const flow = parent.origin
+                        if( flowInstance.origin.id !== flow.id){
+                            throw `Flow mismatch ${flowInstance.id} ${flow.id}`
+                        }
+                        axisBoard[parent.id] = {
+                            id: parent.id,
+                            underlying: axisSource,
+                            inFlow: true,
+                            flow,
+                            flowInstance
+                        }
+                        axisSource = parent
+                    }
+
+                    SharedPrepareBoard( axisSource, axisBoard)
+                    state[axisSource.id] = axisBoard[axisSource.id]
+
+
+                }
+            }
+            
             return {
                 ...variantData[vId][d.id].position,
                 ...variantData[vId][d.id].renderConfigOverride,
-                state: variantData[vId][d.id]
+                primitive: d,
+                state
             }
         })
     })
 }
 
 function renderSubBoard(d, stageOptions){
-    if( d.state?.primitive){
-
-        const tempState = {
-            [d.state.primitive.id]: d.state,
-        }
-        const output = SharedRenderView( d.state.primitive, {}, tempState)
+    if( d.primitive){
+        const output = SharedRenderView( d.primitive, {}, d.state)
         if( output?.items ){
             const rendered = output.items(stageOptions)
             rendered.scale({x: d.s, y: d.s})
@@ -249,9 +278,14 @@ function renderSubBoard(d, stageOptions){
 
 let mainstore = MainStore()
 function SharedRenderView(d, primitive, myState) {
-    // Base view and options
     const view = myState[d.id];
-    const renderOptions = { ...view.renderConfigOverride };
+    const primitiveToRender = view.primitive.type === "element" ? view.primitive: (view.underlying ?? view.primitive);
+    // Base view and options
+    const renderOptions = { 
+        ...(view.underlying?.renderConfig ?? {}),
+        ...(view.primitive?.renderConfig ?? {}),
+        ...view.renderConfigOverride
+    };
     if (view.widgetConfig) {
       renderOptions.widgetConfig = view.widgetConfig;
     }
@@ -268,7 +302,6 @@ function SharedRenderView(d, primitive, myState) {
     }
   
     // Determine what primitive to render
-    const primitiveToRender = view.primitive.type === "element" ? view.primitive: (view.underlying ?? view.primitive);
   
     // Common properties
     const pins =
@@ -294,7 +327,7 @@ function SharedRenderView(d, primitive, myState) {
     const mapMatrix = (stageOptions, d, view) => {
       let dataSource = view;
       if (view.axisSource) {
-        if (view.axisSource.inFlow && view.axisSource.configParent.flowElement) {
+        if (view.axisSource.inFlow && view.axisSource.configParent?.flowElement) {
           dataSource = myState[view.axisSource.configParent.id];
         } else {
           dataSource = myState[view.axisSource.id];
@@ -304,13 +337,14 @@ function SharedRenderView(d, primitive, myState) {
           dataSource = view;
         }
       }
-      return renderMatrix(primitiveToRender, dataSource.list, {
+      return renderMatrix(primitiveToRender, dataSource.list ?? [], {
         axis: dataSource.axis,
         columnExtents: dataSource.columns,
         rowExtents: dataSource.rows,
         viewConfig: view.viewConfig,
         ...stageOptions,
         ...renderOptions,
+        renderOptions,
         toggles: view.toggles,
         data: view.renderData,
         expand: Object.keys(primitive.frames?.[d.id]?.expand ?? {})
@@ -335,7 +369,7 @@ function SharedRenderView(d, primitive, myState) {
       case "plain_object":
         renderView = {
           ...baseRenderView,
-          canChangeSize: true,
+          canChangeSize: "plain",
           items: stageOptions => {
             const data = myState[d.id].object;
             return renderPlainObject({ ...data, ...stageOptions, ...renderOptions });
@@ -395,7 +429,52 @@ function SharedRenderView(d, primitive, myState) {
             })
         };
         break;
-  
+      case "chart":
+        let dataSource = view;
+        if (view.axisSource) {
+            if (view.axisSource.inFlow && view.axisSource.configParent?.flowElement) {
+            dataSource = myState[view.axisSource.configParent.id];
+            } else {
+            dataSource = myState[view.axisSource.id];
+            }
+            if (!dataSource) {
+            console.warn(`Couldn't find config for axis Source ${view.axisSource.id}`);
+            dataSource = view;
+            }
+        }
+        const catData = {}
+        for(const c of dataSource.columns){
+            for(const r of dataSource.rows){
+                const idx = [r.idx, c.idx].filter(d=>d).join("-") ?? "base"
+                const label = [r.label, c.label].filter(d=>d).join(" - ") ?? "base"
+                if( !catData[idx] ){
+                    catData[idx] = {label, items: [], count: 0}
+                }
+            }
+        }
+        for(const p of dataSource.list ){
+            for(const c of [p.column].flat() ?? [undefined]){
+                for(const r of [p.row].flat() ?? [undefined]){
+                    const idx = [r, c].filter(d=>d).join("-") ?? "base"
+                    if( catData[idx]){
+                        catData[idx].items.push( p.primitive)
+                        catData[idx].count++
+                    }
+                }
+            }
+        }
+        renderView = {
+          ...baseRenderView,
+          canChangeSize: "width",
+          items: stageOptions =>
+            RenderPrimitiveAsKonva(primitiveToRender, {
+              ...stageOptions,
+              ...renderOptions,
+              config: view.config,
+              data: Object.values(catData)
+            })
+        };
+        break;
       case "page": {
         const renderFunc = stageOptions =>
           RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, data: view.renderData });
@@ -422,6 +501,7 @@ function SharedRenderView(d, primitive, myState) {
           canChangeSize: true,
           canvasMargin: [0, 0, 0, 0],
           items: renderFunc,
+          bgFill: "transparent",
           flow: true
         };
         break;
@@ -762,12 +842,35 @@ function SharedRenderView(d, primitive, myState) {
             const pagePrimitive = myState[stateId].page
             const pageState = pagePrimitive ? myState[pagePrimitive.id] : undefined
             let inputs
-            if( true ){//{pageState?.underlying){
+            const config = basePrimitive.getConfig
+
+            const format = {
+                fontSize: config?.fontSize,
+                fontStyle: config?.fontStyle,
+                fontFamily: config?.fontFamily,
+                heading: config?.heading,
+                compose: config?.compose,
+                fill: config.fill,
+                stroke: config.stroke,
+                style: config.style,
+                text_padding: config.text_padding,
+                text_color: config.text_color,
+            }
+            if( d.referenceId ===  PrimitiveConfig.Constants.SHAPE_ELEMENT){//{pageState?.underlying){
+                myState[stateId].object = {
+                    type: "shape",
+                    text: config.text,
+                    ...format
+                } 
+                myState[stateId].config = "plain_object"
+                myState[stateId].primitive = basePrimitive
+                renderType = "plain_object"
+                didChange = true
+            }else{
                 const pageInstance = pageState.underlying ?? pageState.primitive
                 const pageOutputs = pageState.primitive.primitives.outputs
                 const pins = Object.keys(pageOutputs ?? {}).filter(d2=>pageOutputs[d2].allIds.includes(d.id)).map(d=>d.split("_")[0])
                 if( pins.length > 0){
-                    const config = basePrimitive.getConfig
                     let pageInputs = pageInstance.inputs
                     let inputs
                     if( myState[stateId].variant ){
@@ -799,7 +902,7 @@ function SharedRenderView(d, primitive, myState) {
                         }
                         myState[stateId].originalList = inputs
                         if( config.flowinstance){
-                            inputs = pageInstance.findParentPrimitives({type: "flowinstance", first:true})
+                            inputs = uniquePrimitives(inputs.flatMap(d=>d.findParentPrimitives({type: "flowinstance", first:true})))
                         }else{
                             if( config.ancestor){
                                 const rel = config.ancestor
@@ -815,95 +918,65 @@ function SharedRenderView(d, primitive, myState) {
                         }
                     }
 
-                    const format = {
-                        fontSize: config?.fontSize,
-                        fontStyle: config?.fontStyle,
-                        fontFamily: config?.fontFamily,
-                        heading: config?.heading,
-                    }
+                   
                     inputs = inputs.filter(d=>d)
-                    if( inputs.length === 1){
-                        if( pageInputs[pins[0]].config === "primitive"){
-
-                            if( basePrimitive.getConfig.extract === "content"){
-                              
-                                if( inputs[0]?.type === "summary"){
-                                    const summaries = inputs.map(d=>{
-                                        let base = d.referenceParameters.structured_summary ?? []
-                                        const sectionconfig = basePrimitive.referenceParameters?.sections
-                                        return base.map(section=>{
-                                            let target = sectionconfig?.[section.heading]
-                                            if( !target ){
-                                                let allItems = Object.keys(sectionconfig ?? "").map(d=>[d, compareTwoStrings(d, section.heading)])
-                                                const candidates = allItems.filter(d=>d[1] > 0.4).sort((a,b)=>b[1]-a[1])
-                                                if( candidates.length > 0){
-                                                    target = sectionconfig?.[candidates[0][0]]
-                                                }
+                    if( pageInputs[pins[0]].config === "primitive"){
+                        if( basePrimitive.getConfig.extract === "content"){
+                            const data = []
+                            let contentType = "text"
+                            for(const input of inputs){
+                                if( input.type === "summary"){
+                                    contentType = "structured_text"
+                                    let base = input.referenceParameters.structured_summary ?? []
+                                    const sectionconfig = basePrimitive.referenceParameters?.sections
+                                    let firstFontSize
+                                    const result =  base.map(section=>{
+                                        let target = sectionconfig?.[section.heading]
+                                        if( !target ){
+                                            let allItems = Object.keys(sectionconfig ?? "").map(d=>[d, compareTwoStrings(d, section.heading)])
+                                            const candidates = allItems.filter(d=>d[1] > 0.4).sort((a,b)=>b[1]-a[1])
+                                            if( candidates.length > 0){
+                                                target = sectionconfig?.[candidates[0][0]]
                                             }
-                                            if( target?.show !== false ){
-                                                return {
-                                                    ...section,
-                                                    heading: target?.heading === false ? undefined : section.heading,
-                                                    fontSize: target?.fontSize,
-                                                    fontStyle: target?.fontStyle
-
-                                                }
+                                        }
+                                        if( target?.show !== false ){
+                                            if( !firstFontSize ){
+                                                firstFontSize = target?.fontSize
                                             }
-                                            return undefined
-                                        }).filter(d=>d)
-                                    })
-                                    myState[stateId].object = {
-                                        type: "structured_text",
-                                        ids: inputs.map(d=>d.id),
-                                        text: summaries,
-                                            ...format
-                                    } 
-                                    myState[stateId].primitiveList = inputs
+                                            return {
+                                                ...section,
+                                                heading: target?.heading === false ? undefined : section.heading,
+                                                fontSize: target?.fontSize,
+                                                fontStyle: target?.fontStyle
+
+                                            }
+                                        }
+                                    }).filter(d=>d)
+                                    const parentSegment = input.parentPrimitives.find(d=>d.type === "segment")
+                                    if( parentSegment ){
+                                        result.unshift({content: parentSegment.filterDescription, fontStyle: "bold", fontSize: firstFontSize ? firstFontSize * 1.4 : undefined, sectionStart: true})
+                                    }
+                                    data.push( result )
                                 }else{
                                     let text
-                                    if( inputs[0]?.type === "segment"){
-                                        text = inputs.map(d=>d.filterDescription)
+                                    if( input.type === "segment"){
+                                        text = input.filterDescription
                                     }else{
-                                        text = inputs.map(d=>d.title ?? d.referenceParameters[basePrimitive?.renderConfig?.field])
+                                        text = basePrimitive?.renderConfig?.field ? ( basePrimitive.renderConfig.field === "context" ? input.content : input.referenceParameters[basePrimitive.renderConfig.field]) : input.title
                                     }
-                                    myState[stateId].object = {
-                                        type: "text",
-                                        ids: inputs.map(d=>d.id),
-                                        text,
-                                        ...format
-                                    } 
+                                    data.push( text )
                                 }
-                                myState[stateId].config = "plain_object"
-                                myState[stateId].primitive = basePrimitive
-                                renderType = "plain_object"
-                            }else{
-
-                                myState[stateId].primitiveList = inputs
-
-                                renderType = "view"
                             }
-                        }else{
+
                             myState[stateId].object = {
-                                type: "text",
+                                type: contentType,
                                 ids: inputs.map(d=>d.id),
-                                text: inputs[0],
+                                text: contentType === "text" ? data.join("\n") : data,
                                 ...format
                             } 
                             myState[stateId].config = "plain_object"
                             myState[stateId].primitive = basePrimitive
                             renderType = "plain_object"
-                        }
-                    }else{
-                        if( basePrimitive.getConfig.extract === "content"){
-                                myState[stateId].object = {
-                                    type: "text",
-                                    ids: inputs.map(d=>d.id),
-                                    text: inputs.map(d=>d.context),
-                                        ...format
-                                } 
-                                myState[stateId].config = "plain_object"
-                                myState[stateId].primitive = basePrimitive
-                                renderType = "plain_object"
                         }else{
                             myState[stateId].primitiveList = inputs
                             if( config.view_axis){
@@ -919,6 +992,16 @@ function SharedRenderView(d, primitive, myState) {
                             }
                             renderType = "view"
                         }
+                    }else{
+                        myState[stateId].object = {
+                            type: "text",
+                            ids: inputs.map(d=>d.id),
+                            text: inputs,
+                            ...format
+                        } 
+                        myState[stateId].config = "plain_object"
+                        myState[stateId].primitive = basePrimitive
+                        renderType = "plain_object"
                     }
                 }
 
@@ -1173,7 +1256,7 @@ function SharedRenderView(d, primitive, myState) {
                 }
                             
                 myState[stateId].primitive = basePrimitive
-                myState[stateId].config = "explore_" + activeView
+                myState[stateId].config = viewConfig.configName ?? "explore_" + activeView
                 myState[stateId].list = filtered.data
                 myState[stateId].internalWatchIds = filtered.data.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
                 myState[stateId].axis = {column: columnAxis, row: rowAxis}
@@ -1207,7 +1290,7 @@ function SharedRenderView(d, primitive, myState) {
                     }
                 }
             }
-        }else if( renderType === "summary" || renderType === "element" || renderType === "action"){
+        }else if( renderType === "result" || renderType === "summary" || renderType === "element" || renderType === "action"){
             let viewConfig
             const viewConfigs = CollectionUtils.viewConfigs(basePrimitive.metadata)
             if( forceViewConfig ){
@@ -1496,6 +1579,7 @@ export default function BoardViewer({primitive,...props}){
                                 let needRefresh = true
                                 let refreshBoards = []
                                 let resized = false
+                                let changedRenderConfig = false
                                 let needRebuild = ((event === "set_field" || event === "set_parameter") && info === "referenceParameters.explore.view")
 
                                 if( event === "set_field" && info && typeof(info)==="string"){
@@ -1516,6 +1600,10 @@ export default function BoardViewer({primitive,...props}){
                                             myState[frameId].subpages = {}
                                             resized = true
                                         }
+                                    }else if(info.startsWith('renderConfig') ){
+                                        needRefresh = true
+                                        needRebuild = true
+                                        changedRenderConfig  = true
                                     }else if(info.startsWith('processing.flow') ){
                                         needRefresh = true
                                     }else if(info.startsWith('processing.') || info.startsWith('embed_')){
@@ -1551,6 +1639,9 @@ export default function BoardViewer({primitive,...props}){
                                     }
                                     if( doFrame ){
                                         needRefresh = prepareBoard( framePrimitive )
+                                        if( changedRenderConfig ){
+                                            needRefresh = true
+                                        }
                                     }
                                     if(resized ){
                                         needRefresh = true
@@ -1641,7 +1732,7 @@ export default function BoardViewer({primitive,...props}){
             if( p.type === "view" || p.type === "query"){
                 console.log("adding")
                 const newPrimitive = await mainstore.createPrimitive({
-                    parent: primitive, 
+                    parent: p.origin, 
                     title: `Copy of ${p.title}`,
                     type: p.type,
                     workspaceId: p.workspaceId, 
@@ -1664,6 +1755,21 @@ export default function BoardViewer({primitive,...props}){
                 let position = canvas.current.framePosition(p.id)?.scene
                 console.log("now to canvas")
                 addBoardToCanvas( newPrimitive, {x:position.l, y: position.b + 30, s: position.s})
+                console.log("done")
+            }
+            if( p.type === "element"){
+                console.log("adding")
+                const newPrimitive = await mainstore.createPrimitive({
+                    parent: p.origin, 
+                    title: `Copy of ${p.title}`,
+                    type: p.type,
+                    workspaceId: p.workspaceId, 
+                    categoryId: p.referenceId, 
+                    referenceParameters: p.referenceParameters
+                })
+                let position = canvas.current.framePosition(p.id)?.relative
+                console.log("now to canvas")
+                addBoardToCanvas( newPrimitive, {x:position.r + 10, y: position.t, s: position.s})
                 console.log("done")
             }
         }
@@ -1904,17 +2010,21 @@ export default function BoardViewer({primitive,...props}){
 
     let boardUpdateTimer
 
-    function resizeFrame(fId, width, height){
+    function resizeFrame(fId, {x,y,width, height}){
         let target = myState[fId].parentRender ? myState[myState[fId].parentRender].primitive : primitive
         const board = myState[fId]
-        if( width ){
-            target.setField(`frames.${fId}.width`, width)
-            canvas.current.updateFramePosition( fId, {width: width})
+
+        const updateData = {
+            ...(target.frames?.[fId] ?? {}),
+            ...(x !== undefined && { x }),
+            ...(y !== undefined && { y }),
+            ...(width !== undefined && { width }),
+            ...(height !== undefined && { height }),
         }
-        if( height ){
-            target.setField(`frames.${fId}.height`, height)
-            canvas.current.updateFramePosition( fId, {height: height})
-        }
+
+        target.setField(`frames.${fId}`, updateData)
+        canvas.current.updateFramePosition( fId, updateData)
+        
         canvas.current.refreshFrame( board.id, renderView(board.primitive))
     }
     async function createElementFromActivePin(){
@@ -2149,7 +2259,7 @@ export default function BoardViewer({primitive,...props}){
                         rowButton.current?.refocus && rowButton.current?.refocus()
                         colButton.current?.refocus && colButton.current?.refocus()
                     }
-                }, instant ? 0 : 300)
+                }, instant ? 0 : 250)
             }
         }
     }
@@ -2456,7 +2566,7 @@ export default function BoardViewer({primitive,...props}){
 
        if(!categoryList  ){
            if( addToPage ){
-               categoryList = [89]
+               categoryList = [89, 145]
             }else{
                 categoryList = [
                     38, 81, 130, 140, 131,142,118, 135,  136, 137,132,133,144,
@@ -2800,7 +2910,7 @@ export default function BoardViewer({primitive,...props}){
         const sourcePrimitive = mainstore.primitive(sourceId)
         const targetPrimitive = mainstore.primitive(targetId)
         if( sourcePrimitive && targetPrimitive){
-            const isInternalFlowPin = (sourcePrimitive.inFlow && targetPrimitive.type === "flow") && targetPrimitive.parentPrimitiveIds.includes(sourcePrimitive.id)
+            const isInternalFlowPin = (sourcePrimitive.inFlow && targetPrimitive.type === "flow") && sourcePrimitive.parentPrimitiveIds.includes(targetPrimitive.id)
             let targetIsPageElement 
             if( targetPrimitive.type === "element"){
                 const topElement = targetPrimitive.configParent ?? targetPrimitive
@@ -2852,7 +2962,7 @@ export default function BoardViewer({primitive,...props}){
             {myState.menuOptions?.showAxis && <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
             {myState.menuOptions?.showAddChild && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}
             {myState.activeBoard && <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />}
-            {myState.activeBoard && myState.menuOptions?.showClone  && ["query","view"].includes(myState.activeBoard.primitive.type) && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
+            {myState.activeBoard && myState.menuOptions?.showClone  && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
             {myState.activePin && <DropdownButton noBorder icon={<HeroIcon icon='FALinkBreak' className='w-5 h-5'/>} onClick={disconnectActivePin} flat placement='left-start' />}
             {myState.createFromActivePin && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={createElementFromActivePin} flat placement='left-start' />}
         </div>}
@@ -2941,7 +3051,7 @@ export default function BoardViewer({primitive,...props}){
                             callbacks={{
                                 resizeFrame,
                                 viewportWillMove:handleViewWillChange,
-                                viewportCallback:handleViewChange,
+                                viewportCallback:()=>handleViewChange(),
                                 frameMove: (d)=>{
                                     const prim = MainStore().primitive(d.id)
                                     if(prim){
@@ -2951,21 +3061,18 @@ export default function BoardViewer({primitive,...props}){
                                         let target = primitive
                                         let scaledWidth, scaledHeight
 
-                                        const updateData = {
-                                            x: d.x, 
-                                            y: d.y, 
-                                            s: d.s
-                                        }
 
                                         if( myState[d.id].parentRender ){
                                             target = myState[myState[d.id].parentRender].primitive
                                             console.log(`Will update position in flow parent`)
-                                            
-                                            updateData.scaledWidth = d.width * d.s
-                                            updateData.scaledHeight = d.height * d.s
                                         }
-                                        updateData.expand = target.frames?.[d.id]?.expand ?? {}
-                                        updateData.width = target.frames?.[d.id]?.width
+
+                                        const updateData = {
+                                            ...(target.frames?.[d.id] ?? {}),
+                                            x: d.x, 
+                                            y: d.y, 
+                                            s: d.s
+                                        }
                                         
                                         target.setField(`frames.${d.id}`, updateData)
 

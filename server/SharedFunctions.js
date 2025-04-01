@@ -683,6 +683,11 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
                     ...flow.referenceParameters?.inputPins?.[d.sourcePin],
                     source: `param.${d.sourcePin}`
                 }                                        
+            }else if( flow.referenceParameters?.outputPins?.[d.sourcePin]){
+                sourcePinConfig = {
+                    ...flow.referenceParameters?.outputPins?.[d.sourcePin],
+                    source: `param.${d.sourcePin}`
+                }                                        
             }
         }
 
@@ -706,11 +711,21 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
     inputMap = out
 
     let configForPins
-    if( primitive.type === "query" || primitive.type === "summary" || primitive.type === "action" || primitive.type === "actionrunner"){
-        configForPins = await getConfig(primitive, cache, true)
+
+    let dynamicPinSource = primitive
+    if(primitive.type === "flowinstance"){
+        dynamicPinSource = inputFlowParentForInstance
+    }else if( !primitive.flowElement ){
+        // should get config parent??
+        //dynamicPinSource = receiver.configParent ?? receiver
+        
     }
 
-    let dynamicPins = PrimitiveConfig.getDynamicPins(primitive,  configForPins)
+    if( dynamicPinSource.type === "query" || dynamicPinSource.type === "flow" || dynamicPinSource.type === "flowinstance" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "action" || dynamicPinSource.type === "actionrunner"){
+        configForPins = await getConfig(dynamicPinSource, cache, true)
+    }
+
+    let dynamicPins = PrimitiveConfig.getDynamicPins(dynamicPinSource,  configForPins)
 
 
     let generatorPins = {}
@@ -750,7 +765,11 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
 
 
     for(const d of interim){
-        if( d.sourceTransform === "filter_imports"){
+        if( d.sourceTransform === "imports"){
+            d.sources = await getDataForImport( d.sourcePrimitive )
+        }else if( d.sourceTransform === "pin_relay"){
+            throw "unhandled"
+        }else if( d.sourceTransform === "filter_imports"){
             const sourceConfig = await getConfig( d.sourcePrimitive )
             const defs = await getSegemntDefinitions( d.sourcePrimitive, undefined, sourceConfig, true)
             d.sourceBySegment = {}
@@ -924,9 +943,9 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
         }
         return 
     }
-    if( rObject.type === "flow" ){
+    if( rObject.type === "flow" && relationship.startsWith("primitives.inputs")){
         const instancesOfTarget =  await fetchPrimitives( tObject.primitives?.config ?? [])
-        logger.debug(`Found ${instancesOfTarget.length} instances of target - linking to subflow input`)
+        logger.debug(`Found ${instancesOfTarget.length} instances of target - linking to subflow input on ${relationship}`)
 
         const subFlowInstances = await primitivePrimitives(rObject, 'primitives.config', "flowinstance" )
 
@@ -956,10 +975,26 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
                 useTarget = tObject.id
             }else{
                 const flowInstanceId = primitiveOrigin( ie )
-                const it = instancesOfTarget.find(d=>d.parentPrimitives[flowInstanceId]?.includes("primitives.origin"))
+                let it = instancesOfTarget.find(d=>d.parentPrimitives[flowInstanceId]?.includes("primitives.origin"))
+                if( !it && tObject.type === "categorizer"){
+                    logger.debug(` - cant find instance in current flowinstance - checking subflow ancestors`)
+                    const instancesOfTargetFIs = await fetchPrimitives( instancesOfTarget.map(d=>primitiveOrigin(d)))
+                    const subFlows = []
+                    for( const fi of instancesOfTargetFIs){
+                        subFlows.push( await primitiveDescendents( fi, "flowinstance", {paths: ["subfi"]}) )
+                    }                    
+                    const ancestorId = subFlows.findIndex(d=>d.find(d=>d.id === flowInstanceId))
+                    if( ancestorId >= -1){
+                        it = instancesOfTarget[ancestorId]
+                        logger.debug(` - Found ancestor - looked in ${subFlows.length} chains`)
+                    }else{
+                        logger.debug(` - couldnt find ancestor - looked in ${subFlows.length} chains`)
+                    }
+
+                }
                 if( it ){
                     if( it.type == "categorizer"){
-                        logger.debug(` - Instance target is categroizer - redirecting to nested primitive`)
+                        logger.debug(` - Instance target is categorizer - redirecting to nested primitive`)
                         useTarget = it.primitives?.origin?.[0]
                     }else{
                         useTarget = it.id
@@ -1732,7 +1767,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                         list.push( outputs )
                     }
                 }
-                return uniquePrimitives(outputs)
+                return uniquePrimitives(list)
             }
         }else{
             if( Object.keys(imp.primitives??{}).includes("outputs")){
@@ -1740,9 +1775,19 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 const address = pp.paths(source.id)[0]
                 if( address && address !== '.impout_impin' && address !== '.impin_impin'){
                     const [outputPin, inputPin] = address.slice(1).split("_")
-                    const outputs = await getPrimitiveOutputs( imp )
-                    if( outputs ){
-                        return outputs[outputPin]?.data ?? []
+
+                    if( imp.type === "flowinstance" && primitiveOrigin(source) === imp.id ){
+                        const inputs = await getPrimitiveInputs( imp )
+                        console.log(inputs)
+                        if( inputs ){
+                            return inputs[outputPin]?.data ?? []
+                        }
+                    }
+                    else{
+                        const outputs = await getPrimitiveOutputs( imp )
+                        if( outputs ){
+                            return outputs[outputPin]?.data ?? []
+                        }
                     }
                     return []
                 }
