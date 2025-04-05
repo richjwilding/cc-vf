@@ -649,7 +649,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 frame.node.add(n)
                 n.position({x: d.x - (d.output ? 0 : size / 2 ), y: d.y - (size / 2)})
 
-                if( true || d.showLabel !== false){
+                if( d.showLabel !== false){
 
                     let t = d.textNode
                     if( !t ){
@@ -2311,25 +2311,19 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const sourceShape = sourceFrame.routing[sourceItem]?.shape
                             const pinDef = [...sourceFrame.pins.input, ...sourceFrame.pins.output].find(d=>d.idx == sourcePin)
                             const reverse = !pinDef.output
+                            const rightSide = pinDef.internal ? pinDef.output : !pinDef.output
 
                             const connectTo = pinDef.output ? "input" : "output"
                             
-                            /*
-                            const leftConnEnd = new Avoid.ConnEnd(sourceShape, sourcePin)
-                            const rightConnEnd = new Avoid.ConnEnd(shapeForPin, 1)
-                            const connectorForPin = new Avoid.ConnRef(myState.current.routing.router);
-                            connectorForPin.setSourceEndpoint(leftConnEnd);
-                            connectorForPin.setDestEndpoint(rightConnEnd);
-                            connectorForPin.setCallback( renderLink, connectorForPin)*/
 
                             const pinPoint = {
                                 shape: {id: "pin"},
-                                side: reverse ? "right" : "left",
+                                side: rightSide ? "right" : "left",
                                 distance: 0.5
                             }
                             const shapePoint = {
                                 shape: {id: sourceItem},
-                                side: reverse ? "left" : "right" ,
+                                side: rightSide ? "left" : "right" ,
                                 distance: pinDef.y / sourceFrame.node.attrs.height
                             }
 

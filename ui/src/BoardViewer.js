@@ -218,9 +218,6 @@ function preparePageElements( d, pageState ){
             }
         }
         tempState.masterVariants = masterVariants
-        /*childNodes.forEach(d=>{
-            tempState[d.id].variants = Object.keys(masterVariants).reduce((a,c)=>{a[c] = masterVariants[c][d.id];return a}, {})
-        })*/
 
     }
     
@@ -1055,24 +1052,25 @@ function SharedRenderView(d, primitive, myState) {
         if( !myState[stateId].outputPins ){
             myState[stateId].outputPins = processPins(primitiveToPrepare.outputPins )
 
-            if( basePrimitive.type === "flow" || basePrimitive.type === "page" ){
+            //if( basePrimitive.type === "flow" || basePrimitive.type === "page" ){
+            if( basePrimitive.type === "flow" ){
                 const tempOut = {}
-                let rIdx = Math.max(...Object.values(myState[stateId].outputPins).map(d=>d.rIdx)) + 1
                for(const pin of Object.values(myState[stateId].inputPins)){
                     tempOut[pin.name] = {
                         ...pin,
                         internal: true,
-                        rIdx: pin.rIdx === 0 ? 0 : rIdx++,
+                        showLabel: false,
+                        rIdx: myState[stateId].inputPins[pin.name].rIdx,
                         idx: pinIdx++
                     }
                }
                
-               rIdx = Math.max(...Object.values(myState[stateId].inputPins).map(d=>d.rIdx)) + 1
                for(const pin of Object.values(myState[stateId].outputPins)){
                     myState[stateId].inputPins[pin.name] = {
                         ...pin,
                         internal: true,
-                        rIdx: pin.rIdx === 0 ? 0 : rIdx++,
+                        showLabel: false,
+                        rIdx: myState[stateId].outputPins[pin.name].rIdx,
                         idx: pinIdx++
                     }
                }
@@ -1861,14 +1859,14 @@ export default function BoardViewer({primitive,...props}){
                         if( sources.length > 0){
                             let ids = getItemList(left).map(d=>d.id)
                             if( sources.some(d=>ids.includes(d))){
-                                return {left: left.id, right: right.id}
+                                return {left: left.id, right: right.id, mode: 0}
                             }
                         }
                         if( left.type === "flow" ){
                             if(right.primitives.imports.allIds.includes(left.id)){
                                 const leftPin = myState[left.id].outputPins.impin?.idx
                                 const rightPin = myState[right.id].inputPins.impin?.idx
-                                return {left: left.id, right: right.id, leftPin, rightPin }
+                                return {left: left.id, right: right.id, leftPin, rightPin, mode: 1 }
                             }                       
                             if(right.primitives.inputs.allIds.includes(left.id)){
                                 return right.primitives.paths(left.id,"inputs").map(rel=>{
@@ -1876,7 +1874,7 @@ export default function BoardViewer({primitive,...props}){
                                     const [leftPinName, rightPinName] = pinNames.split("_")
                                     const leftPin = myState[left.id].outputPins[leftPinName]?.idx
                                     const rightPin = myState[right.id].inputPins[rightPinName]?.idx
-                                    return {left: left.id, right: right.id, leftPin, rightPin }
+                                    return {left: left.id, right: right.id, leftPin, rightPin, mode: 2 }
                                 })
                             }                       
                         }else{
@@ -1887,7 +1885,7 @@ export default function BoardViewer({primitive,...props}){
                                             const [leftPinName, rightPinName] = pinNames.split("_")
                                             const leftPin = myState[left.id].outputPins[leftPinName]?.idx
                                             const rightPin = myState[right.id].inputPins[rightPinName]?.idx
-                                            return {left: left.id, right: right.id, leftPin, rightPin }
+                                            return {left: left.id, right: right.id, leftPin, rightPin, mode: 3 }
                                     })
                                 }                       
                             }
@@ -1896,24 +1894,27 @@ export default function BoardViewer({primitive,...props}){
                             }
                             const leftPin = myState[left.id].outputPins.impout?.idx
                             const rightPin = myState[right.id].inputPins.impin?.idx
-                            return {left: left.id, right: right.id, leftPin, rightPin }
+                            return {left: left.id, right: right.id, leftPin, rightPin, mode: 4 }
                         }
                     }else if( left.type === "flow" && right.primitives.imports.allIds.includes(left.id)){
                         const leftPin = myState[left.id].outputPins.output?.idx
                         const rightPin = myState[right.id].inputPins.impin?.idx
-                        return {left: left.id, right: right.id, leftPin, rightPin }
+                        return {left: left.id, right: right.id, leftPin, rightPin, mode: 5}
                     }else if( right.type === "flow" && right.primitives.outputs.allIds.includes(left.id)){
                         const rels = right.primitives.paths(left.id,"outputs")
                         const relPins = rels.map(rel=>{
 
                             const pinNames = rel.substring(rel.lastIndexOf(".") + 1);
                             const [leftPinName, rightPinName] = pinNames.split("_")
-                            const leftPin = myState[left.id].outputPins[leftPinName]?.idx
-                            const rightPin = myState[right.id].inputPins[rightPinName]?.idx
-                            if( leftPin !== undefined && rightPin !== undefined){
-                                return {left: left.id, right: right.id, leftPin, rightPin}
+                            const leftPinDef = myState[left.id].outputPins[leftPinName]
+                            if( leftPinDef && !leftPinDef.internal ){
+                                const leftPin = leftPinDef?.idx
+                                const rightPin = myState[right.id].inputPins[rightPinName]?.idx
+                                if( leftPin !== undefined && rightPin !== undefined){
+                                    return {left: left.id, right: right.id, leftPin, rightPin, mode: 6}
+                                }
                             }
-                        })
+                        }).filter(d=>d)
                         if( relPins.length > 0 ){
                             return relPins
                         }
@@ -1925,7 +1926,7 @@ export default function BoardViewer({primitive,...props}){
                                 const leftPin = myState[left.id].outputPins[leftPinName]?.idx
                                 const rightPin = myState[right.id].inputPins[rightPinName]?.idx
                                 if( leftPin !== undefined && rightPin !== undefined){
-                                    return {left: left.id, right: right.id, leftPin, rightPin}
+                                    return {left: left.id, right: right.id, leftPin, rightPin, mode: 7}
                                 }
                             })
                     }else{
@@ -1950,7 +1951,7 @@ export default function BoardViewer({primitive,...props}){
                                                 }
                                                 for(const r of row){
                                                     for( const c of column){
-                                                        return {left: left.id, cell: `${c}-${r}`, right: right.id}
+                                                        return {left: left.id, cell: `${c}-${r}`, right: right.id, mode: 8}
 
                                                     }
                                                 }
@@ -1962,7 +1963,7 @@ export default function BoardViewer({primitive,...props}){
                             const leftPin = myState[left.id].outputPins.impout?.idx
                             const rightPin = myState[right.id].inputPins.impin?.idx
 
-                            return {left: left.id, right: right.id, leftPin, rightPin}
+                            return {left: left.id, right: right.id, leftPin, rightPin, mode: 9}
 
 
                         }else{
@@ -1985,7 +1986,7 @@ export default function BoardViewer({primitive,...props}){
                                                     ].filter(d=>d)
                                                     
                                                     if( right.origin.doesImport(left.id, filter)){
-                                                        out.push( {left: left.id, cell: `${cIdx}-${rIdx}`, right: right.id})
+                                                        out.push( {left: left.id, cell: `${cIdx}-${rIdx}`, right: right.id, mode: 10})
                                                         added = true
                                                     }
                                                 }
@@ -1993,7 +1994,7 @@ export default function BoardViewer({primitive,...props}){
                                         })
                                     }
                                     if( !added ){
-                                        out.push( {left: left.id, right: right.id})
+                                        out.push( {left: left.id, right: right.id, mode: 11})
                                     }
                                     return out
                                 }
