@@ -56,6 +56,25 @@ async function moveItemWithinFrame(primitiveId, startZone, endZone, frame){
     }
 
 }
+    function getLocalPrimitiveListForBoardId( id, myState ){
+        let localItems
+        if( myState[id].axisSource){
+            const source = myState[myState[id].axisSource.id]
+            if( source ){
+                if( source.primitiveList){
+                    localItems = source.primitiveList
+                }else{
+                    localItems = source.list?.map(d=>d.primitive)
+                }
+            }else{
+                localItems = myState[id].primitiveList
+            }                
+        }else{
+                localItems = myState[id].primitiveList
+
+        }
+        return localItems
+    }
 
 function buildIndicators(primitive, flowInstance, flow, state){
     flowInstance ||= primitive?.findParentPrimitives({type: "flowinstance"})?.[0]
@@ -971,11 +990,12 @@ function SharedRenderView(d, primitive, myState) {
                             myState[stateId].object = {
                                 type: contentType,
                                 ids: inputs.map(d=>d.id),
-                                text: contentType === "text" ? data.join("\n") : data,
+                                text: data,//contentType === "text" ? data.join("\n") : data,
                                 ...format
                             } 
                             myState[stateId].config = "plain_object"
                             myState[stateId].primitive = basePrimitive
+                            myState[stateId].primitiveList = inputs
                             renderType = "plain_object"
                         }else{
                             myState[stateId].primitiveList = inputs
@@ -1109,7 +1129,8 @@ function SharedRenderView(d, primitive, myState) {
             myState[stateId].renderData = renderData
         }else if( renderType === "view" || renderType === "query" || (renderType === "action" && primitiveToPrepare.metadata.hasResults)){
             
-            const items = myState[stateId].primitiveList ?? primitiveToPrepare.itemsForProcessing
+            //const items = myState[stateId].primitiveList ?? primitiveToPrepare.itemsForProcessing
+            const items = getLocalPrimitiveListForBoardId(stateId, myState) ?? primitiveToPrepare.itemsForProcessing
             
             const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
             //let activeView = primitiveToPrepare?.referenceParameters?.explore?.view 
@@ -1133,10 +1154,10 @@ function SharedRenderView(d, primitive, myState) {
             
             if( viewConfig?.renderType === "cat_overview"){
                 let config = primitiveToPrepare.getConfig
-                let categoriesToMap
+                let categoriesToMap = []
                 if( config.view_axis ){
                     let dataSource
-                    if( myState[stateId].axisSource.inFlow && myState[stateId].axisSource.configParent.flowElement){
+                    if( myState[stateId].axisSource.inFlow && myState[stateId].axisSource.configParent?.flowElement){
                         dataSource = myState[myState[stateId].axisSource.configParent.id] 
                     }else{
                         dataSource = myState[myState[stateId].axisSource.id] 
@@ -1157,7 +1178,7 @@ function SharedRenderView(d, primitive, myState) {
                 }else{
                     categoriesToMap = primitiveToPrepare.primitives.origin.allUniqueCategory
                 }             
-                console.log(`Got ${categoriesToMap.length} to map`)
+                console.log(`Got ${categoriesToMap?.length} to map`)
                 let mappedCategories = categoriesToMap.map(category=>{
                     console.log(`Doing ${category.title} - ${category.primitives.allUniqueCategory.length} subcats`)
                     const axis = {
@@ -1376,8 +1397,20 @@ function SharedRenderView(d, primitive, myState) {
             }
         }else if( renderType === "flow" ){
             let childNodes = d.primitives.origin.uniqueAllItems
-            const flowInstances = childNodes.filter(d=>d.type === "flowinstance").sort((a,b)=>a.plainId - b.plainId)
-            const flowInstanceToShow = flowInstances[d.referenceParameters?.explore?.view ?? 0]
+            const flowInstances = childNodes.filter(child=>{
+                if( child.type !== "flowinstance" ){
+                    return false
+                }
+                if( basePrimitive.flowElement){
+                    // subflow
+                    if( myState[stateId].flowInstance ){
+                        return myState[stateId].flowInstance.primitives.subfi.allIds.includes( child.id)
+                    }
+                }
+                return true
+            }).sort((a,b)=>a.plainId - b.plainId)
+            let selectedFlowIdx = Math.min(d.referenceParameters?.explore?.view ?? 0, flowInstances.length - 1)
+            const flowInstanceToShow = flowInstances[ selectedFlowIdx ]
             childNodes = childNodes.filter(d=>d.type !== "flowinstance")
             didChange ||= d.referenceParameters?.explore?.view !== myState[stateId].lastView
             
@@ -1388,6 +1421,7 @@ function SharedRenderView(d, primitive, myState) {
             }
 
             myState[stateId].primitive = basePrimitive
+            myState[stateId].flowInstances = flowInstances
             myState[stateId].config = "flow"
             myState[stateId].lastView = d.referenceParameters?.explore?.view
             myState[stateId].title = `${basePrimitive.title} - #${basePrimitive.plainId}${flowInstanceToShow ? ` (${flowInstanceToShow.plainId})` : ""}`
@@ -1401,6 +1435,7 @@ function SharedRenderView(d, primitive, myState) {
                     continue
                 }
                 const showItems = d.frames?.[child.id]?.showItems
+                const parentFlowInstanceChanged = myState[child.id]?.flowInstance?.id !== flowInstanceToShow.id
 
                 
                 console.log(`- preparing child of flow ${child.plainId} ${child.type}`)
@@ -1408,8 +1443,8 @@ function SharedRenderView(d, primitive, myState) {
                     id: child.id, 
                     inFlow: true,
                     flow: d,
-                    flowInstance: flowInstanceToShow
                 }
+                myState[child.id].flowInstance = flowInstanceToShow
                 let childChanged = myState[child.id].showItems !== showItems
 
                 myState[child.id].showItems = showItems
@@ -1424,9 +1459,9 @@ function SharedRenderView(d, primitive, myState) {
                     }
                 }
                 const renderResult = SharedPrepareBoard(child, myState)
-                childChanged ||= renderResult !== false
+                childChanged ||= renderResult !== false || parentFlowInstanceChanged
                 if( childChanged ){
-                    boardsToRefresh = boardsToRefresh.concat([child.id, ...renderResult])
+                    boardsToRefresh = boardsToRefresh.concat([child.id, ...(renderResult || [])])
                 }
                 didChange ||= (childChanged ?? true)
                 myState[child.id].parentRender = stateId
@@ -1652,10 +1687,11 @@ export default function BoardViewer({primitive,...props}){
                                 }
 
                                 if( needRefresh){
-                                    console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}`)
                                     forceUpdateLinks()
-
+                                    
                                     refreshBoards = [...refreshBoards, ...(Array.isArray(needRefresh) ? needRefresh : [frameId])].filter((d,i,a)=>a.indexOf(d) === i)
+
+                                    console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}, [${refreshBoards.join(", ")}]`)
 
                                     if( needRebuild ){
                                         console.log(`With rebuild`)
@@ -1883,8 +1919,7 @@ export default function BoardViewer({primitive,...props}){
                         }
 
                     }else if(right.primitives.inputs.allIds.includes(left.id)){
-                            const rel = right.primitives.paths(left.id,"inputs")[0]
-                            if(rel ){
+                            return right.primitives.paths(left.id,"inputs").map(rel=>{
                                 const pinNames = rel.substring(rel.lastIndexOf(".") + 1);
                                 const [leftPinName, rightPinName] = pinNames.split("_")
                                 const leftPin = myState[left.id].outputPins[leftPinName]?.idx
@@ -1892,7 +1927,7 @@ export default function BoardViewer({primitive,...props}){
                                 if( leftPin !== undefined && rightPin !== undefined){
                                     return {left: left.id, right: right.id, leftPin, rightPin}
                                 }
-                            }
+                            })
                     }else{
                         const route = right.findImportRoute(left.id)
                         if( route.length > 0){
@@ -2177,11 +2212,14 @@ export default function BoardViewer({primitive,...props}){
             }
 
             handleViewChange(true)
+
+            
             setCollectionPaneInfo({
                 frame: myState.activeBoard.primitive, 
                 underlying: myState.activeBoard.underlying, 
+                flowInstances: myState.activeBoard.flowInstances, 
                 board: primitive,
-                localItems: myState[id].primitiveList,
+                localItems: getLocalPrimitiveListForBoardId(id, myState),
                 originalList: myState[id].originalList
             })
         }else{
@@ -3116,7 +3154,7 @@ export default function BoardViewer({primitive,...props}){
                                                 ].filter(d=>d)
                                             }
                                             console.log(infoPane.filters[0])
-                                            setCollectionPaneInfo({frame: mainstore.primitive(frameId), board: primitive, filters: infoPane.filters})
+                                            setCollectionPaneInfo({frame:  myState[frameId].underlying ??  myState[frameId].primitive, board: primitive, filters: infoPane.filters})
                                         }
                                     },
                                     widget:{

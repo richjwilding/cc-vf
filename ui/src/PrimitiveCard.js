@@ -504,14 +504,21 @@ let mainstore = MainStore()
         let _target = props.primitive?.referenceParameters?.target ? props.primitive.referenceParameters?.target : defaultConfig?.target
         let _refId =  props.primitive?.referenceParameters?.referenceId ?? defaultConfig?.referenceId
 
-        const first = item.itemMeta ? props.primitive?.itemsForProcessing?.[0] : undefined
-
+        
         if( props.localCategoryId){
           sourceMeta = mainstore.category(props.localCategoryId)
         }else if( props.primitive?.referenceParameters?.referenceId){
           sourceMeta = mainstore.category(props.primitive.referenceParameters?.referenceId)
-        }else if( item.itemMeta && first){
-            sourceMeta = first.metadata
+        }else if( item.itemMeta ){
+          if( props.primitive ){
+            let list = props.primitive?.itemsForProcessing
+            if( list.length === 0 && props.primitive.flowElement){
+              list = props.primitive?.primitives.config.allItems.flatMap(d=>d.itemsForProcessing[0])
+            }
+            if( list[0]){
+              sourceMeta = list[0].metadata
+            }
+          }
         }else if(_target === "evidence" || _target === "items"){
           sourceMeta =  mainstore.category(_refId) 
         }else if(_target === "origin"){

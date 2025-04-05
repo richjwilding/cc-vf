@@ -380,7 +380,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
 
     }else if( frame ){
         const list = localItems ?? (filters ? primitiveForContent.itemsForProcessingWithFilter(filters) : primitiveForContent.itemsForProcessing)
-        const viewConfigs = frame.type === "flow" ? frame.primitives.origin.allFlowinstance.sort((a,b)=>a.plainId - b.plainId).map((d,i)=>(
+        const viewConfigs = frame.type === "flow" ? props.flowInstances.map((d,i)=>(
             {
                 id: i,
                 title:`Flow instance #${d.plainId}`

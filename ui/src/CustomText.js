@@ -734,6 +734,7 @@ checkCanvasCleared() {
 
     
   constructor(attrs) {
+    attrs.fontFamily ||= "Poppins"
     super(attrs);
     this.scaleRatio = 1
     this.rescaleMax = 1.5

@@ -805,29 +805,46 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
 
     const idx = Math.floor((items.length - range[0]) / spread * colors.length) 
 
-    const r = new Konva.Rect({
-        x: config.padding[3],
-        y: config.padding[0],
-        width: config.width - config.padding[3] - config.padding[1],
-        height: config.height - config.padding[0] - config.padding[2],
-        fill: colors[idx],
-        name: "background"
-    })
-    g.add(r)
-    const r2 = new Konva.Rect({
-        x: config.padding[3],
-        y: config.padding[0],
-        width: config.width - config.padding[3] - config.padding[1],
-        height: config.height - config.padding[0] - config.padding[2],
-        fill: items.length === 0 ? "white" : colors[idx]
-    })
-    g.add(r2)
+    if( renderOptions.bubble){
+        const b = new Konva.Rect({
+            x: config.padding[3],
+            y: config.padding[0],
+            width: config.width - config.padding[3] - config.padding[1],
+            height: config.height - config.padding[0] - config.padding[2],
+            fill: "transparent",
+            name: "background"
+        })
+        g.add(b)
+        const maxR = Math.min((config.width - config.padding[3] - config.padding[1]) / 2,(config.height - config.padding[2] - config.padding[0]) / 2)
+        const s = items.length
+        let r = s ===0 ? (!renderOptions.counts ? 1 : 0) : maxR / spread * (1+(s- range[0]))
+        let color = s === 0 && !renderOptions.counts ? "#555" : s === 0 ? "white" : colors[idx]
+        if( r > 0){
+            const r2 = new Konva.Circle({
+                x: config.padding[3] + maxR,
+                y: config.padding[0] + maxR,
+                radius: r,
+                fill: color
+            })
+            g.add(r2)
+        }
+    }else{
+        const r2 = new Konva.Rect({
+            x: config.padding[3],
+            y: config.padding[0],
+            width: config.width - config.padding[3] - config.padding[1],
+            height: config.height - config.padding[0] - config.padding[2],
+            fill: items.length === 0 ? "white" : colors[idx]
+        })
+        g.add(r2)
+    }
     if( renderOptions?.counts){
         const t = new Konva.CustomText({
             x: config.padding[3],
-            y: (config.height - 20) / 2,
+            y: (config.height) / 2,
             text: items.length,
-            fontSize: 16,
+            fontSize: renderOptions.bubble ? 10 : 16,
+            fontStyle: renderOptions.bubble ? "bold" : undefined,
             fill: textColors[idx],
             width: config.width - config.padding[3] - config.padding[1],
             align:'center',
@@ -836,7 +853,7 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
             refreshCallback: options.imageCallback
         })
         g.add(t)
-        t.y((config.height - t.height() ) /2)
+        t.y((config.height - t.textHeight ) /2)
 
     }else if( renderOptions?.titles){
         const t = new Konva.CustomText({
@@ -3213,9 +3230,14 @@ export function renderPlainObject(renderOptions = {}){
         }
     } 
     if( options.style === "text" || type === "text"){
-        let useText = Array.isArray(text) ? text.join("\n") : text
+        let useText
         if( options.compose){
-            useText = options.compose.replaceAll(`{text}`, text)
+            let count = Array.isArray(text) ? text.length : 1            
+            let flatText = Array.isArray(text) ? text.join("\n") : text
+            useText = options.compose.replaceAll(`{text}`, flatText)
+            useText = useText.replaceAll(`{count}`, count)
+        }else{
+            useText = Array.isArray(text) ? text.join("\n") : text
         }
         let padding = [0,0,0,0]
 
@@ -3230,6 +3252,23 @@ export function renderPlainObject(renderOptions = {}){
             }
         }
 
+        let fontStyle = options.fontStyle
+
+        if( options.fontStyle === "auto" ){
+            fontStyle = "normal"
+            useText = useText
+                .split('\n')
+                .map(line => {
+                const match = line.match(/^([^:]+):/);
+                if (match) {
+                    const prefix = match[1];
+                    return line.replace(prefix + ':', `**${prefix}**:`);
+                }
+                return line;
+                })
+                .join('\n');
+        }
+
         const t = new CustomText({
             x: padding[3],
             y: padding[1],
@@ -3241,7 +3280,7 @@ export function renderPlainObject(renderOptions = {}){
             fill: options.text_color ?? "black",
             fontFamily: fontFamily,
             fontSize: options.fontSize,
-            fontStyle: options.fontStyle,
+            fontStyle: fontStyle,
             refreshCallback: options.imageCallback
         })
         g.add(t)
@@ -5133,14 +5172,16 @@ export function renderMatrix( primitive, list, options ){
                 width: headerWidth,
                 height: rowSize[idx]
             }) 
-            const bg = new Konva.Rect({
-                x: cellConfig.padding[3],
-                y: cellConfig.padding[0],
-                width: headerWidth - cellConfig.padding[3] - cellConfig.padding[1],
-                height: rowSize[idx] - cellConfig.padding[0] - cellConfig.padding[2] ,
-                fill:'#f3f4f6'
-            })
-            group.add(bg)
+            if( rowLabelAsText ){
+                const bg = new Konva.Rect({
+                    x: cellConfig.padding[3],
+                    y: cellConfig.padding[0],
+                    width: headerWidth - cellConfig.padding[3] - cellConfig.padding[1],
+                    height: rowSize[idx] - cellConfig.padding[0] - cellConfig.padding[2] ,
+                    fill:'#f3f4f6'
+                })
+                group.add(bg)
+            }
             rowLabels[idx].y( cellConfig.padding[0] + textPadding[0] + (((rowSize[idx] - cellConfig.padding[0] - textPadding[0] - cellConfig.padding[2] - textPadding[2]) - rowLabels[idx].height()) / 2))
             group.add(rowLabels[idx])
             g.add(group)
@@ -5159,14 +5200,16 @@ export function renderMatrix( primitive, list, options ){
                 width: columnSize[idx],
                 height: headerHeight
             }) 
-            const bg = new Konva.Rect({
-                x: cellConfig.padding[3],
-                y: cellConfig.padding[0],
-                width: columnSize[idx] - cellConfig.padding[3] - cellConfig.padding[1] ,
-                height: headerHeight,
-                fill:'#f3f4f6'
-            })
-            group.add(bg)
+            if( columnLabelAsText ){
+                const bg = new Konva.Rect({
+                    x: cellConfig.padding[3],
+                    y: cellConfig.padding[0],
+                    width: columnSize[idx] - cellConfig.padding[3] - cellConfig.padding[1] ,
+                    height: headerHeight,
+                    fill:'#f3f4f6'
+                })
+                group.add(bg)
+            }
             group.add(columnLabels[idx])
             g.add(group)
         })
@@ -5325,7 +5368,7 @@ function renderSubCategoryChart( title, data, options = {}){
         y = 0,
         innerPadding = [10,10,10,10],
         itemSize = 200,        
-        colors = categoryColors
+        paletteName        
     } = options
 
     if( options.byTag ){
@@ -5358,12 +5401,21 @@ function renderSubCategoryChart( title, data, options = {}){
         y: 0,
         width: itemSize,
         height: itemSize,
-        cornerRadius: 10,
-        stroke: '#d9d9d9',
         name:"background"
     })
     sg.add(r)
     const innerSpacing = config.fontSize * 1.2
+
+    let colors = categoryColors
+    let selectedPalette = heatMapPalette.find(d=>d.name === paletteName)
+    if( selectedPalette ){
+        if( selectedPalette.category_colors ){
+            colors = selectedPalette.category_colors 
+        }else{
+            colors = [...selectedPalette.colors].reverse()
+        }
+    }
+    
     let pieY = innerSpacing
     if( !options.hideTitle){
 
@@ -5469,7 +5521,8 @@ registerRenderer( {type: "default", configs: "chart"}, (primitive, options = {})
                                             style: config.style, 
                                             hideTitle: config.show_title === false, 
                                             hideLegend: config.show_legend === false, 
-                                            byTag: config.by_tag
+                                            byTag: config.by_tag,
+                                            paletteName: config.colors
                                         })
     g.add(sg)
     
@@ -5534,7 +5587,8 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
                                                 style: config.style, 
                                                 hideTitle: config.show_title === false, 
                                                 hideLegend: config.show_legend === false, 
-                                                byTag: config.by_tag
+                                                byTag: config.by_tag,
+                                                paletteName: config.colors
                                             })
         g.add(sg)
         rowCells.push( sg )

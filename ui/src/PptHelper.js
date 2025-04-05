@@ -438,10 +438,10 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     w: rw,
                     h: rh,
                     fill: toHex(konvaNode.fill()),
-                    line: {
+                    line: konvaNode.stroke() ? {
                         color:toHex(konvaNode.stroke()),
                         width: konvaNode.strokeWidth() /2
-                    },
+                    } : undefined,
                 });
         }else if (konvaNode instanceof Konva.Wedge) {
             const wedgeWidth = 2 * rr;

@@ -904,7 +904,7 @@ class CollectionUtils{
         if( axis.type === "none"){
             out = {labels: axis.labels, values: [{idx: undefined, label: ""}], order: axis.order}
         }else if( axis.type === "category"){
-            const subCats = MainStore().primitive(axis.primitiveId)?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, label:d.title})) ?? []
+            const subCats = MainStore().primitive(axis.primitiveId)?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, primitive: d, label:d.title})) ?? []
             out = {
                 values: [{idx: "_N_", label: "None"}, ...subCats].sort((a,b)=>a.label?.localeCompare(b.label)),
             }

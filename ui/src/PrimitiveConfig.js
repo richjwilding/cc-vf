@@ -1,7 +1,12 @@
 const heatMapPalette = [
     {
-        title: "Default blue",
+        title: "Default",
         name:"default",
+        category_colors:[
+            '#1F77B4', '#FF7F0E', '#2CA02C', '#D62728', '#9467BD',
+                                    '#8C564B', '#E377C2', '#7F7F7F', '#BCBD22', '#17BECF',
+                                    '#AEC7E8', '#FFBB78', '#98DF8A', '#FF9896', '#C5B0D5'
+        ],
         colors:[
             "#f7fcf0",
             "#e0f3db",
@@ -76,6 +81,27 @@ const heatMapPalette = [
             "#077c97",
             "#025462"
         ]
+    },
+    {
+        title: "CC Green",
+        name: "cc_green",
+        text_colors:[
+            "#222",
+            "#222",
+            "#222",
+            "#f2f2f2",
+            "#f2f2f2"
+        ],
+        colors:[
+            "#edfcf4",
+            "#c5f5de",
+            "#9defc9",
+            "#75e8b3",
+            "#4de29d",
+            "#26db88",
+            "#00d472",
+            "#00d967"
+          ]
     }
 ]
 
@@ -397,6 +423,15 @@ const PrimitiveConfig = {
                             {id:false, title: "No"},
                             {id:true, title: "Yes"}
                         ]
+                    },
+                    "bubble":{
+                        type: "option_list",
+                        title: "Show as bubbles",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
                     }
                 },
                 showAsCounts:true
@@ -492,14 +527,11 @@ const PrimitiveConfig = {
                 }},
             chart: {id: 8,title:"Distribution chart", renderType: "chart", configName: "chart", parameters: {},
                 config:{
-                    "show_none":{
+                    "colors":{
                         type: "option_list",
-                        title: "Show None",
-                        default: false,
-                        options: [
-                            {id:false, title: "No"},
-                            {id:true, title: "Yes"}
-                        ]
+                        title: "Colors",
+                        default: "default",
+                        options: heatMapPalette.map(d=>({id: d.name, title:d.title}))
                     },
                     "show_title":{
                         type: "option_list",

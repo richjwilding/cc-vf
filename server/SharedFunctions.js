@@ -967,31 +967,25 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
 
         const instancesOfElement = await fetchPrimitives( rObject.primitives?.config ?? [])
         logger.debug(`Relationship update on flowElement - got ${instancesOfElement.length} instances to update`)
-        const instancesOfTarget =  await fetchPrimitives( tObject.primitives?.config ?? [])
+        const instancesOfTarget =  await fetchPrimitives( tObject.primitives?.config ?? [])        
         logger.debug(`Found ${instancesOfTarget.length} instances of target`)
+        const instanceFlowInstances = instancesOfElement.map(d=>d.type === "flowinstance" ? d.id : primitiveOrigin(d))
+        let relevantTargetInstanceForElementInstance
+        
+        let idx = 0
         for(const ie of instancesOfElement){
             let useTarget
-            if( tObject.type === "flow"){
+            if( false && tObject.type === "flow"){
                 useTarget = tObject.id
             }else{
-                const flowInstanceId = primitiveOrigin( ie )
-                let it = instancesOfTarget.find(d=>d.parentPrimitives[flowInstanceId]?.includes("primitives.origin"))
-                if( !it && tObject.type === "categorizer"){
-                    logger.debug(` - cant find instance in current flowinstance - checking subflow ancestors`)
-                    const instancesOfTargetFIs = await fetchPrimitives( instancesOfTarget.map(d=>primitiveOrigin(d)))
-                    const subFlows = []
-                    for( const fi of instancesOfTargetFIs){
-                        subFlows.push( await primitiveDescendents( fi, "flowinstance", {paths: ["subfi"]}) )
-                    }                    
-                    const ancestorId = subFlows.findIndex(d=>d.find(d=>d.id === flowInstanceId))
-                    if( ancestorId >= -1){
-                        it = instancesOfTarget[ancestorId]
-                        logger.debug(` - Found ancestor - looked in ${subFlows.length} chains`)
-                    }else{
-                        logger.debug(` - couldnt find ancestor - looked in ${subFlows.length} chains`)
-                    }
-
+                //const flowInstanceId = primitiveOrigin( ie )
+                //const it = await relevantInstanceForFlowChain( instancesOfTarget, flowInstanceId)
+                if( !relevantTargetInstanceForElementInstance ){
+                    relevantTargetInstanceForElementInstance = await relevantInstanceForFlowChain( instancesOfTarget, instanceFlowInstances)
+                    console.log(`Done flow instance matching`)
+                    console.log(relevantTargetInstanceForElementInstance)
                 }
+                const it = relevantTargetInstanceForElementInstance[idx]
                 if( it ){
                     if( it.type == "categorizer"){
                         logger.debug(` - Instance target is categorizer - redirecting to nested primitive`)
@@ -1009,9 +1003,67 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
                     await removeRelationship( ie.id, useTarget, relationship)
                 }
             }
+            idx++
         }
     }
 
+}
+export async function relevantInstanceForFlowChain(instancesOfTarget, flowInstanceIds){
+    const results = flowInstanceIds.map(flowInstanceId=>instancesOfTarget.find(d=>d.id === flowInstanceId || d.parentPrimitives[flowInstanceId]?.includes("primitives.origin")))
+
+    if( results.filter(d=>d).length === flowInstanceIds.length){
+        return results
+    }
+
+    logger.debug(` - cant find instance in current flowinstance - checking subflow ancestors`)
+    const instancesOfTargetFIs = await fetchPrimitives( instancesOfTarget.map((d,i)=>results[i] ? undefined : primitiveOrigin(d)))
+    console.log(instancesOfTargetFIs.map(d=>d.id).join(", "))
+    let instanceChain = instancesOfTargetFIs.map(d=>d?.primitives?.subfi)
+    console.log(instanceChain.join(", "))
+
+    let leave, level = 0
+    do{
+        logger.verbose(` - looking in chain ${instanceChain.flat(Infinity).length} items`)
+        leave = true
+        instanceChain = instanceChain.map((chain,idx)=>{
+            if( !chain){
+                return undefined
+            }
+            const found = chain.find(d=>flowInstanceIds.includes(d))
+            if( found ){
+                const relevantInstance = instancesOfTarget[idx]
+                logger.verbose(` - Found ${flowInstanceIds[idx]} instance at idx ${idx} - level ${level} = ${relevantInstance.id}`)
+                for( let rIdx = 0; rIdx < flowInstanceIds.length; rIdx++){
+                    if( flowInstanceIds[rIdx] === found){
+                        results[rIdx] = relevantInstance
+                    }
+                }
+                return undefined
+            }            
+            return chain
+        })
+        const idsToFetch = instanceChain.flat().filter(d=>d)
+        logger.verbose(` - ${idsToFetch.length} primitives to fetch`)
+        if(idsToFetch.length > 0){
+            level++
+            const fetched = await fetchPrimitives( idsToFetch, undefined, "_id primitives type referenceId")
+            if(fetched.length > 0){
+                leave = false
+                console.log(`- got ${fetched.length} prims back`)
+                instanceChain = instanceChain.map(chain=>{
+                    if( !chain ){return}
+                    return chain.flatMap(d=>{
+                        const p = fetched.find(d2=>d2.id === d)
+                        if( p ){
+                            return p.primitives?.subfi
+                        }
+                    }).filter(d=>d)
+                })
+            }
+        }
+    }while(!leave)
+    
+    return results
 }
 
 export async function primitiveChildren(primitive, types){

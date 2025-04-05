@@ -2369,7 +2369,15 @@ function MainStore (prims){
                                         //d.pass_through = extents.map(d=>d.primitive)
                                         d.passThroughCoonfig = "primitive"
                                     }else{
-                                        d.pass_through = extents.map(d=>d.label)
+                                        d.pass_through = extents.filter(d=>d?.idx !=="_N_").map(d=>{
+                                            if( d.primitive ){
+                                                if(d.primitive.type === "category"){
+                                                    return `${d.primitive.title}: ${d.primitive.referenceParameters.description}`
+                                                }
+                                                return d.title
+                                            }
+                                            return d.label
+                                        })
                                         d.passThroughCoonfig = "string"
                                     }
                                 }else if( d.sourceTransform === "filter_imports"){

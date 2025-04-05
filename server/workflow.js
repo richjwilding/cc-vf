@@ -1,6 +1,6 @@
 import { registerAction } from "./action_helper";
 import { getLogger } from "./logger";
-import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getFilterName, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, removePrimitiveById, removeRelationship } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getFilterName, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, relevantInstanceForFlowChain, removePrimitiveById, removeRelationship } from "./SharedFunctions";
 import { checkAndGenerateSegments, getItemsForQuery, getSegemntDefinitions } from "./task_processor";
 import PrimitiveParser from './PrimitivesParser';
 import FlowQueue from "./flow_queue";
@@ -139,8 +139,9 @@ export async function scaffoldWorkflow( flow, options = {} ){
                 }
                 if( source.type === "flow"){
                     logger.debug(`- Subflow imports from parent flow, redirecting to instances`)
-                    instanceSources.push(...(await primitiveChildren( source, "flowinstance" )))
-                    logger.debug(`- Found ${instanceSources.length} instances`)
+                    //instanceSources.push(...(await primitiveChildren( source, "flowinstance" )))
+                    //logger.debug(`- Found ${instanceSources.length} instances`)
+                    instanceSources.push(parentFlowInstance)
                 }else{
                     const instanceSteps = await primitivePrimitives( source, "primitives.config" )
                     const sourceForInstance = instanceSteps.find(d=>Object.keys(d.parentPrimitives).includes( options.subFlowForInstanceId ))
@@ -357,9 +358,32 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, optio
                         logger.info(`Step ${step.id} / ${step.plainId} imports from flow ${flow.id} at ${rel} - mapping to flow instance ${flowInstance.id}`)
                         targetImports.push( {id: flowInstance.id, paths} )
                     }else{
-                        const originalImportStep = steps.find(d=>d.id === importId)
+                        let originalImportStep = steps.find(d=>d.id === importId)
+                        let mappedImportStep
                         if( originalImportStep ){
-                            const mappedImportStep = instanceSteps.find(d=>d.stepId === originalImportStep.id)
+                            mappedImportStep = instanceSteps.find(d=>d.stepId === originalImportStep.id)
+                        }else{
+                            logger.debug(`Importing from something (${importId}) outside of this flow instance (${flowInstance.id} / ${flowInstance.plainId}) `)
+
+                            const importTarget = await fetchPrimitive( importId )
+                            if( importTarget.flowElement ){
+                                logger.debug(` - import is flow element, checking flow ancestory`)
+                                const relevantIds = importTarget.primitives?.config ?? []
+                                if( relevantIds.length > 0 ){
+                                    const instances = await fetchPrimitives(  relevantIds )
+                                    const targetInAncestor = (await relevantInstanceForFlowChain( instances, [flowInstance.id]))[0]
+                                    if( targetInAncestor){
+                                        logger.debug(` - found relevant ancestor for mapping ${targetInAncestor.id} / ${targetInAncestor.plainId}`)
+                                        originalImportStep = importTarget
+                                        mappedImportStep = {
+                                            instance: targetInAncestor
+                                        }
+
+                                    }
+                                }
+                            }
+                        }
+                        if( mappedImportStep ){
                             logger.info(`Step ${step.id} / ${step.plainId} ${rel} from flow step ${originalImportStep.id} / ${originalImportStep.plainId} - mapping to flow instance ${mappedImportStep.instance.id} / ${mappedImportStep.instance.plainId}`)
                             
                             let mappedFilters
@@ -385,12 +409,12 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, optio
                             if( rel.startsWith("axis") && originalImportStep.type === "categorizer"){
                                 const internalId = mappedImportStep.instance.primitives?.origin?.[0]
                                 logger.debug(` - Instance target is categorizer - redirecting to nested primitive ${internalId}`)
-
                                 targetImports.push({id: internalId, filters: mappedFilters, paths} )
                             }else{
                                 targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters, paths} )
                             }
                         }else{
+
                             if( mappedStep.instance.type === "page"){
                                 logger.debug(`Importing from something other than flow or step id = ${importId} - currently in page, assume element?`)
                             }else{
