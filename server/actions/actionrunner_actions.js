@@ -428,8 +428,10 @@ registerAction( "run_categorizer", undefined, async (primitive, action, options,
                 })
             }
             if( targetCategoryObject ){
-                console.log(`Will run evaluator ${targetId}`)
-                await QueueAI().markCategories( targetCategoryObject, {id: targetId})
+                //console.log(`Will run evaluator ${targetId}`)
+                //await QueueAI().markCategories( targetCategoryObject, {id: targetId})
+                console.log(`Will run evaluator ${primitive}`)
+                await QueueAI().markCategories( targetCategoryObject, {id: primitive.id})
                 console.log(`BACK FROM VAL`)
             }
         }else if( category.mode === "build"){

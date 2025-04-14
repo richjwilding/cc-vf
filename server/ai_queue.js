@@ -1,4 +1,4 @@
-import { addRelationship, addRelationshipToMultiple, buildContext, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, findPrimitiveOriginParent, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
+import { addRelationship, addRelationshipToMultiple, buildContext, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, expandPrimitiveLiterals, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, findPrimitiveOriginParent, getConfig, getConfigParent, getConfigParentForTerm, getDataForImport, getDataForProcessing, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
@@ -1631,11 +1631,29 @@ export async function processQueue(job){
                                 let resultMap
                                 if( pCategory?.mapMode === "evaluate" ){
                                     let opener = "Here is a list of items"
-                                    if( ! primitiveConfig.evaluation){
+                                    let evaluation = primitiveConfig.evaluation
+                                    let primitiveInputs
+                                    let configParent
+                                    console.log("!!!************!!!")
+
+                                    async function _getConfigParent(){
+                                        console.log(`--- > doing deferred configParent fetch`)
+                                        if(!configParent){
+                                            configParent = await getConfigParent( primitive)
+                                        }
+                                        return configParent
+                                    }
+                                    
+                                    if( evaluation){
+                                        const {text: _evaluation, inputs: _primitiveInputs} = await expandPrimitiveLiterals(_getConfigParent, primitiveConfig.evaluation)
+                                        evaluation = _evaluation
+                                        primitiveInputs = primitiveInputs
+                                    }else{
                                         throw "Nothing to evaluate"
                                     }
                                     if( primitiveConfig.conditions){
-                                        opener = `Here is some context about a task you will perform: ${primitiveConfig.conditions}.\n\nAnd here is the information for you to assess.`
+                                        const {text: conditions, _primitiveInputs} = await expandPrimitiveLiterals(_getConfigParent, primitiveConfig.conditions, primitiveInputs)
+                                        opener = `Here is some context about a task you will perform: ${conditions}.\n\nAnd here is the information for you to assess.`
                                     }
                                     const categoryLabels = pCategory?.mapMode === "distance" ? ["unclear", "current", "adjacent","middle","far"] : ["not at all", "possibly", "likely", "clearly"]
                                     const missing = categoryLabels.filter(d=>!catOptions.map(d=>d.title).includes(d))
@@ -1660,11 +1678,15 @@ export async function processQueue(job){
 
                                     let prompt
                                     if( runInBatch ){
-                                        prompt = `For each numbered item in turn - and using only the information provided for that item - undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitiveConfig.evaluation}`
+                                        prompt = `For each numbered item in turn - and using only the information provided for that item - undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${evaluation}`
                                     }else{
-                                        prompt = `Using only the information provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${primitiveConfig.evaluation}`
+                                        prompt = `Using only the information provided, undertake the following evaluation and assess the likelihood of it being true on the scale of ${categoryLabels.map(d=>`"${d}"`).join(", ")}: ${evaluation}`
                                     }
                                 
+                                    console.log(evaluation)
+                                    console.log(opener)
+                                    console.log(prompt)
+                                   // throw "done"
 
                                                                                     
                                     const raw_result = await processPromptOnText( data, {
@@ -1680,7 +1702,7 @@ export async function processQueue(job){
                                         debug: false,
                                         markup: "items",
                                         no_num: !runInBatch,
-                                        debug_content: false,
+                                        debug_content: true,
                                         batch: runInBatch ? 50 : 1,
                                         progressCallback:(status)=>{
                                             dispatchControlUpdate(primitive.id, job.data.field + ".progress", status.completed / status.total , {track: primitive.id})
@@ -1702,16 +1724,20 @@ export async function processQueue(job){
                                         for(const d of result){
                                             if( d ){
                                                 const item = list[d.id]
-                                                let category = resultCache[d.likelihood]
-                                                if(!d.rationale){
-                                                    console.log(`No rationale for ${item.id}`)
-                                                    console.log(d)
-                                                }
-                                                if( !category ){
-                                                    console.log(`WARN: couldnt align`, d)
-                                                }
-                                                if( item && category){
-                                                    category.ids.push(item.id)
+                                                if( item ){
+                                                    let category = resultCache[d.likelihood]
+                                                    if(!d.rationale){
+                                                        console.log(`No rationale for ${item.id}`)
+                                                        console.log(d)
+                                                    }
+                                                    if( !category ){
+                                                        console.log(`WARN: couldnt align`, d)
+                                                    }
+                                                    if( item && category){
+                                                        category.ids.push(item.id)
+                                                    }
+                                                }else{
+                                                    logger.warn(`Couldnt find item in list for ${d.id}`, d)
                                                 }
                                             }else{
                                                 console.log(`Got empty result`)
@@ -1723,7 +1749,7 @@ export async function processQueue(job){
                                         await addRelationshipToMultiple(resultCache[d].categoryId, resultCache[d].ids, 'ref', primitive.workspaceId)
                                         dispatchControlUpdate(resultCache[d].categoryId, "rationale", resultCache[d].rationale)
                                     }
-                                    throw "done"
+                                    return
                                 }else{
                                     const config = await getConfig(primitive)
 

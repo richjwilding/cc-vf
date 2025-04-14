@@ -414,9 +414,14 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, optio
                                 targetImports.push({id: mappedImportStep.instance.id, filters: mappedFilters, paths} )
                             }
                         }else{
-
                             if( mappedStep.instance.type === "page"){
                                 logger.debug(`Importing from something other than flow or step id = ${importId} - currently in page, assume element?`)
+                            }else if( originalImportStep.type === "flow"){
+                                const fis = (await primitivePrimitives(flowInstance, 'primitives.subfi', "flowinstance" )).filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(originalImportStep.id))
+                                logger.debug(`Importing from flow = ${importId} - linking to ${fis.length} flowinstances`)
+                                for(const d of fis){
+                                    targetImports.push( {id: d.id, paths} )
+                                }
                             }else{
                                 throw `Importing from something other than flow or step id = ${importId} - possibly nested segemnt??`
                             }
@@ -455,7 +460,9 @@ async function alignPrimitiveRelationships( targetPrimitive, targetImports, rel,
     const toAdd = buildDelta(targetImports, currentImportsWithPaths)
     const toRemove = buildDelta(currentImportsWithPaths, targetImports)
     
-    logger.debug(`${toAdd.length} ${rel} to add, ${toRemove.length} ${rel} to remove`)
+    if( (toAdd + toRemove) > 0){
+        logger.debug(`${toAdd.length} ${rel} to add, ${toRemove.length} ${rel} to remove`)
+    }
     
     if( create !== false ){
         for(const d of toRemove){
@@ -557,7 +564,7 @@ export async function runFlowInstance( flowInstance, options = {}){
         
         const stepsAndFlows = [...instanceSteps, ...subFlows]
 
-        let stepsToWait = instanceSteps.map(d=>d.id)
+        let stepsToWait = stepsAndFlows.map(d=>d.id)
         const stepsToUpdate = []
         if( options.fromStepIds ){
             const track = new Set()
@@ -591,6 +598,7 @@ export async function runFlowInstance( flowInstance, options = {}){
                 const p = stepsAndFlows.find(d2=>d2.id === d)
                 logger.debug(` - U ${p.plainId} ${p.type}`)
             }
+
 
             const toSet = {       
                 "processing.flow":{
@@ -858,7 +866,7 @@ export async function runStep( step, options = {}){
     }else if( step.type === "query"){
         await doPrimitiveAction(step, "custom_query", {flow: true} )
     }else if( step.type === "flowinstance"){
-        FlowQueue().runFlowInstance(step,{...options, force: true})
+        await FlowQueue().runFlowInstance(step,{...options, force: true})
     }else{
         logger.error(`Unhandled step type '${step.type}' in runStep`)
     }

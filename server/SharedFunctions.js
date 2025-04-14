@@ -30,8 +30,9 @@ import "./workflow.js"
 import FlowQueue from './flow_queue.js';
 import { getLogger } from './logger.js';
 import { queryQuoraByRapidAPI } from './rapid_helper.js';
+import { expandStringLiterals } from './actions/SharedTransforms.js';
 
-const logger = getLogger('sharedfn'); // Debug level for moduleA
+const logger = getLogger('sharedfn', "info"); // Debug level for moduleA
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -637,6 +638,16 @@ export async function getPrimitiveOutputs(primitive){
     }
     return out
 }
+export async function expandPrimitiveLiterals(primitive_or_call, text, inputs){
+    if( text.match(/\{.+\}/)){
+        let primitive = typeof(primitive_or_call) === "function" ? await primitive_or_call() : primitive_or_call
+        if(!inputs){
+            inputs = await getPrimitiveInputs( primitive ) 
+        } 
+        text = expandStringLiterals( text, inputs)
+    }
+    return {text: text, inputs}
+}
 export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs", pinMode = "input", cache){
     let inputMap = PrimitiveConfig.getInputMap(primitive, mode)
 
@@ -721,11 +732,21 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
         
     }
 
-    if( dynamicPinSource.type === "query" || dynamicPinSource.type === "flow" || dynamicPinSource.type === "flowinstance" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "action" || dynamicPinSource.type === "actionrunner"){
+    if( dynamicPinSource.type === "categorizer" || dynamicPinSource.type === "query" || dynamicPinSource.type === "flow" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "action" || dynamicPinSource.type === "actionrunner"){
         configForPins = await getConfig(dynamicPinSource, cache, true)
     }
 
     let dynamicPins = PrimitiveConfig.getDynamicPins(dynamicPinSource,  configForPins)
+
+    if( (primitive.type === "flow" || primitive.type === "flowinstance") && mode === "outputs"){
+        if( !configForPins ){
+            configForPins = await getConfig(dynamicPinSource, cache, true)
+        }
+        dynamicPins = {
+            ...dynamicPins,
+            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, configForPins, "outputs")
+        }
+    }
 
 
     let generatorPins = {}
@@ -768,7 +789,23 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
         if( d.sourceTransform === "imports"){
             d.sources = await getDataForImport( d.sourcePrimitive )
         }else if( d.sourceTransform === "pin_relay"){
-            throw "unhandled"
+            if( primitive.type === "flowinstance"){
+               // throw "!!! untested"
+                const fis = (await primitivePrimitives(primitive, 'primitives.subfi', "flowinstance" )).filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d.sourcePrimitive.id))
+                console.log(`GOT ${fis.length} instances to get from`)
+                d.sources = []
+                for(const fi of fis){
+                    const outputs = await getPrimitiveOutputs(fi)
+                    if(outputs && outputs[d.sourcePin]){
+                        d.sources.push( ...(outputs[d.sourcePin].data ?? []) )
+                    }
+                }
+            }else{
+                const po = await fetchPrimitive( primitiveOrigin(primitive))
+                if( po.type === "flowinstance"){
+                    d.sources = (await getPrimitiveInputs(po))[d.sourcePin]?.data
+                }
+            }
         }else if( d.sourceTransform === "filter_imports"){
             const sourceConfig = await getConfig( d.sourcePrimitive )
             const defs = await getSegemntDefinitions( d.sourcePrimitive, undefined, sourceConfig, true)
@@ -975,8 +1012,31 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
         let idx = 0
         for(const ie of instancesOfElement){
             let useTarget
-            if( false && tObject.type === "flow"){
-                useTarget = tObject.id
+            if( relationship === "primitives.imports" && tObject.type === "flow"){
+                //useTarget = tObject.id
+                const fis = instancesOfTarget.filter(d=>Object.keys(d.parentPrimitives ?? {}).includes(instanceFlowInstances[idx]))
+                console.log(`--- got ${fis.length} flowinstances to ${mode} as import`)
+                for(const d of fis){
+                    if( mode == "add"){
+                        await addRelationship( ie.id, d.id, relationship)
+                    }else if( mode == "remove"){
+                        await removeRelationship( ie.id, d.id, relationship)
+                    }
+                }
+                continue
+            }else if( relationship.startsWith("primitives.outputs") && rObject.type === "flow"){
+                for(const t of instancesOfTarget){
+                    const instanceOriginId = primitiveOrigin(t)
+                    if( Object.keys(ie.parentPrimitives ?? {}).includes(instanceOriginId) ){
+                        console.log(`--- flowinstances to ${mode} as output`)
+                        if( mode == "add"){
+                            await addRelationship( ie.id, t.id, relationship)
+                        }else if( mode == "remove"){
+                            await removeRelationship( ie.id, t.id, relationship)
+                        }
+                    }
+                }
+                continue
             }else{
                 //const flowInstanceId = primitiveOrigin( ie )
                 //const it = await relevantInstanceForFlowChain( instancesOfTarget, flowInstanceId)
@@ -987,7 +1047,7 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
                 }
                 const it = relevantTargetInstanceForElementInstance[idx]
                 if( it ){
-                    if( it.type == "categorizer"){
+                    if( relationship.includes(".axis.") && it.type == "categorizer"){
                         logger.debug(` - Instance target is categorizer - redirecting to nested primitive`)
                         useTarget = it.primitives?.origin?.[0]
                     }else{
@@ -1377,7 +1437,6 @@ export async function multiPrimitiveAtOrginLevel( list, level, relationship = "o
             if( thisRefFilter !== undefined){
                 if( p.referenceId !== thisRefFilter){
                     delete cache[p.id]
-                    console.log(`REMOVING ${p.id} ${p.referenceId} vs ${rId}`)
                     continue
                 }
             }
@@ -1827,6 +1886,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 const address = pp.paths(source.id)[0]
                 if( address && address !== '.impout_impin' && address !== '.impin_impin'){
                     const [outputPin, inputPin] = address.slice(1).split("_")
+                    console.log(outputPin, inputPin)
 
                     if( imp.type === "flowinstance" && primitiveOrigin(source) === imp.id ){
                         const inputs = await getPrimitiveInputs( imp )

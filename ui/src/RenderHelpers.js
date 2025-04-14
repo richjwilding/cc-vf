@@ -11,6 +11,7 @@ import { MagnifyingGlassIcon } from "@heroicons/react/20/solid";
 import { compareTwoStrings, convertOrganizationFinancialData, formatNumber, roundCurrency } from "./SharedTransforms";
 import { HeroIcon } from "./HeroIcon";
 import { cloneElement } from "react";
+import WedgeRing from "./WedgeRing";
 const typeMaps = {}
 const categoryMaps = {}
 
@@ -5484,6 +5485,107 @@ function renderSubCategoryChart( title, data, options = {}){
     r.height( ly )
     return sg
 }
+function ringWedge(options){
+    return new Konva.Shape({
+        sceneFunc: function (context, shape) {
+          
+        },
+        ...options
+      });
+}
+registerRenderer( {type: "default", configs: "dial"}, (primitive, options = {})=>{
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 400, padding: [0,0,0,0], ...options, ...(primitive.renderConfig ?? {})}
+
+    let ox = (options.x ?? 0) 
+    let oy = (options.y ?? 0) 
+
+
+    const sets = options.data?.mappedCategories ?? []
+    const usableWidth = config.width - config.padding[1] - config.padding[3]
+    
+    let x = config.padding[3]// + spacing
+    let y = config.padding[0] //+ ySpacing
+
+    let innerPadding = [10,10,10,10]
+
+
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: ox,
+        y: oy,
+        width: usableWidth,
+        onClick: options.onClick,
+        name:"inf_track"
+    })
+    let style = config.style
+    
+            let colors = [
+                "#cd5a50",
+                "#e27da7",
+                "#f0a9ad",
+                "#f7db5a",
+                "#c6d866",
+                "#83bb57",
+                "#52ab59"
+            ]
+
+            let aligned = 0, total = 0
+            for(const score of options.data){
+                if( score.label === "clearly" || score.label === "likely"){
+                    aligned+=score.count
+                }
+                total+=score.count
+            }
+            const complete = aligned / total
+            const colorIdx = Math.floor(colors.length * complete)
+            const needle = 180 * complete
+            const ring = 14
+
+            const r = (usableWidth / 2) - ring
+
+            var wedge1 = new WedgeRing({
+                x: usableWidth / 2,
+                y: (usableWidth / 2) - ring,
+                outerRadius: r,
+                innerRadius: r * 0.65,
+                angle: 180,
+                fill: "#dadada  ",
+                rotation:  180,
+            });
+            g.add(wedge1)
+            var wedge2 = new WedgeRing({
+                x: usableWidth / 2,
+                y: (usableWidth / 2) - ring,
+                outerRadius: r,
+                innerRadius: r * 0.65,
+                angle: needle,
+                fill: config.invert ? colors[colors.length - 1 - colorIdx]  : colors[colorIdx],
+                rotation:  180,
+            });
+            g.add(wedge2)
+            g.height(usableWidth / 2)
+
+            g.add( new Konva.Circle({
+                x: usableWidth / 2,
+                y: (usableWidth / 2) - ring,
+                radius: 12,
+                fill: "#434343"
+            }))
+            g.add( new Konva.Line({
+                x: usableWidth / 2,
+                y: (usableWidth / 2) -ring,
+                points:[
+                    - 8, - 6,
+                    + 8, - 6,
+                    0, -r * 0.85,
+                ],
+                closed: true,
+                rotation:  -90 + needle,
+                fill: "#434343"
+            }))
+
+    return g
+})
 registerRenderer( {type: "default", configs: "chart"}, (primitive, options = {})=>{
     const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 400, padding: [0,0,0,0], ...options, ...(primitive.renderConfig ?? {})}
 
@@ -5496,11 +5598,7 @@ registerRenderer( {type: "default", configs: "chart"}, (primitive, options = {})
     
     let x = config.padding[3]// + spacing
     let y = config.padding[0] //+ ySpacing
-    let maxY = 0
-    let cIdx = 0
 
-    let rHeight = 0
-    let rowCells = []
     let innerPadding = [10,10,10,10]
 
 
@@ -5512,18 +5610,19 @@ registerRenderer( {type: "default", configs: "chart"}, (primitive, options = {})
         onClick: options.onClick,
         name:"inf_track"
     })
-
+    let style = config.style
+    
     const sg = renderSubCategoryChart("NAME", options.data, {
-                                            x: x, 
-                                            y: y, 
-                                            itemSize: usableWidth, 
-                                            innerPadding, 
-                                            style: config.style, 
-                                            hideTitle: config.show_title === false, 
-                                            hideLegend: config.show_legend === false, 
-                                            byTag: config.by_tag,
-                                            paletteName: config.colors
-                                        })
+        x: x, 
+        y: y, 
+        itemSize: usableWidth, 
+        innerPadding, 
+        style, 
+        hideTitle: config.show_title === false, 
+        hideLegend: config.show_legend === false, 
+        byTag: config.by_tag,
+        paletteName: config.colors
+    })
     g.add(sg)
     
     g.height(sg.height())

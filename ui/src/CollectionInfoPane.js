@@ -487,18 +487,19 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
 
         }
         function filterPane(){
+            const primitiveForFilter = frame
             const fullList = primitiveForContent.itemsForProcessingWithFilter(filters, {ignoreFinalViewFilter: true}) 
 
-            const columnAxis = CollectionUtils.primitiveAxis(frame, "column", fullList)
-            const rowAxis = CollectionUtils.primitiveAxis(frame, "row", fullList)
-            const colFilter = PrimitiveConfig.decodeExploreFilter(frame.referenceParameters?.explore?.axis?.column?.filter)
-            const rowFilter = PrimitiveConfig.decodeExploreFilter(frame.referenceParameters?.explore?.axis?.row?.filter)
+            const columnAxis = CollectionUtils.primitiveAxis(primitiveForFilter, "column", fullList)
+            const rowAxis = CollectionUtils.primitiveAxis(primitiveForFilter, "row", fullList)
+            const colFilter = PrimitiveConfig.decodeExploreFilter(primitiveForFilter.referenceParameters?.explore?.axis?.column?.filter)
+            const rowFilter = PrimitiveConfig.decodeExploreFilter(primitiveForFilter.referenceParameters?.explore?.axis?.row?.filter)
             
 
 
-            const viewFilters = frame.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(frame, i, fullList)) ?? []            
-            let viewPivot = frame.referenceParameters?.explore?.viewPivot
-            const axisOptions = CollectionUtils.axisFromCollection( fullList, frame ).map(d=>{
+            const viewFilters = primitiveForFilter.referenceParameters?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(primitiveForFilter, i, fullList)) ?? []            
+            let viewPivot = primitiveForFilter.referenceParameters?.explore?.viewPivot
+            const axisOptions = CollectionUtils.axisFromCollection( fullList, primitiveForFilter ).map(d=>{
                 const out = {...d}
                 if( d.relationship ){
                     out.relationship = [d.relationship].flat()//.map(d=>d.split(":")[0])
@@ -506,9 +507,9 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 }
                 return out
             })
-            const localFilters = CollectionUtils.getExploreFilters( frame, axisOptions )
+            const localFilters = CollectionUtils.getExploreFilters( primitiveForFilter, axisOptions )
 
-            let liveFilters = frame.primitives.allUniqueCategory.filter(d=>d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
+            let liveFilters = primitiveForFilter.primitives.allUniqueCategory.filter(d=>d.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
                 return {
                     type: "category",
                     primitiveId: d.id,
@@ -529,8 +530,8 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             const addViewFilter = (item)=>{
                 const axis = axisOptions[item]
                 if( axis ){
-                    const localFilters = frame.referenceParameters?.explore?.filters ?? []
-                    const track = (frame.referenceParameters?.explore?.filterTrack ?? 0) +1
+                    const localFilters = primitiveForFilter.referenceParameters?.explore?.filters ?? []
+                    const track = (primitiveForFilter.referenceParameters?.explore?.filterTrack ?? 0) +1
                     const newFilter = {
                         track: track,
                         sourcePrimId: axis.primitiveId,
@@ -542,18 +543,18 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         value: undefined
                     }
                     localFilters.push(newFilter)
-                    frame.setField("referenceParameters.explore.filters", localFilters)
-                    frame.setField("referenceParameters.explore.filterTrack", track)
+                    primitiveForFilter.setField("referenceParameters.explore.filters", localFilters)
+                    primitiveForFilter.setField("referenceParameters.explore.filterTrack", track)
                     if( props.updateFrameExtents ){
-                        props.updateFrameExtents( frame )
+                        props.updateFrameExtents( primitiveForFilter )
                     }
                 }
             }
             function updateHideNull(val){
-                frame.setField("referenceParameters.explore.hideNull", val)
+                primitiveForFilter.setField("referenceParameters.explore.hideNull", val)
                 setHideNull(val)
                 if( props.updateFrameExtents ){
-                    props.updateFrameExtents( frame )
+                    props.updateFrameExtents( primitiveForFilter )
                 }
             }
 
@@ -569,24 +570,24 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         }else if(mode === "column"){
                             currentFilter = colFilter  
                         }else{
-                            currentFilter = PrimitiveConfig.decodeExploreFilter(frame.referenceParameters?.explore?.filters?.[ mode]?.filter)
+                            currentFilter = PrimitiveConfig.decodeExploreFilter(primitiveForFilter.referenceParameters?.explore?.filters?.[ mode]?.filter)
                         }
-                        CollectionUtils.updateAxisFilter(frame, mode, currentFilter, item, setAll, axisExtents,
+                        CollectionUtils.updateAxisFilter(primitiveForFilter, mode, currentFilter, item, setAll, axisExtents,
                             (filter)=>{
                                 if( props.updateFrameExtents ){
-                                    props.updateFrameExtents( frame )
+                                    props.updateFrameExtents( primitiveForFilter )
                                 }
                             }
                         )
                     },
                     deleteViewFilter: (idx)=>{
                         const filter = viewFilters[idx]
-                        let filters = frame.referenceParameters?.explore?.filters
+                        let filters = primitiveForFilter.referenceParameters?.explore?.filters
                         filters = filters.filter(d=>d.track !== filter.track )
                         
-                        frame.setField("referenceParameters.explore.filters", filters)
+                        primitiveForFilter.setField("referenceParameters.explore.filters", filters)
                         if( props.updateFrameExtents ){
-                            props.updateFrameExtents( frame )
+                            props.updateFrameExtents( primitiveForFilter )
                         }
                     }
 

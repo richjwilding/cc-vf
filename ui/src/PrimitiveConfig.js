@@ -113,6 +113,7 @@ const PrimitiveConfig = {
         QUERY_RESULT: 82,
         GENERIC_SUMMARY: 109,
         EVALUATOR: 90,
+        EVAL_CATEGORIZER: 144,
         SCORE: 120,
         SHAPE_ELEMENT: 145,
 
@@ -548,7 +549,8 @@ const PrimitiveConfig = {
                         default: "pie",
                         options: [
                             {id:"bar", title: "Bar"},
-                            {id:"pie", title: "Pie"}
+                            {id:"pie", title: "Pie"},
+                            {id:"dial", title: "Dial"}
                         ]
                     },
                     "show_legend":{
@@ -560,6 +562,45 @@ const PrimitiveConfig = {
                             {id:true, title: "Yes"}
                         ]
                     },
+                }},
+            dial: {id: 9,title:"Dial", renderType: "dial", configName: "dial", parameters: {},
+                config:{
+                    "invert":{
+                        type: "option_list",
+                        title: "Invert",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_label":{
+                        type: "option_list",
+                        title: "Show label",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_number":{
+                        type: "option_list",
+                        title: "Show number",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_title":{
+                        type: "option_list",
+                        title: "Show Title",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    }
                 }},
 
 
@@ -822,7 +863,8 @@ const PrimitiveConfig = {
 
         const outputToImports = Object.keys(primitive.primitives?.outputs ?? {}).reduce((a,d)=>{
             for( const target of primitive.primitives?.outputs[d]){
-                a[target] = [d]
+                a[target] ||= []
+                a[target].push(d)
             }
             return a
         }, {})
@@ -848,9 +890,10 @@ const PrimitiveConfig = {
         }
     },getDynamicPins:(primitive, config, mode = "inputs")=>{
         if( mode === "inputs"){
-            if( primitive.type === "query" || primitive.type === "summary" || primitive.type === "action"){
-                if( config?.prompt ?? config?.query){
-                    const matches = (config.prompt ?? config.query).match(/\{([^}]+)\}/g);
+            if( primitive.type === "query" || primitive.type === "summary" || primitive.type === "categorizer"|| primitive.type === "action"){
+                let src = config.prompt ?? config.query ?? config.conditions ?? config.evaluation ?? config.theme
+                if( src ){
+                    const matches = src.match(/\{([^}]+)\}/g);
                     const dynamicNames =  matches ? matches.map(match => match.slice(1, -1)) : [];
                     return dynamicNames.reduce((a,c)=>{
                         a[c] = {
@@ -921,7 +964,7 @@ const PrimitiveConfig = {
                             sourceTransform: "filter_imports"
                         })
                     }
-                }else if( input.sourcePrimitive?.type === "flow" || input.sourcePrimitive?.type === "flowinstance"){
+                }else if( (input.sourcePrimitive?.type === "flow" || input.sourcePrimitive?.type === "flowinstance") && sourcePinConfig.types?.includes("primitive") ){
                     out.push({
                             ...input,
                             useConfig: "primitive",

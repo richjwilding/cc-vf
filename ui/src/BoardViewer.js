@@ -446,6 +446,7 @@ function SharedRenderView(d, primitive, myState) {
         };
         break;
       case "chart":
+      case "dial":
         let dataSource = view;
         if (view.axisSource) {
             if (view.axisSource.inFlow && view.axisSource.configParent?.flowElement) {
@@ -463,8 +464,9 @@ function SharedRenderView(d, primitive, myState) {
             for(const r of dataSource.rows){
                 const idx = [r.idx, c.idx].filter(d=>d).join("-") ?? "base"
                 const label = [r.label, c.label].filter(d=>d).join(" - ") ?? "base"
+                const axisPrims = [r.primitive, c.primitive].filter(d=>d)
                 if( !catData[idx] ){
-                    catData[idx] = {label, items: [], count: 0}
+                    catData[idx] = {label, items: [], count: 0, axisPrims}
                 }
             }
         }

@@ -36,6 +36,34 @@ export function cleanURL(url){
 
    return cleanedUrl;
 }
+export function expandStringLiterals(text, literals = {}){
+  const matches = text.match(/\{([^}]+)\}/g).map(d=>d.slice(1,-1)).filter((d,i,a)=>a.indexOf(d)===i);
+  for(const m of matches){
+    let item = literals[m]
+    if( typeof(item) === "object" && item.data){
+      item = item.data
+    }
+    let textItem = item
+    if( Array.isArray(item)){
+      const oArray = []
+      for(const d of item){
+        if( typeof(d)==="object"){
+          if( d.type === "summary"){
+            oArray.push( d.referenceParameters?.summary ?? "")
+          }else{
+            oArray.push( d.title ?? "")
+          }
+        }else{
+          oArray.push( d )
+        }
+      }
+      textItem = oArray.join(". ")
+    }
+    text = text.replaceAll(`{${m}}`, textItem ?? "")
+  }
+  return text
+
+}
 export function baseURL(url) {
   // Clean the URL first
   const cleanedUrl = cleanURL(url);

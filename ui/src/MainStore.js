@@ -47,7 +47,7 @@ export function uniquePrimitives(list) {
     return result; // Return the array of unique primitives
 }
 
-function doStep(data, step){
+function doStep(data, step, scope){
     let out = data
     const instructions = Object.keys(step) 
     for(const instruction of instructions){
@@ -82,7 +82,19 @@ function doStep(data, step){
                 let categoryIds
                 if( config.category_label ){
                     const comp = [config.category_label].flat()
-                    const categories = uniquePrimitives(out.flatMap(d=>d.findParentPrimitives({type: "category"})))
+                    //let categories = uniquePrimitives(out.flatMap(d=>d.findParentPrimitives({type: "category", first: true})))
+                    let categories //= uniquePrimitives(out.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category")))
+                    if( scope && scope.length > 0){
+                        if(scope.length === 1){
+                            let scopeId = scope[0].id
+                            categories = uniquePrimitives(out.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category" && scopeId === d.originId)))
+                        }else{
+                            let scopeIds = scope.map(d=>d.id)
+                            categories = uniquePrimitives(out.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category" && scopeIds.includes(d.originId))))
+                        }
+                    }else{
+                        categories = uniquePrimitives(out.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category")))
+                    }
                     categoryIds = categories.filter(d=>comp.includes(d.title )).map(d=>d.id)
                 }
                 out = out.filter(d=>{
@@ -1907,6 +1919,7 @@ function MainStore (prims){
                                     if( id && source.id !== id){
                                         continue
                                     }
+                                    let list = []
                                     if( source.type === "flow" && !receiver.inFlow){
                                         const instances = source.primitives.origin.allUniqueFlowInstance
                                         const address = source.primitives.outputs.paths(receiver.id)[0]
@@ -1923,18 +1936,25 @@ function MainStore (prims){
                                         }
                                         //return source.itemsForProcessing
                                     }else{
-                                        const address = source.primitives.outputs.paths(receiver.id)[0]
-                                        if( address && address !== '.impout_impin' && address !== '.impin_impin'){
-                                            const [outputPin, inputPin] = address.slice(1).split("_")
-                                            if( source.type === "flowinstance" && receiver.origin.id === source.id ){
-                                                return source.inputs[outputPin]?.data ?? []
-                                            }else{
-                                                return source.outputs[outputPin]?.data ?? []
+                                        const addresses = source.primitives.outputs.paths(receiver.id)
+                                        let done = false
+                                        for(const address of addresses){
+                                            if( address && address !== '.impout_impin' && address !== '.impin_impin'){
+                                                const [outputPin, inputPin] = address.slice(1).split("_")
+                                                if( source.type === "flowinstance" && receiver.origin.id === source.id ){
+                                                    fullList = fullList.concat( source.inputs[outputPin]?.data ?? [] )
+                                                    done = true
+                                                }else{
+                                                    fullList = fullList.concat( source.outputs[outputPin]?.data ?? [] )
+                                                    done = true
+                                                }
                                             }
+                                        }
+                                        if( done ){
+                                            continue
                                         }
 
                                     }
-                                    let list = []
                                     let node = source.primitives
                                     if( Object.keys(node).includes("imports")  ){
                                         const test = options.cache[source.id]
@@ -2064,7 +2084,6 @@ function MainStore (prims){
                                     }
                                     if( receiver.type === "search"){
                                         const nestedSearch = [receiver, ...receiver.primitives.origin.allSearch].filter(d=>d)
-                                        console.log(`Got ${nestedSearch.length} nested searches`)
                                         list = nestedSearch.flatMap(d=>d.primitives.uniqueAllItems)
                                     }
                                     let params = options.params ?? receiver.getConfig
@@ -2324,7 +2343,7 @@ function MainStore (prims){
                             }else if( !receiver.flowElement ){
                                 dynamicPinSource = receiver.configParent ?? receiver
                             }
-                            let dynamicPins = dynamicPinSource.type === "flow" || dynamicPinSource.type === "action" || dynamicPinSource.type === "query" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "page" ? PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs") : {}
+                            let dynamicPins = dynamicPinSource.type === "categorizer" || dynamicPinSource.type === "flow" || dynamicPinSource.type === "action" || dynamicPinSource.type === "query" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "page" ? PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs") : {}
                             
 
                             if( (receiver.type === "flow" || receiver.type === "flowinstance") && mode === "outputs"){
@@ -2701,10 +2720,14 @@ function MainStore (prims){
                 }
                 if( prop === "follow"){
                     return function(steps){
+                        let scope = [receiver]
+                        if( receiver.type === "categorizer"){
+                            scope = receiver.primitives.origin.allItems
+                        }
                         let out = [receiver]
                         if( steps ){
                             for(const d of steps){
-                                out = doStep(out, d)
+                                out = doStep(out, d, scope)
                             }
                         }
                         return out

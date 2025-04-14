@@ -904,11 +904,17 @@ class CollectionUtils{
         if( axis.type === "none"){
             out = {labels: axis.labels, values: [{idx: undefined, label: ""}], order: axis.order}
         }else if( axis.type === "category"){
-            const subCats = MainStore().primitive(axis.primitiveId)?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, primitive: d, label:d.title})) ?? []
-            out = {
-                values: [{idx: "_N_", label: "None"}, ...subCats].sort((a,b)=>a.label?.localeCompare(b.label)),
+            const catPrimitive = MainStore().primitive(axis.primitiveId)
+            if( catPrimitive?.referenceId === PrimitiveConfig.Constants.EVAL_CATEGORIZER){
+                out = {
+                    values: ["not at all", "possibly", "likely", "clearly"].map(d=>({idx: d, label: d}))
+                }
+            }else{
+                const subCats = catPrimitive?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, primitive: d, label:d.title})) ?? []
+                out = {
+                    values: [{idx: "_N_", label: "None"}, ...subCats].sort((a,b)=>a.label?.localeCompare(b.label)),
+                }
             }
-            
         }else{
             let parser = bucket[axis.passType]
             if( !parser ){

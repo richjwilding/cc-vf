@@ -1,6 +1,7 @@
 import pptxgen from "pptxgenjs";
 import Konva from "konva";
 import CustomImage from "./CustomImage";
+import WedgeRing from "./WedgeRing";
 
 const defaultWidthInInches = 10 * 4
 const defaultHeightInInches = 5.625 * 4
@@ -120,6 +121,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
         if( options.removeNodes && options.removeNodes.filter(d=>nodeClass.includes(d)).length > 0){
             return
         }
+        const ObjClassName = konvaNode.getClassName()
         
         const x = first ? ((slidePadding[3] / gScale) - (options.offsetForFrame?.[0] ?? 0)) : ( ox + (konvaNode.x() * pScale))
         const y = first ? ((slidePadding[0] / gScale) - (options.offsetForFrame?.[1] ?? 0) ) : (oy + (konvaNode.y() * pScale))
@@ -443,7 +445,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         width: konvaNode.strokeWidth() /2
                     } : undefined,
                 });
-        }else if (konvaNode instanceof Konva.Wedge) {
+        }else if (ObjClassName === "Wedge") {
             const wedgeWidth = 2 * rr;
             const wedgeHeight = 2 * rr;
             if( konvaNode.angle() > 0){
@@ -465,6 +467,27 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             }
 
             //slide.addShape(pptx.shapes.ARC, { x: rx, y: ry, w: 1.5, h: 1.45, fill: { color: pptx.colors.ACCENT3 }, angleRange:[konvaNode.rotation(), konvaNode.rotation() + konvaNode.angle()] });
+        }else if (ObjClassName === "WedgeRing") {
+            let ir = konvaNode.innerRadius() * scale * thisScale
+            let or = konvaNode.outerRadius() * scale * thisScale
+            if( konvaNode.angle() > 0){
+                
+                slide.addShape(pptx.shapes.BLOCK_ARC, {
+                    x: rx - or,
+                    y: ry - or,
+                    w: 2 * or,
+                    h: 2 * or,
+                    angleRange:[konvaNode.rotation(), konvaNode.rotation() + konvaNode.angle()],
+                    arcThicknessRatio: 1 - (ir/or),
+                    fill: {color: toHex(konvaNode.fill())},
+                    line:konvaNode.stroke() ? {
+                        color: toHex(konvaNode.stroke()),
+                        width: konvaNode.strokeWidth() / 2,
+                    } : undefined,
+                });
+                
+                //slide.addShape(pptx.shapes.BLOCK_ARC, { x: 10.75, y: 2.45, w: 1.5, h: 1.45, fill: { color: pptx.colors.ACCENT3 }, arcThicknessRatio: 0.1,angleRange: [0,100] })
+            }
         } else if (konvaNode instanceof Konva.Arc ) {
             const width = konvaNode.width() * scale * thisScale
             const height = konvaNode.height() * scale * thisScale
@@ -552,7 +575,10 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 }
             }
 
-            const points = [...konvaNode.points()];
+            let points = [...konvaNode.points()];
+            if(konvaNode.rotation()){
+                points = rotatePoints( points, konvaNode.rotation() * Math.PI / 180)
+            }
             const nodes = []
             let l, r, t, b
             console.log(points)
@@ -571,8 +597,9 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 nodes.push(nodes[0])
             }
 
-            const outNodes = nodes.map(d=>({x: (d[0] - l) * thisScale * scale, y: (d[1] - t) * thisScale *  scale }))
-            console.log(outNodes)
+            let outNodes = nodes.map(d=>({x: (d[0] - l) * thisScale * scale, y: (d[1] - t) * thisScale *  scale }))
+            //console.log(outNodes)
+
 
             slide.addShape(pptx.shapes.CUSTOM_GEOMETRY, {
                 x: rx + (l * scale * thisScale),
@@ -620,6 +647,25 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
     }
     return startSlide
 }
+
+
+function rotatePoints(points, angleRadians, pivot = [0, 0]) {
+    const [pX, pY] = pivot;
+    const rotatedPoints = [];
+  
+    for (let i = 0; i < points.length; i += 2) {
+      const x = points[i] - pX;
+      const y = points[i + 1] - pY;
+  
+      const xRot = x * Math.cos(angleRadians) - y * Math.sin(angleRadians);
+      const yRot = x * Math.sin(angleRadians) + y * Math.cos(angleRadians);
+  
+      rotatedPoints.push(xRot + pX, yRot + pY);
+    }
+    return rotatedPoints;
+  }
+
+
 export function writePptx(pptx){
     pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
 }
