@@ -38,7 +38,8 @@ export function cleanURL(url){
 }
 export function expandStringLiterals(text, literals = {}){
   const matches = text.match(/\{([^}]+)\}/g).map(d=>d.slice(1,-1)).filter((d,i,a)=>a.indexOf(d)===i);
-  for(const m of matches){
+  for(const fm of matches){
+    let [m,mod] = fm.split("_")
     let item = literals[m]
     if( typeof(item) === "object" && item.data){
       item = item.data
@@ -57,9 +58,13 @@ export function expandStringLiterals(text, literals = {}){
           oArray.push( d )
         }
       }
-      textItem = oArray.join(". ")
+      if( mod === "count"){
+        textItem = oArray.length
+      }else{
+        textItem = oArray.join(". ")
+      }
     }
-    text = text.replaceAll(`{${m}}`, textItem ?? "")
+    text = text.replaceAll(`{${fm}}`, textItem ?? "")
   }
   return text
 

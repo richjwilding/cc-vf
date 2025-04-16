@@ -554,7 +554,7 @@ export async function removeRelationship(receiver, target, path, skip_notify = f
             },
             {
                 new: true,
-                projection: { _id: 1, workspaceId: 1, primitives: 1, flowElement: 1, type: 1}
+                projection: { _id: 1, workspaceId: 1, primitives: 1, parentPrimitives: 1, flowElement: 1, type: 1}
             }
         );
         if( !rTarget){
@@ -623,7 +623,7 @@ export async function getPrimitiveOutputs(primitive){
                 }
             }
             if( querySteps ){
-                out[d.outputPin] = {data: runQueryOnPrimitive(primitive, querySteps)}
+                out[d.outputPin] = {data: await runQueryOnPrimitive(primitive, querySteps)}
             }else{
                 console.error(`Cant handle pin connected to import without query`, d)
             }
@@ -941,7 +941,7 @@ export async function addRelationship(receiver, target, path, skipParent = false
             "_id": new ObjectId(target),
             deleted: {$exists: false}
         },{
-            _id: 1, workspaceId: 1, primitives: 1,  flowElement: 1, type: 1, plainId: 1
+            _id: 1, workspaceId: 1, primitives: 1,  parentPrimitives: 1, flowElement: 1, type: 1, plainId: 1
         })
     if( !check){
         await doRemovePrimitiveLink( receiver, target, path )
@@ -1025,14 +1025,27 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
                 }
                 continue
             }else if( relationship.startsWith("primitives.outputs") && rObject.type === "flow"){
-                for(const t of instancesOfTarget){
-                    const instanceOriginId = primitiveOrigin(t)
-                    if( Object.keys(ie.parentPrimitives ?? {}).includes(instanceOriginId) ){
+                if( primitiveOrigin( tObject ) === rObject.id){
+                    let t = instancesOfTarget.find(d=>d.parentPrimitives[ie.id]?.includes('primitives.origin'))
+                    if( t ){
                         console.log(`--- flowinstances to ${mode} as output`)
                         if( mode == "add"){
                             await addRelationship( ie.id, t.id, relationship)
                         }else if( mode == "remove"){
                             await removeRelationship( ie.id, t.id, relationship)
+                        }
+                    }
+                }else{
+                    // Receiver is peer of flow (flow is a subflow)
+                    for(const t of instancesOfTarget){
+                        const instanceOriginId = primitiveOrigin(t)
+                        if( Object.keys(ie.parentPrimitives ?? {}).includes(instanceOriginId) ){
+                            console.log(`--- flowinstances to ${mode} as output`)
+                            if( mode == "add"){
+                                await addRelationship( ie.id, t.id, relationship)
+                            }else if( mode == "remove"){
+                                await removeRelationship( ie.id, t.id, relationship)
+                            }
                         }
                     }
                 }
@@ -1853,6 +1866,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 }
             }
         }
+        let list = []
         if( imp.type === "flow"){
             if( requesterInFlow === undefined){
                 requesterInFlow = false
@@ -1883,31 +1897,37 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         }else{
             if( Object.keys(imp.primitives??{}).includes("outputs")){
                 const pp = new Proxy(imp.primitives.outputs ?? {}, parser)
-                const address = pp.paths(source.id)[0]
-                if( address && address !== '.impout_impin' && address !== '.impin_impin'){
-                    const [outputPin, inputPin] = address.slice(1).split("_")
-                    console.log(outputPin, inputPin)
-
-                    if( imp.type === "flowinstance" && primitiveOrigin(source) === imp.id ){
-                        const inputs = await getPrimitiveInputs( imp )
-                        console.log(inputs)
-                        if( inputs ){
-                            return inputs[outputPin]?.data ?? []
+                let done = false
+                const addresses = pp.paths(source.id)
+                for(const address of addresses){
+                    if( address && address !== '.impout_impin' && address !== '.impin_impin'){
+                        const [outputPin, inputPin] = address.slice(1).split("_")
+                        console.log(outputPin, inputPin)
+                        
+                        if( imp.type === "flowinstance" && primitiveOrigin(source) === imp.id ){
+                            const inputs = await getPrimitiveInputs( imp )
+                            if( inputs ){
+                                list = list.concat( inputs[outputPin]?.data ?? [] ) 
+                                done = true
+                                
+                            }
+                        }
+                        else{
+                            const outputs = await getPrimitiveOutputs( imp )
+                            if( outputs ){
+                                list = list.concat( outputs[outputPin]?.data ?? [] ) 
+                                done = true
+                            }
                         }
                     }
-                    else{
-                        const outputs = await getPrimitiveOutputs( imp )
-                        if( outputs ){
-                            return outputs[outputPin]?.data ?? []
-                        }
-                    }
-                    return []
+                }
+                if( done ){
+                    return list
                 }
             }
         }
 
         logger.verbose(`Doing source ${imp.id} - ${requiresFullDocument ? "Full content required" : "Metadata only"}`)
-        let list = []
         if( Object.keys(imp.primitives).includes("imports")   ){
             if( cache.imports[imp.id]){
                 list = cache.imports[imp.id]
@@ -2648,7 +2668,8 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     }
     if( actionKey === "gdp_test"){
         const source = options.source ? await fetchPrimitive(options.source) : undefined
-        let items = await getDataForProcessing( primitive, {}, source )
+        const primitiveConfig = await getConfig(primitive)
+        let items = await getDataForProcessing( primitive, primitiveConfig, source, {forceImport: options.forceImport} )
         return items
     }
 
@@ -5377,16 +5398,20 @@ export async function doPurge(count ){
 }
 
 export async function runQueryOnPrimitive(receiver, steps){
+    let scope = [receiver]
+    if( receiver.type === "categorizer"){
+        scope = [{id: receiver.primitives.origin[0]}]
+    }
     let out = [receiver]
     if( steps ){
         for(const d of steps){
-            out = await doStep(out, d)
+            out = await doStep(out, d, scope)
         }
     }
     return out
 }
 
-async function doStep(data, step){
+async function doStep(data, step, scope){
     let out = data
     const instructions = Object.keys(step) 
     for(const instruction of instructions){
@@ -5428,17 +5453,21 @@ async function doStep(data, step){
                 let categoryIds
                 if( config.category_label ){
                     const comp = [config.category_label].flat()
-                    const categories = await findParentPrimitivesOfTypeMulti( out, "category" )
+                    let categories = await findParentPrimitivesOfTypeMulti( out, "category" )
+                    if( scope && scope.length > 0){
+                        let scopeIds = scope.map(d=>d.id)
+                        categories = categories.filter(d=>scopeIds.includes(primitiveOrigin(d)))
+                    }
                     categoryIds = categories.filter(d=>comp.includes(d.title )).map(d=>d.id)
                 }
                 const res = []
                 for(const d of out){
-                    let scope = d
+                    let inScope = d
                     let pass = true
                     if( config.fetch_children ){
-                        scope = await doStep( [d], {fetch_children: config.fetch_children})
+                        inScope = await doStep( [d], {fetch_children: config.fetch_children})
                         if( config.count !== undefined){
-                            pass = scope.length === config.count
+                            pass = inScope.length === config.count
                         }
                     }else if( categoryIds){
                         pass = Object.keys(d.parentPrimitives ?? {}).find(d=>categoryIds.includes(d))

@@ -536,9 +536,126 @@ function mixHexWithWhite(hex, opacity = 0.25) {
 
     return newHex;
 }
+registerRenderer( {type: "categoryId", id: 29, configs: "set_investment_landscape"}, (primitive, options = {})=>{
+    const config = {width: 320, height: 160, fontSize: 20, padding: [15,15,15,15], ...(options.renderOptions ?? {}), ...(options.renderConfig ?? {})}
+    if( options.getConfig){
+        return config
+    }
+    if( !options.list ){
+        return undefined
+    }
+    const g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.width,
+        height: config.height,
+        shadowBlur: 10,
+        shadowOffset: { x: 3, y: 3 },
+        shadowOpacity: 0.5,
+
+        fill: "white",
+        cornerRadius: 10,
+        name: "background"
+    })
+
+    const pe_stages = ["Private Equity"]
+    const vc_stages = ["Angel Round","Seed Round", "Series A", "Series B", "Series C", "Series D", "Series E", "Series F", "Series G", "Series H", "Series I", "Venture Round", "Pre-Seed"]
+    const vcBacked = options.list.filter(d=>d.referenceParameters?.fundingRounds && d.referenceParameters?.fundingRounds.find(d=>vc_stages.includes(d)))
+    const peBacked = options.list.filter(d=>d.referenceParameters?.fundingRounds && d.referenceParameters?.fundingRounds.find(d=>pe_stages.includes(d)))
+    const sections = [
+        {
+            title: "Total",
+            number: options.list.length,
+            line: true
+        },
+        {
+            title: "Raised <$1m",
+            number: vcBacked.filter(d=>d.referenceParameters?.funding && d.referenceParameters?.funding < 1000000).length            
+        },
+        {
+            title: "Raised $1m-$50m",
+            number: vcBacked.filter(d=>d.referenceParameters?.funding >= 1000000 && d.referenceParameters?.funding < 50000000).length            
+        },
+        {
+            title: "Raised >$50m",
+            number: vcBacked.filter(d=>d.referenceParameters?.funding >= 5000000).length            
+        },
+        {
+            title: "PE Backed",
+            number: peBacked.length            
+        }
+    ]
+
+    const sectionWidth = (config.width - config.padding[3] - config.padding[1]) / sections.length
+    const sPadding = sectionWidth * 0.05
+
+    let x = config.padding[3]
+    for( const section of sections){
+        const sg = new Konva.Group({
+            name:"cell inf_track",
+            x: x,
+            y: config.padding[0],
+            width: sectionWidth,
+            height: config.height - config.padding[2] - config.padding[0]
+        })
+        g.add(sg)
+        const t = new CustomText({
+            x: sPadding,
+            y: 10,
+            width: sectionWidth - 2 * sPadding,
+            height: config.fontSize * 2.5,
+            align:"center",
+            fontSize: config.fontSize * 2.5,
+            text: `**${section.number}**`,
+            fontFamily: "poppins",
+            fontStyle: "bold",
+            withMarkdown: true,
+            fill: "black",
+            refreshCallback: options.imageCallback
+        })
+        sg.add(t)
+        const t2 = new CustomText({
+            x: sPadding,
+            y: 10 + (t.height() * 1.2),
+            width: sectionWidth - 2 * sPadding,
+            align:"center",
+            fontSize: config.fontSize,
+            text: section.title,
+            fontFamily: "poppins",
+            fontStyle: "bold",
+            withMarkdown: true,
+            fill: "black",
+            wrap: true,
+            refreshCallback: options.imageCallback
+        })
+        sg.add(t2)
+        if( section.line){
+            sg.add(new Konva.Line({
+                points: [sectionWidth, 10, sectionWidth, sg.height() - 10],
+                strokeWidth: 1,
+                stroke: '#999'
+            }))
+        }
+        x += sectionWidth
+        
+
+    }
+
+    g.add(r)
+    return g
+
+})
 
 registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, options = {})=>{
-    const config = {width: 128, height: 80, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    const config = {width: 128, height: 80, padding: [5,5,5,5], fontSize: 8, ...(options.renderConfig ?? {}), ...(options.renderOptions ?? {})}
     if( !options.list ){
         return undefined
     }
@@ -552,20 +669,24 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
     let locateThreshold //= 0.15
     let location
-
-    const renderWidth = (config.width - config.padding[3] - config.padding[1]) * (doBoth ? 0.45 : 1)
-    const renderHeight = config.height - config.padding[0] - config.padding[2]
-    let period = "month"
-
     let showPercChange = false
     let showEndValue = true
 
+    const renderWidth = (config.width - config.padding[3] - config.padding[1]) * (doBoth ? 0.45 : 1)
+    const tHeight = config.height - config.padding[0] - config.padding[2]
+    const renderHeight = tHeight - (config.show_x_label ? config.fontSize * 1.2 : 0) - (showEndValue || showPercChange ? config.fontSize * 2.2 : 0)
+    let period = "month"
+
+
     if( options.getConfig){
         const years = parseInt(primitive.renderConfig?.range ?? "1") 
-        const endDate = primitive.renderConfig?.end ? new Date(primitive.renderConfig?.end) : new Date()
+        const endDate = moment(primitive.renderConfig?.end ? new Date(primitive.renderConfig?.end) : new Date())
         const startDate = moment(endDate).subtract(years, "year")
         //const startDate = moment(endDate).subtract(1, "Q").toDate()
-        config.data = {series: CollectionUtils.convertToTimesSeries( 
+        config.data = {
+            startDate: startDate.format("YYYY"),
+            endDate: endDate.format("YYYY"),
+            series: CollectionUtils.convertToTimesSeries( 
                                         options.list, 
                                         {
                                             dataset: primitive.renderConfig?.set ?? options.renderConfig?.viewConfig?.set,
@@ -599,14 +720,14 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
         x: config.padding[3],
         y: config.padding[0],
         width: config.width - config.padding[3] - config.padding[1],
-        height: renderHeight,
-        fill: "white",
+        height: tHeight,
+        fill: "transparent",
         name: "background"
     })
 
 
 
-    let color = primitive.renderConfig?.color ? categoryColors[primitive.renderConfig?.color] : "#0ea5e9"
+    let color = "#00bc7d" //primitive.renderConfig?.color ? categoryColors[primitive.renderConfig?.color] : "#0ea5e9"
 
 
     if( options.renderConfig?.viewConfig?.scheme === "under_over" ){
@@ -634,11 +755,10 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
         const range = maxValue - minValue
         
         const dx = renderWidth / (len - 1)
-        const lineMargin = renderHeight * 0.1
+        const lineMargin = 0//renderHeight * 0.1
         const scale = (renderHeight - lineMargin - lineMargin) / range
-        const points = series.map((d,i)=>d ? [offsetX + (i * dx), renderHeight - lineMargin - (scale * (d - minValue))] : undefined).filter(d=>d).flat()
-        //const lower = series.map((_,i)=>[(len - 1 - i) * dx, renderHeight - lineMargin - (scale * (series[len - i - 1] - minValue)) + (renderHeight * 0.1)]).flat()
-        const lower = series.map((d,i)=>d ? [ offsetX + (len - 1 - i) * dx, renderHeight - lineMargin ] : undefined).filter(d=>d).flat()
+        const points = series.flatMap((d,i)=>[offsetX + (i * dx), renderHeight - lineMargin - (scale * (d - minValue))] )
+        const lower = series.flatMap((d,i)=>[ offsetX + (len - 1 - i) * dx, renderHeight - lineMargin ])
 
         const shaded = [
             ...points,
@@ -651,10 +771,11 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
                 console.log('err')
             }
         }
+        const plotY = config.padding[0] + (showEndValue || showPercChange ? config.fontSize * 2.2 : 0)
 
         const l2 = new Konva.Line({
             x: config.padding[0],
-            y: config.padding[1],
+            y: plotY,
             points: shaded,
             strokeEnabled: false,
             fillLinearGradientStartPoint: { x: renderWidth / 2, y: 0 },
@@ -667,7 +788,7 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
         
         const l = new Konva.Line({
             x: config.padding[0],
-            y: config.padding[1],
+            y: plotY,
             points: points,
             strokeWidth: 1,
             strokeScaleEnabled: false,
@@ -679,8 +800,8 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
             let locationX = (location * dx)
 
             const r = new Konva.Rect({
-                x: offsetX + config.padding[0] + locationX,
-                y: config.padding[1],
+                x: offsetX + config.padding[1] + locationX,
+                y: config.padding[0],
                 width: renderWidth - locationX,
                 height: renderHeight,
                 strokeWidth: 1,
@@ -699,11 +820,11 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
             })
             g.add(r2)
             const count = len -location
-            const px = offsetX + config.padding[0] + locationX - dx
+            const px = offsetX + config.padding[1] + locationX - dx
             const t = new CustomText({
                 x: px,
-                y: config.padding[1] + (renderHeight / 2),
-                fontSize: 8,
+                y: config.padding[0] + (renderHeight / 2),
+                fontSize: config.fontSize,
                 lineHeight: 1,
                 text: `${count} ${period}${count === 1 ? "" : "s"}`,
                 verticalAlign:"middle",
@@ -722,8 +843,8 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
             const t = new CustomText({
                 x: 0,
-                y: config.padding[1],
-                fontSize: 8,
+                y: config.padding[0],
+                fontSize: config.fontSize,
                 lineHeight: 1,
                 text: `${perc}%`,
                 verticalAlign:"top",
@@ -740,16 +861,52 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
             const t = new CustomText({
                 x: 0,
-                y: config.padding[1],
-                fontSize: 8,
+                y: config.padding[0],
+                fontSize: config.fontSize * 2,
                 lineHeight: 1,
-                text: formatNumber(last),
+                text: roundCurrency(last),
                 verticalAlign:"top",
                 fill: color,
                 refreshCallback: options.imageCallback
             })
-            t.x( renderWidth - t.width())
+            t.x( config.padding[3] + renderWidth - t.width())
             g.add(t)
+
+        }
+        if( config.show_x_label){
+            const axisY = renderHeight + plotY + config.fontSize * 0.3
+            const st = new CustomText({
+                x: config.padding[3],
+                y: axisY,
+                fontSize: config.fontSize,
+                lineHeight: 1,
+                text: options.data.startDate,
+                verticalAlign:"top",
+                fill: "#999",
+                refreshCallback: options.imageCallback
+            })
+            g.add(st)
+
+            const et = new CustomText({
+                x: 0,
+                y: axisY,
+                fontSize: config.fontSize,
+                lineHeight: 1,
+                text: options.data.endDate,
+                verticalAlign:"top",
+                fill: '#999',
+                refreshCallback: options.imageCallback
+            })
+            et.x( config.padding[3] + renderWidth - et.width())
+            g.add(et)/*
+            g.add(new Konva.Line({
+                points: [
+                    config.padding[3], renderHeight + plotY + config.fontSize * 0.15,
+                    config.padding[3] + renderWidth, renderHeight + plotY + config.fontSize * 0.15,
+                ],
+                stroke: "#999",
+                strokeWidth: 1
+            }))*/
 
         }
         offsetX += renderWidth + (renderWidth / 4.5)
@@ -2010,7 +2167,7 @@ registerRenderer( {type: "categoryId", id: 34, configs: "set_overview"}, (primit
     return renderBaselineOverviewSet( primitive, {...options, renderConfig: {...(options.renderConfig ?? {}), width: 600}})
 })
 function renderBaselineOverviewSet(primitive, options){
-    const config = {width: 300, spacing: 10, itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
+    const config = {width: 300, spacing: 10, itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {}), ...(options.renderOptions ?? {})}
     if( primitive.renderConfig?.count){
         config.count = primitive.renderConfig?.count
     }
@@ -2062,6 +2219,9 @@ function renderBaselineOverviewSet(primitive, options){
         
         g.add(node)
         y += node.height() + config.spacing
+        if( y >= config.height ){
+            break
+        }
     }
     g.height( y + config.padding[2])
 
@@ -2541,7 +2701,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
             x: rhs,
             width: thisBar,
             height: availableHeight,
-            fill: "#0082c5"            
+            fill: "#00bc7d"            
         })
         g.add(bar);
         const amount = new Konva.Text({
@@ -3281,6 +3441,7 @@ export function renderPlainObject(renderOptions = {}){
             fill: options.text_color ?? "black",
             fontFamily: fontFamily,
             fontSize: options.fontSize,
+            align: options.align,
             fontStyle: fontStyle,
             refreshCallback: options.imageCallback
         })
@@ -5252,9 +5413,13 @@ export function renderMatrix( primitive, list, options ){
     }
 
     
+    let height = g.find(()=>true).map(d=>d.y() + d.height()).reduce((a,c)=>c > a ? c : a, 0)
+    if( height < 20 ){
+        height = 200
+    }
 
     g.width( g.find(()=>true).map(d=>d.x() + d.width()).reduce((a,c)=>c > a ? c : a, 0))
-    g.height( g.find(()=>true).map(d=>d.y() + d.height()).reduce((a,c)=>c > a ? c : a, 200))
+    g.height( height )
 
     return g
 
@@ -5541,7 +5706,7 @@ registerRenderer( {type: "default", configs: "dial"}, (primitive, options = {})=
             const needle = 180 * complete
             const ring = 14
 
-            const r = (usableWidth / 2) - ring
+            const r = ((usableWidth / 2) - ring) * (options.show_label ? 0.85 : 1)
 
             var wedge1 = new WedgeRing({
                 x: usableWidth / 2,
@@ -5583,6 +5748,35 @@ registerRenderer( {type: "default", configs: "dial"}, (primitive, options = {})=
                 rotation:  -90 + needle,
                 fill: "#434343"
             }))
+            if( options.show_label){
+                g.add( new CustomText({
+                    x: (usableWidth / 2) - (r / 0.92) - 15,
+                    y: ((usableWidth / 2) - ring) * 0.8,
+                    fontSize: 20,
+                    text: "L",
+                    fill: '#334155',
+                    align:"center",
+                    width: 30
+                }))
+                g.add( new CustomText({
+                    x: (usableWidth / 2) - 15,
+                    y: ((usableWidth / 2) - ring) - ( r / 0.92) - 8,
+                    fontSize: 20,
+                    text: "M",
+                    align:"center",
+                    fill: '#334155',
+                    width: 30
+                }))
+                g.add( new CustomText({
+                    x: (usableWidth / 2) + (r / 0.92) - 15,
+                    y: ((usableWidth / 2) - ring) * 0.8,
+                    fontSize: 20,
+                    text: "H",
+                    fill: '#334155',
+                    align:"center",
+                    width: 30
+                }))
+            }
 
     return g
 })
@@ -6045,6 +6239,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "export"}, function ren
         width: config.width,
         height: config.height,
         fill:"white",
+        shadowColor: 'black',
         name:"background"
     })
     g.add(r)

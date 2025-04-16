@@ -14,7 +14,7 @@ import CollectionInfoPane from "./CollectionInfoPane";
 import useDataEvent from "./CustomHook";
 import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 import Konva from "konva";
-import { compareTwoStrings } from "./SharedTransforms";
+import { compareTwoStrings, expandStringLiterals } from "./SharedTransforms";
                 
 export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "item_info", "widget", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
 const RENDERSUB = false//true
@@ -59,6 +59,9 @@ async function moveItemWithinFrame(primitiveId, startZone, endZone, frame){
     function getLocalPrimitiveListForBoardId( id, myState ){
         let localItems
         if( myState[id].axisSource){
+            if( ! myState[myState[id].axisSource.id] ){
+                console.error(`!!!!! Board not ready ${myState[id].axisSource.id}`)
+            }
             const source = myState[myState[id].axisSource.id]
             if( source ){
                 if( source.primitiveList){
@@ -147,7 +150,8 @@ function preparePageElements( d, pageState ){
     pageState.subpages[d.id] ||= {}
     
     let tempState = pageState.subpages[d.id]
-    const childNodes = configPage.primitives.origin.allUniqueElement
+    let childNodes = configPage.primitives.origin.allUniqueElement
+    childNodes = [...childNodes.filter(d=>d.referenceId === PrimitiveConfig.Constants.SHAPE_ELEMENT && d.referenceParameters.style === "rect"), ...childNodes.filter(d=>d.referenceId === PrimitiveConfig.Constants.SHAPE_ELEMENT && d.referenceParameters.style !== "rect"), ...childNodes.filter(d=>d.referenceId !== PrimitiveConfig.Constants.SHAPE_ELEMENT )]
     
     if( tempState[configPage.id]){
         console.log(`REUSING SUB PAGE STATE ${d.id}`)
@@ -235,33 +239,42 @@ function preparePageElements( d, pageState ){
             const state = {
                 [d.id]: variantData[vId][d.id],
             }
-            if( variantData[vId][d.id].axisSource ){
-                let axisSource = variantData[vId][d.id].axisSource
-                if(!variantData[vId][axisSource.id]){
-                    let axisBoard = {}
-                    
-                    if (axisSource.inFlow && axisSource.configParent.flowElement) {
-                        const parent = axisSource.configParent
-                        const flowInstance = axisSource.origin
-                        const flow = parent.origin
-                        if( flowInstance.origin.id !== flow.id){
-                            throw `Flow mismatch ${flowInstance.id} ${flow.id}`
+            //if( variantData[vId][d.id].axisSource ){
+                const subs = [variantData[vId][d.id].axisSource, ...(variantData[vId][d.id].pinSource ?? [])].filter(d=>d)
+                let buildNew = false
+                for( let axisSource of subs){
+                    //let axisSource = variantData[vId][d.id].axisSource
+                    if(!variantData[vId][axisSource.id]){
+                        let axisBoard = {}
+                        
+                        if (axisSource.inFlow && axisSource.configParent.flowElement) {
+                            const parent = axisSource.configParent
+                            const flowInstance = axisSource.origin
+                            const flow = parent.origin
+                            if( flowInstance.origin.id !== flow.id){
+                                throw `Flow mismatch ${flowInstance.id} ${flow.id}`
+                            }
+                            axisBoard[parent.id] = {
+                                id: parent.id,
+                                underlying: axisSource,
+                                inFlow: true,
+                                flow,
+                                flowInstance
+                            }
+                            axisSource = parent
                         }
-                        axisBoard[parent.id] = {
-                            id: parent.id,
-                            underlying: axisSource,
-                            inFlow: true,
-                            flow,
-                            flowInstance
-                        }
-                        axisSource = parent
+                        
+                        SharedPrepareBoard( axisSource, axisBoard)
+                        state[axisSource.id] = axisBoard[axisSource.id]
+                        buildNew = true
                     }
-
-                    SharedPrepareBoard( axisSource, axisBoard)
-                    state[axisSource.id] = axisBoard[axisSource.id]
-
-
                 }
+            //}
+            if( variantData[vId][d.id].pinSource && buildNew ){
+                SharedPrepareBoard( d, {
+                    ...state,
+                    ...variantData[vId]
+                })                    
             }
             
             return {
@@ -460,20 +473,29 @@ function SharedRenderView(d, primitive, myState) {
             }
         }
         const catData = {}
+        let useJoint = view.config === "dial"
+        let mapped = {}
+        const pass = ["clearly", "likely", ""]
         for(const c of dataSource.columns){
             for(const r of dataSource.rows){
-                const idx = [r.idx, c.idx].filter(d=>d).join("-") ?? "base"
-                const label = [r.label, c.label].filter(d=>d).join(" - ") ?? "base"
+                let idx = [r.idx, c.idx].filter(d=>d).join("-") ?? "base"
+                let label
+                if( useJoint ){
+                    label = [r.label, c.label].every(d=>pass.includes(d)) ? pass[0] : "not at all"
+                }else{
+                    label = [r.label, c.label].filter(d=>d).join(" - ") ?? "base"
+                }
+                mapped[idx] = label
                 const axisPrims = [r.primitive, c.primitive].filter(d=>d)
-                if( !catData[idx] ){
-                    catData[idx] = {label, items: [], count: 0, axisPrims}
+                if( !catData[label] ){
+                    catData[label] = {label, items: [], count: 0, axisPrims}
                 }
             }
         }
         for(const p of dataSource.list ){
             for(const c of [p.column].flat() ?? [undefined]){
                 for(const r of [p.row].flat() ?? [undefined]){
-                    const idx = [r, c].filter(d=>d).join("-") ?? "base"
+                    const idx = mapped[[r, c].filter(d=>d).join("-") ?? "base"]
                     if( catData[idx]){
                         catData[idx].items.push( p.primitive)
                         catData[idx].count++
@@ -609,201 +631,6 @@ function SharedRenderView(d, primitive, myState) {
   
     return renderView;
   }
-   /* function SharedRenderView(d, primitive, myState){
-        const view = myState[d.id]
-        const renderOptions = view.renderConfigOverride ?? {}
-        const configNames = ["width", "height"]
-
-        if( view.widgetConfig){
-            renderOptions.widgetConfig = view.widgetConfig
-
-        }
-
-        const primitiveToRender = view.primitive.type === "element" ? view.primitive : (view.underlying ?? view.primitive)
-
-        const pins = view.primitive.type === "element" ? undefined : {input: Object.values(view.inputPins), output: Object.values(view.outputPins) }
-        const frameless = view.inPage
-        const titleAlwaysPresent = view.noTitle ? false : !(view.widgetConfig !== undefined || view.config === "widget")
-        const title = view.noTitle ? undefined : ()=>{
-            return view.title ?? `${d.title} - #${d.plainId}${view.underlying ? ` (${primitiveToRender.plainId})` : ""}`
-        }
-        const canvasMargin = view.inPage ? [0,0,0,0] : ((view.noTitle  || view.inFlow ) ? [0,0,0,0] : [20,20,20,20])
-
-        let indicators
-        if( view.primitive.flowElement){
-            indicators = ()=>buildIndicators(primitiveToRender, undefined, undefined, myState)
-        }
-
-        const prepareSubBoards = (d)=>{
-            return preparePageElements(d, view)
-        }
-
-        const mapMatrix = (stageOptions, d, view)=>{
-            let dataSource = view
-            if( view.axisSource ){
-                if( view.axisSource.inFlow && view.axisSource.configParent.flowElement){
-                    dataSource = myState[view.axisSource.configParent.id] 
-                }else{
-                    dataSource = myState[view.axisSource.id] 
-                }
-                if(!dataSource){
-                    console.warn(`Couldnt find config for axis Source ${view.axisSource.id}`)
-                    dataSource = view
-                }
-            }
-            return renderMatrix(
-                primitiveToRender, 
-                dataSource.list, {
-                    axis: dataSource.axis,
-                    columnExtents: dataSource.columns,
-                    rowExtents: dataSource.rows,
-                    viewConfig: view.viewConfig,
-                    ...stageOptions,
-                    ...renderOptions,
-                    toggles: view.toggles,
-                    data: view.renderData,
-                    expand: Object.keys(primitive.frames?.[ d.id ]?.expand ?? {})
-                })
-        }
-
-        let sizeSource = view.parentRender ? myState[view.parentRender].primitive.frames : primitive.frames
-        if( sizeSource?.[d.id]){
-            for( const name of configNames){
-                if( sizeSource[d.id][name] !== undefined){
-                    renderOptions[name] = sizeSource[d.id][name]
-                }
-            }
-        }
-        if( view.config === "plain_object"){
-            
-            return {
-                id: d.id, 
-                parentRender: view.parentRender, 
-                pins, frameless, title, titleAlwaysPresent, 
-                indicators, 
-                canChangeSize: true, 
-                canvasMargin, 
-                items: (stageOptions)=>{
-                    const data = myState[d.id].object
-                    
-                    return renderPlainObject({...data, ...stageOptions, ...renderOptions})
-                }
-            }
-        }else if( view.config === "full"){
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions})
-            if( d.referenceId === 118){
-                let boardToCombine = d.primitives.imports.allItems
-                if(d.order){
-                    boardToCombine.sort((a,b)=>d.order.indexOf(a.id) - d.order.indexOf(b.id))
-                }
-                if( boardToCombine.length >0 ){
-
-                    render = (stageOptions)=>{
-                        const partials = boardToCombine.map(d=>{
-                            const board = myState[d.id]
-                            return {
-                                primitive: d,
-                                axis: board.axis,
-                                columnExtents: board.columns,
-                                rowExtents: board.rows,
-                                viewConfig: board.viewConfig,
-                                list: board.list
-                        }})
-                        return RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, partials})
-                    }
-                }
-            }
-            return {id: d.id, parentRender: view.parentRender, frameless, title, titleAlwaysPresent, pins, indicators, canChangeSize: "width", canvasMargin, items: render}
-        }else if( view.config === "cat_overview" || view.config === "word_cloud"){
-            return {
-                id: d.id, 
-                parentRender: view.parentRender, 
-                pins, frameless, title, titleAlwaysPresent, 
-                indicators, 
-                canChangeSize: "width", 
-                canvasMargin, 
-                items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: view.config, data: view.renderData})
-            }
-        }else if( view.config === "page"){
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {
-                id: d.id, 
-                parentRender: view.parentRender, 
-                indicators, 
-                pins, 
-                frameless, 
-                //utils: myState.renderSubPages ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
-                utils: view.renderSubPages || RENDERSUB ? {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard} : undefined,
-                title, titleAlwaysPresent, 
-                canChangeSize: true, 
-                canvasMargin: [0,0,0,0], 
-                items: render, 
-                bgFill: "white"}
-        }else if( view.config === "flow"){
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, data: view.renderData})
-            return {id: d.id, parentRender: view.parentRender, resizeForChildren: true, routeInternal: true, indicators, pins, frameless, title, titleAlwaysPresent, canChangeSize: true, canvasMargin: [0,0,0,0], items: render, flow: true}
-        }else if( view.config === "widget"){
-            const data = view.renderData
-            if( view.inFlow ){
-                data.basePrimitive = view.primitive
-            }
-            let render = (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {...stageOptions, ...renderOptions, config: "widget", data: data})
-            return {id: d.id, pins, frameless, title, titleAlwaysPresent,parentRender: view.parentRender, indicators, canChangeSize: "width", canvasMargin: [2,2,2,2], items: render}
-        }else if( view.config === "report_set"){
-
-
-            return {id: d.id, 
-                    pins, frameless, title, titleAlwaysPresent, 
-                    canChangeSize: "width", 
-                    indicators, 
-                    canvasMargin, 
-                    parentRender: view.parentRender, 
-                    items: (stageOptions)=>RenderSetAsKonva(
-                                                            primitiveToRender, 
-                                                            view.list, 
-                                                            {
-                                                                referenceId: primitiveToRender.referenceId,
-                                                                ...stageOptions, 
-                                                                ...renderOptions,
-                                                                axis:view.axis,
-                                                                data: view.renderData,
-                                                                extents:{column: view.columns, row:view.rows}
-                                                            }
-                                                        )
-                    }
-        }
-        
-        if( d.type === "query" && d.processing?.ai?.data_query){
-            return {id: d.id, parentRender: view.parentRender, pins, frameless, title, titleAlwaysPresent, indicators, canChangeSize: true, canvasMargin, items: (stageOptions)=>RenderPrimitiveAsKonva(primitiveToRender, {config: "ai_processing",...stageOptions, ...renderOptions})}
-        }
-
-        const canChangeSize = view?.viewConfig?.resizable 
-        if( view.viewConfig?.matrixType ){
-            return {id: d.id ,
-                parentRender: 
-                view.parentRender, 
-                pins, frameless, title, titleAlwaysPresent, 
-                indicators, 
-                canChangeSize, 
-                items: (stageOptions)=>RenderSetAsKonva(
-                    primitiveToRender, 
-                    view.list, 
-                    {
-                        //referenceId: primitiveToRender.referenceId,
-                        ...stageOptions, 
-                        ...renderOptions,
-                        axis:view.axis,
-                        extents:{column: view.columns.map(d=>({...d, primitive: mainstore.primitive(d.idx)})), row:view.rows.map(d=>({...d, primitive: mainstore.primitive(d.idx)}))},
-                        config: view.viewConfig?.matrixType
-
-                    }
-                )
-            }
-        }
-
-        return {id: d.id ,parentRender: view.parentRender, pins, frameless, title, titleAlwaysPresent, indicators, utils: {prepareBoards: prepareSubBoards, renderBoard: renderSubBoard},canChangeSize, items: (stageOptions)=>mapMatrix(stageOptions, d,view)}
-
-    }*/
     function getPageVariants( pageInputs, inputs, allItems = false ){
         const combos = []
         if(  pageInputs.group1 ){
@@ -866,6 +693,7 @@ function SharedRenderView(d, primitive, myState) {
                 fontSize: config?.fontSize,
                 fontStyle: config?.fontStyle,
                 fontFamily: config?.fontFamily,
+                align: config?.align,
                 heading: config?.heading,
                 compose: config?.compose,
                 fill: config.fill,
@@ -875,9 +703,11 @@ function SharedRenderView(d, primitive, myState) {
                 text_color: config.text_color,
             }
             if( d.referenceId ===  PrimitiveConfig.Constants.SHAPE_ELEMENT){//{pageState?.underlying){
+                let text = config.text
+                
                 myState[stateId].object = {
                     type: "shape",
-                    text: config.text,
+                    text: text,
                     ...format
                 } 
                 myState[stateId].config = "plain_object"
@@ -938,7 +768,7 @@ function SharedRenderView(d, primitive, myState) {
 
                    
                     inputs = inputs.filter(d=>d)
-                    if( pageInputs[pins[0]].config === "primitive"){
+                    if( pageInputs[pins[0]]?.config === "primitive"){
                         if( basePrimitive.getConfig.extract === "content"){
                             const data = []
                             let contentType = "text"
@@ -996,6 +826,57 @@ function SharedRenderView(d, primitive, myState) {
                             myState[stateId].primitive = basePrimitive
                             myState[stateId].primitiveList = inputs
                             renderType = "plain_object"
+                        }else if (basePrimitive.getConfig.extract === "page"){
+                            let text = format.compose
+                            format.compose = undefined
+                            if( text && pagePrimitive){
+                                if( text.match(/\{.+\}/)){
+                                    const status = pageInstance.inputPinsWithStatus
+                                    const pinMap = PrimitiveConfig.getPinMap(pageInstance, "inputs")
+                                    const expansionItems = text.match(/\{([^}]+)\}/g).map(d=>d.slice(1,-1)).filter((d,i,a)=>a.indexOf(d)===i);
+                                    const pinData = {}
+                                    myState[stateId].pinSource = []
+                                    for(const expFull of expansionItems){
+                                        const [exp, mod] = expFull.split("_")
+                                        const pin = Object.keys(status).find(d=>status[d].name === exp)
+                                        if( pin ){
+                                            if( status[pin].connected ){
+                                                const pinConnectDetails = pinMap.find(d=>d.inputPin === pin)
+                                                if( pinConnectDetails ){
+
+                                                    console.log(`---> Will get pin data src = ${ pinConnectDetails.sourceId}`)
+
+                                                    let sourcePrim = MainStore().primitive(pinConnectDetails.sourceId)
+                                                    myState[stateId].pinSource.push(sourcePrim)
+                                                    if( sourcePrim.inFlow && sourcePrim.configParent){
+                                                        sourcePrim = sourcePrim.configParent
+                                                    }
+                                                    const source = myState[ sourcePrim.id ]
+                                                    let localItems = []
+                                                    if( source ){
+                                                        if( source.primitiveList){
+                                                            localItems = source.primitiveList
+                                                        }else{
+                                                            localItems = source.list?.map(d=>d.primitive)
+                                                        }
+                                                    }
+                                                    pinData[exp] = {data: localItems}
+                                                }
+                                            }
+                                        }
+                                    }
+                                    text = expandStringLiterals( text, pinData)
+                                }
+                            }                    
+                            myState[stateId].object = {
+                                type: "text",
+                                text: text,
+                                ...format
+                            } 
+                            myState[stateId].config = "plain_object"
+                            myState[stateId].primitive = basePrimitive
+                            renderType = "plain_object"
+                            didChange = true
                         }else{
                             myState[stateId].primitiveList = inputs
                             if( config.view_axis){
@@ -1011,6 +892,7 @@ function SharedRenderView(d, primitive, myState) {
                             }
                             renderType = "view"
                         }
+                    
                     }else{
                         myState[stateId].object = {
                             type: "text",
@@ -1366,6 +1248,7 @@ function SharedRenderView(d, primitive, myState) {
             }
         }else if( renderType === "page" ){
             let childNodes = d.primitives.origin.uniqueAllItems
+            childNodes = [...childNodes.filter(d=>d.referenceId === PrimitiveConfig.Constants.SHAPE_ELEMENT && d.referenceParameters.style === "rect"), ...childNodes.filter(d=>d.referenceId === PrimitiveConfig.Constants.SHAPE_ELEMENT && d.referenceParameters.style !== "rect"), ...childNodes.filter(d=>d.referenceId !== PrimitiveConfig.Constants.SHAPE_ELEMENT )]
             
             didChange ||= d.referenceParameters?.explore?.view !== myState[stateId].lastView
             
@@ -1397,6 +1280,7 @@ function SharedRenderView(d, primitive, myState) {
             }
         }else if( renderType === "flow" ){
             let childNodes = d.primitives.origin.uniqueAllItems
+            childNodes = [...childNodes.filter(d=>d.type !== "page"),...childNodes.filter(d=>d.type === "page")]
             const flowInstances = childNodes.filter(child=>{
                 if( child.type !== "flowinstance" ){
                     return false
@@ -3128,7 +3012,9 @@ export default function BoardViewer({primitive,...props}){
                                     frame: (id)=>setActiveBoard(id),
                                     primitive:(id, frameId)=>{
                                         const frame = mainstore.primitive(frameId)
-                                        mainstore.sidebarSelect(id)
+                                        if( myState.activeBoard?.id ===  frameId){
+                                            mainstore.sidebarSelect(id)
+                                        }
                                         if( frame?.type === "element"){
                                             setActiveBoard( frame.id )
                                             if( canvas.current ){
@@ -3158,6 +3044,10 @@ export default function BoardViewer({primitive,...props}){
                                             }
                                             console.log(infoPane.filters[0])
                                             setCollectionPaneInfo({frame:  myState[frameId].underlying ??  myState[frameId].primitive, board: primitive, filters: infoPane.filters})
+                                            if( !myState.activeBoard || myState.activeBoard.id !== frameId){
+                                                setActiveBoard(frameId)
+                                                canvas.current.selectFrame( frameId )
+                                            }
                                         }
                                     },
                                     widget:{

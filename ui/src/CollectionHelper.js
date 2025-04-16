@@ -910,9 +910,15 @@ class CollectionUtils{
                     values: ["not at all", "possibly", "likely", "clearly"].map(d=>({idx: d, label: d}))
                 }
             }else{
-                const subCats = catPrimitive?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, primitive: d, label:d.title})) ?? []
-                out = {
-                    values: [{idx: "_N_", label: "None"}, ...subCats].sort((a,b)=>a.label?.localeCompare(b.label)),
+                let subCats = catPrimitive?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, primitive: d, label:d.title})) ?? []
+                if( catPrimitive?.referenceId === PrimitiveConfig.Constants.EVALUATOR){
+                    out = {
+                        values: [{idx: "_N_", label: "None"}, ...subCats]
+                    }
+                }else{
+                    out = {
+                        values: [{idx: "_N_", label: "None"}, ...subCats].sort((a,b)=>a.label?.localeCompare(b.label)),
+                    }
                 }
             }
         }else{

@@ -292,7 +292,7 @@ _setTextData() {
     }
 
     if (lineWidth > placeTextWidth) {
-      let frag = 0
+      let frag = 0, retry = false
       while (text.length > 0) {
           var low = 0, high = text.length, match = '', matchWidth = 0;
           while (low < high) {
@@ -359,6 +359,16 @@ _setTextData() {
           if( leaveForHeight ){
             break
           }
+      }
+      if( frag === 0 && indent > startIndent ){
+        console.log(`Couldnt add ${text}`)
+        currentHeightPx += lineHeightPx;
+        const partial = placeText( text, large, bold, drawBullet, startIndent, startIndent, color, lastLine, tableInfo )
+        indent = partial.indent
+        advanced = partial.advanced
+        textWidth = partial.textWidth
+        lineWidth = partial.indent
+
       }
     }else {
       this._addMDTextLine(text, lineMetrics, indent, currentHeightPx + translateY, bold, large, drawBullet, color, fontScaleForTable, tableInfo);

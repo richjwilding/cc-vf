@@ -287,7 +287,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                                 options.indentLevel = lastIndent 
                             }
                             stack.push({
-                                text: agg.join(" ").trim(),// + (!d.bullet && bulletNeedsFlushing && markEndList ? "\n" : ""),//(!d.bullet && lastIndent === 0 ? "\n" : ""),
+                                text: agg.join(" ").trim() + (tIdx && d.bold !== lastBold ? " " : ""),
                                 //text: agg.join(" ") + (!d.bullet && lastIndent === 0 ? "\n" : ""),
                                 options
                             })
@@ -302,6 +302,8 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     if( !latchSegment && lastSegment){
                         latchSegment = lastSegment
                     }
+
+                    let textToAdd = d.text
                     lastSegment = d
                     agg.push(d.text)
                     lastBold = d.bold
@@ -327,8 +329,9 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         options.bullet = {indent: (useFontSize * 0.4).toFixed(3)}
                         options.indentLevel = lastIndent 
                     }
+                    
                     stack.push({
-                        text: agg.join(" "),
+                        text: agg.join(" ").trim(),
                         options
                     })
                 }
@@ -336,7 +339,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 slide.addText(stack, {
                     x: rx,
                     y: ry,
-                    w: rw,
+                    w: rw * 1.01,
                     h: rh,
                     bold: konvaNode.fontStyle() === "bold",
                     lineSpacingMultiple,//0.866,
@@ -593,7 +596,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             }
             const sx = r-l
             const sy = b-t
-            if( konvaNode.closed ){
+            if( konvaNode.closed() ){
                 nodes.push(nodes[0])
             }
 

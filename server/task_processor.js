@@ -1854,7 +1854,8 @@ function removeOmittedItemsFromStructure(nodeResult){
 function extractFlatNodes(nodeResult, types = ["markdown formatted string"], out){
     out ||= []
     for(const d of nodeResult){
-        if( types.includes(d.type) ){
+        //if( types.includes(d.type) ){
+        if( d.content || d.ids ){
             out.push({
                 content: d.content,
                 ids: d.ids,

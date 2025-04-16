@@ -98,11 +98,11 @@ function doStep(data, step, scope){
                     categoryIds = categories.filter(d=>comp.includes(d.title )).map(d=>d.id)
                 }
                 out = out.filter(d=>{
-                    let scope = d
+                    let inScope = d
                     if( config.fetch_children ){
-                        scope = doStep( [d], {fetch_children: config.fetch_children})
+                        inScope = doStep( [d], {fetch_children: config.fetch_children}, scope)
                         if( config.count !== undefined){
-                            return scope.length === config.count
+                            return inScope.length === config.count
                         }
                     }
                     if( categoryIds){
@@ -1740,7 +1740,24 @@ function MainStore (prims){
                                 let scope
                                 if( filter.type === "parent"){
                                     if( filter.sourcePrimId ){
-                                        scope = obj.primitive(filter.sourcePrimId)?.primitives.allIds ?? []
+                                        let filterSourcePrimitive = obj.primitive(filter.sourcePrimId)
+                                        const isMongoId = (str) => /^[a-fA-F0-9]{24}$/.test(str);
+                                        if( filter.value && Array.isArray(filter.value) && filter.value.find(d=>!isMongoId(d))){
+                                            if( filterSourcePrimitive.referenceId === PrimitiveConfig.Constants.EVAL_CATEGORIZER){
+                                                const relevantInstance = filterSourcePrimitive.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes(receiver.originId))
+                                                if( relevantInstance ){
+                                                    const embedded = relevantInstance.primitives.origin.allCategory[0]
+                                                    if( embedded ){
+                                                        const children = embedded.primitives.allItems
+                                                        scope = embedded.primitives.allIds
+                                                        check = check.map(d=>children.find(d2=>d2.title === d)?.id ?? d)
+                                                    }
+
+                                                }
+                                            }
+                                        }else{
+                                            scope = filterSourcePrimitive?.primitives.allIds ?? []
+                                        }
                                     }
                                 }else if( filter.type === "segment_filter"){
                                     scope = [filter.sourcePrimId]

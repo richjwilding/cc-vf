@@ -327,14 +327,25 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, optio
             }else{
                 const linkedSubFlow = subFlows.find(d=>d.id === source)
                 if( linkedSubFlow ){
-                    logger.debug(`flow has output ${rel} from subflow ${source} - mapping idrectly`)
+                    logger.debug(`flow has output ${rel} from subflow ${source} - mapping drectly`)
                     targetImports.push({id: linkedSubFlow.id, paths } )
 
                 }else{
-                    logger.debug(`Cant find instance of ${source} `)
-                    if( options.create ){
-                        throw "Missing step"
+                    logger.debug(`Cant find instance of ${source} - looking in flowinstance chain`)
+                    const sourcePrimitive = await fetchPrimitive( source )
+                    if( sourcePrimitive ){
+                        const instancesOfElement = await fetchPrimitives( sourcePrimitive.primitives?.config ?? [])
+                        console.log(`- ${instancesOfElement.length}`)
+                        const relevantTargetInstanceForElementInstance = await relevantInstanceForFlowChain( instancesOfElement, [flowInstance.id])
+                        console.log(relevantTargetInstanceForElementInstance)
+                        for( const d of relevantTargetInstanceForElementInstance){
+                            targetImports.push({id: d.id, paths } )
+                        }
+
                     }
+                    /*if( options.create ){
+                        throw "Missing step"
+                    }*/
                 }
             }
 
@@ -784,7 +795,7 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
                         if( step.type === "flowinstance"){
                             logger.debug(`Got segment import for instance of sub flow`)
                             const parentStep = (await fetchImports( [primitiveOrigin(imp)] ))[0]
-                            if( !parentStep || !Object.keys(parentStep.parentPrimitives ?? {}).includes( flowInstance.id )){
+                            if( !parentStep || (parentStep.id !== flowInstance.id && !Object.keys(parentStep.parentPrimitives ?? {}).includes( flowInstance.id ))){
                                 throw `mismatch on segment origin ${parentStep.id} not a child of flowInstance ${flowInstance.id}`                                
                             }
                             imp = parentStep
