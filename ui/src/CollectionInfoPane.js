@@ -726,11 +726,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
         function flowPanel(){
             let flowInstanceToShow
             if( frame.type === "flow" && frame.flowElement ){
-                const parentFlow = frame.origin
-                if( parentFlow.type === "flow"){
-                    const flowInstances = parentFlow.primitives.origin.allFlowinstance.sort((a,b)=>a.plainId - b.plainId)
-                    flowInstanceToShow = flowInstances[parentFlow.referenceParameters?.explore?.view ?? 0]
-                }
+                flowInstanceToShow = props.flowInstances[frame.referenceParameters?.explore?.view ?? 0]
             }
 
             return <><div className="space-y-2">
@@ -756,7 +752,11 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     if( flowInstanceToShow ){
                         mainstore.doPrimitiveAction(frame,"workflow_scaffold", {subFlowForInstanceId: flowInstanceToShow.id})
                     }else{
-                        mainstore.doPrimitiveAction(frame,"workflow_scaffold")
+                        if( props.inFlowInstance ){
+                            mainstore.doPrimitiveAction(frame,"workflow_scaffold", {subFlowForInstanceId: props.inFlowInstance.id})
+                        }else{
+                            mainstore.doPrimitiveAction(frame,"workflow_scaffold")
+                        }
                     }
                 }}
                 />}

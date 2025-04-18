@@ -15,6 +15,10 @@ import useDataEvent from "./CustomHook";
 import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 import Konva from "konva";
 import { compareTwoStrings, expandStringLiterals } from "./SharedTransforms";
+import { getLogger } from './logger'
+
+const log = getLogger('BoardViewer', { level: 'trace' })
+
                 
 export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "item_info", "widget", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
 const RENDERSUB = false//true
@@ -888,7 +892,6 @@ function SharedRenderView(d, primitive, myState) {
                                         myState[stateId].axisSource = mainstore.primitive(pin.sourceId)
                                     }
                                 }
-                                console.log(`source = ${myState[stateId].axisSource?.id}`)
                             }
                             renderType = "view"
                         }
@@ -1298,11 +1301,11 @@ function SharedRenderView(d, primitive, myState) {
             childNodes = childNodes.filter(d=>d.type !== "flowinstance")
             didChange ||= d.referenceParameters?.explore?.view !== myState[stateId].lastView
             
-            if(flowInstanceToShow ){
+            /*if(flowInstanceToShow ){
                 stopWatchingFlowInstances(primitiveToPrepare, flowInstances, myState, flowInstanceToShow.id)
                 watchFlowInstance( primitiveToPrepare, flowInstanceToShow, myState)
                 myState[stateId].internalWatchIds = [flowInstanceToShow.id, ...flowInstanceToShow.primitives.origin.allIds]
-            }
+            }*/
 
             myState[stateId].primitive = basePrimitive
             myState[stateId].flowInstances = flowInstances
@@ -1319,10 +1322,10 @@ function SharedRenderView(d, primitive, myState) {
                     continue
                 }
                 const showItems = d.frames?.[child.id]?.showItems
-                const parentFlowInstanceChanged = myState[child.id]?.flowInstance?.id !== flowInstanceToShow.id
+                const parentFlowInstanceChanged = myState[child.id]?.flowInstance?.id !== flowInstanceToShow?.id
 
                 
-                console.log(`- preparing child of flow ${child.plainId} ${child.type}`)
+                log.trace(`- preparing child of flow ${child.plainId} ${child.type}`)
                 myState[child.id] ||= {
                     id: child.id, 
                     inFlow: true,
@@ -1348,6 +1351,7 @@ function SharedRenderView(d, primitive, myState) {
                     boardsToRefresh = boardsToRefresh.concat([child.id, ...(renderResult || [])])
                 }
                 didChange ||= (childChanged ?? true)
+                log.trace(`- Change status`, {renderResult: renderResult !== false, parentFlowInstanceChanged, childChanged, didChange})
                 myState[child.id].parentRender = stateId
             }
         }
@@ -1477,6 +1481,7 @@ export default function BoardViewer({primitive,...props}){
             }
             myState.current.framesToUpdate = myState.current.framesToUpdate || []
             myState.current.framesToUpdateForRemote = myState.current.framesToUpdateForRemote || []
+            log.trace(`Got data event`,{ids, event, info, fromRemote})
             Object.keys(myState.current.watchList).forEach(frameId=>{
                 let listName = fromRemote ? "framesToUpdateForRemote" : "framesToUpdate"
                 let timerName = fromRemote ? "frameUpdateTimerForRemote" : "frameUpdateTimer"
@@ -1491,10 +1496,11 @@ export default function BoardViewer({primitive,...props}){
                     if( !myState.current[timerName] ){
                         myState.current[timerName] = setTimeout(()=>{
                             myState.current[timerName] = undefined
-                            for( const {frameId, event, info} of  myState.current[listName]){
+                            for( let {frameId, event, info} of  myState.current[listName]){
                                 if( !myState[frameId] ){
                                     continue
                                 }
+                                log.trace(`In data event handler ${listName}`,{frameId, event, info})
                                 let needRefresh = true
                                 let refreshBoards = []
                                 let resized = false
@@ -1507,6 +1513,10 @@ export default function BoardViewer({primitive,...props}){
                                         canvas.current.refreshFrame( board.id, renderView(board.primitive))
                                     }else if(info.startsWith('frames.') && info.endsWith('.showItems')){
                                         needRebuild = true
+                                        let targetFrame = info.match(/frames\.(.+)\..+/)?.[1]
+                                        if(  targetFrame ){
+                                            frameId =  targetFrame
+                                        }
                                     }else if(info.startsWith('frames.') ){
                                         if((info.endsWith('.height') || info.endsWith('.width'))){
                                             resized = true
@@ -1529,6 +1539,7 @@ export default function BoardViewer({primitive,...props}){
                                         needRefresh = false
                                     }
                                 }
+                                log.trace(` Post field check`,{needRebuild, needRefresh})
                                 if(event === "set_field" || event === "set_parameter" ){
                                     const board = myState[frameId]
                                     if( board.primitive.type === "element"){
@@ -1555,6 +1566,8 @@ export default function BoardViewer({primitive,...props}){
                                             }
                                         })
 
+                                    }else{
+                                        needRebuild = true
                                     }
                                     if( doFrame ){
                                         needRefresh = prepareBoard( framePrimitive )
@@ -1569,16 +1582,17 @@ export default function BoardViewer({primitive,...props}){
                                         console.log(`Cancelled refresh - no changes on ${myState[frameId]?.primitive.plainId}`)
                                     }
                                 }
+                                log.trace(` Post handling`,{needRebuild, needRefresh})
 
                                 if( needRefresh){
                                     forceUpdateLinks()
                                     
                                     refreshBoards = [...refreshBoards, ...(Array.isArray(needRefresh) ? needRefresh : [frameId])].filter((d,i,a)=>a.indexOf(d) === i)
+                                    log.trace(` Refresh list`,{refreshBoards})
 
                                     console.log(`DOING REFRESH ${frameId} / ${myState[frameId]?.primitive.plainId}, [${refreshBoards.join(", ")}]`)
 
                                     if( needRebuild ){
-                                        console.log(`With rebuild`)
                                         for(const frameId of refreshBoards ){
                                             const board = myState[frameId]
                                             canvas.current.refreshFrame( frameId, renderView(board.primitive))
@@ -1698,7 +1712,7 @@ export default function BoardViewer({primitive,...props}){
 
 
     const [boards,  renderedSet] = useMemo(()=>{
-        console.log(`--- REDO BOARD RENDER ${primitive?.id}, ${update}`)
+        log.info(`--- REDO BOARD RENDER ${primitive?.id}, ${update}`)
         const boards = [...primitive.primitives.allUniqueView,
                         ...primitive.primitives.allUniquePage, 
                         ...primitive.primitives.allUniqueSummary,
@@ -2105,6 +2119,7 @@ export default function BoardViewer({primitive,...props}){
                 frame: myState.activeBoard.primitive, 
                 underlying: myState.activeBoard.underlying, 
                 flowInstances: myState.activeBoard.flowInstances, 
+                inFlowInstance: myState.activeBoard.flowInstance, 
                 board: primitive,
                 localItems: getLocalPrimitiveListForBoardId(id, myState),
                 originalList: myState[id].originalList
@@ -3014,6 +3029,12 @@ export default function BoardViewer({primitive,...props}){
                                         const frame = mainstore.primitive(frameId)
                                         if( myState.activeBoard?.id ===  frameId){
                                             mainstore.sidebarSelect(id)
+                                        }else{
+                                            setActiveBoard( frame.id )
+                                            if( canvas.current ){
+                                                canvas.current.selectFrame( frame.id )
+                                            }
+
                                         }
                                         if( frame?.type === "element"){
                                             setActiveBoard( frame.id )

@@ -1525,7 +1525,7 @@ async function filterItems(list, filters){
         if( filter.type === "parent"){
             if( filter.sourcePrimId ){
                 const sourcePrim = await fetchPrimitive(filter.sourcePrimId)
-                let node = new Proxy(sourcePrim.primitives, parser)
+                let node = new Proxy(sourcePrim.primitives ?? {}, parser)
                 scope = node.allIds
             }
         }else if( filter.type === "segment_filter"){

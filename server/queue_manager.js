@@ -97,8 +97,13 @@ class QueueManager {
                                         id: job.parent.id
                                     } )
                                     if( parentJobObject ){
-                                        logger.info("================\n================\n================\nExtended parent job lock\n================\n================\n================")
-                                        parentJobObject.updateProgress(1); 
+                                        logger.info(`================ Extended parent job lock ${job.parent.id} ================`)
+                                        try{
+                                            parentJobObject.updateProgress(1); 
+                                        }catch(e){
+                                            logger.info(`ERROR EXTENDING LOCK FOR PARENT JOB ${job.parent.id}`);
+                                            logger.info(e)
+                                        }
                                     }else{
                                         logger.error(`Cant find parent job`, job.parent)
 
@@ -552,9 +557,16 @@ class QueueManager {
                     this.workers[queueName].push(new Worker(queueName, async job => {
                         await this.setQueueActivity(queueName, true);
                         
-                        const extendJob = ()=>{
+                        const extendJob = async ()=>{
                             console.log(`Job still active`)
-                            job.updateProgress(1); 
+
+                            try{
+                                await job.updateProgress(1); 
+                            }catch(e){
+                                logger.info(`ERROR EXTENDING LOCK FOR JOB ${job.id}`);
+                                logger.info(e)
+                            }
+
                         }
                         // Process job here
                         console.log(`Processing job ${job.name}`);

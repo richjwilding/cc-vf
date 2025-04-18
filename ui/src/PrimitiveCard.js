@@ -2510,15 +2510,25 @@ function Inputs({primitive}){
     const pins = primitive.outputPins
     return RenderPins({primitive, pins})
 }
+function InputPins({primitive}){
+  if( primitive.type !== "flowinstance"){
+    return <></>
+  }
+  const pins = primitive.getConfig?.inputPins ?? {}
+  return EditablePins( primitive, pins)
+}
 function ControlPins({primitive}){
   if( primitive.type !== "flow"){
     return <></>
   }
-    const pins = primitive.getConfig?.controlPins ?? {}
+  const pins = primitive.getConfig?.controlPins ?? {}
+  return EditablePins( primitive, pins)
+}
+function EditablePins(primitive, pins){
     return Object.keys(pins).map(pinName=>{
       const d = pins[pinName]
       let control = <p>Not available</p>
-      if( d.types?.includes("string")){
+      if( d.types?.includes("string") || d.types?.includes("string_list")){
         control = RenderItem({
           primitive,
           item:{
@@ -2586,6 +2596,7 @@ PrimitiveCard.SmallMeta = SmallMeta
 PrimitiveCard.ImportList = ImportList
 PrimitiveCard.ListCard = CardForList
 PrimitiveCard.OutputPins = Outputs
+PrimitiveCard.InputPins = InputPins
 PrimitiveCard.ControlPins = ControlPins
 
 

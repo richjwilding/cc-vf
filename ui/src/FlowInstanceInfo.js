@@ -142,15 +142,8 @@ export function FlowInstanceInfo({primitive, inputPrimitives, steps,...props}){
     function inputPinPane(){
         const pins = flow.referenceParameters?.inputPins ?? {}
         const pinNames = Object.keys(pins)
-        return <div className="flex w-full @container  max-h-[min(70vh,_50rem)] min-h-0 overflow-y-scroll">
-            <DescriptionList inContainer={true}>
-                {pinNames.map((pinId)=>(
-                    <>
-                        <DescriptionTerm inContainer={true}>{pins[pinId].name}</DescriptionTerm>
-                        <DescriptionDetails inContainer={true}>{primitive.referenceParameters?.[pinId]}</DescriptionDetails>
-                    </>
-                ))}
-            </DescriptionList>
+        return <div className="flex flex-col w-full @container  max-h-[min(70vh,_50rem)] min-h-0 overflow-y-scroll">
+            <PrimitiveCard.InputPins primitive={primitive}/>
         </div>
 
     }

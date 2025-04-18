@@ -1495,7 +1495,7 @@ function MainStore (prims){
                     }
                 }
                 if( prop === "setParameter"){
-                    return function( parameterName, value, skip = false, force = false ){
+                    return function( parameterName, value, skip = false, force = true){
                         if( force || receiver.validateParameter(parameterName, value)){
                             let target = receiver.referenceParameters 
                             let set = parameterName.split(".")

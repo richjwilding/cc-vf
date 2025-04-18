@@ -136,11 +136,19 @@ async function getQueueObject(type) {
             parentPort.postMessage({ type: "startJob", queueName, jobId: job.id, token: token });
 
             const extendLockInterval = 5000; 
-            const lockExtension = setInterval(() => {
+            let resetErrors = 0
+            const lockExtension = setInterval(async () => {
                 try{
-                    job.updateProgress(1); 
+                    await job.updateProgress(1); 
                 }catch(e){
                     logger.info(`ERROR EXTENDING LOCK FOR JOB ${job.id}`, {  type: workerData.type });
+                    logger.info(e)
+                    resetErrors++
+                    if( resetErrors > 10){
+                        logger.info(`Temrinating lock refresh for ${job.id} after ${resetErrors}`, {  type: workerData.type });
+                        clearInterval(lockExtension);
+
+                    }
                 }
             }, extendLockInterval)
 
@@ -151,11 +159,12 @@ async function getQueueObject(type) {
                 }
                 const store = asyncLocalStorage.getStore();
                 store.set('parentJob', job);
-                console.log(`---- ${queueName} set parentJob to ${job.id}`)
+                logger.info(`---- ${queueName} set parentJob to ${job.id}`)
     
                 let result, success
                 try {
                     result = await processQueue(job, () => redisClient.get(`job:${job.id}:cancel`) === 'true', ()=>{logger.info("!!! extend job in thread"); job.updateProgress(1)});
+                    logger.debug(`Workload for ${job.id} completed`)
                     success = true
                 } catch (e) {
                     logger.debug(`Error in ${workerData.type} queue during job processing: ${e.stack}`, { type: workerData.type });

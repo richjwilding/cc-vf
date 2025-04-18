@@ -19,10 +19,13 @@ export default function AnalysisPage({primitive, ...props}){
     const inputPrimitives = (inputSource?.itemsForProcessing ?? []).sort((a,b)=>b.plainId - a.plainId)
 
     function createNewInstance(){
+        /*
         MainStore().doPrimitiveAction(targetFlow, "new_flow_instance", {
             type: inputPrimitives[0]?.type,
             referenceId: inputPrimitives[0]?.referenceId,
         })
+            */
+        MainStore().doPrimitiveAction(targetFlow, "create_flowinstance")
     }
 
     let steps = [], flowInstances = []

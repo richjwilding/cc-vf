@@ -10,9 +10,10 @@ import { SIO } from "./socket";
 
 
 registerAction("new_flow_instance", undefined, async (primitive, a, options)=>{
+    throw "WHAT IS THIS FOR? new_flow_instance"
     const inputType = options.type ?? "result"
     const inputReferenceId = options.referenceId ?? 35
-    const inputSourceId = primitive.primitives.imports[0]
+    const inputSourceId = primitive.primitives?.imports?.[0]
     if( inputSourceId ){
         let inputSource = await fetchPrimitive( inputSourceId )
         if( inputSource.type !== "segment"){
@@ -577,7 +578,7 @@ export async function runFlowInstance( flowInstance, options = {}){
 
         let stepsToWait = stepsAndFlows.map(d=>d.id)
         const stepsToUpdate = []
-        if( options.fromStepIds ){
+        if( options.fromStepIds && options.fromStepIds.length > 0){
             const track = new Set()
             function followStep( step ){
                 stepsToUpdate.push(step.id)
@@ -784,7 +785,8 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
 
         async function checkOutstandingSource( rel ){
             let can = true
-            const pp = (new Proxy(step.primitives ?? {}, PrimitiveParser()))[rel]
+            let inAncestor = false
+            const pp = (new Proxy(step.primitives ?? {}, PrimitiveParser())).fromPath(rel)
             //const importIds = Object.values(step.primitives?.[rel] ?? {})
             const importIds = pp.uniqueAllIds
             if( importIds.length > 0){
@@ -803,15 +805,43 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
                             throw "Need to move to segment origin to get flow step?"
                         }
                     }
+                    if( imp.type === "category" ){
+                        logger.verbose(`-- Got category ${imp.id} / ${imp.plainId} for ${rel} - checking parent`)
+                        const parent = (await fetchImports( [primitiveOrigin(imp)] ))[0]
+                        if( parent ){
+                            logger.verbose(`-- Got parent of catgeory  = ${parent.id} / ${parent.plainId}`)
+                            imp = parent
+                        }else{
+                            logger.verbose(`-- Couldnt get parent`)
+                        }
+
+                    }
                     if( imp.id !== flowInstance.id){
                         if( !Object.keys(imp.parentPrimitives ?? {}).includes(flowInstance.id) ){
-                            logger.error(`${imp.id} / ${imp.plainId} is not linked to flow instance ${flowInstance.id} / ${flowInstance.plainId} for ${step.id} / ${step.plainId}`)
-                            can = false
-                            continue
+                            logger.verbose(`-- ${imp.id} / ${imp.plainId} not in this flow instance - checking ancestors`)
+                            const chainResult = await relevantInstanceForFlowChain( [imp], [flowInstance.id])
+                            if( chainResult.length === 0){
+                                logger.error(`${imp.id} / ${imp.plainId} is not linked to flow instance ${flowInstance.id} / ${flowInstance.plainId} for ${step.id} / ${step.plainId}`)
+                                can = false
+                                continue
+                            }else{
+                                inAncestor = true
+                                logger.verbose(`-- found in ancestor chain`)
+                            }
                         }
                     }
-                    const importPrimValid = (imp.id === flowInstance.id) || (imp.processing?.flow?.started === flowStarted && (flowStarted !== undefined) && imp.processing?.flow?.status === "complete")
-                    logger.debug(`Checking status of import step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
+                    //const importPrimValid = (imp.id === flowInstance.id) || (((!inAncestor && imp.processing?.flow?.started === flowStarted && (flowStarted !== undefined) ) || (inAncestor && imp.processing?.flow?.started <= flowStarted && (flowStarted !== undefined) )) && imp.processing?.flow?.status === "complete")
+
+                    const isSameFlow       = imp.id === flowInstance.id;
+                    const hasValidStart    = flowStarted !== undefined;
+                    const otherFlowStarted = imp.processing?.flow?.started;
+                    const isComplete       = imp.processing?.flow?.status === "complete";
+
+                    const timingOk = !inAncestor ? otherFlowStarted === flowStarted : otherFlowStarted <= flowStarted;
+
+                    const importPrimValid = isSameFlow || (hasValidStart && isComplete && timingOk);
+
+                    logger.debug(`Checking status of ${rel} step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
                     can = can && importPrimValid
                 }
             }
@@ -819,7 +849,29 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
         }
         const waitImports = await checkOutstandingSource( "imports" )
         const waitInputs = await checkOutstandingSource( "inputs" )
-        if( waitImports && waitImports ){
+        let waitAxis = false
+        if( step.type === "view" || step.type === "query" ){
+            logger.info(`-- Checking col axis relationships for ${step.id} / ${step.plainId}`)
+            const waitAxisCol = await checkOutstandingSource( "axis.column" )
+            logger.info(`-- Checking row axis relationships for ${step.id} / ${step.plainId}`)
+            const waitAxisRow = await checkOutstandingSource( "axis.row" )
+            waitAxis = waitAxisCol || waitAxisRow
+        }
+        if( waitImports || waitInputs || waitAxis){
+            canReason = ""
+            if( waitImports){
+                canReason = "data_"
+            }
+            if( waitInputs){
+                canReason += "inputs_"
+            }
+            if( waitAxis){
+                canReason += "axis_"
+            }
+            canReason += "not_ready"
+            can = false
+        }
+        /*if( waitImports && waitImports ){
             canReason = "data_inputs_not_ready"
             can = false
         }else if( waitImports ){
@@ -828,7 +880,7 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
         }else if( waitInputs ){
             canReason = "inputs_not_ready"
             can = false
-        }
+        }*/
 
     }
 

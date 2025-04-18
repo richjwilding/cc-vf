@@ -859,19 +859,35 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
             const withValues = series.filter(d=>d)
             const last = withValues[withValues.length - 1]
 
-            const t = new CustomText({
-                x: 0,
-                y: config.padding[0],
-                fontSize: config.fontSize * 2,
-                lineHeight: 1,
-                text: roundCurrency(last),
-                verticalAlign:"top",
-                fill: color,
-                refreshCallback: options.imageCallback
-            })
-            t.x( config.padding[3] + renderWidth - t.width())
-            g.add(t)
+            {
 
+                const t = new CustomText({
+                    x: 0,
+                    y: config.padding[0],
+                    fontSize: config.fontSize * 2,
+                    lineHeight: 1,
+                    text: roundCurrency(last),
+                    verticalAlign:"top",
+                    fill: color,
+                    refreshCallback: options.imageCallback
+                })
+                t.x( config.padding[3] + renderWidth - t.width())
+                g.add(t)
+            }
+            {
+                const t = new CustomText({
+                    x: config.padding[3],
+                    y: config.padding[0],
+                    fontSize: config.fontSize * 2,
+                    lineHeight: 1,
+                    text: roundCurrency(withValues[0]),
+                    verticalAlign:"top",
+                    fill: color,
+                    refreshCallback: options.imageCallback
+                })
+                g.add(t)
+            }
+                
         }
         if( config.show_x_label){
             const axisY = renderHeight + plotY + config.fontSize * 0.3
@@ -5414,7 +5430,7 @@ export function renderMatrix( primitive, list, options ){
 
     
     let height = g.find(()=>true).map(d=>d.y() + d.height()).reduce((a,c)=>c > a ? c : a, 0)
-    if( height < 20 ){
+    if( height < 40 ){
         height = 200
     }
 
