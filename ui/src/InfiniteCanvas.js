@@ -745,6 +745,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             frame.canvasMargin = framePadding
             frame.resizeForChildren = options.resizeForChildren
             frame.routeInternal = options.routeInternal
+            frame.isContainer = options.isContainer
+            
             
             if( frame.bg){
                 frame.bg.width(maxX)
@@ -2084,6 +2086,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             myState.current.viewport = {x: tx, y: ty, scale: scale}
             myState.current.stageTransform = {x: -ox, y: -oy, s: ns}
 
+            const topLeft = convertStageCoordToScene(0, 0)
+            const bottomRight = convertStageCoordToScene(myState.current.width, myState.current.height)
+            myState.current.userView = {
+                x: topLeft[0],
+                y: topLeft[1],
+                r: bottomRight[0],
+                b: bottomRight[1]
+            }
+
 
             return myState.current.viewport
 
@@ -2241,6 +2252,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 }
                             }
                         }
+                        
                     }
                     
                     let clone
@@ -2258,6 +2270,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         let clones = []
                         
                         myState.current.selected = myState.current.selected ?? {}
+
+
                         
                         const frameInList = myState.current.selected.frame?.find(d=>d.attrs.id === item.attrs.id)
                         if( !frameInList ){
@@ -2405,6 +2419,33 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         if( props.enableFrameSelection){
                             myState.current.dragging.frameSelect = [item]
                         }
+
+                        const frameItem = myState.current.frames?.find(d2=>d2.id === item.attrs.id)
+                        if( frameItem.parentRender ){
+                            const p = framePosition(frameItem.parentRender)
+                            myState.current.dragging.parentBounds = [p.scene.l, p.scene.t, p.scene.r, p.scene.b]
+                            myState.current.dragging.snaps = getAnchorLinesForNestedFrame( frameItem )
+
+                            myState.current.frames.forEach(d=>{
+                                if( d.isContainer && d.id !== frameItem.parentRender){
+                                    const p = framePosition(d.id)
+                                    let visible = ((p.scene.r) > myState.current.userView.x &&  p.scene.l < myState.current.userView.r && p.scene.b > myState.current.userView.y && p.scene.t < myState.current.userView.b)
+                                    if( visible ){
+                                        getAnchorLinesForFrame( d.id, undefined, myState.current.dragging.parentBounds, myState.current.dragging.snaps.segments.v, myState.current.dragging.snaps.segments.h)
+                                    }
+                                }
+                            })
+
+                            myState.current.dragging.snaps.v = Object.keys(myState.current.dragging.snaps.segments.v)
+                            myState.current.dragging.snaps.h = Object.keys(myState.current.dragging.snaps.segments.h)
+                            
+
+                            myState.current.dragging.anchorLinesParent = renderAnchorLines( myState.current.dragging.snaps, frameItem.parentRender)
+                            console.log(myState.current.dragging.snaps)
+                            if( !myState.current.dragging.anchorLinesParent ){
+                                debugger
+                            }
+                        }
                         
                         myState.current.dragging.sourceItem = item
                         myState.current.dragging.isFrame = isFrame
@@ -2515,6 +2556,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
                     return memo
                 }
+                /*
                 if( props.snapDistance ){
                     const [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
                     const snapX = computeDistance( myState.current.dragging.clone.attrs.id, fx, "x", props.snapDistance)
@@ -2527,7 +2569,18 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         const [cx,cy] = convertSceneCoordToScreen(undefined, snapY.v)
                         py = cy + myState.current.dragging.oy
                     }
+                }*/
+               if( myState.current.dragging.snaps ){
+                    const snaps = myState.current.dragging.snaps
+                    let [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
+                    const sx = snapTo( fx, snaps.v )
+                    const sy = snapTo( fy, snaps.h )
+                    let [ox, oy] = convertSceneCoordToScreen(sx, sy)
+                    showAnchorLines( myState.current.dragging.anchorLinesParent, fx, fy, "vh", sx, sy, snaps, myState.current.dragging.parentBounds)
+                    px = ox + myState.current.dragging.ox
+                    py = oy + myState.current.dragging.oy
                 }
+
                 myState.current.dragging.spx = px
                 myState.current.dragging.spy = py
                 myState.current.dragging.stage.container().style.transform = `translate(${px - myState.current.dragging.ox}px, ${py - myState.current.dragging.oy}px)`;
@@ -2598,20 +2651,19 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             px -= memo.x
                             py -= memo.y
                             
+                            if( myState.current.dragging.snaps ){
+                                removeAnchorLines()
+                                const snaps = myState.current.dragging.snaps
+                                let [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
+                                const sx = snapTo( fx, snaps.v )
+                                const sy = snapTo( fy, snaps.h )
+                                let [ox, oy] = convertSceneCoordToScreen(sx, sy)
+                                px = ox + myState.current.dragging.ox
+                                py = oy + myState.current.dragging.oy
+                            }
                             let [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
                             const frame = myState.current.frames.find(d=>d.id === frameId)
                             
-                            if( props.snapDistance ){
-                                const snapX = computeDistance( myState.current.dragging.clone.attrs.id, fx, "x", props.snapDistance)
-                                const snapY = computeDistance( myState.current.dragging.clone.attrs.id, fy, "y", props.snapDistance)
-                                console.log(`Snap ${snapX.v}, ${snapY.v}`)
-                                if( snapX.v ){
-                                    fx = snapX.v
-                                }
-                                if( snapY.v ){
-                                    fy = snapY.v
-                                }
-                            }
 
                             fx += thisFrame.attrs.x -  myState.current.dragging.minX
                             fy += thisFrame.attrs.y -  myState.current.dragging.minY
@@ -3254,32 +3306,89 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             return v
         }
         function showAnchorLines( parent, px, py, show, sx, sy, snaps, bounds ){
-            const x = px - parent.attrs.x
-            const y = py - parent.attrs.y
-            let activeV
-            for(const d of parent.children){
-                if( d.attrs.name === "v"){
-                    d.visible( show != "h" && Math.abs(x - d.attrs.points[0]) < 50 )
-                }else if( d.attrs.name === "h"){
-                    d.visible(show != "v" && Math.abs(y - d.attrs.points[1]) < 50 )
-                }else if( d.attrs.name === "active_v"){
-                    activeV = d
+            const x = px// - parent.attrs.x
+            const y = py// - parent.attrs.y
+
+            function getExtremes(scoped, boundsMin, boundsMax){
+                const thisFrame = scoped.flatMap(d=>d[3] ? [boundsMin, boundsMax, d[0], d[1]] : undefined).filter(d=>d)
+                const otherFrame = scoped.flatMap(d=>d[3] ? undefined : [d[0], d[1]]).filter(d=>d)
+
+                return {
+                    thisFrame: thisFrame.length > 0 ? {
+                        min: thisFrame.reduce((a,c)=>c < a ? c : a, Infinity),
+                        max: thisFrame.reduce((a,c)=>c > a ? c : a, -Infinity)
+                    } : undefined,
+                    otherFrame: otherFrame.length > 0 ? {
+                        min: otherFrame.reduce((a,c)=>c < a ? c : a, Infinity),
+                        max: otherFrame.reduce((a,c)=>c > a ? c : a, -Infinity),
+                        anchor: scoped[0][2]                        
+                    } : undefined
                 }
             }
-            if( activeV){
-                let shown = false
-                if( sx !== px){
-                    let rx = sx - parent.attrs.x
-                    const scoped = snaps.segments.v[sx]
-                    if( scoped){
-                        const ys = [bounds[1], bounds[3], ...scoped.flatMap(d=>[d[1], d[3]])]
-                        const minY = ys.reduce((a,c)=>a < c ? a : c, Infinity) - parent.attrs.y
-                        const maxY = ys.reduce((a,c)=>a > c ? a : c, -Infinity) - parent.attrs.y
-                        activeV.points( [rx, minY, rx, maxY])
-                        shown = true
-                    }
+            function withArrow( min, max, o, anchor, mode = "v"){
+                const mid = (min + max) /2
+                const angle = Math.abs(Math.min(Math.max((max-min) * 0.2, (o - anchor) * 0.15), 20))
+
+                const angleX = mode ==="v" ? o > anchor ? angle : -angle : angle
+                const angleY = mode ==="v" ? angle : o > anchor ? angle : -angle
+                
+                if( mode === "v"){
+                    return `M${o} ${min} L${o} ${max} M${o} ${(mid)} L${anchor} ${(mid)} M${o} ${(mid)} l${-angleX} ${-angleY} M${o} ${(mid)} l${-angleX} ${angleY} M${anchor} ${(mid)} l${angleX} ${-angleY} M${anchor} ${(mid)} l${angleX} ${angleY}`
+                }else{
+                    return `M${min} ${o} L${max} ${o} M${mid} ${o} L${mid} ${anchor} M${mid} ${o} l${-angleX} ${-angleY} M${mid} ${o} l${angleX} ${-angleY} M${mid} ${anchor} l${-angleX} ${angleY} M${mid} ${anchor} l${angleX} ${angleY}`
                 }
-                activeV.visible(shown)
+            }
+
+            for(const d of parent.children){
+                if( d.attrs.name === "v"){
+                    d.visible( show != "h" && Math.abs(x - d.attrs.rc) < 50 )
+                }else if( d.attrs.name === "h"){
+                    d.visible(show != "v" && Math.abs(y - d.attrs.rc) < 50 )
+                }else if( d.attrs.name === "active_v"){
+                    let shown = false
+                    if( sx !== px){
+                        const scope1 = snaps.segments.v[sx]
+                        if( scope1){
+                            let points = ""
+                            for(const ox of Object.keys(scope1)){
+                                const scoped = scope1[ox]
+                                const extremes = getExtremes(scoped, bounds[1], bounds[3])
+                                if( extremes.thisFrame){
+                                    points += `M${ox} ${extremes.thisFrame.min} L${ox} ${extremes.thisFrame.max} `
+                                }
+                                if( extremes.otherFrame){
+                                    points += withArrow( extremes.otherFrame.min, extremes.otherFrame.max, ox, extremes.otherFrame.anchor)
+                                    points += withArrow( bounds[1], bounds[3], sx, bounds[0])
+                                }
+                                shown = true
+                            }
+                            d.data(points)
+                        }
+                    }
+                    d.visible(shown)
+                }else if( d.attrs.name === "active_h"){
+                    let shown = false
+                    if( sy !== py){
+                        const scope1 = snaps.segments.h[sy]
+                        if( scope1){
+                            let points = ""
+                            for(const oy of Object.keys(scope1)){
+                                const scoped = scope1[oy]
+                                const extremes = getExtremes(scoped, bounds[0], bounds[2])
+                                if( extremes.thisFrame){
+                                    points += `M${extremes.thisFrame.min} ${oy} L${extremes.thisFrame.max} ${oy} `
+                                }
+                                if( extremes.otherFrame){
+                                    points += withArrow( extremes.otherFrame.min, extremes.otherFrame.max, oy, extremes.otherFrame.anchor, "h")
+                                    points += withArrow( bounds[0], bounds[2], sy, bounds[1], "h")
+                                }
+                                shown = true
+                            }
+                            d.data(points)
+                        }
+                    }
+                    d.visible(shown)
+                }
             }
             layerRef.current.batchDraw()
         }
@@ -3294,81 +3403,94 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             removeAnchorLines()
             const g = new Konva.Group( {
                 id: "anchors",
-                x: p.scene.l,
-                y: p.scene.t,
 
             })
             for( const a of ["h","v"]){
                 for( const d of Object.keys(snaps.segments[a])){
-                    for(const s of snaps.segments[a][d]){
-                        g.add(new Konva.Line({
-                            visible: false, 
-                            stroke: "red", 
-                            strokeWidth: 1, 
-                            strokeScaleEnabled: false, 
-                            points:[
-                                s[0] - p.scene.l, s[1] - p.scene.t, 
-                                s[2] - p.scene.l, s[3] - p.scene.t
-                            ], name: a}))
+                    for(const d2 of Object.keys(snaps.segments[a][d])){
+                        for(const s of snaps.segments[a][d][d2]){
+                            g.add(new Konva.Line({
+                                //visible: false, 
+                                stroke: "#4dbeff", 
+                                dash: [8,3],
+                                rc: parseFloat(d),
+                                strokeWidth: 1, 
+                                strokeScaleEnabled: false, 
+                                points:a === "v" ? [parseFloat(d2), s[0], parseFloat(d2), s[1]] : [s[0], parseFloat(d2), s[1], parseFloat(d2)],
+                                name: a}))
+                        }
                     }
                 }
             }
-            g.add(new Konva.Line({
+            g.add(new Konva.Path({
                 visible: false, 
+                stroke: "#4dbeff", 
+                strokeWidth: 1, 
+                strokeScaleEnabled: false, 
+                name: "active_v"}))
+            layerRef.current.add( g )
+            g.add(new Konva.Path({
+                visible: false, 
+                stroke: "#4dbeff", 
+                strokeWidth: 1, 
+                strokeScaleEnabled: false, 
+                name: "active_h"}))
+            layerRef.current.add( g )
+
+            g.add(new Konva.Rect({
+                x: myState.current.userView.x,// + (myState.current.userView.width * 0.1),
+                y: myState.current.userView.y,// + (myState.current.userView.height * 0.1),
+                width: myState.current.userView.width ,
+                height: myState.current.userView.height,
                 stroke: "red", 
                 strokeWidth: 1, 
                 strokeScaleEnabled: false, 
-                points:[
-                    0, 0, 
-                    0, p.scene.b - p.scene.t
-                ], name: "active_v"}))
+                }))
             layerRef.current.add( g )
+
             layerRef.current.batchDraw()
             return g
-
         }
-        function getAnchorLinesForNestedFrame( frame ){
+
+
+        function addAnchorToSet( set, d, o, bounds){
+            if( !set[d] ){
+                set[d] = {}
+            }
+            if( !set[d][o]){
+                set[d][o] = []
+            }
+            set[d][o].push(bounds)
+        }
+
+        function getAnchorLinesForFrame( frame, skipId = undefined, withBounds, v, h ){
+            const pPosition = framePosition(frame)
+            for(const d of getNestedFrames(frame)){
+                if( d.id === skipId){
+                    continue
+                }
+                const childPosition = framePosition(d.id)
+                
+                addAnchorToSet( v, withBounds ? childPosition.scene.l - pPosition.scene.l + withBounds[0] : childPosition.scene.l, childPosition.scene.l, [childPosition.scene.t, childPosition.scene.b, pPosition.scene.l, withBounds === undefined])
+                addAnchorToSet( v, withBounds ? childPosition.scene.r - pPosition.scene.l + withBounds[0] : childPosition.scene.r, childPosition.scene.r, [childPosition.scene.t, childPosition.scene.b, pPosition.scene.l, withBounds === undefined])
+                addAnchorToSet( h, withBounds ? childPosition.scene.t - pPosition.scene.t + withBounds[1] : childPosition.scene.t, childPosition.scene.t, [childPosition.scene.l, childPosition.scene.r, pPosition.scene.t, withBounds === undefined])
+                addAnchorToSet( h, withBounds ? childPosition.scene.b - pPosition.scene.t + withBounds[1] : childPosition.scene.b, childPosition.scene.b, [childPosition.scene.l, childPosition.scene.r, pPosition.scene.t, withBounds === undefined])
+            }
+        }
+        function getAnchorLinesForNestedFrame( frame){
             if( !frame.parentRender ){
                 return {v:[], h:[]}
             }
 
             const v = {}, h ={}
-            function add( set, d, bounds){
-                if( !set[d] ){
-                    set[d] = []
-                }
-                set[d].push( bounds )
-            }
-
-            //const v = new Set(), h = new Set()
             const pPosition = framePosition(frame.parentRender)
-            /*v.add( pPosition.scene.l )
-            v.add( pPosition.scene.r )
-            h.add( pPosition.scene.t )
-            h.add( pPosition.scene.b )*/
-            add( v, pPosition.scene.l, [pPosition.scene.l, pPosition.scene.t, pPosition.scene.l, pPosition.scene.b])
-            add( v, pPosition.scene.r, [pPosition.scene.r, pPosition.scene.t, pPosition.scene.r, pPosition.scene.b])
-            add( h, pPosition.scene.t, [pPosition.scene.l, pPosition.scene.t, pPosition.scene.r, pPosition.scene.t])
-            add( h, pPosition.scene.b, [pPosition.scene.l, pPosition.scene.b, pPosition.scene.r, pPosition.scene.b])
-            for(const d of getNestedFrames(frame.parentRender)){
-                if( d.id === frame.id){
-                    continue
-                }
-                const childPosition = framePosition(d.id)
-                
-                /*v.add( childPosition.scene.l )
-                v.add( childPosition.scene.r )
-                h.add( childPosition.scene.t )
-                h.add( childPosition.scene.b )*/
-                add( v, childPosition.scene.l, [childPosition.scene.l, childPosition.scene.t, childPosition.scene.l, childPosition.scene.b])
-                add( v, childPosition.scene.r, [childPosition.scene.r, childPosition.scene.t, childPosition.scene.r, childPosition.scene.b])
-                add( h, childPosition.scene.t, [childPosition.scene.l, childPosition.scene.t, childPosition.scene.r, childPosition.scene.t])
-                add( h, childPosition.scene.b, [childPosition.scene.l, childPosition.scene.b, childPosition.scene.r, childPosition.scene.b])
-            }
+            addAnchorToSet( v, pPosition.scene.l, pPosition.scene.l, [pPosition.scene.t, pPosition.scene.b])
+            addAnchorToSet( v, pPosition.scene.r, pPosition.scene.r, [pPosition.scene.t, pPosition.scene.b])
+            addAnchorToSet( h, pPosition.scene.t, pPosition.scene.t, [pPosition.scene.l, pPosition.scene.r])
+            addAnchorToSet( h, pPosition.scene.b, pPosition.scene.b, [pPosition.scene.l, pPosition.scene.r])
+            getAnchorLinesForFrame( frame.parentRender, frame.id, undefined, v, h )
 
             return {h: Object.keys(h), v: Object.keys(v), segments: {h, v}}
-
-
         }
         function createFrameSelect(d){
             if( !myState.current.frameSelect ){
@@ -3416,9 +3538,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
                     snaps = getAnchorLinesForNestedFrame( renderItem )
                     const anchorLinesParent = renderAnchorLines( snaps, renderItem.parentRender)
-                    console.log(snaps)
-
-                    
 
                     thisTransformer.anchorDragBoundFunc((oldPos, newPos, e)=>{
                         if( snaps ){
@@ -3460,14 +3579,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             fx = (fx - px) / ps
                             fy = (fy - py) / ps
                         }
-
-                        //let {x,y,s} = getRelativeFramePosition(frame.id )
-                        /*if( thisTransformer._movingAnchorName.endsWith("-left") ){
-                            x = x + frame.node.attrs.width - - (frame.canvasMargin[1] + frame.canvasMargin[3]) - innerWidth
-                        }
-                        if( thisTransformer._movingAnchorName.startsWith("top-") ){
-                            y = y + frame.node.attrs.height - - (frame.canvasMargin[0] + frame.canvasMargin[2]) - innerHeight
-                        }*/
 
 
                         if( props.callbacks.resizeFrame ){

@@ -388,6 +388,7 @@ function SharedRenderView(d, primitive, myState) {
     const baseRenderView = {
       id: d.id,
       parentRender: view.parentRender,
+      isContainer: d.type === "page",
       pins,
       frameless,
       title,
