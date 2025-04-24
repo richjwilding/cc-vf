@@ -17,6 +17,8 @@ import PrimitivePicker from "./PrimitivePicker";
 import NewPrimitive from "./NewPrimitive";
 import { roundCurrency } from "./SharedTransforms";
 import UIHelper from "./UIHelper";
+import { Dropdown } from "./@components/dropdown";
+import { Combobox, ComboboxLabel, ComboboxOption } from "./@components/combobox";
   
 
 const ExpandArrow = function(props) {
@@ -80,7 +82,8 @@ export function Table(props) {
     const mapRows = (rows) =>{
         return rows.map((d)=>{
             return columns.reduce((r, c)=>{
-                r[c.accessorKey] = d[c.accessorKey]
+                let accessParam = c.accessorKey !== "id" && c.accessorKey !== "plainId" && c.accessorKey !== "title"                
+                r[c.accessorKey] = accessParam ? d[c.accessorKey] ?? d.referenceParameters?.[c.accessorKey] : d[c.accessorKey]
                 return r
             },{data: d.data, id: d.id})
         })
@@ -129,11 +132,26 @@ export function Table(props) {
     const [sorting, setSorting] = useState([])
     const [count, forceUpdate] = useReducer( (x)=>x+1, 0)
     const gridRef = useRef()
-    const columns = useMemo( ()=>mapColumns(props.columns), [props.columns.map(d=>d.id).join("-")])
+    const columns = useMemo( ()=>{
+        if(props.columns){
+            mapColumns(props.columns)
+        }else{
+            let dynamic = []
+            if( props.data?.length > 0){
+                if( typeof(props.data[0] === "object" && props.data[0].id )){
+                    const metadata = props.data.find(d=>d.metadata)?.metadata
+                    
+                    dynamic = metadata?.renderConfig?.table?.fields ?? [
+                            {field: 'plainId', title: "ID", width: 80},
+                            {field: 'title', title: "Title"},
+                        ]
+                    
+                }
+            }
+            return mapColumns( dynamic )
+        }
+    }, [props.columns?.map(d=>d.id).join("-")])
     const data = useMemo( ()=>mapRows(props.data) , [props.data.map(d=>d.id).join("-")])
-    //useDataEvent('set_title set_parameter relationship_update', ids, forceUpdate)
-
-    console.log('REDO TAV')
 
      const table = useReactTable({
                                 columns,
@@ -248,6 +266,8 @@ export function Table(props) {
 
       const alignTop = true
 
+      const pageOptions = [10,20,50,100].map(d=>({id: d, title: d}))
+
     return (
         <>
         <div key="table" className={`p-2 rounded-md overflow-y-scroll relative text-sm  ${props.className}`}>
@@ -341,6 +361,18 @@ export function Table(props) {
                 </>
             )})}
         </div>
+        </div>
+        <div className="w-full flex space-x-4">
+            <div className="w-full flex space-x-4 ">
+                <p>Rows per page</p>
+                <Combobox name="user" options={pageOptions} displayValue={d=>d?.title} defaultValue={pageOptions.find(d=>d.id === 10)}>
+                    {(option) => (
+                        <ComboboxOption value={option.id}>
+                            <ComboboxLabel>{option.title}</ComboboxLabel>
+                        </ComboboxOption>
+                    )}
+                </Combobox>
+            </div>
         </div>
         </>
    )

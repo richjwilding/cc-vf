@@ -137,7 +137,6 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
                                     
                                     let stateData = kG.original.parent.stateData
                                     let sourceState = stateData[frameId]
-                                    let list = sourceState.primitiveList ?? sourceState.list?.map(d=>d.primitive)
                                     if( sourceState.axisSource ){                                        
                                         let axisSource = sourceState.axisSource
                                         if( axisSource.inFlow && axisSource.configParent.flowElement ){
@@ -149,15 +148,12 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
                                     if( sourceState?.axis){
 
                                         
-                                        let infoPane = {
-                                            filters: [
+                                        let filters = [
                                                 PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
                                                 PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
-                                            ].filter(d=>d)
-                                        }
-                                        console.log(list)
-                                        console.log(infoPane.filters[0])
-                                        MainStore().sidebarSelect(sourceState.underlying, {forFlow: true, list, asList: true})
+                                            ].filter(d=>d)                                    
+                                        console.log(filters)
+                                        MainStore().sidebarSelect(sourceState.underlying, {forFlow: true, asList: true, filters})
                                     }
                                 }
                             },
