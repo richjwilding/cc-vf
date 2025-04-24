@@ -1537,10 +1537,11 @@ const Details = function({primitive, ...props}){
 
 const Title = function({primitive, ...props}){
   const [showParentLinksManager, setShowParentLinksManager ] = useState(false)
-  let color = primitive.stateInfo?.colorBase || "gray"
+  let color = primitive?.stateInfo?.colorBase || "gray"
   let relationshipConfig
   let relationship
   let metadataRender
+  if(!primitive)return <></>
   
   if( props.relationshipTo ){
     relationship = primitive.parentRelationship(props.relationshipTo)

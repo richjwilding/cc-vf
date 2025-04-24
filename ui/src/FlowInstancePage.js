@@ -58,7 +58,7 @@ export default function FlowInstancePage({primitive, ...props}){
         ])}>
                 <div className={clsx([
                     "w-full min-w-[30em] font-['Poppins'] @container",
-                    showOutput ? "w-[25vw] max-w-4xl p-6 " : "mx-auto max-w-6xl px-9 py-6 shadow-xl bg-white"
+                    showOutput ? "w-[25vw] max-w-2xl p-6 " : "mx-auto max-w-6xl px-9 py-6 shadow-xl bg-white"
                 ])}>
                     <div className={clsx([
                         "flex relative shadow-md",                    

@@ -128,7 +128,36 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
                                 //setActiveBoard(id)
                                 mainstore.sidebarSelect(id)
                             },
-                            primitive:(id)=>mainstore.sidebarSelect(id),
+                            primitive:(id, pageId, data, kG)=>{
+                                let stateData = kG.stateData?.[id]
+                                if( stateData?.primitive && stateData.config === "plain_object"){
+                                    const ids = stateData.object?.ids ? stateData.object.ids.filter(d=>d) : undefined
+                                    if( ids?.length > 0){
+                                        mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list: ids.map(d=>mainstore.primitive(d))})
+                                    }else if( stateData.object?.type === "text" || stateData.object?.type === "structured_text" ){
+                                        mainstore.sidebarSelect(stateData.primitive, {forFlow: true, plainData: stateData.object?.text.join("\n")})
+                                    }
+                                }else{
+                                    let data = stateData.list ?? stateData.primitiveList
+                                    let axisData = stateData.extents
+                                    if( stateData.axisSource ){
+                                        const parentId = stateData.axisSource.configParent?.id
+                                        if( parentId ){
+                                            const sourceState = kG.stateData[parentId]
+                                            const sourceData = sourceState.list ?? sourceState.primitiveList
+                                            if( sourceData ){
+                                                data = sourceData
+                                                axisData = sourceState.extents
+                                            }
+                                        }
+                                    }
+                                    if( data ){
+                                        mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list: data, axisData})
+                                    }else{
+                                        mainstore.sidebarSelect(id)
+                                    }
+                                }
+                            },
                             cell:(id, pageId, data, kG)=>{
                                 const cell = id?.[0]
                                 const frameId = kG?.original?.parent?.attrs?.id
@@ -153,7 +182,7 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
                                                 PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
                                             ].filter(d=>d)                                    
                                         console.log(filters)
-                                        MainStore().sidebarSelect(sourceState.underlying, {forFlow: true, asList: true, filters})
+                                        mainstore.sidebarSelect(sourceState.underlying, {forFlow: true, asList: true, filters})
                                     }
                                 }
                             },

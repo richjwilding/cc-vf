@@ -346,7 +346,7 @@ export function Sidebar({primitive, ...props}) {
 
     let sidebarContent
     if( props.forFlow ){
-        sidebarContent = <FlowContent primitive={primitive} props={props} />
+        sidebarContent = <FlowContent primitive={primitive} {...props} />
     }else{
         sidebarContent = <>
         {infoPane && infoPaneContent}

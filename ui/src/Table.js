@@ -3,12 +3,14 @@ import { PrimitiveCard } from "./PrimitiveCard";
 import { useReactTable, 
         flexRender, 
         createColumnHelper,
+        getFilteredRowModel,
         getSortedRowModel,
         SortingState,
         getCoreRowModel, 
+        usePagination,
         getPaginationRowModel} from '@tanstack/react-table'
 import MainStore from "./MainStore";
-import { ClipboardDocumentIcon, FlagIcon, MagnifyingGlassIcon, PlusCircleIcon } from "@heroicons/react/24/outline";
+import { ChevronDoubleLeftIcon, ChevronDoubleRightIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardDocumentIcon} from "@heroicons/react/24/outline";
 import useDataEvent from "./CustomHook";
 import { ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/solid";
 import { min } from "date-fns";
@@ -19,6 +21,8 @@ import { roundCurrency } from "./SharedTransforms";
 import UIHelper from "./UIHelper";
 import { Dropdown } from "./@components/dropdown";
 import { Combobox, ComboboxLabel, ComboboxOption } from "./@components/combobox";
+import { Input } from "./@components/input";
+import PrimitiveConfig from "./PrimitiveConfig";
   
 
 const ExpandArrow = function(props) {
@@ -40,8 +44,6 @@ function copyToClipboard( table ){
         }).join("")
     }).join("") + '</tr></thead>'
     const rows = table.getCoreRowModel().rows.map((row,idx) => {
-        const primitive = row.original.primitive
-        const primId = primitive.id
         return '<tr>' + row.getVisibleCells().map(cell => {
             let val = cell.column.columnDef.export ? cell.column.columnDef.export(cell) : cell.getValue() 
             val = val ?? ""
@@ -80,12 +82,18 @@ export function Table(props) {
         columnSizingStart: [],}
 
     const mapRows = (rows) =>{
-        return rows.map((d)=>{
+        return rows.map((row)=>{
             return columns.reduce((r, c)=>{
-                let accessParam = c.accessorKey !== "id" && c.accessorKey !== "plainId" && c.accessorKey !== "title"                
-                r[c.accessorKey] = accessParam ? d[c.accessorKey] ?? d.referenceParameters?.[c.accessorKey] : d[c.accessorKey]
-                return r
-            },{data: d.data, id: d.id})
+                /*let accessParam = c.accessorKey !== "id" && c.accessorKey !== "plainId" && c.accessorKey !== "title"                
+                if( c.fromStructure){
+                    r[c.accessorKey] = (d.referenceParameters?.structured_summary ?? []).find(d=>d.heading === c.accessorKey)?.content
+                }else{
+
+                    r[c.accessorKey] = accessParam ? d[c.accessorKey] ?? d.referenceParameters?.[c.accessorKey] : d[c.accessorKey]
+                }
+                return r*/
+                r[c.accessorKey] = row.getValue(c.accessorKey)
+            },{data: row.data, id: row.id})
         })
     }
     const mapColumns = (columns) =>{
@@ -118,6 +126,9 @@ export function Table(props) {
                     cell: info => <p className={d.wrap ? "" :"truncate"}>{info.getValue()}</p>,
                     header: () => d.name || d.title,
                     sortingFn: "alphanumeric",
+                    filterFn: 'includesString',
+                    accessorFn: d.accessorFn,
+                    fromStructure: d.fromStructure,
                     startSize: d.width ?? (d.field === "id" ? 100 : undefined),
                     startSize: width,
                     minSize: width
@@ -126,71 +137,131 @@ export function Table(props) {
         return fixed
     }
 
+    const [globalFilter, setGlobalFilter] = useState('')
+
+    const [pagination, setPagination] = useState({
+        pageIndex: 0,
+        pageSize: 20,
+      })    
+      
+
     const [totalWidth, setTotalWidth] = useState( null )
     const [selected, setSelected] = useState( null )
     const [focus, setFocus] = useState( null )
     const [sorting, setSorting] = useState([])
     const [count, forceUpdate] = useReducer( (x)=>x+1, 0)
     const gridRef = useRef()
+
+
+    function buildDynamicFieldsForPrimitiveList( data, getData = (r)=>r ){
+        let dynamic = [
+            {field: 'plainId', title: "ID", width: 80},
+            {field: 'title', title: "Title"},
+        ]
+        if(data){
+            const hasColumn = "column" in data[0] && data.find(d=>d.column)
+            const hasRow = "row" in data[0] && data.find(d=>d.row)
+            if(  hasColumn || hasRow ){
+                dynamic = buildDynamicFieldsForPrimitiveList( data.map(d=>d.primitive), (r)=>r.primitive )
+                dynamic.splice(2, 0,
+                    ...[ hasColumn && {field: 'column', title: "Column", width: 180, accessorFn: (r)=>{
+                        return r.column?.map(d=>props.axisData?.column[d]?.label).filter(d=>d).join(", ") ?? ""
+                    }},
+                    hasRow && {field: 'row', title: "Row", width: 180, accessorFn: (r)=>{
+                        return r?.row.map(d=>props.axisData?.row[d]?.label).filter(d=>d).join(", ") ?? ""
+                    }}].filter(d=>d),
+                )
+
+               return dynamic 
+            }
+        }
+        const metadata = data.find(d=>d?.metadata)?.metadata
+        if( metadata?.id === PrimitiveConfig.Constants.GENERIC_SUMMARY){
+            dynamic = [{field: 'plainId', title: "ID", width: 80}]
+            const seen = new Set()
+            data.forEach(d=>{
+                if( d.referenceParameters?.structured_summary ){
+                    d.referenceParameters.structured_summary.forEach(d=>{
+                        if( !seen.has(d.heading)){
+                            seen.add(d.heading)
+                            dynamic.push({
+                                field: d.heading, 
+                                title: d.heading,
+                                accessorFn: (r)=>getData(r).referenceParameters?.structured_summary?.find(d2=>d2.heading === d.heading)?.content
+                            })
+                        }
+                    })
+                }else{
+                    if( !seen.has("summary")){
+                        seen.add("summary")
+                        dynamic.push({field: `summary`, title: "Summary"})
+                    }
+                }
+            })
+
+        }else{
+            if( metadata?.renderConfig?.table?.fields){
+                dynamic =metadata.renderConfig.table.fields.map(d=>{
+                    return {
+                        ...d,
+                        accessorFn: (d.field === "plainId" || d.field === "id" || d.field === "title") ? (r)=>getData(r)?.[d.field] : (r)=>getData(r)?.referenceParameters?.[d.field]
+                    }
+                })
+            }
+        }
+        return dynamic.map(d=>({
+            ...d,
+            accessorFn: d.accessorFn ?? ((r)=>getData(r)?.[d.field])
+        }))
+    }
+
     const columns = useMemo( ()=>{
         if(props.columns){
             mapColumns(props.columns)
         }else{
             let dynamic = []
             if( props.data?.length > 0){
-                if( typeof(props.data[0] === "object" && props.data[0].id )){
-                    const metadata = props.data.find(d=>d.metadata)?.metadata
-                    
-                    dynamic = metadata?.renderConfig?.table?.fields ?? [
-                            {field: 'plainId', title: "ID", width: 80},
-                            {field: 'title', title: "Title"},
-                        ]
-                    
+                if( typeof(props.data[0] === "object") ){
+                    dynamic = buildDynamicFieldsForPrimitiveList( props.data )
                 }
             }
             return mapColumns( dynamic )
         }
     }, [props.columns?.map(d=>d.id).join("-")])
-    const data = useMemo( ()=>mapRows(props.data) , [props.data.map(d=>d.id).join("-")])
+    //const data = useMemo( ()=>mapRows(props.data) , [props.data.map(d=>d.id).join("-")])
 
      const table = useReactTable({
                                 columns,
-                                data,
+                                data: props.data,
                                 columnResizeMode: "onChange",
+                                globalFilterFn: 'includesString',
                                 state: {
                                     sorting,
-                                    pagination:{
-                                        pageIndex: props.page,
-                                        pageSize: props.pageItems
-                                    }
+                                    pagination,
+                                    globalFilter
                                   },
+                                  onGlobalFilterChange: setGlobalFilter,
+                                  onPaginationChange: setPagination,
                                 onSortingChange: setSorting,
                                 getCoreRowModel: getCoreRowModel(),
                                 getPaginationRowModel: getPaginationRowModel(),
+                                getFilteredRowModel: getFilteredRowModel(),
                                 getSortedRowModel: getSortedRowModel(),
                             });
  
-    useEffect(()=>{
-        console.log('update PAGES')
-        table.setPagination({
-            pageIndex: props.page,
-            pageSize: props.pageItems
-        })    
-    }, [props.page, props.pageItems])
 
     useLayoutEffect(()=>{
         if( gridRef.current ){
-        /*    const eWidths = {}
+           const eWidths = {}
             const style = window.getComputedStyle(gridRef.current.parentElement)
             const parentWidth = parseInt(style.width) - parseInt(style.paddingLeft) - parseInt(style.paddingRight) - 20
             setTotalWidth(parentWidth)
             Array.from(gridRef.current.children).slice(1, columns.length).forEach((el, idx)=>{
                 eWidths[columns[idx].accessorKey] = columns[idx].startSize ? (columns[idx].startSize < 1 ? columns[idx].startSize * parentWidth : columns[idx].startSize) : parentWidth / columns.length 
-                console.log(columns[idx].accessorKey, columns[idx].startSize,parentWidth,eWidths[columns[idx].accessorKey])
             })
 
             table.setColumnSizing( eWidths )
-         */   
+          
         }
     },[])
     const widths = table.options.state.columnSizing
@@ -267,13 +338,22 @@ export function Table(props) {
       const alignTop = true
 
       const pageOptions = [10,20,50,100].map(d=>({id: d, title: d}))
+      window.table = table
+      // Number of rows that pass your filters (but before you slice into pages)
+    const filteredCount = table.getFilteredRowModel().rows.length;
+    const totalCount = table.getPreFilteredRowModel().rows.length;
 
     return (
         <>
-        <div key="table" className={`p-2 rounded-md overflow-y-scroll relative text-sm  ${props.className}`}>
+        <UIHelper.DelayedInput
+          value={globalFilter ?? ''}
+          onChange={value => setGlobalFilter(value)}
+          placeholder="Search table..."
+        />
+        <div key="table" className={`my-2 rounded-md border overflow-y-scroll relative text-sm  ${props.className}`}>
             <button 
                 onClick={()=>copyToClipboard(table)}
-                className="absolute top-4" style={{zIndex:10000}}>
+                className="absolute top-2" style={{zIndex:10000}}>
                 <ClipboardDocumentIcon className="w-5 h-5 text-gray-200 hover:text-gray-800"/>
             </button>
         <div 
@@ -362,16 +442,21 @@ export function Table(props) {
             )})}
         </div>
         </div>
-        <div className="w-full flex space-x-4">
-            <div className="w-full flex space-x-4 ">
-                <p>Rows per page</p>
-                <Combobox name="user" options={pageOptions} displayValue={d=>d?.title} defaultValue={pageOptions.find(d=>d.id === 10)}>
-                    {(option) => (
-                        <ComboboxOption value={option.id}>
-                            <ComboboxLabel>{option.title}</ComboboxLabel>
-                        </ComboboxOption>
-                    )}
-                </Combobox>
+        <div className="w-full flex space-x-4 place-items-center text-sm justify-between pl-4">
+            {filteredCount === totalCount && <p className="flex shrink-0 text-gray-500 font-semibold">{totalCount} items</p>}
+            {filteredCount !== totalCount && <p className="flex shrink-0 text-gray-500 font-semibold">{totalCount} filtered to {filteredCount} items</p>}
+            <div className="flex space-x-6 place-items-center text-sm ">
+                <div className="flex space-x-4 w-48 place-items-center">
+                    <p className="flex shrink-0 text-gray-500 font-semibold">Rows per page</p>
+                    <UIHelper.OptionList name="rows_per_page" options={pageOptions} value={pagination.pageSize} onChange={d=>table.setPageSize(d)} zIndex={50} />
+                </div>
+                <div className="flex space-x-2 place-items-center">
+                    <p className="flex shrink-0 text-gray-500 font-semibold">Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() }</p>
+                    <UIHelper.Button disabled={!table.getCanPreviousPage()} icon={<ChevronDoubleLeftIcon className="size-4 my-1 -mx-1"/>} action={()=>table.setPageIndex(0)}/>
+                    <UIHelper.Button disabled={!table.getCanPreviousPage()} icon={<ChevronLeftIcon className="size-4 my-1 -mx-1"/>} action={()=>table.previousPage()}/>
+                    <UIHelper.Button disabled={!table.getCanNextPage()} icon={<ChevronRightIcon className="size-4 my-1 -mx-1"/>} action={()=>table.nextPage()}/>
+                    <UIHelper.Button disabled={!table.getCanNextPage()} icon={<ChevronDoubleRightIcon className="size-4 my-1 -mx-1"/>} action={()=>table.setPageIndex( table.getPageCount() - 1)}/>
+                </div>
             </div>
         </div>
         </>

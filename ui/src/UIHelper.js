@@ -163,6 +163,7 @@ function MyButton({options, name, title, type, tooltip, icon, small, action, cla
             title={tooltip}
             onClick={action ? ()=>action() : undefined}
             color="white"
+            disabled = {props.disabled}
             className={clsx(
                 '!font-normal gap-x-1',
                 small ? '!text-xs' : '!text-sm',
@@ -215,7 +216,7 @@ function Panel(props){
     )
 }
 function OptionList({options, name, title, type, ...props}){
-    const control = <Listbox name={name} value={props.value} defaultValue={props.defaultValue ?? props.default} onChange={props.onChange} placeholder={props.placeholder} zIndex={props.zIndex} small={props.small}>
+    const control = <Listbox name={name} value={props.value} defaultValue={props.defaultValue ?? props.default} onChange={props.onChange} placeholder={props.placeholder} zIndex={props.zIndex} small={props.small} className={props.className ?? ""}>
         {options.map(d=>(
             <ListboxOption value={d.id} small={props.small ? true : false}>
                 {d.icon && <HeroIcon icon={d.icon} className='w-4 h-4'/>}
@@ -338,6 +339,32 @@ function PrimitiveField({name, className, primitive, field, submitOnEnter, allow
     }
 };
 
+function DelayedInput({
+    value: initialValue,
+    onChange,
+    debounce = 500,
+    ...props
+  }){
+    const [value, setValue] = React.useState(initialValue)
+  
+    React.useEffect(() => {
+      setValue(initialValue)
+    }, [initialValue])
+  
+    React.useEffect(() => {
+      const timeout = setTimeout(() => {
+        onChange(value)
+      }, debounce)
+  
+      return () => clearTimeout(timeout)
+    }, [value])
+  
+    return (
+      <Input {...props} value={value} onChange={e => setValue(e.target.value)} />
+    )
+  }
+  
+
 
 MyDisclosure.Button = MyDisclosureButton
 MyDisclosure.Panel = MyDisclosurePanel
@@ -349,5 +376,6 @@ UIHelper.Panel = Panel
 UIHelper.Disclosure = MyDisclosure
 UIHelper.Button = MyButton
 UIHelper.IconButton = IconButton
+UIHelper.DelayedInput = DelayedInput
 UIHelper.AxisPicker = AxisPicker
 UIHelper.PrimitiveField = PrimitiveField
