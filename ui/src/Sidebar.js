@@ -19,6 +19,7 @@ import { InputPopup } from './InputPopup'
 import QueryCard from './QueryCard'
 import SummaryCard from './SummaryCard'
 import UIHelper from './UIHelper'
+import { Table } from './Table'
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -397,13 +398,26 @@ export function Sidebar({primitive, ...props}) {
                 <SummaryCard primitive={primitive} showDetails={true}/>
             </div>}
             {!infoPane && !isMulti && props.forFlow && <div className="pb-2 pl-4 pr-4 pt-4 " >
-                <span className="text-2xl font-bold text-gray-500">{primitive.configParent.title}</span>
+                <span className="text-2xl font-bold text-gray-500">{primitive.configParent?.title}</span>
                 <PrimitiveCard.Title primitive={primitive.configParent}/>
                 <div className='my-5 flex flex-col'>
-                    <p className="text-sm font-bold text-gray-500">Step instance details</p>
-                    <div className='border border-gray-200 rounded-md p-2 bg-gray-50 my-3'>
-                        <PrimitiveCard.OutputPins primitive={primitive}/>
-                    </div>
+                    {!props.asList && <>
+                            <p className="text-sm font-bold text-gray-500">Step instance details</p>
+                            <div className='border border-gray-200 rounded-md p-2 bg-gray-50 my-3'>
+                                <PrimitiveCard.OutputPins primitive={primitive}/>
+                            </div>
+                    </>}
+                    {props.asList &&<Table
+                                        primitive={primitive}
+                                        page={0}
+                                        pageItems={50}
+                                        onEnter={(d)=>MainStore().sidebarSelect(d)}
+                                        columns={[
+                                            {field: 'plainId', title: "ID", width: 80},
+                                            {field: 'title', title: "Title"},
+                                        ]}
+                                        data={props.list} 
+                                        className='w-full min-h-[24em] max-h-[60vh] !text-xs'/>}
                     <PrimitiveCard.Title primitive={primitive}/>
                 </div>
                 <button

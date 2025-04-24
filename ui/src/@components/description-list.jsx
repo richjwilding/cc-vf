@@ -7,7 +7,7 @@ export function DescriptionList({ className, ...props }) {
       className={clsx(
         className,
         'grid grid-cols-1 text-base/6 text-sm/6' ,
-        props.inContainer ? "@lg:!grid-cols-[min(40%,theme(spacing.40))_auto]" : 'sm:grid-cols-[min(40%,theme(spacing.80))_auto]'
+        props.inContainer ? "@lg:!grid-cols-[min(40%,theme(spacing.40))_minmax(0,1fr)]" : 'sm:grid-cols-[min(40%,theme(spacing.80))_minmax(0,1fr)]'
       )}
     />
   )

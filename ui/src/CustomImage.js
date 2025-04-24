@@ -515,7 +515,7 @@ getAverageColor(ctx, width, height) {
         }
       }
       this.pcache._canvas_context.drawImage(this.maxImage, 0, 0, this.pcache.width, this.pcache.height);
-      if(!this.avgColorComputed){
+      if(!this.avgColorComputed && this.pcache._canvas.width > 0 && this.pcache._canvas.height > 0 ){
         this.avgColorComputed = true
         CustomImage.requestAverageColorFromWGL( this )
       }

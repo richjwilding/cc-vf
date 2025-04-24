@@ -8,23 +8,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { unpack, pack } from 'msgpackr';
 import CollectionUtils from "./CollectionHelper";
 
- export function __uniquePrimitives(list){
-        const ids = new Set();
-        return list.filter((p) => {
-            if (p === undefined) {
-             //   console.warn(`undefined primitive`);
-                return false;
-            }
-            if (ids.has(p.id)) {
-                return false;
-            }
-            ids.add(p.id);
-            return true;
-        });
-    };
-    
-
-export function uniquePrimitives(list) {
+export function _uniquePrimitives(list) {
     if (!Array.isArray(list) || list.length === 0) {
         return [];
     }
@@ -47,26 +31,891 @@ export function uniquePrimitives(list) {
     return result; // Return the array of unique primitives
 }
 
-function doStep(data, step, scope){
+export function uniquePrimitives(list = []) {
+    const seen = Object.create(null);
+    const result = [];
+  
+    for (const p of list) {
+      if (!p) continue;
+      const pid = p.id;
+  
+      if (!seen[pid]) {
+        seen[pid] = true;
+        result.push(p);
+      }
+    }
+  
+    return result;
+  }
+
+
+const actions = {
+    id(d, receiver){
+        return d.id
+    },primitives(d, receiver, obj){
+        return new Proxy( d.primitives , obj.structure )
+    },
+    _primitives(d, receiver, obj){
+        return d.primitives
+    },
+    plainId(d, receiver, obj){
+        return d.plainId
+    },
+    doesImport(d, receiver, obj){
+        return (id, filters)=>{
+            //console.log(`Check primitive `, id, receiver.id)
+            return PrimitiveConfig.checkImports( receiver, id, filters)
+        }
+    },
+    filterItems(d, receiver, obj){
+        return (list, filters)=>{
+            let thisSet = undefined
+            for(const filter of filters ){
+                
+                let {resolvedFilterType, pivot, relationship, check, includeNulls, skip, isRange} = PrimitiveConfig.commonFilterSetup( filter )
+                if( skip){
+                    continue
+                }
+                const setToCheck = (thisSet || list)
+
+                window.mytimer = window.mytimer  ?? 0
+                const p1 = performance.now()
+                let lookups = setToCheck.map(d=>pivot === 0 ? [d] : d.relationshipAtLevel(relationship, pivot))
+                if( pivot === 1){
+
+                    window.mytimer += performance.now() - p1
+                }
+
+                let scope
+                if( filter.type === "parent"){
+                    if( filter.sourcePrimId ){
+                        let filterSourcePrimitive = obj.primitive(filter.sourcePrimId)
+                        const isMongoId = (str) => /^[a-fA-F0-9]{24}$/.test(str);
+                        if( filter.value && Array.isArray(filter.value) && filter.value.find(d=>!isMongoId(d))){
+                            if( filterSourcePrimitive.referenceId === PrimitiveConfig.Constants.EVAL_CATEGORIZER){
+                                const relevantInstance = filterSourcePrimitive.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes(receiver.originId))
+                                if( relevantInstance ){
+                                    const embedded = relevantInstance.primitives.origin.allCategory[0]
+                                    if( embedded ){
+                                        const children = embedded.primitives.allItems
+                                        scope = embedded.primitives.allIds
+                                        check = check.map(d=>children.find(d2=>d2.title === d)?.id ?? d)
+                                    }
+
+                                }
+                            }
+                        }else{
+                            scope = filterSourcePrimitive?.primitives.allIds ?? []
+                        }
+                    }
+                }else if( filter.type === "segment_filter"){
+                    scope = [filter.sourcePrimId]
+                }else if( filter.subtype === "question"){
+                    const prompts = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "prompt"})).flat()),
+                    scope = prompts.map(d=>d.id)
+                    check = check.map(d=>prompts.filter(d2=>d2.parentPrimitiveIds.includes(d))).flat().map(d=>d.id)
+                }else if( filter.subtype === "search"){
+                    if( includeNulls){
+                        scope = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "search"})).flat()).map(d=>d.id)
+                    }
+                }else if(filter.type === "not_category_level1"){
+                    includeNulls = true
+                    check = []
+                    if( filter.sourcePrimId ){
+                        scope = obj.primitive(filter.sourcePrimId).primitives.allIds
+                    }
+                }
+                    
+                
+                thisSet = PrimitiveConfig.doFilter( {resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, {parentIds:(primitive)=>primitive.parentPrimitiveIds})
+            }
+            return thisSet || list
+        }                        
+    },
+    fetchItemsForAction(d, receiver, obj){
+        return (options = {})=>{
+
+            let list = []
+            let primitive = receiver
+            let source = options.source ?? primitive
+            
+            
+            let type = primitive.referenceParameters?.type 
+            const target = primitive.referenceParameters?.target || "children"
+            const referenceId = primitive.referenceParameters?.referenceId 
+            const constrainIds = primitive.primitives.params?.constrain_parent_chain.allIds
+
+            console.log(constrainIds)
+            
+            if(target === "descend"){
+                list = source.primitives.strictDescendants
+            }else if(target === "all_descend"){
+                list = source.primitives.descendants
+            }else if(target === "ref"){
+                list = source.primitives.ref.uniqueAllItems
+            }else if(target === "link"){
+                list = source.primitives.link.uniqueAllItems
+            }else if(target === "children"){
+                list = source.primitives.origin.uniqueAllItems
+            }else if(target === "items"){
+                list = source.itemsForProcessing
+            }else if( target === "hierarchy"){
+                list = source.findParentPrimitives({referenceId: referenceId ? [referenceId] : undefined, type: type ? [type] : undefined, first: true})
+            }
+            
+            if( type ){
+                list = list.filter((d)=>d.type === type)
+            }
+            if( referenceId ){
+                list = list.filter((d)=>d.referenceId === referenceId)
+            }
+            
+            if( list === undefined){
+                return []
+            }
+            if( constrainIds.length > 0){
+                const validIds = obj.primitive(constrainIds[0]).itemsForProcessing.map(d=>d.id)
+                
+                list = list.filter(d=>validIds.includes(d.id))
+            }
+            
+            return list
+        }
+    },
+    itemsForProcessing(d, receiver, obj){
+        return receiver.itemsForProcessingWithOptions()
+    },
+    itemsForProcessingWithParams(d, receiver, obj){
+        return (p)=>{
+            return receiver.itemsForProcessingWithOptions(undefined, {params: p})
+        }
+    },
+    itemsForProcessingWithFilter(d, receiver, obj){
+        return (f,o)=>{
+            let items = receiver.itemsForProcessingWithOptions(undefined, o)
+            if( f && f.length > 0){ 
+                return receiver.filterItems( items, f)
+            }else{
+                return items
+            }
+        }
+    },
+    filterTargets(d, receiver, obj){
+        if( receiver.referenceParameters?.importConfig ){
+            const idsToLookup = []
+            let relationships = []
+            let doImport
+            let importFrom = receiver
+            let importFilter
+            receiver.referenceParameters.importConfig.forEach(d2=>{
+                return d2.filters.forEach( d=>{
+                    if( d.type === "parent"){
+                        idsToLookup.push(d.value)
+                    }else if( d.type === "title" || d.type === "parameter"){
+                        doImport = true
+                        if( d.relationship ){
+                            relationships.push(d.relationship)
+                        }
+                        importFilter = (d3)=>d3.title === d.value
+                        importFrom = obj.primitive( d2.id )
+                    }
+                })
+            })
+            if( doImport && (relationships.length > 0 || importFilter)){
+                let items = importFrom.itemsForProcessing
+                let mapped = []
+                if( relationships.length > 0){
+
+                    for(const rel of relationships){
+                        mapped.push(items.flatMap(d=>d.relationshipAtLevel(rel ?? "origin", rel?.length ?? 1)))
+                    }
+                    mapped = uniquePrimitives(mapped.flat(Infinity))
+                }else{
+                    mapped = items
+                }
+                if( importFilter ){
+                    mapped = mapped.filter(importFilter)
+                }                                
+                return mapped
+            }
+            if( idsToLookup.length > 0){
+                return uniquePrimitives(idsToLookup.flatMap(d=>obj.primitive(d)?.filterTargets))
+            }
+            return []
+        }
+        return [receiver]
+    },
+    filterDescription(d, receiver, obj){
+       return receiver.filterTargets.map(d=>d.title).join(", ")
+    },
+    itemsForProcessingFromImport(d, receiver, obj){
+        return (p, o)=>receiver.itemsForProcessingWithOptions(p.id, o)
+    },
+    itemsForProcessingWithOptions(d, receiver, obj){
+        return (id, options = {})=>{
+            if( !options.cache ){
+                options.cache = {}
+            }
+            const excludedTypes = new Set(["segment", "category", "query", "report", "reportinstance"]);
+
+            if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "summary" && receiver.type !== "search"))){
+                let fullList = []
+                let loops = 0 
+                for( const source of receiver.primitives.imports.allItems){
+                    if( id && source.id !== id){
+                        continue
+                    }
+                    let list = []
+                    if( source.type === "flow" && !receiver.inFlow){
+                        const instances = source.primitives.origin.allUniqueFlowInstance
+                        const address = source.primitives.outputs.paths(receiver.id)[0]
+                        if( address ){
+                            const [outputPin, inputPin] = address.slice(1).split("_")
+                            return uniquePrimitives(instances.flatMap(d=>d.outputs[outputPin]?.data))
+                        }
+                        return uniquePrimitives(instances.flatMap(d=>d.outputs.output?.data))
+                    }else if( source.inFlow && !receiver.inFlow){
+                        const address = source.primitives.outputs.paths(receiver.id)[0]
+                        if( address ){
+                            const [outputPin, inputPin] = address.slice(1).split("_")
+                            return source.outputs[outputPin]?.data ?? []
+                        }
+                        //return source.itemsForProcessing
+                    }else{
+                        const addresses = source.primitives.outputs.paths(receiver.id)
+                        let done = false
+                        for(const address of addresses){
+                            if( address && address !== '.impout_impin' && address !== '.impin_impin'){
+                                const [outputPin, inputPin] = address.slice(1).split("_")
+                                if( source.type === "flowinstance" && receiver.origin.id === source.id ){
+                                    fullList = fullList.concat( source.inputs[outputPin]?.data ?? [] )
+                                    done = true
+                                }else{
+                                    fullList = fullList.concat( source.outputs[outputPin]?.data ?? [] )
+                                    done = true
+                                }
+                            }
+                        }
+                        if( done ){
+                            continue
+                        }
+
+                    }
+                    let node = source.primitives
+                    if( Object.keys(node).includes("imports")  ){
+                        const test = options.cache[source.id]
+                        if( test ){
+                            list = test
+                        }else{
+                            list = list.concat(source.itemsForProcessingWithOptions(undefined, {cache:options.cache}) )
+                            options.cache[source.id] = list
+                        }
+                    }else{
+                        if( receiver.referenceParameters?.path ){
+                            node = node.fromPath(receiver.referenceParameters?.path)
+                        }
+                        if( !receiver.referenceParameters?.path && source.type === "segment"){
+                            list = source.nestedItems
+                        }else{
+                            list = node.uniqueAllItems
+                        }
+                    }
+                    let params = options.params ?? receiver.getConfig
+                    if( params.descend ){
+                        if( params.referenceId ){
+                            let noExpandIds = new Set()
+                            if( params.referenceId ){
+                                const match = params.referenceId
+                                if( Array.isArray(match)){
+                                    list.forEach(d=>{
+                                        if(match.includes(d.referenceId)){
+                                            noExpandIds.add(d.id)
+                                        }
+                                    })
+                                }else{
+                                    list.forEach(d=>{
+                                        if(d.referenceId === match){
+                                            noExpandIds.add(d.id)
+                                        }
+                                    })
+                                }
+                            }
+                            list = list.flatMap(d=>{
+                                if( noExpandIds.has(d.id)){
+                                    return d
+                                }
+                                return [d,d.primitives.strictDescendants]
+                            }).flat().filter(d=>d)
+                        }else{
+                            list = list.flatMap(d=>[d,d.primitives.strictDescendants]).flat().filter(d=>d)
+                        }
+                        list = uniquePrimitives(list)
+                    }
+                    if( params.referenceId ){
+                        const match = params.referenceId
+                        if( Array.isArray(match)){
+                            list = list.filter(d=>match.includes(d.referenceId))
+                        }else{
+                            list = list.filter(d=>d.referenceId === match) 
+                        }
+                    }
+                    if( params.type ){
+                        list = list.filter(d=>d.type === params.type) 
+                    }
+                    if( receiver.type === "actionrunner"){
+                        list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
+                    }
+                    let config
+                    
+                    config = receiver.referenceParameters?.importConfig?.filter(d=>d.id === source.id)
+                    if( config && config.length > 0){
+                        let filterOut
+                        for(const set of config ){
+                            if( set.filters ){
+                                filterOut ||= []
+                                let thisSet = receiver.filterItems(list, set.filters)
+                                if( thisSet ){
+                                    filterOut = filterOut.concat( thisSet )
+                                }
+                            }
+                        }
+                        list = filterOut ?? list
+                        for(const set of config ){
+                            if( set.referenceId ){
+                                list = uniquePrimitives( list.flatMap(d=>d.primitives.filter(d=>d.referenceId === set.referenceId)))
+                            }
+                        }
+                    }
+                    if( receiver.referenceParameters?.pivot){
+                        if( typeof(receiver.referenceParameters?.pivot) === "number"){
+                            list = list.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot)).flat()
+                        }else{
+                            list = uniquePrimitives(list.flatMap(d=>d.relationshipAtLevel(receiver.referenceParameters.pivot, receiver.referenceParameters.pivot.length)))
+                        }
+                    }
+                    fullList = fullList.concat(list) 
+                    loops++
+                }
+                if(receiver.type === "view"  && !options.ignoreFinalViewFilter){
+                    let viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
+                    if( viewFilters.length === 0 && receiver.inFlow){
+                        if( receiver.configParent  ){
+                            viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver.configParent )
+                        }
+                    }
+                    if( loops > 1){
+                        fullList = uniquePrimitives(fullList)
+                        loops = 1
+                    }
+                    fullList = receiver.filterItems(fullList, viewFilters)
+                }
+                return loops > 1 ? uniquePrimitives(fullList) : fullList
+            }else if(receiver.type === "flowinstance"){
+                return []
+            }else if(receiver.type === "summary"){
+                return [receiver]
+            }else{
+                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs" ).map(d=>receiver.primitives[d].allIds).flat()
+                let list = []
+                const check = new Set()
+                for( const d of ids ){
+                    if( !check.has(d)){
+                        check.add(d)
+                        const p = obj.primitive(d)
+                        if( p ){
+                            list.push(p)
+                        }
+                    }
+                }
+                if( receiver.type === "query" || receiver.type  === "segment" || receiver.type === "search"){
+                    if( receiver.type === "query" && !options.ignoreFinalViewFilter){
+                        const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
+                        list = receiver.filterItems(list, viewFilters)
+                    }
+                    if( receiver.type === "search"){
+                        const nestedSearch = [receiver, ...receiver.primitives.origin.allSearch].filter(d=>d)
+                        list = nestedSearch.flatMap(d=>d.primitives.uniqueAllItems)
+                    }
+                    let params = options.params ?? receiver.getConfig
+                    if( params.extract ){
+                        const check = [params.extract].flat()
+                        list = list.filter(d=>check.includes(d.referenceId))
+                    }
+                    list = list.filter(d => !excludedTypes.has(d.type));
+                }
+                return list
+            }                        
+        }
+    },
+    referenceParameters(d, receiver, obj){
+        if( !d._referenceParameters){
+            d._referenceParameters = d.referenceParameters || {}
+            d.referenceParameters = new Proxy( d._referenceParameters, obj.referenceParametersParser)
+        }
+        if( d.type === "assessment"){
+            if( !d._referenceParameters.levels ){
+                d._referenceParameters.levels = {}
+            }
+        }
+        return d.referenceParameters
+    },
+    origin(d, receiver, obj){
+        if( d._origin){
+            return d._origin 
+        }
+        //let origin = receiver.parentPrimitiveRelationships["origin"]
+        let originId = receiver.originId
+        if( originId ){
+            const origin = obj.primitive(originId)
+            d._origin = origin
+            return origin
+        }
+    },
+    originId(d, receiver, obj){
+        let id = undefined;
+        if (receiver._parentPrimitives) {
+            for (const key in receiver._parentPrimitives) {
+                if (receiver._parentPrimitives[key].includes("primitives.origin")) {
+                    id = key;
+                    break;
+                }
+            }
+        }
+        return id
+    },
+    outputs(d, receiver, obj){
+        if( receiver.type === "flow" || receiver.type === "flowinstance"){
+            return receiver.fetchInputs(undefined, "outputs" , "output")
+        }
+        let outputMap = PrimitiveConfig.getOutputMap(receiver)
+        const out = {}
+        const c = {}
+        const lookupCache = {}
+        for(const d of outputMap){
+            let targetMap = c[d.targetId]
+            if( d.outputPin !== "impout" && d.targetPin === "impin"){
+                const query = receiver.metadata?.pins?.output?.[d.outputPin]?.query
+                if( query ){
+                    out[d.outputPin] = {data: receiver.follow(receiver.metadata?.queries?.[query]?.steps ?? [], lookupCache)}
+                }else{
+                    console.error(`Cant handle pin connected to import without query`, d)
+                }
+            }else{
+                if(!targetMap){
+                    const target = obj.primitive( d.targetId )
+                    targetMap = target.fetchInputs( receiver.id)
+                    c[d.targetId] = targetMap
+                }
+                out[d.outputPin] = targetMap[d.targetPin]
+            }
+        }
+        return out
+    },
+    inFlow(d, receiver, obj){
+        if( receiver.flowElement){
+            return true
+        }
+        const configParent = receiver.parentPrimitiveWithRelationship("config")?.[0]
+        if( configParent?.flowElement ){
+            return true
+        }
+        return false
+    },
+    inputPinsWithStatus(d, receiver, obj){
+        const pins = receiver.inputPins
+        return Object.keys(pins).reduce((a,pinName)=>{
+            a[pinName] = {
+                ...pins[pinName],
+                connected: pinName === "impin" ? receiver.primitives.imports.allIds.length > 0 : Object.keys(receiver.primitives.inputs).some(d=>d.endsWith(`_${pinName}`))
+            }
+            return a
+        },{})
+    },
+    outputPinsWithStatus(d, receiver, obj){
+        const pins = receiver.outputPins
+        return Object.keys(pins).reduce((a,pinName)=>{
+            a[pinName] = {
+                ...pins[pinName],
+                connected: pinName === "impout" ? Object.values(receiver._parentPrimitives ?? {}).some(d=>d.some(d=>d === "primitives.imports")) : Object.values(receiver._parentPrimitives).some(d=>d.some(d=>d.startsWith(`primitives.inputs.${pinName}_`)))
+            }
+            return a
+        },{})
+    },
+    inputPins(d, receiver, obj){
+        let dynamicPinSource = receiver
+        let generatorPins = {}
+        if(receiver.type === "flowinstance"){
+            dynamicPinSource = receiver.origin
+        }else if( !receiver.flowElement ){
+            dynamicPinSource = receiver.configParent ?? receiver
+        }
+        if( receiver.type === "actionrunner"){
+            const rConfig  = dynamicPinSource.getConfigWithoutOverrides()                                
+            if( rConfig.generator){
+                const generateTarget = obj.category( rConfig.generator)
+                generatorPins = generateTarget?.ai?.generate?.inputs ?? {}
+            }
+        }
+        return {
+            ...receiver._pins("input"),
+            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs"),
+            ...generatorPins
+        }
+    },
+    outputPins(d, receiver, obj){
+        const dynamicPinSource = receiver.type === "flowinstance" ? receiver.origin : receiver
+        return {
+            ...receiver._pins("output"),
+            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "outputs")
+        }
+
+    },
+    _pins(d, receiver, obj){
+        return (mode = "input")=>{
+            const base = {
+                ...(receiver.metadata?.pins?.[mode] ?? {})
+            }
+            if( receiver.type === "query" || receiver.type === "view"){
+                if( mode === "output"){
+                    base["rowAxis"] =  {name: "Axis (row)", types: ["primitive", "string"]}
+                    base["colAxis"] =  {name: "Axis (col)", types: ["primitive", "string"]}
+                }else{
+                    base["rowAxis"] =  {name: "Axis (row)", types: ["primitive","string"]}
+                    base["colAxis"] =  {name: "Axis (col)", types: ["primitive", "string"]}
+                }
+            }
+            if( mode === "output" && receiver.type === "flow"){
+                return base
+            }
+            return {
+                [mode === "input" ? "impin" : "impout"]:{
+                    name: `Imports ${mode}`,
+                    types: ["primitive"]
+                },
+                ...base
+            }
+        }
+    },
+    fetchInputs(d, receiver, obj){
+        return (sourceId, mode = "inputs", pinMode = "input")=>{
+            let inputMap = PrimitiveConfig.getInputMap(receiver, mode)
+            if( sourceId ){
+                inputMap = inputMap.filter(d=>d.sourceId === sourceId)
+            }
+            
+            inputMap = inputMap.map(d=>{
+                let sourcePrimitive = obj.primitive(d.sourceId)
+                let sourcePinConfig = sourcePrimitive.metadata?.pins?.output?.[d.sourcePin]
+
+                if( sourcePrimitive.type === "flow" || sourcePrimitive.type === "flowinstance"){
+                    const flow = sourcePrimitive.type === "flow" ? sourcePrimitive : sourcePrimitive.findParentPrimitives({type: ["flow"]})[0]
+
+                    if( flow.referenceParameters?.controlPins?.[d.sourcePin]){
+                        sourcePrimitive = flow
+                        sourcePinConfig = {
+                            ...flow.referenceParameters?.controlPins?.[d.sourcePin],
+                            source: `param.${d.sourcePin}`
+                        }                                        
+                    }else if( flow.referenceParameters?.inputPins?.[d.sourcePin]){
+                        sourcePrimitive = sourcePrimitive
+                        sourcePinConfig = {
+                            ...flow.referenceParameters?.inputPins?.[d.sourcePin],
+                            source: `param.${d.sourcePin}`
+                        }                                        
+                    }else if( flow.referenceParameters?.outputPins?.[d.sourcePin]){
+                        sourcePrimitive = sourcePrimitive
+                        sourcePinConfig = {
+                            ...flow.referenceParameters?.outputPins?.[d.sourcePin],
+                            source: `param.${d.sourcePin}`
+                        }                                        
+                    }
+                }
+                const inputMapSource = receiver.type === "flowinstance" ? receiver.origin : receiver
+                //let inputMapConfig = inputMapSource.metadata?.pins?.[pinMode]?.[d.inputPin]
+
+                //let inputMapConfig = receiver._pins(pinMode)[d.inputPin]
+                let inputMapConfig = inputMapSource._pins(pinMode)[d.inputPin]
+                
+                if( inputMapConfig?.hasConfig ){
+                    const localConfig = inputMapSource.getConfigWithoutOverrides().pins?.[d.inputPin] ?? {}
+                    inputMapConfig = {
+                        ...inputMapConfig,
+                        ...localConfig
+                    }
+                }
+                return {
+                    ...d,
+                    sourcePrimitive,
+                    sourcePinConfig,
+                    inputMapConfig
+            }})
+
+            //const dynamicPinSource = receiver.type === "flowinstance" ? receiver.origin : receiver
+            let dynamicPinSource = receiver
+            if(receiver.type === "flowinstance"){
+                dynamicPinSource = receiver.origin
+            }else if( !receiver.flowElement ){
+                dynamicPinSource = receiver.configParent ?? receiver
+            }
+            let dynamicPins = dynamicPinSource.type === "categorizer" || dynamicPinSource.type === "flow" || dynamicPinSource.type === "action" || dynamicPinSource.type === "query" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "page" ? PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs") : {}
+            
+
+            if( (receiver.type === "flow" || receiver.type === "flowinstance") && mode === "outputs"){
+                dynamicPins = {
+                    ...dynamicPins,
+                    ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "outputs")
+                }
+            }
+            let generatorPins = {}
+            if( receiver.type === "actionrunner"){
+                const rConfig  = receiver.getConfigWithoutOverrides()                                
+                if( rConfig.generator){
+                    const generateTarget = obj.category( rConfig.generator)
+                    generatorPins = generateTarget?.ai?.generate?.inputs ?? {}
+
+                    dynamicPins = {
+                        ...dynamicPins,
+                        ...generatorPins
+                    }
+                }
+            }
+
+            let interim = PrimitiveConfig.alignInputAndSource(inputMap,  dynamicPins)
+
+            for(const d of interim){
+                if( d.sourceTransform === "imports"){
+                    d.sources = d.sourcePrimitive.itemsForProcessing
+                }else if( d.sourceTransform === "pin_relay"){
+                    if( receiver.type === "flowinstance"){
+                        const fis = receiver.primitives.subfi.allItems.filter(d2=>Object.keys(d2._parentPrimitives ?? {}).includes(d.sourcePrimitive.id))
+                        d.sources = fis.flatMap(d2=>d2.outputs[d.sourcePin]?.data)
+                    }else{
+                        if( receiver.origin.type === "flowinstance"){
+                            d.sources = receiver.origin.inputs[d.sourcePin]?.data
+                        }
+                    }
+                }else if( d.sourceTransform === "get_axis"){
+                    const items = d.sourcePrimitive.itemsForProcessing
+                    const extents = CollectionUtils.mapCollectionByAxis(items, CollectionUtils.primitiveAxis(d.sourcePrimitive, d.axis, items)).extents.column
+                    if(d.inputMapConfig.types.includes("primitive")){
+                        d.pass_through = extents.map(d=>d.primitive ?? obj.primitive(d.idx)).filter(d=>d)
+                        //d.pass_through = extents.map(d=>d.primitive)
+                        d.passThroughCoonfig = "primitive"
+                    }else{
+                        d.pass_through = extents.filter(d=>d?.idx !=="_N_").map(d=>{
+                            if( d.primitive ){
+                                if(d.primitive.type === "category"){
+                                    return `${d.primitive.title}: ${d.primitive.referenceParameters.description}`
+                                }
+                                return d.title
+                            }
+                            return d.label
+                        })
+                        d.passThroughCoonfig = "string"
+                    }
+                }else if( d.sourceTransform === "filter_imports"){
+                    const items = d.sourcePrimitive.itemsForProcessing
+                    const {data, extents} = CollectionUtils.mapCollectionByAxis(items, CollectionUtils.primitiveAxis(d.sourcePrimitive, "col", items), CollectionUtils.primitiveAxis(d.sourcePrimitive, "row", items))
+                    const colMap = extents.column.reduce((a,c)=>{
+                        a[c.idx] = c.label
+                        return a
+                    },{})
+                    const rowMap = extents.row.reduce((a,c)=>{
+                        a[c.idx] = c.label
+                        return a
+                    },{})
+
+
+                    d.sourceBySegment = data.reduce((a,d)=>{
+                        const desc = [colMap[d.column],rowMap[d.row]].filter(d=>d && d.length > 0).join(" - ")
+                        a[desc] ||= []
+                        a[desc].push( d.primitive )
+                        return a
+                    }, {})
+                    /*
+                    const sourceSegments = uniquePrimitives(itp.flatMap(d=>d.findParentPrimitives({type: ["segment"]})))
+                    d.sourceBySegment = sourceSegments.reduce((a,d)=>{
+                        const desc = d.filterDescription
+                        a[desc] ||= []
+                        a[desc] = a[desc].concat( itp.filter(d2=>Object.keys(d2._parentPrimitives ?? {}).includes(d.id)))
+                        return a
+                    }, {})*/
+                }else if( d.sourceTransform === "child_list_to_string"){
+                    d.sources = d.sourcePrimitive.itemsForProcessing
+                }
+            }
+            let final = PrimitiveConfig.translateInputMap(interim)
+            
+            return final
+        }
+    },inputs(d, receiver, obj){
+        return receiver.fetchInputs(undefined)
+    },
+    originTask(d, receiver, obj){
+        let origin = receiver.origin
+        if( origin ){
+            if( ["experiment","activity"].includes(origin.type) ){
+                return origin
+            }
+            return origin.findParentPrimitives({type: ["experiment", "activity"]})[0]
+        }
+        return undefined
+    },
+    _parentPrimitives(d, receiver, obj){
+        return d.parentPrimitives
+    },
+    parentPrimitives(d, receiver, obj){
+        const parents = receiver.parentPrimitiveIds.map((d)=>obj.primitive(d)).filter((d)=>d)
+        return parents
+    },
+    parentPrimitiveIds(d, receiver, obj){
+        if( d._ppIdCache ){
+            return d._ppIdCache
+        }
+
+        d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports") && !d.parentPrimitives[p].find(d=>d.startsWith("primitives.inputs."))) : []
+        return d._ppIdCache
+    },
+    parentPrimitiveIdsAsSource(d, receiver, obj){
+        let out = []
+        if( d.parentPrimitives ){
+            out = Object.keys(d.parentPrimitives).filter(k=>{
+                return d.parentPrimitives[k].some(d => d.startsWith("primitives.source"))
+            })
+        }
+        return out
+    },
+    parentPrimitivesAsSource(d, receiver, obj){
+        return receiver.parentPrimitiveIdsAsSource.map(d=>obj.primitive(d))
+    },
+    parentPrimitiveWithRelationship(d, receiver, obj){
+        return (relationship)=>{
+            let out
+            let [rel, rId] = relationship ? relationship.split(":") : []
+            if( rId !== undefined){
+                rId = parseInt(rId)
+            }
+
+            let ids
+            const pp = d.parentPrimitives
+            if( pp ){
+                if( rel === "origin_link_result"){
+                    ids = Object.keys(pp).filter(k=>{
+                        const arr = d.parentPrimitives[k];
+                        if (!Array.isArray(arr) || arr.length === 0) return false;
+                      
+                        for (let i = 0, len = arr.length; i < len; i++) {
+                          const s = arr[i];
+                          if (s.endsWith('.origin') || s.endsWith('.link'))  {
+                            return true;
+                          }
+                      
+                          const lastDot = s.lastIndexOf('.');
+                          if (lastDot > 0) {
+                            if( s.slice(0, lastDot).endsWith(".results")){
+                                return true
+                            }
+                            /*const prevDot = s.lastIndexOf('.', lastDot - 1);
+                            if (s.slice(prevDot + 1, lastDot) === 'results') {
+                              return true;
+                            }*/
+                          }
+                        }
+                      
+                        return false;
+                    })
+                }else{
+                    const check = `.${rel}`
+                    ids = Object.keys(pp).filter(k=>pp[k].some(d => d.endsWith(check)))
+                }
+                
+                if( ids.length === 0){
+                    return
+                }
+                if( rId ){
+                    //const _out = ids.map(id=>obj.primitive(id)).filter(d=>rId === d.referenceId)
+                    /*
+                     out = []
+                    for(const id of ids){
+                        const d = obj.primitive(id)
+                        if( rId === d.referenceId){
+                            out.push(d)
+                        }
+                    }
+                        */
+                       {
+                    out = new Array(ids.length);
+                    // 2) Hold a write-index manually
+                    let write = 0;
+                    
+                    for (let i = 0, len = ids.length; i < len; i++) {
+                      const d = obj.primitive(ids[i]);
+                      if (d.referenceId === rId) {
+                        out[write++] = d;
+                      }
+                    }
+                    // 3) Trim off any unused slots at the end
+                    out.length = write;
+                }
+                }else{
+                    out = ids.map(id=>obj.primitive(id))
+                }
+                
+            }
+            return out
+        }
+    },parentPrimitiveRelationships(d, receiver, obj){
+        return receiver.parentPrimitives.reduce((o, p)=>{
+            let rels = [receiver.parentRelationship(p)].flat()
+            rels.forEach((rel)=>{
+                o[rel] = o[rel] || []
+                o[rel].push( p )
+            })
+            return o
+        }, [])
+    }
+}
+
+function doStep(data, step, scope, cache){
     let out = data
     const instructions = Object.keys(step) 
     for(const instruction of instructions){
         const config = step[instruction]
         switch(instruction){
             case "fetch_items":{
+                let cacheKey
+                if( cache && out.length === 1){
+                    cacheKey = `fetch_items-${out[0].id}-${config.referenceId}`
+                    if( cache[cacheKey] ){
+                        return cache[cacheKey]
+                    }
+                }
                 let temp = out.flatMap(d=>d.itemsForProcessing).filter(d=>d)
                 if( config.referenceId ){
                     temp = temp.filter(d=>d.referenceId === config.referenceId)
                 }
                 out = temp
+                if( cacheKey ){
+                    cache[cacheKey] = out
+                }
                 break
             }
             case "fetch_children":{
+                let cacheKey
+                if( cache && out.length === 1){
+                    cacheKey = `fetch_children-${out[0].id}-${config.referenceId}`
+                    if( cache[cacheKey] ){
+                        return cache[cacheKey]
+                    }
+                }
                 let temp = out.flatMap(d=>[...d.primitives.origin.allItems,...d.primitives.results.allItems]).filter(d=>d)
                 if( config.referenceId ){
                     temp = temp.filter(d=>d.referenceId === config.referenceId)
                 }
                 out = temp
+                if( cacheKey ){
+                    cache[cacheKey] = out
+                }
                 break
             }
             case "fetch_ancestor":{
@@ -82,16 +931,9 @@ function doStep(data, step, scope){
                 let categoryIds
                 if( config.category_label ){
                     const comp = [config.category_label].flat()
-                    //let categories = uniquePrimitives(out.flatMap(d=>d.findParentPrimitives({type: "category", first: true})))
                     let categories //= uniquePrimitives(out.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category")))
                     if( scope && scope.length > 0){
-                        if(scope.length === 1){
-                            let scopeId = scope[0].id
-                            categories = uniquePrimitives(out.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category" && scopeId === d.originId)))
-                        }else{
-                            let scopeIds = scope.map(d=>d.id)
-                            categories = uniquePrimitives(out.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category" && scopeIds.includes(d.originId))))
-                        }
+                        categories = scope.flatMap(d=>d.primitives.origin.allItems)
                     }else{
                         categories = uniquePrimitives(out.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category")))
                     }
@@ -100,7 +942,7 @@ function doStep(data, step, scope){
                 out = out.filter(d=>{
                     let inScope = d
                     if( config.fetch_children ){
-                        inScope = doStep( [d], {fetch_children: config.fetch_children}, scope)
+                        inScope = doStep( [d], {fetch_children: config.fetch_children}, scope, cache)
                         if( config.count !== undefined){
                             return inScope.length === config.count
                         }
@@ -1314,17 +2156,8 @@ function MainStore (prims){
                 }
             },
             get(d, prop, receiver) {
-                if( prop === "id"){
-                    return d.id
-                }
-                if( prop === "primitives"){
-                    return new Proxy( d.primitives , obj.structure )
-                }
-                if( prop === "_primitives"){
-                    return d.primitives
-                }
-                if( prop === "plainId"){
-                    return d.plainId
+                if (prop in actions) {
+                    return actions[prop](d, receiver, obj);
                 }
                 if( prop === "deleteMetric"){
                     return async function( existingMetric ){  
@@ -1518,18 +2351,6 @@ function MainStore (prims){
                         return false
                     }
                 }
-                if( prop === "referenceParameters"){
-                    if( !d._referenceParameters){
-                        d._referenceParameters = d.referenceParameters || {}
-                        d.referenceParameters = new Proxy( d._referenceParameters, obj.referenceParametersParser)
-                    }
-                    if( d.type === "assessment"){
-                        if( !d._referenceParameters.levels ){
-                            d._referenceParameters.levels = {}
-                        }
-                    }
-                    return d.referenceParameters
-                }
                 if( prop === "addParentRelationship"){
                     return function( parent, path){
                         const asString = receiver.primitives.flattenPath(path)
@@ -1664,8 +2485,41 @@ function MainStore (prims){
                 if( prop === "isTask"){
                     return d.type === "activity" || d.type === "experiment"
                 }
+                if (prop === "relationshipAtLevel") {
+                    return function(original, level = 0) {
+                        if (level === 0) {
+                          return [receiver];
+                        }
+                        const rels = Array.isArray(original) ? original.flat() : [original];
+                    
+                        const depth = level == undefined ? rels.length : level;
+                        if (depth === 0) {
+                            return [receiver];
+                        }
+                  
+                        const firstRel = rels[0];
+                        let result = firstRel === "origin" ? [receiver.origin] : (receiver.parentPrimitiveWithRelationship(firstRel) || []);
+                        result = uniquePrimitives(result);
+                    
+                        for (let i = 1; i < depth && result.length; i++) {
+                            const relName = rels[i] ?? firstRel;
+                            const nextLevel = [];
+                    
+                            for (const prim of result) {
+                                const parents = relName === "origin" ? [prim.origin] : prim.parentPrimitiveWithRelationship(relName);
+                        
+                                if (parents && parents.length) {
+                                    nextLevel.push(...parents);
+                                }
+                            }
+                            result = uniquePrimitives(nextLevel);
+                        }
+                  
+                        return result;
+                    };
+                  }
 
-                if( prop === "relationshipAtLevel"){
+                /*if( prop === "relationshipAtLevel"){
                     return function(original, level = 0){
                         if( level === undefined){
                             level = [original].flat().length
@@ -1687,14 +2541,14 @@ function MainStore (prims){
                         if( parents ){
                             out = uniquePrimitives(parents)
                             if( level > 1){
-                                out = uniquePrimitives(parents.map(d=>{
+                                out = uniquePrimitives(parents.flatMap(d=>{
                                     return d.relationshipAtLevel(fwdArray ? fwdArray : relationship, level - 1, false)
-                                }).flat(Infinity))
+                                }))
                             }
                         }
                         return out
                     }                    
-                }
+                }*/
                 if( prop === "originAtLevel"){
                     return function(level){
                         let node = receiver
@@ -1718,402 +2572,8 @@ function MainStore (prims){
                     return receiver.primitives[type]
                 }
                 if( type === "primitive"){
-                    if( prop === "doesImport"){
-                        return (id, filters)=>{
-                            //console.log(`Check primitive `, id, receiver.id)
-                            return PrimitiveConfig.checkImports( receiver, id, filters)
-                        }
-                    }
-                    if( prop === "filterItems"){
-                        return (list, filters)=>{
-                            let thisSet = undefined
-                            for(const filter of filters ){
-                                
-                                let {resolvedFilterType, pivot, relationship, check, includeNulls, skip, isRange} = PrimitiveConfig.commonFilterSetup( filter )
-                                if( skip){
-                                    continue
-                                }
-                                const setToCheck = (thisSet || list)
-
-                                let lookups = setToCheck.map(d=>d.relationshipAtLevel(relationship, pivot))
-
-                                let scope
-                                if( filter.type === "parent"){
-                                    if( filter.sourcePrimId ){
-                                        let filterSourcePrimitive = obj.primitive(filter.sourcePrimId)
-                                        const isMongoId = (str) => /^[a-fA-F0-9]{24}$/.test(str);
-                                        if( filter.value && Array.isArray(filter.value) && filter.value.find(d=>!isMongoId(d))){
-                                            if( filterSourcePrimitive.referenceId === PrimitiveConfig.Constants.EVAL_CATEGORIZER){
-                                                const relevantInstance = filterSourcePrimitive.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes(receiver.originId))
-                                                if( relevantInstance ){
-                                                    const embedded = relevantInstance.primitives.origin.allCategory[0]
-                                                    if( embedded ){
-                                                        const children = embedded.primitives.allItems
-                                                        scope = embedded.primitives.allIds
-                                                        check = check.map(d=>children.find(d2=>d2.title === d)?.id ?? d)
-                                                    }
-
-                                                }
-                                            }
-                                        }else{
-                                            scope = filterSourcePrimitive?.primitives.allIds ?? []
-                                        }
-                                    }
-                                }else if( filter.type === "segment_filter"){
-                                    scope = [filter.sourcePrimId]
-                                }else if( filter.subtype === "question"){
-                                    const prompts = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "prompt"})).flat()),
-                                    scope = prompts.map(d=>d.id)
-                                    check = check.map(d=>prompts.filter(d2=>d2.parentPrimitiveIds.includes(d))).flat().map(d=>d.id)
-                                }else if( filter.subtype === "search"){
-                                    if( includeNulls){
-                                        scope = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "search"})).flat()).map(d=>d.id)
-                                    }
-                                }else if(filter.type === "not_category_level1"){
-                                    includeNulls = true
-                                    check = []
-                                    if( filter.sourcePrimId ){
-                                        scope = obj.primitive(filter.sourcePrimId).primitives.allIds
-                                    }
-                                }
-                                    
-                                
-                                thisSet = PrimitiveConfig.doFilter( {resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, {parentIds:(primitive)=>primitive.parentPrimitiveIds})
-                            }
-                            return thisSet || list
-                        }                        
-                    }
-                    if( prop === "fetchItemsForAction"){
-                        return (options = {})=>{
-
-                            let list = []
-                            let primitive = receiver
-                            let source = options.source ?? primitive
-                            
-                            
-                            let type = primitive.referenceParameters?.type 
-                            const target = primitive.referenceParameters?.target || "children"
-                            const referenceId = primitive.referenceParameters?.referenceId 
-                            const constrainIds = primitive.primitives.params?.constrain_parent_chain.allIds
-
-                            console.log(constrainIds)
-                            
-                            if(target === "descend"){
-                                list = source.primitives.strictDescendants
-                            }else if(target === "all_descend"){
-                                list = source.primitives.descendants
-                            }else if(target === "ref"){
-                                list = source.primitives.ref.uniqueAllItems
-                            }else if(target === "link"){
-                                list = source.primitives.link.uniqueAllItems
-                            }else if(target === "children"){
-                                list = source.primitives.origin.uniqueAllItems
-                            }else if(target === "items"){
-                                list = source.itemsForProcessing
-                            }else if( target === "hierarchy"){
-                                list = source.findParentPrimitives({referenceId: referenceId ? [referenceId] : undefined, type: type ? [type] : undefined, first: true})
-                            }
-                            
-                            if( type ){
-                                list = list.filter((d)=>d.type === type)
-                            }
-                            if( referenceId ){
-                                list = list.filter((d)=>d.referenceId === referenceId)
-                            }
-                            
-                            if( list === undefined){
-                                return []
-                            }
-                            if( constrainIds.length > 0){
-                                const validIds = obj.primitive(constrainIds[0]).itemsForProcessing.map(d=>d.id)
-                                
-                                list = list.filter(d=>validIds.includes(d.id))
-                            }
-                            
-                            return list
-                        }
-                    }
-                    if( prop === "itemsForProcessing"){
-                        return receiver.itemsForProcessingWithOptions()
-                    }
-                    if( prop === "itemsForProcessingWithParams"){
-                        return (p)=>{
-                            return receiver.itemsForProcessingWithOptions(undefined, {params: p})
-                        }
-                    }
-                    if( prop === "itemsForProcessingWithFilter"){
-                        return (f,o)=>{
-                            let items = receiver.itemsForProcessingWithOptions(undefined, o)
-                            if( f && f.length > 0){ 
-                                return receiver.filterItems( items, f)
-                            }else{
-                                return items
-                            }
-                        }
-                    }
-                    if( prop === "filterTargets"){
-                        if( receiver.referenceParameters?.importConfig ){
-                            const idsToLookup = []
-                            let relationships = []
-                            let doImport
-                            let importFrom = receiver
-                            let importFilter
-                            receiver.referenceParameters.importConfig.forEach(d2=>{
-                                return d2.filters.forEach( d=>{
-                                    if( d.type === "parent"){
-                                        idsToLookup.push(d.value)
-                                    }else if( d.type === "title" || d.type === "parameter"){
-                                        doImport = true
-                                        if( d.relationship ){
-                                            relationships.push(d.relationship)
-                                        }
-                                        importFilter = (d3)=>d3.title === d.value
-                                        importFrom = obj.primitive( d2.id )
-                                    }
-                                })
-                            })
-                            if( doImport && (relationships.length > 0 || importFilter)){
-                                let items = importFrom.itemsForProcessing
-                                let mapped = []
-                                if( relationships.length > 0){
-
-                                    for(const rel of relationships){
-                                        mapped.push(items.flatMap(d=>d.relationshipAtLevel(rel ?? "origin", rel?.length ?? 1)))
-                                    }
-                                    mapped = uniquePrimitives(mapped.flat(Infinity))
-                                }else{
-                                    mapped = items
-                                }
-                                if( importFilter ){
-                                    mapped = mapped.filter(importFilter)
-                                }                                
-                                return mapped
-                            }
-                            if( idsToLookup.length > 0){
-                                return uniquePrimitives(idsToLookup.flatMap(d=>obj.primitive(d)?.filterTargets))
-                            }
-                            return []
-                        }
-                        return [receiver]
-                    }
-                    if( prop === "filterDescription"){
-                        /*
-                        if( receiver.referenceParameters?.importConfig ){
-                            const idsToLookup = [], frags = []
-                            receiver.referenceParameters.importConfig.forEach(d=>{
-                                return d.filters?.forEach( d=>{
-                                    if( d.type === "parent"){
-                                        idsToLookup.push(d.value)
-                                    }else if(d.type === "title" || d.type === "parameter"){
-                                        frags.push(d.value)
-                                    }
-                                })
-                            })
-                            if( idsToLookup.length > 0){
-                                //const segmentName = idsToLookup.map(d=>obj.primitive(d)?.title).filter(d=>d).join(", ")
-                                const segmentName = idsToLookup.map(d=>obj.primitive(d)?.filterDescription).filter(d=>d).join(", ")
-                                return segmentName
-                            }
-                            return frags.join(", ")
-                        }else{
-                            return receiver.title
-                        }                        */
-                       return receiver.filterTargets.map(d=>d.title).join(", ")
-                    }
-                    if( prop === "itemsForProcessingFromImport"){
-                        return (p, o)=>receiver.itemsForProcessingWithOptions(p.id, o)
-                    }
-                    if( prop === "itemsForProcessingWithOptions"){
-                        return (id, options = {})=>{
-                            if( !options.cache ){
-                                options.cache = {}
-                            }
-                            const excludedTypes = new Set(["segment", "category", "query", "report", "reportinstance"]);
-
-                            if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "summary" && receiver.type !== "search"))){
-                                let fullList = []
-                                for( const source of receiver.primitives.imports.allItems){
-                                    if( id && source.id !== id){
-                                        continue
-                                    }
-                                    let list = []
-                                    if( source.type === "flow" && !receiver.inFlow){
-                                        const instances = source.primitives.origin.allUniqueFlowInstance
-                                        const address = source.primitives.outputs.paths(receiver.id)[0]
-                                        if( address ){
-                                            const [outputPin, inputPin] = address.slice(1).split("_")
-                                            return uniquePrimitives(instances.flatMap(d=>d.outputs[outputPin]?.data).filter(d=>d))
-                                        }
-                                        return uniquePrimitives(instances.flatMap(d=>d.outputs.output?.data).filter(d=>d))
-                                    }else if( source.inFlow && !receiver.inFlow){
-                                        const address = source.primitives.outputs.paths(receiver.id)[0]
-                                        if( address ){
-                                            const [outputPin, inputPin] = address.slice(1).split("_")
-                                            return source.outputs[outputPin]?.data ?? []
-                                        }
-                                        //return source.itemsForProcessing
-                                    }else{
-                                        const addresses = source.primitives.outputs.paths(receiver.id)
-                                        let done = false
-                                        for(const address of addresses){
-                                            if( address && address !== '.impout_impin' && address !== '.impin_impin'){
-                                                const [outputPin, inputPin] = address.slice(1).split("_")
-                                                if( source.type === "flowinstance" && receiver.origin.id === source.id ){
-                                                    fullList = fullList.concat( source.inputs[outputPin]?.data ?? [] )
-                                                    done = true
-                                                }else{
-                                                    fullList = fullList.concat( source.outputs[outputPin]?.data ?? [] )
-                                                    done = true
-                                                }
-                                            }
-                                        }
-                                        if( done ){
-                                            continue
-                                        }
-
-                                    }
-                                    let node = source.primitives
-                                    if( Object.keys(node).includes("imports")  ){
-                                        const test = options.cache[source.id]
-                                        if( test ){
-                                            list = test
-                                        }else{
-                                            list = list.concat(source.itemsForProcessingWithOptions(undefined, {cache:options.cache}) )
-                                            options.cache[source.id] = list
-                                        }
-                                    }else{
-                                        if( receiver.referenceParameters?.path ){
-                                            node = node.fromPath(receiver.referenceParameters?.path)
-                                        }
-                                        if( !receiver.referenceParameters?.path && source.type === "segment"){
-                                            list = source.nestedItems
-                                        }else{
-                                            list = node.uniqueAllItems
-                                        }
-                                    }
-                                    let params = options.params ?? receiver.getConfig
-                                    if( params.descend ){
-                                        if( params.referenceId ){
-                                            let noExpandIds = new Set()
-                                            if( params.referenceId ){
-                                                const match = params.referenceId
-                                                if( Array.isArray(match)){
-                                                    list.forEach(d=>{
-                                                        if(match.includes(d.referenceId)){
-                                                            noExpandIds.add(d.id)
-                                                        }
-                                                    })
-                                                }else{
-                                                    list.forEach(d=>{
-                                                        if(d.referenceId === match){
-                                                            noExpandIds.add(d.id)
-                                                        }
-                                                    })
-                                                }
-                                            }
-                                            list = list.flatMap(d=>{
-                                                if( noExpandIds.has(d.id)){
-                                                    return d
-                                                }
-                                                return [d,d.primitives.strictDescendants]
-                                            }).flat().filter(d=>d)
-                                        }else{
-                                            list = list.flatMap(d=>[d,d.primitives.strictDescendants]).flat().filter(d=>d)
-                                        }
-                                        list = uniquePrimitives(list)
-                                    }
-                                    if( params.referenceId ){
-                                        const match = params.referenceId
-                                        if( Array.isArray(match)){
-                                            list = list.filter(d=>match.includes(d.referenceId))
-                                        }else{
-                                            list = list.filter(d=>d.referenceId === match) 
-                                        }
-                                    }
-                                    if( params.type ){
-                                        list = list.filter(d=>d.type === params.type) 
-                                    }
-                                    if( receiver.type === "actionrunner"){
-                                        list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
-                                    }
-                                    let config
-                                    
-                                    config = receiver.referenceParameters?.importConfig?.filter(d=>d.id === source.id)
-                                    if( config && config.length > 0){
-                                        let filterOut
-                                        for(const set of config ){
-                                            if( set.filters ){
-                                                filterOut ||= []
-                                                let thisSet = receiver.filterItems(list, set.filters)
-                                                if( thisSet ){
-                                                    filterOut = filterOut.concat( thisSet )
-                                                }
-                                            }
-                                        }
-                                        list = filterOut ?? list
-                                        for(const set of config ){
-                                            if( set.referenceId ){
-                                                list = uniquePrimitives( list.map(d=>d.primitives.filter(d=>d.referenceId === set.referenceId)).flat())
-                                            }
-                                        }
-                                    }
-                                    if( receiver.referenceParameters?.pivot){
-                                        if( typeof(receiver.referenceParameters?.pivot) === "number"){
-                                            list = list.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot)).flat()
-                                        }else{
-                                            list = uniquePrimitives(list.map(d=>d.relationshipAtLevel(receiver.referenceParameters.pivot, receiver.referenceParameters.pivot.length)).flat())
-                                        }
-                                    }
-                                    fullList = fullList.concat(list) 
-                                }
-                                if(receiver.type === "view"  && !options.ignoreFinalViewFilter){
-                                    let viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
-                                    if( viewFilters.length === 0 && receiver.inFlow){
-                                        if( receiver.configParent  ){
-                                            viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver.configParent )
-                                        }
-                                    }
-                                    fullList = uniquePrimitives(fullList)
-                                    fullList = receiver.filterItems(fullList, viewFilters)
-                                }
-                                return uniquePrimitives(fullList)
-                            }else if(receiver.type === "flowinstance"){
-                                return []
-                            }else if(receiver.type === "summary"){
-                                return [receiver]
-                            }else{
-                                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs" ).map(d=>receiver.primitives[d].allIds).flat()
-                                let list = []
-                                const check = new Set()
-                                for( const d of ids ){
-                                    if( !check.has(d)){
-                                        check.add(d)
-                                        const p = obj.primitive(d)
-                                        if( p ){
-                                            list.push(p)
-                                        }
-                                    }
-                                }
-                                if( receiver.type === "query" || receiver.type  === "segment" || receiver.type === "search"){
-                                    if( receiver.type === "query" && !options.ignoreFinalViewFilter){
-                                        const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
-                                        list = receiver.filterItems(list, viewFilters)
-                                    }
-                                    if( receiver.type === "search"){
-                                        const nestedSearch = [receiver, ...receiver.primitives.origin.allSearch].filter(d=>d)
-                                        list = nestedSearch.flatMap(d=>d.primitives.uniqueAllItems)
-                                    }
-                                    let params = options.params ?? receiver.getConfig
-                                    if( params.extract ){
-                                        const check = [params.extract].flat()
-                                        list = list.filter(d=>check.includes(d.referenceId))
-                                    }
-                                    list = list.filter(d => !excludedTypes.has(d.type));
-                                }
-                                return list
-                            }                        
-                        }
-                    }
+                    
+                    
                     if( prop === "nestedItems"){
                         if( d.type === "view"){
                             return uniquePrimitives( receiver.primitives.allSegment.map(d=>d.nestedItems).flat() )
@@ -2163,373 +2623,7 @@ function MainStore (prims){
                             return receiver.origin?.task
                         }
                     }
-                    if( prop === "origin"){
-                        if( d._origin){
-                           return d._origin 
-                        }
-                        //let origin = receiver.parentPrimitiveRelationships["origin"]
-                        let originId = receiver.originId
-                        if( originId ){
-                            const origin = obj.primitive(originId)
-                            d._origin = origin
-                            return origin
-                        }
-                    }
-                    if( prop === "originId"){
-                        let id = undefined;
-                        if (receiver._parentPrimitives) {
-                            for (const key in receiver._parentPrimitives) {
-                                if (receiver._parentPrimitives[key].includes("primitives.origin")) {
-                                    id = key;
-                                    break;
-                                }
-                            }
-                        }
-                        return id
-                    }
-                    if( prop === "outputs"){
-                        if( receiver.type === "flow" || receiver.type === "flowinstance"){
-                            return receiver.fetchInputs(undefined, "outputs" , "output")
-                        }
-                        let outputMap = PrimitiveConfig.getOutputMap(receiver)
-                        const out = {}
-                        const c = {}
-                        for(const d of outputMap){
-                            let targetMap = c[d.targetId]
-                            if( d.outputPin !== "impout" && d.targetPin === "impin"){
-                                const query = receiver.metadata?.pins?.output?.[d.outputPin]?.query
-                                if( query ){
-                                    out[d.outputPin] = {data: receiver.follow(receiver.metadata?.queries?.[query]?.steps ?? [])}
-                                }else{
-                                    console.error(`Cant handle pin connected to import without query`, d)
-                                }
-                            }else{
-                                if(!targetMap){
-                                    const target = obj.primitive( d.targetId )
-                                    targetMap = target.fetchInputs( receiver.id)
-                                    c[d.targetId] = targetMap
-                                }
-                                out[d.outputPin] = targetMap[d.targetPin]
-                            }
-                        }
-                        return out
-                    }
-                    if(prop === "inFlow"){
-                        if( receiver.flowElement){
-                            return true
-                        }
-                        const configParent = receiver.parentPrimitiveWithRelationship("config")?.[0]
-                        if( configParent?.flowElement ){
-                            return true
-                        }
-                        return false
-                    }
-                    if(prop === "inputPinsWithStatus"){
-                        const pins = receiver.inputPins
-                        return Object.keys(pins).reduce((a,pinName)=>{
-                            a[pinName] = {
-                                ...pins[pinName],
-                                connected: pinName === "impin" ? receiver.primitives.imports.allIds.length > 0 : Object.keys(receiver.primitives.inputs).some(d=>d.endsWith(`_${pinName}`))
-                            }
-                            return a
-                        },{})
-                    }
-                    if(prop === "outputPinsWithStatus"){
-                        const pins = receiver.outputPins
-                        return Object.keys(pins).reduce((a,pinName)=>{
-                            a[pinName] = {
-                                ...pins[pinName],
-                                connected: pinName === "impout" ? Object.values(receiver._parentPrimitives ?? {}).some(d=>d.some(d=>d === "primitives.imports")) : Object.values(receiver._parentPrimitives).some(d=>d.some(d=>d.startsWith(`primitives.inputs.${pinName}_`)))
-                            }
-                            return a
-                        },{})
-                    }
-                    if(prop === "inputPins"){
-                        let dynamicPinSource = receiver
-                        let generatorPins = {}
-                        if(receiver.type === "flowinstance"){
-                            dynamicPinSource = receiver.origin
-                        }else if( !receiver.flowElement ){
-                            dynamicPinSource = receiver.configParent ?? receiver
-                        }
-                        if( receiver.type === "actionrunner"){
-                            const rConfig  = dynamicPinSource.getConfigWithoutOverrides()                                
-                            if( rConfig.generator){
-                                const generateTarget = obj.category( rConfig.generator)
-                                generatorPins = generateTarget?.ai?.generate?.inputs ?? {}
-                            }
-                        }
-                        return {
-                            ...receiver._pins("input"),
-                            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs"),
-                            ...generatorPins
-                        }
-                    }
-                    if(prop === "outputPins"){
-                        const dynamicPinSource = receiver.type === "flowinstance" ? receiver.origin : receiver
-                        return {
-                            ...receiver._pins("output"),
-                            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "outputs")
-                        }
 
-                    }
-                    if(prop === "_pins"){
-                        return (mode = "input")=>{
-                            const base = {
-                                ...(receiver.metadata?.pins?.[mode] ?? {})
-                            }
-                            if( receiver.type === "query" || receiver.type === "view"){
-                                if( mode === "output"){
-                                    base["rowAxis"] =  {name: "Axis (row)", types: ["primitive", "string"]}
-                                    base["colAxis"] =  {name: "Axis (col)", types: ["primitive", "string"]}
-                                }else{
-                                    base["rowAxis"] =  {name: "Axis (row)", types: ["primitive","string"]}
-                                    base["colAxis"] =  {name: "Axis (col)", types: ["primitive", "string"]}
-                                }
-                            }
-                            if( mode === "output" && receiver.type === "flow"){
-                                return base
-                            }
-                            return {
-                                [mode === "input" ? "impin" : "impout"]:{
-                                    name: `Imports ${mode}`,
-                                    types: ["primitive"]
-                                },
-                                ...base
-                            }
-                        }
-                    }
-                    if( prop === "fetchInputs"){
-                        return (sourceId, mode = "inputs", pinMode = "input")=>{
-                            let inputMap = PrimitiveConfig.getInputMap(receiver, mode)
-                            if( sourceId ){
-                                inputMap = inputMap.filter(d=>d.sourceId === sourceId)
-                            }
-                            
-                            inputMap = inputMap.map(d=>{
-                                let sourcePrimitive = obj.primitive(d.sourceId)
-                                let sourcePinConfig = sourcePrimitive.metadata?.pins?.output?.[d.sourcePin]
-
-                                if( sourcePrimitive.type === "flow" || sourcePrimitive.type === "flowinstance"){
-                                    const flow = sourcePrimitive.type === "flow" ? sourcePrimitive : sourcePrimitive.findParentPrimitives({type: ["flow"]})[0]
-
-                                    if( flow.referenceParameters?.controlPins?.[d.sourcePin]){
-                                        sourcePrimitive = flow
-                                        sourcePinConfig = {
-                                            ...flow.referenceParameters?.controlPins?.[d.sourcePin],
-                                            source: `param.${d.sourcePin}`
-                                        }                                        
-                                    }else if( flow.referenceParameters?.inputPins?.[d.sourcePin]){
-                                        sourcePrimitive = sourcePrimitive
-                                        sourcePinConfig = {
-                                            ...flow.referenceParameters?.inputPins?.[d.sourcePin],
-                                            source: `param.${d.sourcePin}`
-                                        }                                        
-                                    }else if( flow.referenceParameters?.outputPins?.[d.sourcePin]){
-                                        sourcePrimitive = sourcePrimitive
-                                        sourcePinConfig = {
-                                            ...flow.referenceParameters?.outputPins?.[d.sourcePin],
-                                            source: `param.${d.sourcePin}`
-                                        }                                        
-                                    }
-                                }
-                                const inputMapSource = receiver.type === "flowinstance" ? receiver.origin : receiver
-                                //let inputMapConfig = inputMapSource.metadata?.pins?.[pinMode]?.[d.inputPin]
-
-                                //let inputMapConfig = receiver._pins(pinMode)[d.inputPin]
-                                let inputMapConfig = inputMapSource._pins(pinMode)[d.inputPin]
-                                
-                                if( inputMapConfig?.hasConfig ){
-                                    const localConfig = inputMapSource.getConfigWithoutOverrides().pins?.[d.inputPin] ?? {}
-                                    inputMapConfig = {
-                                        ...inputMapConfig,
-                                        ...localConfig
-                                    }
-                                }
-                                return {
-                                    ...d,
-                                    sourcePrimitive,
-                                    sourcePinConfig,
-                                    inputMapConfig
-                            }})
-
-                            //const dynamicPinSource = receiver.type === "flowinstance" ? receiver.origin : receiver
-                            let dynamicPinSource = receiver
-                            if(receiver.type === "flowinstance"){
-                                dynamicPinSource = receiver.origin
-                            }else if( !receiver.flowElement ){
-                                dynamicPinSource = receiver.configParent ?? receiver
-                            }
-                            let dynamicPins = dynamicPinSource.type === "categorizer" || dynamicPinSource.type === "flow" || dynamicPinSource.type === "action" || dynamicPinSource.type === "query" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "page" ? PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "inputs") : {}
-                            
-
-                            if( (receiver.type === "flow" || receiver.type === "flowinstance") && mode === "outputs"){
-                                dynamicPins = {
-                                    ...dynamicPins,
-                                    ...PrimitiveConfig.getDynamicPins(dynamicPinSource, dynamicPinSource.getConfigWithoutOverrides(), "outputs")
-                                }
-                            }
-                            let generatorPins = {}
-                            if( receiver.type === "actionrunner"){
-                                const rConfig  = receiver.getConfigWithoutOverrides()                                
-                                if( rConfig.generator){
-                                    const generateTarget = obj.category( rConfig.generator)
-                                    generatorPins = generateTarget?.ai?.generate?.inputs ?? {}
-
-                                    dynamicPins = {
-                                        ...dynamicPins,
-                                        ...generatorPins
-                                    }
-                                }
-                            }
-
-                            let interim = PrimitiveConfig.alignInputAndSource(inputMap,  dynamicPins)
-
-                            for(const d of interim){
-                                if( d.sourceTransform === "imports"){
-                                    d.sources = d.sourcePrimitive.itemsForProcessing
-                                }else if( d.sourceTransform === "pin_relay"){
-                                    if( receiver.type === "flowinstance"){
-                                        const fis = receiver.primitives.subfi.allItems.filter(d2=>Object.keys(d2._parentPrimitives ?? {}).includes(d.sourcePrimitive.id))
-                                        d.sources = fis.flatMap(d2=>d2.outputs[d.sourcePin]?.data)
-                                    }else{
-                                        if( receiver.origin.type === "flowinstance"){
-                                            d.sources = receiver.origin.inputs[d.sourcePin]?.data
-                                        }
-                                    }
-                                }else if( d.sourceTransform === "get_axis"){
-                                    const items = d.sourcePrimitive.itemsForProcessing
-                                    const extents = CollectionUtils.mapCollectionByAxis(items, CollectionUtils.primitiveAxis(d.sourcePrimitive, d.axis, items)).extents.column
-                                    if(d.inputMapConfig.types.includes("primitive")){
-                                        d.pass_through = extents.map(d=>d.primitive ?? obj.primitive(d.idx)).filter(d=>d)
-                                        //d.pass_through = extents.map(d=>d.primitive)
-                                        d.passThroughCoonfig = "primitive"
-                                    }else{
-                                        d.pass_through = extents.filter(d=>d?.idx !=="_N_").map(d=>{
-                                            if( d.primitive ){
-                                                if(d.primitive.type === "category"){
-                                                    return `${d.primitive.title}: ${d.primitive.referenceParameters.description}`
-                                                }
-                                                return d.title
-                                            }
-                                            return d.label
-                                        })
-                                        d.passThroughCoonfig = "string"
-                                    }
-                                }else if( d.sourceTransform === "filter_imports"){
-                                    const items = d.sourcePrimitive.itemsForProcessing
-                                    const {data, extents} = CollectionUtils.mapCollectionByAxis(items, CollectionUtils.primitiveAxis(d.sourcePrimitive, "col", items), CollectionUtils.primitiveAxis(d.sourcePrimitive, "row", items))
-                                    const colMap = extents.column.reduce((a,c)=>{
-                                        a[c.idx] = c.label
-                                        return a
-                                    },{})
-                                    const rowMap = extents.row.reduce((a,c)=>{
-                                        a[c.idx] = c.label
-                                        return a
-                                    },{})
-
-
-                                    d.sourceBySegment = data.reduce((a,d)=>{
-                                        const desc = [colMap[d.column],rowMap[d.row]].filter(d=>d && d.length > 0).join(" - ")
-                                        a[desc] ||= []
-                                        a[desc].push( d.primitive )
-                                        return a
-                                    }, {})
-                                    /*
-                                    const sourceSegments = uniquePrimitives(itp.flatMap(d=>d.findParentPrimitives({type: ["segment"]})))
-                                    d.sourceBySegment = sourceSegments.reduce((a,d)=>{
-                                        const desc = d.filterDescription
-                                        a[desc] ||= []
-                                        a[desc] = a[desc].concat( itp.filter(d2=>Object.keys(d2._parentPrimitives ?? {}).includes(d.id)))
-                                        return a
-                                    }, {})*/
-                                }else if( d.sourceTransform === "child_list_to_string"){
-                                    d.sources = d.sourcePrimitive.itemsForProcessing
-                                }
-                            }
-                            let final = PrimitiveConfig.translateInputMap(interim)
-                            
-                            return final
-                        }
-                    }
-
-                    if( prop === "inputs"){
-                        return receiver.fetchInputs(undefined)
-                    }
-                    if( prop === "originTask"){
-                        let origin = receiver.origin
-                        if( origin ){
-                            if( ["experiment","activity"].includes(origin.type) ){
-                                return origin
-                            }
-                            return origin.findParentPrimitives({type: ["experiment", "activity"]})[0]
-                        }
-                        return undefined
-                    }
-                    if( prop === "_parentPrimitives"){
-                        return d.parentPrimitives
-                    }
-                    if( prop === "parentPrimitives"){
-                        const parents = receiver.parentPrimitiveIds.map((d)=>obj.primitive(d)).filter((d)=>d)
-                        return parents
-                    }
-                    if( prop === "parentPrimitiveIds"){
-                        if( d._ppIdCache ){
-                            return d._ppIdCache
-                        }
-
-                        d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports") && !d.parentPrimitives[p].find(d=>d.startsWith("primitives.inputs."))) : []
-                        return d._ppIdCache
-                    }
-                    if( prop === "parentPrimitiveIdsAsSource"){
-                        let out = []
-                        if( d.parentPrimitives ){
-                            out = Object.keys(d.parentPrimitives).filter(k=>{
-                                return d.parentPrimitives[k].some(d => d.startsWith("primitives.source"))
-                            })
-                        }
-                        return out
-                    }
-                    if( prop === "parentPrimitivesAsSource"){
-                        return receiver.parentPrimitiveIdsAsSource.map(d=>obj.primitive(d))
-                    }
-                    if( prop === "parentPrimitiveWithRelationship"){
-                        return (relationship)=>{
-                            let out
-                            let [rel, rId] = relationship ? relationship.split(":") : []
-                            if( rId !== undefined){
-                                rId = parseInt(rId)
-                            }
-
-                            if( d.parentPrimitives ){
-                                out = Object.keys(d.parentPrimitives).filter(k=>{
-                                    if( rel === "origin_link_result"){
-                                        return d.parentPrimitives[k].filter(d=>{
-                                            const parts = d.split(".")
-                                            return ( parts[parts.length - 1] === "origin" || parts[parts.length - 1] === "link" || parts[parts.length - 2]=== "results" )
-                                        }).length > 0
-                                    }
-                                    const check = `.${rel}`
-                                    return d.parentPrimitives[k].some(d => d.endsWith(check))
-                                }).map(id=>obj.primitive(id)).filter(d=>d && (rId === undefined || rId === d.referenceId))
-                                
-                                if( out.length === 0){
-                                    out = undefined
-                                }
-                            }
-                            return out
-                        }
-                    }
-                    if( prop === "parentPrimitiveRelationships"){
-                        return receiver.parentPrimitives.reduce((o, p)=>{
-                            let rels = [receiver.parentRelationship(p)].flat()
-                            rels.forEach((rel)=>{
-                                o[rel] = o[rel] || []
-                                o[rel].push( p )
-                            })
-                            return o
-                        }, [])
-                    }
                     if( d.type === "hypothesis"){
                         if( prop === "addresses" ){
                             return receiver.findParentPrimitives({type: "assessment"}).map((a)=>{
@@ -2736,7 +2830,7 @@ function MainStore (prims){
                     }
                 }
                 if( prop === "follow"){
-                    return function(steps){
+                    return function(steps, cache){
                         let scope = [receiver]
                         if( receiver.type === "categorizer"){
                             scope = receiver.primitives.origin.allItems
@@ -2744,7 +2838,7 @@ function MainStore (prims){
                         let out = [receiver]
                         if( steps ){
                             for(const d of steps){
-                                out = doStep(out, d, scope)
+                                out = doStep(out, d, scope, cache)
                             }
                         }
                         return out

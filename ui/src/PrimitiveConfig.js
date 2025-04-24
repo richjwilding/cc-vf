@@ -1,3 +1,6 @@
+function fastUnique(arr){
+    return Array.from(new Set(arr));
+}
 const heatMapPalette = [
     {
         title: "Default",
@@ -1127,28 +1130,33 @@ const PrimitiveConfig = {
     },doFilter: ({resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, fns)=>{
             const invert = filter.invert ?? false
             const temp = []
+            const hasScope = Array.isArray(scope) && scope.length > 0;
+            const hScope   = hasScope ? new Set(scope) : null;
 
-            let basicCheck = (d)=>{
-                if(d !== null && typeof(d) === "object" ){
-                    return check.filter(d2=>d.includes(d2)).length > 0
+            let doCheck
+            if( isRange ){
+                doCheck =  (d)=>{
+                    return check.find(c=>{
+                        if( c.min_value === null && c.max_value === null ){
+                            return (d === null || d === undefined)
+                        }
+                        return (d >= (c.min_value ?? -Infinity) && d <= (c.max_value ?? Infinity))
+                    }) !== undefined
                 }
-                if( d === null){
-                    return check.includes(undefined)
-                }
-                return check.includes(d)
-            }
-            let rangeCheck = (d)=>{
-                return check.find(c=>{
-                    if( c.min_value === null && c.max_value === null ){
-                        return (d === null || d === undefined)
+            }else{
+                const checkSet = new Set(check);
+                doCheck = (d) => {
+                    if (Array.isArray(d)) {
+                        for (const v of d) {
+                            if (checkSet.has(v)) return true;
+                        }
+                        return false;
                     }
-                    return (d >= (c.min_value ?? -Infinity) && d <= (c.max_value ?? Infinity))
-                }) !== undefined
-            }
-            const doCheck = isRange ? rangeCheck : basicCheck
-
-            function fastUnique(arr){
-                return Array.from(new Set(arr));
+                    if (d === null) {
+                        return checkSet.has(undefined);
+                    }
+                    return checkSet.has(d);
+                };
             }
 
             let idx = 0
@@ -1170,27 +1178,41 @@ const PrimitiveConfig = {
                         const imSections = d.referenceParameters?.importConfig?.filter(d=>scope.includes(d.id))
                         if( imSections){
 
-                            const alignSections = imSections.map(d=>{
+                            const alignSections = imSections.flatMap(d=>{
                                 return d.filters.flatMap(d=>{
                                     //if(d.type == "parent" ){
                                         return d.value
                                         //}
                                     }).filter(d=>d)
                                 })
-                                return alignSections.flat()
+                                return alignSections
                         }
                         return []
                     })                        
                     data = fastUnique(data)
                 }else if( resolvedFilterType === "parent"){
+                    /*
                     if( filter.sourcePrimId ){
-                        data = fastUnique(lookups[idx].map(d=>fns.parentIds(d)).flat())
+                        data = fastUnique(lookups[idx].flatMap(d=>fns.parentIds(d)))
                     }else{
-                        data = fastUnique(lookups[idx].map(d=>d.id).flat())
+                        data = fastUnique(lookups[idx].flatMap(d=>d.id))
                     }
                     if( scope ){
-                        data = data.filter(d=>scope.includes(d))
+                        //data = data.filter(d=>scope.includes(d))
+                        data = data.filter(d=>hScope.has(d))
+                    }*/
+                    const seen = new Set();
+                    data = []
+                    for (const obj of lookups[idx]) {
+                        const ids = filter.sourcePrimId ? fns.parentIds(obj) : [obj.id];
+                        for (const id of ids) {
+                            if ((!hasScope || hScope.has(id)) && !seen.has(id)) {
+                                seen.add(id);
+                                data.push(id);
+                            }
+                        }
                     }
+                        
                 }
 
                 if( invert ){

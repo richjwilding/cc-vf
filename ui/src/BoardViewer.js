@@ -297,10 +297,12 @@ function renderSubBoard(d, stageOptions){
         if( output?.items ){
             const rendered = output.items(stageOptions)
             rendered.scale({x: d.s, y: d.s})
+            rendered.attrs.id = d.primitive.id
             if( rendered){
                 return {
                     x: d.x,
                     y: d.y,
+                    state: d.state,
                     rendered
                 }
             }
@@ -3058,14 +3060,25 @@ export default function BoardViewer({primitive,...props}){
                                         if( cell && myState[frameId].axis){
                                             const [cIdx,rIdx] = cell.split("-")
 
+
+                                            let sourceState = myState[frameId]
+                                            if( sourceState.axisSource ){
+                                                let axisSource = sourceState.axisSource
+                                                if( axisSource.inFlow && axisSource.configParent.flowElement ){
+                                                    axisSource = axisSource.configParent
+                                                }
+                                                sourceState = myState[axisSource.id]
+                                            }
+
+
                                             let infoPane = {
                                                 filters: [
-                                                    PrimitiveConfig.encodeExploreFilter( myState[frameId].axis.column, myState[frameId].columns[cIdx] ),
-                                                    PrimitiveConfig.encodeExploreFilter( myState[frameId].axis.row, myState[frameId].rows[rIdx] ),
+                                                    PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
+                                                    PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
                                                 ].filter(d=>d)
                                             }
                                             console.log(infoPane.filters[0])
-                                            setCollectionPaneInfo({frame:  myState[frameId].underlying ??  myState[frameId].primitive, board: primitive, filters: infoPane.filters})
+                                            setCollectionPaneInfo({frame:  sourceState.underlying ??  sourceState.primitive, board: primitive, filters: infoPane.filters})
                                             if( !myState.activeBoard || myState.activeBoard.id !== frameId){
                                                 setActiveBoard(frameId)
                                                 canvas.current.selectFrame( frameId )

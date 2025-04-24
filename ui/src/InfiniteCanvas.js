@@ -601,6 +601,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
     }
     function setupPins( frame, maxX, maxY ){
+        if( props.showPins === false){
+            return
+        }
         if( maxX === undefined ){
             maxX = frame.node.attrs.width
             maxY = frame.node.attrs.height
@@ -3268,7 +3271,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const frameId = d.findAncestor('.frame')?.attrs.id
                             const ids = [d,myState.current.selected?.[cls]].flatMap(d=>d?.attrs?.id).filter((d,i,a)=>d && a.indexOf(d) === i) 
 
-                            const result = props.callbacks?.onClick?.[cls]( ids.length > 1 ? ids : ids, frameId, d.attrs.data )
+                            const result = props.callbacks?.onClick?.[cls]( ids.length > 1 ? ids : ids, frameId, d.attrs.data, d)
                             doneClick = true
                         }
                     }

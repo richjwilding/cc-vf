@@ -1,31 +1,260 @@
-export default function PrimitiveParser(obj){
-    const uniqueArray = (a)=>{
-        return [...new Set(a)]
-        return a.filter((v,i)=>a.indexOf(v) === i)
+function uniqueArray(arr){
+    return Array.from(new Set(arr));
+}
+
+const actions = {
+    flattenPath(rx, tgt) { 
+        return function(path){
+            if( typeof(path) === "string"){
+                if( path.slice(0, 11) !== "primitives."){
+                    path = "primitives." + path
+                }
+                return path
+            }
+            let out = ['primitives']
+            const nest = (node)=>{
+                if( node instanceof Object ){
+                    const k = Object.keys(node)[0]
+                    out.push(k)
+                    nest( node[k] )
+                    return out
+                }
+                out.push((node === undefined || node === '') ? "null" : node)
+                return out
+            }
+            return nest( path).join(".")
+        }
+    },
+    allIds(receiver, target) {
+        const stack = [target];
+        const result = [];
+        let idx = 0;
+      
+        while (idx < stack.length) {
+          const current = stack[idx++];
+          if (current !== null && typeof current === "object") {
+            if (Array.isArray(current)) {
+              // fast array walk
+              for (let i = 0, len = current.length; i < len; i++) {
+                stack.push(current[i]);
+              }
+            } else {
+              // Object.keys gets own properties only
+              const keys = Object.keys(current);
+              for (let i = 0, len = keys.length; i < len; i++) {
+                stack.push(current[keys[i]]);
+              }
+            }
+          } else {
+            result.push(current);
+          }
+        }
+      
+        return result;
+      },
+    uniqueIds(receiver, target){
+        return uniqueArray( receiver.ids )
+    },
+    allUniqueIds(receiver, target){
+        return uniqueArray( receiver.allIds )
+    },
+    uniqueAllIds(receiver, target){
+        return uniqueArray( receiver.allIds )
+    },
+    includes(receiver, target){
+        return function(){
+            let value = arguments[0]
+            if( value instanceof  Object){
+                value = value.id
+            }
+            const find = (v)=>{
+                return Object.values(v).reduce((r, d)=>{
+                    if( d instanceof(Object) ){
+                        return r || find(d) 
+                    }else{
+                        return r || (d === value)
+                    }
+                },false)
+            }
+            return find( target )
+        }
+    },
+    paths(receiver, target){
+        return function(){
+            let id = arguments[0]
+            let out = []
+            const find = (v, path)=>{
+                if( v instanceof(Array) ){
+                    for(const d of v){
+                        if( d === id ){
+                            out.push( path )
+                        }else{
+                            if( d instanceof(Object)){
+                                Object.keys(d).forEach((k)=>find( d[k], `${path}.${k}`))
+                            }
+                        }
+                    }
+                }else if( v !== undefined && v !== null){
+                    Object.keys(v).forEach((k)=>find( v[k], `${path}.${k}`))
+                }
+            }
+            find( target, "" )
+            let result = out
+            if( result && arguments.length == 2){
+                let str = arguments[1] instanceof(Array) ? `.${arguments[1].join('.')}.` : ("." + arguments[1] + (arguments[1].endsWith(".") ? "" :"."))
+                result = result.filter((p)=>p.startsWith(str))
+            }
+            if( result ){
+                result = result.map((p)=>p.replace(/^\.null/,""))
+            }
+            return result
+        }
     }
+}
+const storeActions = {
+    items(receiver, target, obj){
+        return receiver.ids.map((d)=>obj.primitive(d)).filter((d)=>d)
+    },
+    allItems(receiver, target,obj){
+        return receiver.allIds.map((d)=>obj.primitive(d)).filter((d)=>d)
+    },
+    uniqueAllItems(receiver, target,obj){
+        return receiver.uniqueAllIds.map((d)=>obj.primitive(d)).filter((d)=>d)
+    },
+    allUniqueItems(receiver, target,obj){
+        return receiver.uniqueAllIds.map((d)=>obj.primitive(d)).filter((d)=>d)
+    },uniqueItems(receiver, target,obj){
+        return receiver.uniqueIds.map((d)=>obj.primitive(d)).filter((d)=>d)
+    },
+    strictDescendants(receiver, target,obj){
+        const ids = receiver._buildDescendantIds( {}, true, true )
+        return ids.map((d)=>obj.primitive(d)).filter((d)=>d)
+    },
+    directDescendants(receiver, target,obj){
+        const ids = receiver._buildDescendantIds( {}, true, false, true )
+        return ids.map((d)=>obj.primitive(d)).filter((d)=>d)
+    },
+    descendants(receiver, target,obj){
+        return receiver.descendantIds.map((d)=>obj.primitive(d)).filter((d)=>d)
+    },
+    descendantIds(receiver, target,obj){
+        return receiver._buildDescendantIds( {}, true )
+    },
+    __buildDescendantIds(receiver, target,obj){
+        return function(temp , first = true, origin_only, direct_only){
+            if( first ){
+                temp = new Set()
+            }
+            let childrenIds 
+            if( origin_only ){
+                childrenIds = []
+                if (target.link) {
+                    for (let i = 0, len = target.link.length; i < len; i++) {
+                        childrenIds.push(target.link[i]);
+                    }
+                }
+                if (target.origin) {
+                    for (let i = 0, len = target.origin.length; i < len; i++) {
+                        childrenIds.push(target.origin[i]);
+                    }
+                }
+                if (target.auto) {
+                    for (let i = 0, len = target.auto.length; i < len; i++) {
+                        childrenIds.push(target.auto[i]);
+                    }
+                }
+            }else if(direct_only){
+                const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "ref" && d!== "config" && d !=="inputs" && d !=="link")
+                childrenIds = [...new Set(keys.map(d => receiver[d].uniqueAllIds).flat())];
+            }else{
+                //childrenIds = receiver.uniqueAllIds
+                const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "config" && d !=="inputs")
+                childrenIds = [...new Set(keys.map(d => receiver[d].uniqueAllIds).flat())];
+            }
+            for(const id of childrenIds){
+                if( id && !temp.has(id) ){
+                    temp.add(id)
+                    const p = obj.primitive(id)
+                    if (p && Object.keys(p._primitives).length > 0) {
+                        p.primitives._buildDescendantIds(temp, false, origin_only);
+                    }
+                }
+            }
+            if( first ){
+                return [...temp]
+            }
+        }
+    },
+    _buildDescendantIds(receiver, target, obj) {
+        return function _recurse(temp, first = true, origin_only = false, direct_only = false) {
+          // initialize once
+          if (first) {
+            temp = new Set();
+          }
+      
+          // gather children IDs into a single Set (no intermediate arrays)
+          const childrenIds = new Set();
+      
+          if (origin_only) {
+            for (const k of ORIGIN_KEYS) {
+              const arr = target[k];
+              if (Array.isArray(arr)) {
+                for (let i = 0, L = arr.length; i < L; i++) {
+                  childrenIds.add(arr[i]);
+                }
+              }
+            }
+          } else {
+            // skip these props and, if direct_only, also skip 'ref'
+            for (const key in target) {
+              if (COMMON_SKIP.has(key) || (direct_only && DIRECT_SKIP.has(key))) continue;
+              const ids = receiver[key].uniqueAllIds;
+              for (let i = 0, L = ids.length; i < L; i++) {
+                childrenIds.add(ids[i]);
+              }
+            }
+          }
+      
+          // now recurse down each new child
+          for (const id of childrenIds) {
+            if (!id || temp.has(id)) continue;
+            temp.add(id);
+      
+            const p = obj.primitive(id);
+            // only recurse if there actually are nested primitives
+            if (p) {
+                let hasPrims = false;
+                for (const _ in p._primitives) {
+                  hasPrims = true;
+                  break;
+                }
+                if (hasPrims) {
+                  p.primitives._buildDescendantIds(temp, false, origin_only, direct_only);
+                }
+            }
+          }
+      
+          // on the top‐level call, return an array
+          if (first) {
+            return Array.from(temp);
+          }
+        };
+      }
+}
+
+const ORIGIN_KEYS   = ['link', 'origin', 'auto'];
+const COMMON_SKIP   = new Set(['imports', 'config', 'inputs']);
+const DIRECT_SKIP   = new Set(['ref', 'link']);
+
+
+export default function PrimitiveParser(obj){
     const structure = {
             get(target, prop, receiver) {
-                if( prop === "flattenPath" ){
-                    return function(path){
-                        if( typeof(path) === "string"){
-                            if( path.slice(0, 11) !== "primitives."){
-                                path = "primitives." + path
-                            }
-                            return path
-                        }
-                        let out = ['primitives']
-                        const nest = (node)=>{
-                            if( node instanceof Object ){
-                                const k = Object.keys(node)[0]
-                                out.push(k)
-                                nest( node[k] )
-                                return out
-                            }
-                            out.push((node === undefined || node === '') ? "null" : node)
-                            return out
-                        }
-                        return nest( path).join(".")
-                    }
+                if (prop in actions) {
+                    return actions[prop](receiver, target);
+                }
+                if (prop in storeActions) {
+                    return storeActions[prop](receiver, target, obj);
                 }
                 if( prop === "add" ){
                     return function(){
@@ -101,90 +330,8 @@ export default function PrimitiveParser(obj){
                         return receiver.descendantIds.includes(value)
                     }
                 }
-                if( prop === "includes" ){
-                    return function(){
-                        let value = arguments[0]
-                        if( value instanceof  Object){
-                            value = value.id
-                        }
-                        const find = (v)=>{
-                            return Object.values(v).reduce((r, d)=>{
-                                if( d instanceof(Object) ){
-                                    return r || find(d) 
-                                }else{
-                                    return r || (d === value)
-                                }
-                            },false)
-                        }
-                        return find( target )
-                    }
-                }
+               
                 
-                if( prop === "paths" ){
-                    return function(){
-                        let id = arguments[0]
-                        let out = []
-                        const find = (v, path)=>{
-                            if( v instanceof(Array) ){
-                                for(const d of v){
-                                    if( d === id ){
-                                        out.push( path )
-                                    }else{
-                                        if( d instanceof(Object)){
-                                            Object.keys(d).forEach((k)=>find( d[k], `${path}.${k}`))
-                                        }
-                                    }
-                                }
-                            }else if( v !== undefined && v !== null){
-                                Object.keys(v).forEach((k)=>find( v[k], `${path}.${k}`))
-                            }
-                        }
-                        find( target, "" )
-                        let result = out
-                        if( result && arguments.length == 2){
-                            let str = arguments[1] instanceof(Array) ? `.${arguments[1].join('.')}.` : ("." + arguments[1] + (arguments[1].endsWith(".") ? "" :"."))
-                            result = result.filter((p)=>p.startsWith(str))
-                        }
-                        if( result ){
-                            result = result.map((p)=>p.replace(/^\.null/,""))
-                        }
-                        return result
-                    }
-                }
-                /*if( prop === "__paths" ){
-                    return function(){
-                        let id = arguments[0]
-                        const find = (v, path)=>{
-                            let out = []
-                            if( v instanceof(Array) ){
-                                if( v.includes( id )){
-                                    out.push( path )
-                                }
-                                v.filter((d)=>d instanceof(Object) ).forEach((d)=>{
-                                    out.push( Object.keys(d).map((k)=>{
-                                        return find( d[k], path + "." + k)
-                                    }))
-                                })
-                            }else if( v !== undefined && v !== null){
-                                out.push( Object.keys(v).map((k)=>{
-                                    return find( v[k], path + "." + k)
-                                }))
-                            }
-                            out = out.flat(2).filter((d)=>d !== undefined)
-                            return out.length > 0 ? out : undefined
-                        }
-                        let result = find( target, "" )
-                        if( result && arguments.length == 2){
-                            let str = arguments[1] instanceof(Array) ? `.${arguments[1].join('.')}.` : arguments[1]
-                            let len = str.length
-                            result = result.filter((p)=>p.slice(0, len) === str)
-                        }
-                        if( result ){
-                            result = result.map((p)=>p.replace(/^\.null/,""))
-                        }
-                        return result
-                    }
-                }*/
                 if( prop === "relationships"){
                     return function(){
                         let path = receiver.paths(...arguments)
@@ -203,51 +350,7 @@ export default function PrimitiveParser(obj){
                             return d
                         }}).filter((d)=>d)
                 }
-                if( prop === "uniqueIds" && target instanceof(Array)){
-                    return uniqueArray( receiver.ids )
-                }
-
-                if (prop === "allIds") {
-                    /*const flatten = (obj) => {
-                        const stack = [obj];
-                        const result = [];
-                        
-                        while (stack.length) {
-                            const current = stack.pop();
-                            
-                            if (current !== null && typeof current === 'object') {
-                                stack.push(...Object.values(current));
-                            } else {
-                                result.push(current);
-                            }
-                        }
-                        
-                        return result;
-                    };*/
                 
-                    const stack = [target];
-                    const result = [];
-                
-                    while (stack.length) {
-                        const current = stack.pop();
-                
-                        if (current !== null && typeof current === 'object') {
-                            for (const key in current) {
-                                if (current.hasOwnProperty(key)) {
-                                    stack.push(current[key]);
-                                }
-                            }
-                        } else {
-                            result.push(current);
-                        }
-                    }
-                
-                    return result;
-
-                }
-                if( prop === "uniqueAllIds" || prop === "allUniqueIds"){
-                    return uniqueArray( receiver.allIds )
-                }
                 if( prop === "filter" || prop === "length" || prop === "map"){
                     const base = receiver.allItems
                     const value = base[prop];
@@ -295,39 +398,6 @@ export default function PrimitiveParser(obj){
                 }
                 if( prop === "underlying"){
                     return target
-                }
-                if (prop === "__fromPath") {
-                    return function(path, create = false) {
-                        let node = receiver;
-                
-                        if (typeof path === "string") {
-                            path = path.split('.').filter(p => p !== "primitives");
-                        }
-                
-                        for (let i = 0; i < path.length; i++) {
-                            let step = path[i];
-                            let nextNode = Array.isArray(node.underlying)
-                                ? node.underlying.find(item => item.hasOwnProperty(step))?.[step]
-                                : node[step];
-                
-                            if (nextNode === undefined) {
-                                if (create) {
-                                    nextNode = Array.isArray(node.underlying) ? {} : (i === path.length - 1 ? [] : {});
-                                    if (Array.isArray(node.underlying)) {
-                                        node.underlying.push({ [step]: nextNode });
-                                    } else {
-                                        node[step] = nextNode;
-                                    }
-                                } else {
-                                    return undefined;
-                                }
-                            }
-                
-                            node = nextNode;
-                        }
-                
-                        return node;
-                    };
                 }
                 if( prop === "fromPath"){
                     return function(path, create = false){
@@ -406,19 +476,6 @@ export default function PrimitiveParser(obj){
                     }
                 }
                 if( obj ){
-                    // was here
-                    if( prop === "items"){
-                        return receiver.ids.map((d)=>obj.primitive(d)).filter((d)=>d)
-                    }
-                    if( prop === "allItems"){
-                        return receiver.allIds.map((d)=>obj.primitive(d)).filter((d)=>d)
-                    }
-                    if( prop === "uniqueAllItems" || prop === "allUniqueItems"){
-                        return receiver.uniqueAllIds.map((d)=>obj.primitive(d)).filter((d)=>d)
-                    }
-                    if( prop === "uniqueItems"){
-                        return receiver.uniqueIds.map((d)=>obj.primitive(d)).filter((d)=>d)
-                    }
                     if( obj.types.includes(prop)){
                         return receiver.items.filter((p)=>p.type===prop)
                     }
@@ -438,75 +495,6 @@ export default function PrimitiveParser(obj){
                         let type = prop.slice(3).toLowerCase()
                         if( obj.types.includes(type)){
                             return receiver.allItems.filter((p)=>p.type === type)
-                        }
-                    }
-                    if(prop === "strictDescendants"){
-                        const ids = receiver._buildDescendantIds( {}, true, true )
-                        return ids.map((d)=>obj.primitive(d)).filter((d)=>d)
-                    }
-                    if(prop === "directDescendants"){
-                        const ids = receiver._buildDescendantIds( {}, true, false, true )
-                        return ids.map((d)=>obj.primitive(d)).filter((d)=>d)
-                    }
-                    if(prop === "descendants"){
-                        return receiver.descendantIds.map((d)=>obj.primitive(d)).filter((d)=>d)
-                    }
-                    if(prop === "descendantIds"){
-                        return receiver._buildDescendantIds( {}, true )
-                    }
-                    if(prop === "_buildDescendantIds"){
-                        return function(temp , first = true, origin_only, direct_only){
-                            if( first ){
-                                temp = new Set()
-                            }
-                            let childrenIds 
-                            if( origin_only ){
-                                childrenIds = []
-                                /*
-                                if( target.link ){
-                                    childrenIds.push( ...Object.values(target.link ) )
-                                }
-                                if( target.origin ){
-                                    childrenIds.push( ...Object.values(target.origin ) )
-                                }
-                                if( target.auto ){
-                                    childrenIds.push( ...Object.values(target.auto ) )
-                                }*/
-                                if (target.link) {
-                                    for (let i = 0, len = target.link.length; i < len; i++) {
-                                        childrenIds.push(target.link[i]);
-                                    }
-                                }
-                                if (target.origin) {
-                                    for (let i = 0, len = target.origin.length; i < len; i++) {
-                                        childrenIds.push(target.origin[i]);
-                                    }
-                                }
-                                if (target.auto) {
-                                    for (let i = 0, len = target.auto.length; i < len; i++) {
-                                        childrenIds.push(target.auto[i]);
-                                    }
-                                }
-                            }else if(direct_only){
-                                const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "ref" && d!== "config" && d !=="inputs" && d !=="link")
-                                childrenIds = [...new Set(keys.map(d => receiver[d].uniqueAllIds).flat())];
-                            }else{
-                                //childrenIds = receiver.uniqueAllIds
-                                const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "config" && d !=="inputs")
-                                childrenIds = [...new Set(keys.map(d => receiver[d].uniqueAllIds).flat())];
-                            }
-                            for(const id of childrenIds){
-                                if( id && !temp.has(id) ){
-                                    temp.add(id)
-                                    const p = obj.primitive(id)
-                                    if (p && Object.keys(p._primitives).length > 0) {
-                                        p.primitives._buildDescendantIds(temp, false, origin_only);
-                                    }
-                                }
-                            }
-                            if( first ){
-                                return [...temp]
-                            }
                         }
                     }
                 }

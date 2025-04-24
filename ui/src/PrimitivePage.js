@@ -28,6 +28,7 @@ import BoardViewer from './BoardViewer';
 import AnalysisPage from './AnalysisPage';
 import ReportViewExporter from './ReportViewExporter';
 import RouterTest from './RouterTest';
+import FlowInstancePage from './FlowInstancePage';
 
 
 let mainstore = MainStore()
@@ -96,7 +97,7 @@ export function PrimitivePage({primitive, ...props}) {
           return true
         }
       }
-      if( primitive.type === "board" || primitive.type==="working" ){
+      if( primitive.type === "board" || primitive.type==="flowinstance"|| primitive.type==="working" ){
         return true
       }
       return false
@@ -126,7 +127,7 @@ export function PrimitivePage({primitive, ...props}) {
     const showMetrics = (primitive.isTask || primitive.type === "cohort" ) && primitive.metadata.metrics
 
 
-    const hasQuestions = (task && task.metadata.sections?.questions) || (primitive && primitive.metadata.sections?.questions)
+    const hasQuestions = (task && task.metadata?.sections?.questions) || (primitive && primitive.metadata?.sections?.questions)
     const hasCategories = false //(task && task.metadata.sections?.categories) || (primitive && primitive.metadata.sections?.categories)
 
     useEffect(()=>{
@@ -382,6 +383,9 @@ export function PrimitivePage({primitive, ...props}) {
   
   if( primitive?.type === "working"  || primitive?.type === "flow"  ){
     return <AnalysisPage primitive={primitive}/>
+  }
+  if( primitive?.type === "flowinstance"  ){
+    return <FlowInstancePage primitive={primitive}/>
   }
 
   return (

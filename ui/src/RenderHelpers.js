@@ -4170,7 +4170,11 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
             g.add(sg)
 
 
+            let idx = 0
+
             for(const sub of subrenders){
+                sub.rendered.stateData = subboards[idx].state
+                idx++
                 const ss = sub.rendered.scaleX()
                 const sw = (sub.rendered.width() * ss)
                 const sh = (sub.rendered.height() * ss)

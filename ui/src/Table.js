@@ -77,8 +77,6 @@ export function Table(props) {
         deltaPercentage: null,
         columnSizingStart: [],}
 
-    const ids = props.primitives.map((d)=>d.id)
-
     const mapRows = (rows) =>{
         return rows.map((d)=>{
             return columns.reduce((r, c)=>{
@@ -304,7 +302,7 @@ export function Table(props) {
             ))}
             {table.getRowModel().rows.map((row,idx) => {
                 const id = row.original.id
-                const primitive = row.original.data.primitive
+                const primitive = row.original.data?.primitive
                 return (
                     <>
                     <div className="contents group">

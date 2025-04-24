@@ -2525,26 +2525,28 @@ function ControlPins({primitive}){
   return EditablePins( primitive, pins)
 }
 function EditablePins(primitive, pins){
-    return Object.keys(pins).map(pinName=>{
-      const d = pins[pinName]
-      let control = <p>Not available</p>
-      if( d.types?.includes("string") || d.types?.includes("string_list")){
-        control = RenderItem({
-          primitive,
-          item:{
-            type: d.format ?? "long_string",
-            value: primitive.referenceParameters?.[pinName],
-            key: pinName,
-            forceUpdate: true
-          }
-        })
-                      
-      }
-      return <>
-              <DescriptionTerm>{d.name}</DescriptionTerm>
-              <DescriptionDetails>{control}</DescriptionDetails>
-            </>
-    })
+    return <DescriptionList inContainer={true}>
+      {Object.keys(pins).map(pinName=>{
+        const d = pins[pinName]
+        let control = <p>Not available</p>
+        if( d.types?.includes("string") || d.types?.includes("string_list")){
+          control = RenderItem({
+            primitive,
+            item:{
+              type: d.format ?? "long_string",
+              value: primitive.referenceParameters?.[pinName],
+              key: pinName,
+              forceUpdate: true
+            }
+          })
+          
+        }
+        return <>
+                <DescriptionTerm inContainer={true}>{d.name}</DescriptionTerm>
+                <DescriptionDetails inContainer={true}>{control}</DescriptionDetails>
+              </>
+      })}
+    </DescriptionList>
 }
 function RenderPinValues({values, pin}){
     const pinValue = values[pin.id]

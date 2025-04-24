@@ -1,6 +1,7 @@
 import * as Headless from '@headlessui/react'
 import { Listbox, ListboxOption, ListboxLabel } from "./@components/listbox"
 import { Label } from "./@components/fieldset"
+import { Input } from './@components/input'
 import { Badge } from "./@components/badge"
 import { Dropdown, DropdownButton, DropdownItem, DropdownMenu } from './@components/dropdown'
 import { ChevronRightIcon, ChevronDownIcon } from '@heroicons/react/20/solid'
@@ -284,15 +285,69 @@ function MyDisclosurePanel({ children, open, ...props }){
   return <Disclosure.Panel>{children}</Disclosure.Panel>;
 };
 
+function PrimitiveField({name, className, primitive, field, submitOnEnter, allowEmpty, major, ...props}){
+    console.log(`update = ${props.update}`)
+    let currentValue = field === "title" ? primitive.title : primitive.referenceParameters[field]
+    function submit(target){
+        console.log('blur')
+        let val = ((major ? target.textContent.trim() : target.value) ?? "").trim()
+        if( val.length === 0){
+            val = undefined
+            if( !allowEmpty ){
+                return
+            }
+        }
+        if( currentValue !== val){
+            if( field === "title"){
+                primitive.title = val
+            }else{
+                primitive.setField(`referenceParameters.${field}`, val)
+            }
+            currentValue = val
+        }
+    }
+    function handleKey(e){
+        if(e.key === "Enter"){
+            if(submitOnEnter){
+                e.currentTarget.blur() 
+            }
+        }
+        return true
+    }
+    const config={
+        key: `${primitive.id}-${field}-${props.update}`,
+        name,
+        onKeyDown:handleKey,
+        onBlur:(e)=>submit(e.target),
+        ...props        
+    }
+    if( major ){
+        return <div 
+            contentEditable={true}
+            suppressContentEditableWarning={true}
+            className={clsx([
+                "w-full text-4xl font-bold focus-visible:outline cursor-text",
+                className
+            ])}
+            {...config}>
+                {currentValue}
+            </div>
+        
+    }else{
+        return <Input {...config} defaultValue={currentValue}/>
+    }
+};
+
+
 MyDisclosure.Button = MyDisclosureButton
 MyDisclosure.Panel = MyDisclosurePanel
 
 
 UIHelper.OptionList = OptionList
-
 UIHelper.Dropdown = MyDropdown
 UIHelper.Panel = Panel
 UIHelper.Disclosure = MyDisclosure
 UIHelper.Button = MyButton
 UIHelper.IconButton = IconButton
 UIHelper.AxisPicker = AxisPicker
+UIHelper.PrimitiveField = PrimitiveField
