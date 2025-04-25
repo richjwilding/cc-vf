@@ -16,6 +16,7 @@ import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 import Konva from "konva";
 import { compareTwoStrings, expandStringLiterals } from "./SharedTransforms";
 import { getLogger } from './logger'
+import AgentChat from "./AgentChat";
 
 const log = getLogger('BoardViewer', { level: 'trace' })
 
@@ -2884,6 +2885,10 @@ export default function BoardViewer({primitive,...props}){
 
     return <>
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
+        <div key='chatbar' className='overflow-hidden max-h-[80vh] w-2xl h-[50vh] bg-white rounded-md shadow-lg border-gray-200 border absolute left-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
+            <AgentChat primitive={primitive}/>
+        </div>
+        
         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
             <div className='p-3 flex place-items-start space-x-2 '>
                     <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />

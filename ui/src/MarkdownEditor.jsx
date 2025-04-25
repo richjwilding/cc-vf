@@ -27,7 +27,8 @@ import { markdownToSlate } from './SharedTransforms';
         const indent = '  '.repeat(depth); // Two spaces per indentation level
   
         // Determine if it's part of an ordered list or unordered list
-        const listPrefix = node.ordered ? `${depth + 1}.` : '-';
+        const index = slateContent.findIndex(n => n === node);
+        const listPrefix = node.ordered ? `${index + 1}.` : '-';
   
         // Handle any child text (e.g., bold text)
         const content = node.children.map((child) => {
@@ -74,6 +75,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
   useEffect(()=>{
     editor.children = convertInitialValue( initialMarkdown)
     editor.onChange();
+    Transforms.select(editor, { path: [0, 0], offset: 0 });
   },[initialMarkdown])
 
 
@@ -86,7 +88,15 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
         case 'unordered-list':
             return <ul {...attributes} className="pl-6 list-disc">{children}</ul>;
         case 'ordered-list':
-            return <ol {...attributes} className="pl-6 list-decimal">{children}</ol>;
+            const start = element.start;
+            return (
+              <ol
+                {...attributes}
+                className="pl-6 list-decimal"
+                {...(start && start !== 1 ? { start } : {})}
+              >
+                {children}
+              </ol>)
         case 'list-item':
             return <li {...attributes}>{children}</li>;
         case 'table':
@@ -149,8 +159,9 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
     const d = convertInitialValue( initialMarkdown)
     editor.children = d
     editor.onChange();
-    //ReactEditor.focus(editor);
+    Transforms.select(editor, { path: [0, 0], offset: 0 });
   }
+
 
   if (event.key === 'Enter') {
     const { selection } = editor;

@@ -2499,7 +2499,7 @@ export async function updateFieldWithCallbacks(id, field, value, req = {}){
 export async function dispatchControlUpdate(id, controlField, status, flags = {}){
     try{
         let primitive 
-        //console.log(`${id} = ${controlField} : ${status}`)
+        console.log(`${id} = ${controlField} : ${status}`)
 
         if( status === undefined ){
             primitive = await Primitive.findOneAndUpdate(

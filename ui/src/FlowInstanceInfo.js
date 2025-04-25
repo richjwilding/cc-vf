@@ -84,7 +84,6 @@ export function FlowInstanceInfo({primitive, inputPrimitives, steps,...props}){
             a[c] = {
                 id: c,
                 name: flowOutputPins[pinInput]?.name ?? pinInput,
-                //items: primitive.primitives.outputs[c].allUniqueItems
                 items
             }
         }
@@ -92,7 +91,6 @@ export function FlowInstanceInfo({primitive, inputPrimitives, steps,...props}){
     
     const [selectedOutputPin, setSelectedOutputPin] = useState(outputPins[0])
 
-    console.log(outputs)
     if( !primitive || !steps){
         return <></>
     }
@@ -168,7 +166,6 @@ export function FlowInstanceInfo({primitive, inputPrimitives, steps,...props}){
             </div>}
         </div>
         <div className={`${bg} ${padding} px-1 @container flex flex-col`}>
-            {false && outputs[selectedOutputPin].items.map(d=><PrimitiveCard primitive={d}/>)}
             {expand && <div className={
                 classNames(
                     "w-full grid gap-2",
@@ -179,7 +176,6 @@ export function FlowInstanceInfo({primitive, inputPrimitives, steps,...props}){
                         board
                         hideWidgets={true}
                         ref={canvas}
-                        //background="#f9fafb"
                         background="white"
                         ignoreAfterDrag={false}
                         snapDistance={5}
@@ -193,13 +189,8 @@ export function FlowInstanceInfo({primitive, inputPrimitives, steps,...props}){
                             "cell":"background",
                             "widget":"background"
                         }}
-                        /*rerender={(frame, primitiveId)=>{
-                            const prim = MainStore().primitive(primitiveId)
-                            return RenderPrimitiveAsKonva( primitive)
-                        }}*/
                         enableFrameSelection
                         callbacks={{
-                            //resizeFrame,
                             onClick:{
                                 frame: (id)=>{
                                     //setActiveBoard(id)

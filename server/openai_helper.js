@@ -953,9 +953,7 @@ export async function processInChunk( list, pre, post, options = {} ){
 }
 
 async function __executeAI(messages, options = {}){
-    const openai = new OpenAI({
-        apiKey: process.env.OPEN_API_KEY
-    })
+    const openai = new OpenAI({apiKey: process.env.OPEN_API_KEY})
     let response
     let err
     let sleepBase = 20000
@@ -1073,9 +1071,7 @@ async function __executeAI(messages, options = {}){
 
 }
 async function executeAI(messages, options = {}){
-    const openai = new OpenAI({
-        apiKey: process.env.OPEN_API_KEY
-    })
+    const openai = new OpenAI({apiKey: process.env.OPEN_API_KEY})
     let response
     let err
     let sleepBase = 20000

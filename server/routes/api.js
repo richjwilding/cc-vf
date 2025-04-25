@@ -16,6 +16,7 @@ import Embedding from '../model/Embedding';
 import axios from 'axios';
 import { unpack, pack } from 'msgpackr';
 import { buildPage } from '../htmlexporter';
+import { handleChat } from '../actions/agent';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -766,6 +767,27 @@ router.get('/queue/status', async function(req, res, next) {
     const status = await queueStatus()
     res.json({success: true, result: status})
 
+})
+router.post('/primitive/:id/agent', async function(req, res, next) {
+    const primitiveId = req.params.id
+    const action = req.params.action
+    const options = req.body
+    console.log( primitiveId, action, options)
+    try{
+        let result
+        const primitive = await fetchPrimitive(primitiveId)
+
+        if( !await userCanAccessPrimitive(primitive, req, res) ){
+            return
+        }
+
+        if( primitive){
+            handleChat(primitive, req, res)
+        }
+    }catch(error){
+        console.log(error)
+        res.status(501).json({message: "Error", error: error})
+    }
 })
 router.post('/primitive/:id/action/:action', async function(req, res, next) {
     let data = req.body

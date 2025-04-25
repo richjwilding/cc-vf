@@ -99,7 +99,158 @@ export function formatNumber(number){
 
     return formattedNumber.replace(/\.00$/, '') + (suffixes[suffixIndex] ?? "");
 }
-  export function markdownToSlate(markdownContent){
+export function markdownToSlate(markdownContent = "") {
+  const lines = markdownContent.split(/\r?\n/);
+  const slateNodes = [];
+  // Stack of open lists: { node: ListNode, indent: number, type: 'ordered-list'|'unordered-list' }
+  const listStack = [];
+
+  // Flush all open lists
+  const flushLists = () => {
+    listStack.length = 0;
+  };
+
+  // Helper: append a top-level node (or to the current list if open)
+  const appendTop = (node) => {
+    if (listStack.length) {
+      listStack[listStack.length - 1].node.children.push(node);
+    } else {
+      slateNodes.push(node);
+    }
+  };
+
+  for (let raw of lines) {
+    const line = raw.replace(/\r$/, "");
+    const trimmed = line.trim();
+
+    // 1) Continuation of last <li>?
+    const cont = raw.match(/^(\s+)(\S.*)/);
+    if (cont && listStack.length) {
+      const [, indents, text] = cont;
+      if (!/^(\d+\.)\s|^[-*]\s/.test(text)) {
+        const topList = listStack[listStack.length - 1].node;
+        const lastItem = topList.children[topList.children.length - 1];
+        // insert a newline so Markdown serializes a line-break
+        lastItem.children.push({ text: "\n" });
+        parseMarkdownInline(text).forEach(tok => lastItem.children.push(tok));
+        continue;
+      }
+    }
+
+    // 2) Table rows (as before)
+    if (trimmed.includes("|")) {
+      flushLists();
+      // … your existing table logic here …
+      // Make sure you push table nodes onto slateNodes
+      continue;
+    }
+
+    // 3) Headings
+    const h = trimmed.match(/^(#+)\s+(.*)$/);
+    if (h) {
+      flushLists();
+      const level = Math.min(Math.max(h[1].length, 1), 6);
+      slateNodes.push({
+        type: "heading",
+        level,
+        children: parseMarkdownInline(h[2]),
+      });
+      continue;
+    }
+
+    // 4) List items (ordered or unordered)
+    const mo = raw.match(/^(\s*)(\d+\.)\s+(.*)$/);
+    const mu = !mo && raw.match(/^(\s*)([-*])\s+(.*)$/);
+    if (mo || mu) {
+      const [, indentSpaces, marker, rest] = mo || mu;
+      const indentLevel = indentSpaces.length;     // raw spaces
+      const isOrdered   = !!mo;
+      const listType    = isOrdered ? "ordered-list" : "unordered-list";
+
+
+      const explicitStart = isOrdered ? parseInt(marker.slice(0, -1), 10) : undefined;
+
+      const itemContent = parseMarkdownInline(rest);
+
+      // a) If more indented than the last list, make a nested list under the last <li>
+      if (
+        listStack.length &&
+        indentLevel > listStack[listStack.length - 1].indent
+      ) {
+        const parentItem = listStack[listStack.length - 1].node
+          .children
+          .slice(-1)[0]; // last <li> of the parent list
+        const nestedList = { type: listType, children: [] };
+        // attach under that <li>
+        parentItem.children.push(nestedList);
+        // record it
+        listStack.push({ node: nestedList, indent: indentLevel, type: listType });
+        // append our new list‐item
+        const li = { type: "list-item", children: itemContent };
+        nestedList.children.push(li);
+        continue;
+      }
+
+      // b) Otherwise, pop off any deeper or mismatched lists at this indent
+      while (listStack.length) {
+        const top = listStack[listStack.length - 1];
+        if (
+          top.indent > indentLevel ||
+          (top.indent === indentLevel && top.type !== listType)
+        ) {
+          listStack.pop();
+        } else {
+          break;
+        }
+      }
+
+      // c) If the top of stack is the same type & indent, reuse it
+      if (
+        listStack.length &&
+        listStack[listStack.length - 1].type === listType &&
+        listStack[listStack.length - 1].indent === indentLevel
+      ) {
+        const existing = listStack[listStack.length - 1].node;
+        existing.children.push({ type: "list-item", children: itemContent });
+        continue;
+      }
+
+      // d) Otherwise, start a brand-new list container
+      const newList = { type: listType, children: [] };
+      if (isOrdered && explicitStart > 1) {
+        newList.start = explicitStart;
+      }
+      appendTop(newList);
+      listStack.push({
+        node: newList,
+        indent: indentLevel,
+        type: listType,
+      });
+      newList.children.push({ type: "list-item", children: itemContent });
+      continue;
+    }
+
+    // 5) Plain paragraph or blank line
+    flushLists();
+    if (trimmed) {
+      slateNodes.push({
+        type: "paragraph",
+        children: parseMarkdownInline(trimmed),
+      });
+    } else {
+      slateNodes.push({
+        type: "paragraph",
+        children: [{ text: "" }],
+      });
+    }
+  }
+
+  return slateNodes.length
+    ? slateNodes
+    : [{ type: "paragraph", children: [{ text: "" }] }];
+}
+
+  /*export function markdownToSlate(markdownContent){
     const lines = (markdownContent ?? "").split('\n');
     const slateNodes = [];
   
@@ -218,7 +369,8 @@ export function formatNumber(number){
     });
   
     return slateNodes;
-  };
+  };*/
+  
   export function parseMarkdownText(text){
     const lines = text.split('\n');
     const nodes = [];
