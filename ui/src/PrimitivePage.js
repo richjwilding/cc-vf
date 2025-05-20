@@ -26,6 +26,7 @@ import VFTable from './VFTable';
 import MapViewer from './MapViewer';
 import BoardViewer from './BoardViewer';
 import AnalysisPage from './AnalysisPage';
+import FlowPage from './FlowPage';
 import ReportViewExporter from './ReportViewExporter';
 import RouterTest from './RouterTest';
 import FlowInstancePage from './FlowInstancePage';
@@ -381,8 +382,12 @@ export function PrimitivePage({primitive, ...props}) {
       )
     }
   
-  if( primitive?.type === "working"  || primitive?.type === "flow"  ){
+  if( primitive?.type === "working" ){
     return <AnalysisPage primitive={primitive}/>
+  }
+  if(primitive?.type === "flow"  ){
+    //return <FlowPage primitive={primitive}/>
+    return <FlowInstancePage primitive={primitive}/>
   }
   if( primitive?.type === "flowinstance"  ){
     return <FlowInstancePage primitive={primitive}/>

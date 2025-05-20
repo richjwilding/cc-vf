@@ -1613,6 +1613,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     x = tx
                     y = ty
                     s = ts
+                    
+                }else{
+                    if(props.callbacks?.frameMove){
+                        props.callbacks.frameMove({
+                            id: set.id,
+                            x, y, s
+                        })
+                    }
                 }
                 const {id, title, items, ...options} = set
                 const frame = setupFrameForItems(id, title, items, x, y, s, options)
@@ -2643,7 +2651,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             myState.current.dragging.dropConfig.drop( myState.current.dragging.clone.attrs.id, myState.current.dragging.startZone.attrs.id, myState.current.dragging.dropZone.attrs.id )
                         }
                     }
-                    myState.current.dragging.sourceItem.visible(true)
+                    if( myState.current.dragging.sourceItem ){
+
+                        myState.current.dragging.sourceItem.visible(true)
+                    }
                     if( myState.current.dragging.isFrame ){
                         for( const thisFrame of myState.current.selected.frame){
 

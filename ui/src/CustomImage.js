@@ -197,7 +197,7 @@ class CustomImage extends Shape {
     this._requestDraw()
 
   }
-  finalize(){
+  finalize(options){
     if( !this.attrs.placeholder ){
       return
     }
@@ -207,6 +207,9 @@ class CustomImage extends Shape {
     this._buildPrivateCache()
     this.attrs.placeholder = false
     this.attrs.name = undefined
+    if( !this.attrs.refreshCallback && options){
+      this.attrs.refreshCallback = options?.imageCallback(this)
+    }
     this.requestRefresh()
 
   }

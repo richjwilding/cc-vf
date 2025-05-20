@@ -272,7 +272,7 @@ class CollectionUtils{
                     catIds[category.id] = category.primitives.params.source?.allUniqueCategory?.[0] ?? undefined
                 }else{
                     if( category.origin.type === "categorizer"){
-                        const target = category.origin.flowElement ? category.origin : category.origin.configParent
+                        const target = category.origin.flowElement ? category.origin : category.origin.configParent ?? category.origin
                         catIds[target.id] = target
                     }else{
                         catIds[category.id] = category
@@ -355,7 +355,7 @@ class CollectionUtils{
                     }else if(  type === "contact"){
                         out.push( {...paramConfig, parameter: "contactId", passType: "contact"})
                     }else if(  type === "boolean"){
-                        out.push( {passType: "boolean", ...paramConfig})
+                        out.push( {...paramConfig, passType: "boolean"})
                     }else if(  type === "object"){
                         for(const d in parent[parameter]){
                             if( d === "type"){continue}
@@ -391,7 +391,7 @@ class CollectionUtils{
                 if( category.primitiveType === "marketsegment"){
                         out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "indexed"})
                 }else{
-                    if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query" || category.primitiveType === "evidence" ){
+                    if( category.primitiveType === "entity" || category.primitiveType === "result" || category.primitiveType === "query" || category.primitiveType === "evidence" || category.primitiveType === "search" ){
                         out.push( {type: 'title', title: `${category.title} Title`, category, relationship, access: access, passType: "raw"})
                     }
                     if( category.primitiveType === "entity"){
@@ -475,12 +475,32 @@ class CollectionUtils{
 
 
         if( primitive ){
+            const primitiveOrigin = primitive.origin
+            const inheritedCategories = []
+            const seenCats = new Set()
+            for(const d of items){
+                for(const p of d.parentPrimitives){
+                    if( p.type === "category"){
+                        for(const p2 of p.parentPrimitives){
+                            if( p2.type === "category"){
+                                if( !seenCats.has(p2.id)){
+                                    seenCats.add(p2.id)
+                                    inheritedCategories.push(p2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             let baseCategories = uniquePrimitives([
                 ...primitive.primitives.origin.allUniqueCategory, 
                 ...primitive.findParentPrimitives({type:["view", "query","categorizer"]}).map(d=>d.primitives.origin.allUniqueCategory).flat(),
-                ...primitive.origin.type == "flow" ? primitive.origin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
-                ...primitive.origin.type == "flowinstance" ? primitive.origin.origin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
-                ...uniquePrimitives(items.map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()).map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()
+                ...primitiveOrigin.type == "flow" ? primitiveOrigin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
+                ...primitiveOrigin.type == "flowinstance" ? primitiveOrigin.origin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
+                ...inheritedCategories
+                //...items.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category")).flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category"))
+                //...uniquePrimitives(items.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category"))).flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category"))
+                //...uniquePrimitives(items.map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()).map(d=>d.parentPrimitives.filter(d=>d.type === "category")).flat()
             ])
 
             out = out.concat( findCategories( baseCategories ) )
@@ -494,12 +514,12 @@ class CollectionUtils{
                 let perf = performance.now()
                 let out = []
                     const relForOrigin =  Array.isArray(relationshipChain) ? relationshipChain.slice(-1)[0] : relationshipChain
-                    let origins = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel(relForOrigin,1)).flat(Infinity))
+                    let origins = uniquePrimitives(nodes.flatMap((d)=>!d.isTask && d.relationshipAtLevel(relForOrigin,1)))
 
                     let path = [relationshipChain].flat()
                     let last = path.pop()
                     if( last === "auto"){
-                        const rejectList = uniquePrimitives(nodes.map((d)=>!d.isTask && d.relationshipAtLevel("origin_link_result",1)).flat(Infinity)).map(d=>d.id)
+                        const rejectList = uniquePrimitives(nodes.flatMap((d)=>!d.isTask && d.relationshipAtLevel("origin_link_result",1))).map(d=>d.id)
                         const pre = origins.length
                         origins = origins.filter(d=>!rejectList.includes(d.id))
 
@@ -618,8 +638,9 @@ class CollectionUtils{
                             }else{
                                 const value = filterConfig.value ?? "None"
                                 remap[d.id] = value
-                                newRemap[value] ||= []
-                                newRemap[value] = d.id
+                                if( !newRemap[value] ){
+                                    newRemap[value] = d.id
+                                }
                                 return {idx: d.id, label: value, sourcePrimId}
                             }
                         }
@@ -749,7 +770,8 @@ class CollectionUtils{
                 //return {labels: labels, bucket_min: mins, bucket_max: max, order: labels, values: labels.map((d,i)=>({idx: d, label: d}))}
                 return {labels: labels, order: labels, values: labels.map((d,i)=>({idx: d, label: d, bucket_min: mins[i], bucket_max: max[i]}))}
             },
-            "number": (field)=>{
+            "number":(field)=>bucket["raw"](field),
+            "__number": (field)=>{
                 let bucketCount = 10
                 //const hasValues = interim.filter(d=>d[field]).sort((a,b)=>a[field] - b[field])
                 const noValues = interim.filter(d=>d[field] === undefined)
@@ -893,9 +915,9 @@ class CollectionUtils{
                         return (!b.min || d[field] >= b.min ) && (!b.lessThan || d[field] < b.lessThan )
                     })
                     d["original_" + field] = d[field]
-                    d[field] = bracket
+                    d[field] = bracket === -1 ? "_N_" : bracket
                 }
-                return {values: brackets.map((d,i)=>({idx: i, bucket_min: d.min, bucket_max: d.lessThan, label: d.label}))}
+                return {values: [{idx: "_N_", label: "Unknown"}, ...brackets.map((d,i)=>({idx: i, bucket_min: d.min, bucket_max: d.lessThan, label: d.label}))]}
             }
         }
 
@@ -911,13 +933,14 @@ class CollectionUtils{
                 }
             }else{
                 let subCats = catPrimitive?.primitives?.allUniqueCategory.map((d,i)=>({idx: d.id, primitive: d, label:d.title})) ?? []
+                
                 if( catPrimitive?.referenceId === PrimitiveConfig.Constants.EVALUATOR){
                     out = {
                         values: [{idx: "_N_", label: "None"}, ...subCats]
                     }
                 }else{
                     out = {
-                        values: [{idx: "_N_", label: "None"}, ...subCats].sort((a,b)=>a.label?.localeCompare(b.label)),
+                        values: [{idx: "_N_", label: "None"}, ...subCats]//.sort((a,b)=>a.label?.localeCompare(b.label)),
                     }
                 }
             }
@@ -930,10 +953,17 @@ class CollectionUtils{
             }
             out = parser(field)
         }        
-        return {
-            ...out,
-            values: out.values.map(d=>({...d, idx: d.idx, label: Array.isArray( d.label ) ? d.label.join(", ") : d.label}))
+
+        const counts = {}
+
+        for(const d of interim){
+            counts[d[field]] = (counts[d[field]]  ?? 0) + 1
         }
+        const preCount = {
+            ...out,
+            values: out.values.map(d=>({...d, idx: d.idx, count: counts[d.idx], label: Array.isArray( d.label ) ? d.label.join(", ") : d.label}))
+        }
+        return preCount
     }
     static mapCollectionByAxis(list, column, row, others, liveFilters, viewPivot){
 
@@ -1227,10 +1257,11 @@ class CollectionUtils{
     
 
             if( "parameter" === axis.type ){
-                const pC = {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.parameter] ?? PrimitiveConfig.passTypeMap[axis.type] ?? "raw"}
+                const meta = axis.relationship ? items?.[0]?.relationshipAtLevel(axis.relationship, axis.relationship.length)?.[0]?.metadata : items?.[0]?.metadata 
+
+                const pC = {filter: [],...axis, passType: PrimitiveConfig.passTypeMap[axis.parameter] ?? PrimitiveConfig.passTypeMap[axis.type] ?? meta?.parameters?.[axis.parameter]?.type ?? "raw"}
 
                 //const meta = items?.[0]?.metadata 
-                const meta = axis.relationship ? items?.[0]?.relationshipAtLevel(axis.relationship, axis.relationship.length)?.[0]?.metadata : items?.[0]?.metadata 
                 
                 if( meta ){
                     if( meta.parameters?.[axis.parameter]?.axisType){

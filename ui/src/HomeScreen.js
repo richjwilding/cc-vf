@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import MainStore from "./MainStore"
 import Panel from "./Panel"
 import { PrimitiveCard } from "./PrimitiveCard"
@@ -16,6 +16,13 @@ export default function HomeScreen(props){
         }
         return array.filter((d)=>d.workspaceId === props.workspace.id)
     }
+
+    useEffect(()=>{
+        if( !MainStore().homescreenReady){
+            console.log(`Need to load homescreen prims`)
+            MainStore().loadHomeScreenPrimitives()
+        }
+    }, [MainStore().homescreenReady])
     
     const boards = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="board" || p.type==="working"))
     const activities = filterForWorksapce(MainStore().primitives().filter((p)=>p.isTask))

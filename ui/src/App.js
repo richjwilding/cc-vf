@@ -23,6 +23,7 @@ import NewPrimitive from './NewPrimitive.js';
 import Popup from './Popup.js';
 import GenericEditor from './CategoryEditor.js';
 import PrimitiveConfig from './PrimitiveConfig.js';
+import FlowInstancePage from './FlowInstancePage.js';
 
 library.add(faTags, faRobot, faTrash, faChevronDown, faLinkedin, faFilter, faCircleInfo, faSpinner, faTriangleExclamation)
 
@@ -137,6 +138,7 @@ function App() {
             <Routes>
               <Route path="/login" element={<SignIn/>}/>
               <Route path="/" element={<SideNav workspace={workspaceView} setWorkspace={setWorkspaceView}><HomeScreen workspace={workspaceView} setWorkspace={setWorkspaceView}/></SideNav>}/>
+              <Route path="/published/new_instance/:id" element={<FlowInstancePage />}/>
               <Route path="/item/:id" element={
                 <SideNav key='sidebar' widePage={widePage} workspace={workspaceView} setWorkspace={setWorkspaceView}>
                   {(props)=>(

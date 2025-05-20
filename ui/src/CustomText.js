@@ -433,8 +433,10 @@ _setTextData() {
           fontScaleForTable = 0.8
         }
         const mainLineHeight = baseLineHeightPx
- //       const heatRegex = /^(\d+)(?: - | – |: )(.*)$/;
-        const heatRegex = /^(\d+)(?: - | – |: |\s+)(.*)$/
+        //const heatRegex = /^(\d+)(?: - | – |: |\s+)(.*)$/
+        //const heatOrSentimentRegex = /^(?:(\d+)|(strongly negative|slightly negative|neutral|slightly positive|strongly positive))(?: - | – |: |\s+)(.*)$/i;
+        const heatOrSentimentRegex = /^(?:(\d+)|(strongly negative|slightly negative|neutral|slightly positive|strongly positive))(?: - | – |: |\s+)?(.*)?$/i;
+
         baseLineHeightPx = baseLineHeightPx * fontScaleForTable
         const rowSpacing = baseLineHeightPx * 0.2
         const colSpacing = baseLineHeightPx * 0.1
@@ -457,12 +459,32 @@ _setTextData() {
                 fills[cIdx] = "#999999"
             }else{
 
-              const m = col.children[0].children?.[0]?.text?.match(heatRegex)
-              if( m ){
-                let v = m[1] - 1
-                if( v > 4 ){v = 4}
-                fills[cIdx] = HEATMAP.colors[v]
-                col.children[0].children[0].text = m[2]
+              //const m = col.children[0].children?.[0]?.text?.match(heatRegex)
+              const m = col.children[0]?.text?.match(heatOrSentimentRegex)
+              if (m) {
+                let v;
+              
+                if (m[1]) {
+                  // Case: number found (Group 1)
+                  v = parseInt(m[1], 10) - 1;
+                  if (v > 4) v = 4;
+                  col.children[0].text = m[3]
+                } else if (m[2]) {
+                  // Case: sentiment found (Group 2)
+                  const sentimentText = m[2].toLowerCase();
+                  const sentimentScale = {
+                    "strongly negative": 0,
+                    "slightly negative": 1,
+                    "neutral": 2,
+                    "slightly positive": 3,
+                    "strongly positive": 4
+                  };
+                  v = sentimentScale[sentimentText];
+                }
+              
+                if (v !== undefined) {
+                  fills[cIdx] = HEATMAP.colors[v];
+                }
               }
             }
             for(const child of col.children){
@@ -511,29 +533,50 @@ _setTextData() {
           currentHeightPx += (lastLineHeight * 0.2);
         }
       }
-      if( section.children ){
+      const children = section.children ?? [section]
+      if( children ){
         let indent = startIndent
         let fragmentIdx = 0
-        for(const frag of section.children ){
-          const bold = frag.bold || isHeading  || tableInfo?.row === 0
-          const bullet = isListItem && (fragmentIdx === 0)
-          const lastLine = lastSection && (fragmentIdx === (section.children.length - 1))
-          const color = tableInfo?.row === 0 ? "white" : undefined
-          const result = placeText( frag.text, large, bold, bullet, startIndent, indent, color, lastLine, tableInfo)
-          
-          indent = result.indent
-          if( result.textWidth > maxUsedWidth ){
-            maxUsedWidth = result.textWidth
+        for(const frag of children ){
+          if( frag.type === "unordered-list" || section.type === "ordered-list"){
+            const px = "" + lineHeightPx
+            if( !indentWidths[px] ){
+              getDummyContext().font = (large ? this.headlineFont : this.standardFont)
+              indentWidths[px] = this._getTextStats("    ").width
+            }
+            let preIndent = startIndent
+            startIndent += indentWidths[px]
+            
+            currentHeightPx += (lineHeightPx * (isListItem ? 1.1 : 1.4));
+            didAdvance = true
+            if( frag.children ){
+              for(const sub of frag.children ){
+                processSection( sub, false, false )
+              }
+            }
+            startIndent = preIndent
+          }else{
+
+            const bold = frag.bold || isHeading  || tableInfo?.row === 0
+            const bullet = isListItem && (fragmentIdx === 0)
+            const lastLine = lastSection && (fragmentIdx === (children.length - 1))
+            const color = tableInfo?.row === 0 ? "white" : undefined
+            const result = placeText( frag.text, large, bold, bullet, startIndent, indent, color, lastLine, tableInfo)
+            
+            indent = result.indent
+            if( result.textWidth > maxUsedWidth ){
+              maxUsedWidth = result.textWidth
+            }
+            didAdvance = result.newline
+            if( result.clippedForHeight ){
+              clipped = true
+              break
+            }
+            fragmentIdx++
           }
-          didAdvance = result.newline
-          if( result.clippedForHeight ){
-            clipped = true
-            break
-          }
-          fragmentIdx++
-        }
-        if (this.textArr[this.textArr.length - 1]) {
+          if (this.textArr[this.textArr.length - 1]) {
             this.textArr[this.textArr.length - 1].lastInParagraph = true;
+          }
         }
       }
     }

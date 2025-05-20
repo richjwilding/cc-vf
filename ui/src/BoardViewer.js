@@ -17,8 +17,9 @@ import Konva from "konva";
 import { compareTwoStrings, expandStringLiterals } from "./SharedTransforms";
 import { getLogger } from './logger'
 import AgentChat from "./AgentChat";
+import clsx from "clsx";
 
-const log = getLogger('BoardViewer', { level: 'trace' })
+const log = getLogger('BoardViewer', { level: 'debug' })
 
                 
 export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "item_info", "widget", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
@@ -409,14 +410,14 @@ function SharedRenderView(d, primitive, myState) {
           canChangeSize: "plain",
           items: stageOptions => {
             const data = myState[d.id].object;
-            return renderPlainObject({ ...data, ...stageOptions, ...renderOptions });
+            return renderPlainObject({ ...data, ...stageOptions, ...renderOptions, renderOptions });
           }
         };
         break;
   
       case "full": {
         let renderFunc = stageOptions =>
-          RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions });
+          RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, renderOptions });
         // Special case for a reference
         if (d.referenceId === 118) {
           let boardToCombine = d.primitives.imports.allItems;
@@ -439,6 +440,7 @@ function SharedRenderView(d, primitive, myState) {
               return RenderPrimitiveAsKonva(primitiveToRender, {
                 ...stageOptions,
                 ...renderOptions,
+                renderOptions,
                 partials
               });
             };
@@ -461,6 +463,7 @@ function SharedRenderView(d, primitive, myState) {
             RenderPrimitiveAsKonva(primitiveToRender, {
               ...stageOptions,
               ...renderOptions,
+              renderOptions,
               config: view.config,
               data: view.renderData
             })
@@ -518,6 +521,7 @@ function SharedRenderView(d, primitive, myState) {
             RenderPrimitiveAsKonva(primitiveToRender, {
               ...stageOptions,
               ...renderOptions,
+              renderOptions,
               config: view.config,
               data: Object.values(catData)
             })
@@ -525,7 +529,7 @@ function SharedRenderView(d, primitive, myState) {
         break;
       case "page": {
         const renderFunc = stageOptions =>
-          RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, data: view.renderData });
+          RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, renderOptions, data: view.renderData });
         renderView = {
           ...baseRenderView,
           utils: view.renderSubPages || RENDERSUB
@@ -541,7 +545,7 @@ function SharedRenderView(d, primitive, myState) {
   
       case "flow": {
         const renderFunc = stageOptions =>
-          RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, data: view.renderData });
+          RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, renderOptions, data: view.renderData });
         renderView = {
           ...baseRenderView,
           resizeForChildren: true,
@@ -601,36 +605,55 @@ function SharedRenderView(d, primitive, myState) {
               RenderPrimitiveAsKonva(primitiveToRender, {
                 config: "ai_processing",
                 ...stageOptions,
-                ...renderOptions
+                ...renderOptions,
+                renderOptions
               })
           };
         } else if (view.viewConfig?.matrixType) {
-          renderView = {
-            ...baseRenderView,
-            canChangeSize: view?.viewConfig?.resizable,
-            items: stageOptions =>
-              RenderSetAsKonva(primitiveToRender, view.list, {
-                ...stageOptions,
-                ...renderOptions,
-                axis: view.axis,
-                extents: {
-                  column: view.columns.map(item => ({
+            
+            const rows = ()=>view.rows.map(item => ({
+                ...item,
+                primitive: mainstore.primitive(item.idx)
+            })).sort((a,b)=>b.count - a.count)
+
+            let columns
+
+            if( view.primitive.workspaceId === "680cb9e84d11562ca118b10d"){
+                const fixed = ["AA Breakdown Cover", "RAC Breakdown Cover", "Green Flag Breakdown Cover", "Start Rescue", "Emergency Assist"].reverse()
+                columns = ()=>view.columns.map(item => ({
                     ...item,
                     primitive: mainstore.primitive(item.idx)
-                  })),
-                  row: view.rows.map(item => ({
+                })).sort((a,b)=>fixed.indexOf(b.label) - fixed.indexOf(a.label))
+
+            }else{
+                columns = ()=>view.columns.map(item => ({
                     ...item,
                     primitive: mainstore.primitive(item.idx)
-                  }))
-                },
-                config: view.viewConfig?.matrixType
-              })
-          };
+                }))
+            }
+
+            renderView = {
+                ...baseRenderView,
+                canChangeSize: view?.viewConfig?.resizable,
+                items: stageOptions =>
+                RenderSetAsKonva(primitiveToRender, view.list, {
+                    ...stageOptions,
+                    ...renderOptions,
+                    renderOptions,
+                    axis: view.axis,
+                    allocations: view.filteredAllocations,
+                    extents: {
+                    column: columns(),
+                    row: rows()
+                    },
+                    config: view.viewConfig?.matrixType
+                })
+            };
         } else {
           renderView = {
             ...baseRenderView,
             utils: { prepareBoards: prepareSubBoards, renderBoard: renderSubBoard },
-            canChangeSize: view?.viewConfig?.resizable,
+            canChangeSize: true,//view?.viewConfig?.resizable,
             items: stageOptions => mapMatrix(stageOptions, d, view)
           };
         }
@@ -1115,11 +1138,17 @@ function SharedRenderView(d, primitive, myState) {
                 rowAxis.allowMove = rowAxis.access === 0 && !rowAxis.relationship
 
                 const primitiveConfig = primitiveToPrepare.getConfig
-                let viewFilters = []
-                let filterApplyColumns = primitiveConfig?.explore?.axis?.column?.filter ?? []
-                let filterApplyRows = primitiveConfig?.explore?.axis?.row?.filter ?? []
                 let hideNull = primitiveConfig?.explore?.hideNull
                 let viewPivot = primitiveConfig?.explore?.viewPivot
+                let viewFilters = []
+                if( viewConfig.needsAllAllocations ){
+                    //const items = getLocalPrimitiveListForBoardId(stateId, myState) ?? primitiveToPrepare.itemsForProcessing
+                    //const fullList = primitiveForContent.itemsForProcessingWithFilter(filters, {ignoreFinalViewFilter: true}) 
+                    viewFilters = primitiveConfig?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(primitiveToPrepare, i, items)) ?? []            
+                    console.log(`------> viewFilters`)
+                }
+                let filterApplyColumns = primitiveConfig?.explore?.axis?.column?.filter ?? []
+                let filterApplyRows = primitiveConfig?.explore?.axis?.row?.filter ?? []
 
                 let liveFilters = primitiveToPrepare.primitives.allUniqueCategory.filter(d=>primitiveToPrepare.referenceId === PrimitiveConfig.Constants["LIVE_FILTER"]).map(d=>{
                     return {
@@ -1132,6 +1161,40 @@ function SharedRenderView(d, primitive, myState) {
                 })
                 
                 let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columnAxis, rowAxis, viewFilters, liveFilters, viewPivot )
+                const filteredColumnExtents = extents.column.filter(d=>{
+                    if( d.idx === "_N_" && (filterApplyColumns.includes(undefined) || filterApplyColumns.includes(null))){
+                        return false
+                    }
+                    if( filterApplyColumns.includes(d.idx)){
+                        return false
+                    }
+                    return true
+                    
+                })
+                const filteredRowExtents = extents.row.filter(d=>{
+                    if( d.idx === "_N_" && (filterApplyRows.includes(undefined) || filterApplyRows.includes(null))){
+                        return false
+                    }
+                    if( filterApplyRows.includes(d.idx)){
+                        return false
+                    }
+                    return true
+                    
+                })
+                const filteredAllocations = viewFilters.reduce((a,c,i)=>{
+                    const name = `filterGroup${i}`
+                    a[name] = extents[name].filter(d=>{
+                        
+                        if( d.idx === "_N_" && (c.filter.includes(undefined) || c.filter.includes(null))){
+                            return false
+                        }
+                        if( c.filter.includes(d.idx)){
+                            return false
+                        }
+                        return true
+                    })
+                    return a
+                }, {})
 
                 let filtered = CollectionUtils.filterCollectionAndAxis( data, [
                     {field: "column", exclude: filterApplyColumns},
@@ -1139,7 +1202,7 @@ function SharedRenderView(d, primitive, myState) {
                     ...viewFilters.map((d,i)=>{
                         return {field: `filterGroup${i}`, exclude: d.filter}
                     })
-                ], {columns: extents.column, rows: extents.row, hideNull})
+                ], {columns: filteredColumnExtents, rows: filteredRowExtents, hideNull})
 
                 if( myState[stateId].list ){
                     if( filtered.data.length !== myState[stateId].list.length){
@@ -1164,16 +1227,19 @@ function SharedRenderView(d, primitive, myState) {
                         didChange = didChange || changes
                     }
                 }
+
+                const watchIds = new Set( filtered.data.flatMap(d=>d.primitive.parentPrimitiveIds) )
                             
                 myState[stateId].primitive = basePrimitive
                 myState[stateId].config = viewConfig.configName ?? "explore_" + activeView
                 myState[stateId].list = filtered.data
-                myState[stateId].internalWatchIds = filtered.data.map(d=>d.primitive.parentPrimitiveIds).flat(Infinity).filter((d,i,a)=>a.indexOf(d)===i)
+                myState[stateId].internalWatchIds = Array.from(watchIds)
                 myState[stateId].axis = {column: columnAxis, row: rowAxis}
                 myState[stateId].columns = filtered.columns
                 myState[stateId].viewConfig = viewConfig
                 myState[stateId].rows = filtered.rows
                 myState[stateId].extents = extents
+                myState[stateId].filteredAllocations = filteredAllocations
                 myState[stateId].toggles = Object.keys(extents).reduce((a,c)=>{
                                                                         if(c.match(/liveFilter/)){
                                                                             a[c] = extents[c]
@@ -1464,6 +1530,7 @@ export default function BoardViewer({primitive,...props}){
     const rowButton = useRef({})
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
+    const [agentStatus, setAgentStatus] = useState({activeChat: false})
 
 
     const setCanvasRef = (node) => {
@@ -1475,7 +1542,7 @@ export default function BoardViewer({primitive,...props}){
 
     window.exportFrames = exportMultiple
 
-    useDataEvent("relationship_update set_parameter set_field delete_primitive set_title", undefined, (ids, event, info, fromRemote)=>{
+    useDataEvent("relationship_update set_parameter set_field delete_primitive set_title new_child", undefined, (ids, event, info, fromRemote)=>{
         if( myState.current.watchList  ){
             if( ids.length === 1 && ids[0] === primitive.id && typeof(info) == "string"){
                 const frameUpdate = info.match(/frames\.(.+)\.(.+)/)
@@ -1483,6 +1550,21 @@ export default function BoardViewer({primitive,...props}){
                     ids = [frameUpdate[1]]
                 }
             }
+
+            if( event === "new_child"){
+                if( ids[0] === primitive.id ){
+                    const child = info?.child
+                    if( child){
+                        if( !myState[child.id] ){
+                            addBoardToCanvas( child )
+                        }
+                    }
+                }
+                return false
+            }else if( event === "set_field" && info === "rationale"){
+                return false
+            }
+
             myState.current.framesToUpdate = myState.current.framesToUpdate || []
             myState.current.framesToUpdateForRemote = myState.current.framesToUpdateForRemote || []
             log.trace(`Got data event`,{ids, event, info, fromRemote})
@@ -1510,6 +1592,7 @@ export default function BoardViewer({primitive,...props}){
                                 let resized = false
                                 let changedRenderConfig = false
                                 let needRebuild = ((event === "set_field" || event === "set_parameter") && info === "referenceParameters.explore.view")
+                                
 
                                 if( event === "set_field" && info && typeof(info)==="string"){
                                     if( info.startsWith('processing.ai.')){
@@ -2885,8 +2968,11 @@ export default function BoardViewer({primitive,...props}){
 
     return <>
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
-        <div key='chatbar' className='overflow-hidden max-h-[80vh] w-2xl h-[50vh] bg-white rounded-md shadow-lg border-gray-200 border absolute left-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
-            <AgentChat primitive={primitive}/>
+        <div key='chatbar' className={clsx([
+            'absolute bg-white border border-gray-200 bottom-4 divide-gray-200 divide-y space-y-2 flex flex-col left-4 overflow-hidden p-3 place-items-start rounded-md shadow-lg text-sm z-50 ',
+            agentStatus.activeChat ? 'max-h-[80vh] w-[40vw] 4xl:max-w-3xl min-w-[24rem]' : "w-96 max-h-[80vh]"
+        ])}>
+            <AgentChat setStatus={setAgentStatus} primitive={primitive}/>
         </div>
         
         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>

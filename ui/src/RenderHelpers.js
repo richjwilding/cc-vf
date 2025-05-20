@@ -950,13 +950,16 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
         return undefined
     }
     let range = options.range
+    let totals = options.totals
     let title = ""
     if(!options.inTable){
 
         if( renderOptions?.group_by === "row"){
+            totals = options.rowTotal[options.rIdx]
             range = options.rowRange[options.rIdx]
             title = options.colTitles[options.cIdx]
         }else if( renderOptions?.group_by === "col"){
+            totals = options.colTotal[options.cIdx]
             range = options.colRange[options.cIdx]
             title = options.rowTitles[options.rIdx]
         }
@@ -1016,7 +1019,7 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
         const t = new Konva.CustomText({
             x: config.padding[3],
             y: (config.height) / 2,
-            text: items.length,
+            text: renderOptions?.counts === "percentage" ? `${(items.length / totals * 100).toFixed(0)}% ` : items.length,
             fontSize: renderOptions.bubble ? 10 : 16,
             fontStyle: renderOptions.bubble ? "bold" : undefined,
             fill: textColors[idx],
@@ -2839,7 +2842,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
         let spaceY = config.fontSize * 1
 
         if( title ){
-            const titleText = title.content.replace(/^title\s*[-:]\s*/i,"")
+            const titleText = title.content?.replace(/^title\s*[-:]\s*/i,"")
             const t = new CustomText({
                 x: config.padding[3],
                 y,
@@ -4620,7 +4623,7 @@ export function finalizeImages( node, options ){
         const thisSection = list.splice(0,20)
         setTimeout(()=>{
             for(const d of thisSection){
-                d.finalize()            
+                d.finalize(options)            
             }
         }, delay)
 
@@ -4871,6 +4874,7 @@ export function plotWordCloud(options = {}){
 
 export function renderMatrix( primitive, list, options ){
     let columnExtents = options.columnExtents ? options.columnExtents.slice(0, options.max_cols ?? 200) : [{idx:0}]
+    //let rowExtents = options.rowExtents ? options.rowExtents.slice(0,options.max_rows ??  200).sort((a,b)=>(`${a.label ?? ""}`).localeCompare(`${b.label ?? ""}`)) : [{idx:0}]
     let rowExtents = options.rowExtents ? options.rowExtents.slice(0,options.max_rows ??  200) : [{idx:0}]
     if( columnExtents.length === 0){
         columnExtents = [{idx:0}]
@@ -5021,10 +5025,12 @@ export function renderMatrix( primitive, list, options ){
     for(const row of rowExtents){
         let cIdx = 0
         for(const column of columnExtents){
-            let subList = list.filter((item)=>(Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx) && (Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx)).map(d=>d.primitive)
+
+            let subListWithAllocations = list.filter((item)=>(Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx) && (Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx))
+            let subList = subListWithAllocations.map(d=>d.primitive)
 
             if( asCounts ){
-                console.log(`MAPPING FOR asCounts`)
+                //console.log(`MAPPING FOR asCounts`)
                 //subList = mainstore.uniquePrimitives( subList.flatMap(d=>d.findParentPrimitives({referenceId: [9]})) )
             }
 
@@ -5051,6 +5057,7 @@ export function renderMatrix( primitive, list, options ){
                 col: column,
                 row: row,
                 list: subList,
+                listWithAllocations: subListWithAllocations,
                 itemLength,
                 itemCols,
                 showExtra: cellShowExtra
@@ -5090,12 +5097,15 @@ export function renderMatrix( primitive, list, options ){
                 renderOptions: options.renderOptions,
                 toggles: toggleMap,
     }
-    if( asCounts ){
+    if( asCounts || options?.renderOptions?.calcRange){
         const cellCount = cells.map(d=>d.itemLength)
         const columnRange = columnExtents.map((_,i)=>cells.filter(d=>d.cIdx === i).map(d=>d.itemLength))
         const rowRange = rowExtents.map((_,i)=>cells.filter(d=>d.rIdx === i).map(d=>d.itemLength))
-        
+
         baseRenderConfig.range = [Math.min(...cellCount), Math.max(...cellCount)]
+        baseRenderConfig.totals = cellCount.reduce((a,d)=>a+d,0)
+        baseRenderConfig.colTotal = columnRange.map(d=>d.reduce((a,d)=>a+d,0))
+        baseRenderConfig.rowTotal = rowRange.map(d=>d.reduce((a,d)=>a+d,0))
         baseRenderConfig.colRange = columnRange.map(d=>[Math.min(0,...d), Math.max(...d)])
         baseRenderConfig.rowRange = rowRange.map(d=>[Math.min(0,...d), Math.max(...d)])
         baseRenderConfig.colTitles = columnExtents.map(d=>d.label)
@@ -5117,6 +5127,8 @@ export function renderMatrix( primitive, list, options ){
                     viewConfig: options.viewConfig
                 },
                 checkMap,
+                allocationExtents: options.allocations,
+                listWithAllocations: cell.listWithAllocations,
                 data: options.data,
                 getConfig: true
             } )    
@@ -5169,7 +5181,41 @@ export function renderMatrix( primitive, list, options ){
         
         columnLabels = columnExtents.map((d,idx)=>{
             const cellConfig = cells.find(d=>d.cIdx === idx)?.config ?? {padding: [5,5,5,5]}
-            if( options.axis?.column?.type === "icon"){
+            if( d.imageUrl ){
+                columnLabelAsText = false
+                const iconSize = 100
+                const logo = new Konva.Group({
+                    x: 0,
+                    y: cellConfig.padding[0] + textPadding[0],
+                    width: columnSize[idx],
+                    height: iconSize
+                })
+                logo.add( imageHelper( "/api/remoteImage?url=" + d.imageUrl, {
+                    x: (columnSize[idx] - iconSize) /2,
+                    y: 0,
+                    size: iconSize * 0.8,
+                    center: true,
+                    imageCallback: options.imageCallback,
+                    placeholder: options.placeholder !== false
+                }) )
+                logo.add( new CustomText({
+                    //fontFamily: "system-ui",
+                    fontSize: iconSize * 0.12,
+                    text: d.label  ?? "",
+                    wrap: true,
+                    align:"center",
+                    bgFill:"transparent",
+                   // verticalAlign:"middle",
+                    x: 0,
+                    y: iconSize * 0.9,
+                    width: columnSize[idx],
+                    height: iconSize * 0.18,
+                    ellipsis: true,
+                    refreshCallback: options.imageCallback
+                }))
+                headerHeight = logo.height()
+                return logo
+            }else if( options.axis?.column?.type === "icon"){
                 columnLabelAsText = false
                 const useSize = iconSize < headerHeight ? iconSize : headerHeight
                 const logo = imageHelper( `/api/image/${d.idx}`, {
@@ -5423,6 +5469,8 @@ export function renderMatrix( primitive, list, options ){
                     ...(cell.config.data ?? {})
                 },
                 globalData,
+                allocationExtents: options.allocations,
+                listWithAllocations: cell.listWithAllocations,
                 checkMap,
                 cachedNodes: cell.config.cachedNodes
             })
@@ -5434,6 +5482,30 @@ export function renderMatrix( primitive, list, options ){
 
     
     let height = g.find(()=>true).map(d=>d.y() + d.height()).reduce((a,c)=>c > a ? c : a, 0)
+
+    
+    if( options.viewConfig.renderType === "distribution_chart" && options.calcRange){
+        columnExtents.forEach((header,idx)=>{
+            const group = new Konva.Group({
+                name: "inf_track column_header",
+                x: columnX[idx],
+                y: height + (headerFontSize * 0.2),
+                width: columnSize[idx],
+                height: headerFontSize * 1.4
+            }) 
+            group.add(new Konva.CustomText({
+                x: 0,
+                y: 0,
+                width: columnSize[idx], 
+                fontSize: headerFontSize,
+                align:'center',
+                color: '#777',
+                text:  baseRenderConfig.colTotal[idx]
+            }))
+            g.add(group)
+        })
+        height += headerFontSize * 1.4
+    }
     if( height < 40 ){
         height = 200
     }
@@ -5453,33 +5525,40 @@ function renderBarChart( segments, options = {}){
         x: options.x ?? 0,
         y: options.y ?? 0,
         width: config.size,
-        height: config.size
+        height: config.barHeght ?? config.size
     })
-    const barWidth = config.size / segments.length
+    const asPercent = false
+    const barWidth = options.stack ? config.size : config.size / segments.length
     const barBase = config.size - 0.2
-    const barSize = barBase - 0.2
-    const maxValue = segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0)
+    const barSize = (config.barHeght ?? config.size) - 0.2
+    const maxValue = options.stack ? segments.map(d=>d?.count ?? 0).reduce((a,c)=>c + a,0) : (asPercent ? 100 : segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0))
     const scale = barSize / maxValue 
     let colors = options.colors ?? categoryColors
+    
+    const total = segments.reduce((a,d)=>a+(d.count ?? 0), 0)
 
 
     const fontSize = 8
-    let x = 0, idx = 0
+    let x = 0, idx = 0, y = barBase
     for( const s of  segments){
-        const h = s.count * scale
-        var bar = new Konva.Rect({
-            x: x,
-            y: barBase - h,
-            width: barWidth,
-            height: h,
-            fill: s.color ?? colors[idx % colors.length],
-          });
-        g.add(bar)
-        const t = new CustomText({
+        const count = asPercent ? 100 * s.count / total : s.count
+        const h = count * scale
+        if( h > 0){
+
+            var bar = new Konva.Rect({
+                x: x,
+                y: y - h,
+                width: barWidth,
+                height: h,
+                fill: s.color ?? colors[idx % colors.length],
+            });
+            g.add(bar)
+        }
+        /*const t = new CustomText({
             x: x,
             y: (barBase - h) - fontSize * 1.2,
             fontSize: fontSize,
-            text: s.count,
+            text: asPercent ? `${count.toFixed(2)}%` : count,
             align:"center",
             fill: '#334155',
             bgFill: 'transparent',
@@ -5487,9 +5566,14 @@ function renderBarChart( segments, options = {}){
             align: "center",
             refreshCallback: options.imageCallback
         })
-        g.add(t)
+        g.add(t)*/
         idx++
-        x += barWidth
+        if( options.stack){
+            y -= h
+
+        }else{
+            x += barWidth
+        }
     }
     return g
 }
@@ -5571,6 +5655,10 @@ function renderSubCategoryChart( title, data, options = {}){
             const colArr = tagColorsArr[d.tag]
             d.color = colArr[idx % colArr.length]
         })
+    }else if(options.sort === "labels"){
+        data = data.sort((a,b)=>(`${a.label ?? ""}`).localeCompare(`${b.label ?? ""}`))
+    }else if(options.sort === "none"){
+
     }else{
         data = data.sort((a,b)=>b.count - a.count)
     }
@@ -5598,9 +5686,17 @@ function renderSubCategoryChart( title, data, options = {}){
         if( selectedPalette.category_colors ){
             colors = selectedPalette.category_colors 
         }else{
-            colors = [...selectedPalette.colors].reverse()
+            if( options.reversePalette === false){
+                colors = [...selectedPalette.colors]
+                if( colors.length > data.length){
+                    colors = colors.slice( -data.length)
+                }
+            }else{
+                colors = [...selectedPalette.colors].reverse()
+            }
         }
     }
+    let showLegend = !options.hideLegend
     
     let pieY = innerSpacing
     if( !options.hideTitle){
@@ -5622,53 +5718,155 @@ function renderSubCategoryChart( title, data, options = {}){
         sg.add(t)
         pieY = (config.fontSize * 2.5) + innerSpacing
     }
-    const pieSize = (itemSize - innerPadding[3] - innerPadding[1]) * 0.95
-    if( options.style ==="bar" ){
-        sg.add( renderBarChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY, colors: colors}))
-    }else{
+    if( data.at(-1).label === "Unknown"){
+        colors[data.length - 1] = "#d2d2d2"
+    }
+    let fullPieSize = (itemSize - innerPadding[3] - innerPadding[1]) * 0.95
+    let pieSize = fullPieSize
+    const pieMid = (fullPieSize / 2)
+    if( options.style ==="bar" || options.style ==="stacked_bar"  ){
+        /*if( options.max !== undefined && options.min !== undefined ){
+            const N = colors.length;
+            const span = (options.max - options.min) / N;
+            if( span > 0 ){
+                let idx = Math.floor(((options.count ?? 0) - options.min) / span);
+                idx = Math.min(N - 1, Math.max(0, idx));
+                colors = new Array(N).fill( colors[idx])
+            }
+        }*/
+        sg.add( renderBarChart(data, {size: fullPieSize, x: (itemSize - fullPieSize) / 2, barHeght: options.scale ? fullPieSize * options.scale : undefined, y: pieY, colors: colors, stack: options.style === "stacked_bar"}))
+    }else if( options.style === "weighted"){
+        showLegend = false
+        const { weightedSum, totalCount } = data.reduce(
+            (acc, { label, count }, score) => {
+              return {
+                weightedSum: acc.weightedSum + score * count,
+                totalCount:  acc.totalCount   + count
+              };
+            },
+            { weightedSum: 0, totalCount: 0 }
+          );
+          
+          let avgSentiment, label, color
+          if( totalCount > 1){
+            avgSentiment = weightedSum / totalCount
+            const rounded = Math.round(avgSentiment);
+            label = data[rounded].label
+            color = colors[rounded]
+          }else{
+            /*avgSentiment = data.findIndex(d=>d.label.match(/neutral/i))
+            if( avgSentiment === -1){
+                avgSentiment = (data.length + (data.length % 2 === 1 ? 1 : 0)) / 2
+            }*/
+           color = "white"
+           label = "None"
+        }
+          sg.add(new Konva.Rect({
+                x: innerPadding[3],
+                y: pieY,
+                width: itemSize - (innerPadding[3] + innerPadding[1]),
+                height: itemSize - (pieY + innerPadding[2]),
+                fill:  color
+          }))
+          const l = new CustomText({
+            x: innerPadding[3],
+            y: pieY,
+            width: itemSize - (innerPadding[3] + innerPadding[1]),
+            text: label,
+            fontSize: itemSize / 15,
+            align: 'center',
+            verticalAlign: 'middle'
+        }) 
+        l.y( (itemSize - l.height() ) / 2)
+        sg.add(l)
 
-        sg.add( renderPieChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY, colors: colors}))
+
+    }else{
+        if( options.scale ){
+            pieSize *= options.scale
+        }
+        sg.add( renderPieChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY + pieMid - (pieSize/ 2), colors: colors}))
     }
 
-    let ly = pieY + pieSize + (innerSpacing * 1.5) 
-    if( !options.hideLegend){
+    let ly = pieY + fullPieSize + (innerSpacing * 1.5) 
+    if( showLegend){
+        const legend = renderLegend( data,{
+                            ...options,
+                            fontSize: config.fontSize * 0.8,
+                            x: innerPadding[3],
+                            y: ly,
+                            itemSize,
+                            colors
+        })
+        sg.add( legend)
+        ly += legend.height()
 
-        const legendFontSize = config.fontSize * 0.8
-        const lx = (legendFontSize * 1.2) + innerPadding[3]
-        let lIdx = 0
-        
-        for( const d of (data ?? []) ){
-            const r = new Konva.Rect({
-                x: innerPadding[3] + (legendFontSize * 0.05),
-                y: ly + (legendFontSize * 0.05),
-                width: legendFontSize * 0.9,
-                height: legendFontSize * 0.9,
-                fill: d.color ?? colors[ lIdx % colors.length],
-                strokeScaleEnabled: false,
-                strokeWidth:1,
-                stroke: '#555'
-            })
-            sg.add(r)
-            
-            
-            const t = new CustomText({
-                x: lx,
-                y: ly,
-                fontSize: legendFontSize,
-                text: d.label,
-                fill: '#334155',
-                ellipsis: true,
-                width: itemSize - lx
-            })
-            ly += legendFontSize * 1.5
-            sg.add(t)
-            lIdx++
-        }            
     }
     ly += innerPadding[2]
     sg.height( ly )
     r.height( ly )
     return sg
+}
+function renderLegend( data, {colors, itemSize, ...options} ){
+    const total = data.reduce((a,d)=>a+(d.count ?? 0), 0)
+
+    const legendFontSize = options.fontSize ?? 12
+    const slx = (legendFontSize * 1.2)
+    const rxDelta = legendFontSize * (1.2 - 0.05)
+    let lIdx = 0
+    let lx = slx
+    let ly = 0
+
+    const sg = new Konva.Group({
+        x: options.x,
+        y: options.y,
+        width: options.itemSize,
+        height: 0
+    })
+    
+    for( const d of (data ?? []) ){
+        const r = new Konva.Rect({
+            //x: innerPadding[3] + (legendFontSize * 0.05),
+            x: lx - rxDelta,
+            y: ly - (legendFontSize * 0.05),
+            width: legendFontSize * 0.9,
+            height: legendFontSize * 0.9,
+            fill: d.color ?? colors[ lIdx % colors.length],
+            strokeScaleEnabled: false,
+            strokeWidth:1,
+            stroke: '#555'
+        })
+        sg.add(r)
+        
+        
+        const t = new CustomText({
+            x: lx,
+            y: ly,
+            fontSize: legendFontSize,
+            text: d.label, //`${d.label} ${(d.count / total * 100).toFixed(2)}%`,
+            fill: '#334155',
+            ellipsis: true,
+            width: options.horizontalLegend ? "auto" : itemSize - lx
+        })
+        if( options.horizontalLegend ){
+            if( lx + t.width() > itemSize){
+                lx = slx
+                ly += legendFontSize * 1.5
+                t.x(slx)
+                t.y(ly)
+                r.y(ly)
+                r.x(slx - rxDelta)
+            }
+            lx += t.width() + (legendFontSize * 3)
+        }else{
+            ly += legendFontSize * 1.5
+        }
+        sg.add(t)
+        lIdx++
+    }            
+    sg.height(ly)
+    return sg
+
 }
 function ringWedge(options){
     return new Konva.Shape({
@@ -5936,6 +6134,313 @@ registerRenderer( {type: "categoryId", id: 113, configs: "set_format_grid"}, fun
 })
 registerRenderer( {type: "categoryId", id: 109, configs: "set_format_grid"}, function renderFunc(primitive, options = {}){
     return categoryGrid( primitive, {...options, itemSize: 450})
+})
+registerRenderer( {type: "default", configs: "set_distribution"}, function renderFunc(primitive, options = {}){
+    const {list, extents, ...forwardOptions} = options
+    const viewConfig = {
+        renderType: "distribution_chart",
+        field: options.renderOptions.field //?? "is_verified_review"
+    }
+    return renderMatrix(primitive, list ?? [], {...forwardOptions, rowExtents: extents?.row, columnExtents: extents.column, viewConfig})
+})
+registerRenderer( {type: "default", configs: "set_distribution_chart"}, function renderFunc(primitive, options = {}){
+    const config = {itemSize: 280, padding: [10,10,10,10], ...options}
+    if( options.getConfig){
+        return {
+            ...config,
+            width: config.itemSize,
+            height: config.itemSize
+        }
+    }
+    const list = options.listWithAllocations ?? []
+    let field = options.renderConfig.viewConfig.field
+    let values = {}
+    let useBasic = false
+    if( field === "is_verified_review" ){
+        values = {
+            true: {label: "Yes", count: 0},
+            false: {label: "No", count: 0}
+        }
+        useBasic = true
+    }else if( field === "review_rating"){
+        useBasic = true
+        values = {
+            1: {label: "1", count: 0},
+            2: {label: "2", count: 0},
+            3: {label: "3", count: 0},
+            4: {label: "4", count: 0},
+            5: {label: "5", count: 0},
+        }
+    }else{
+        values = options.allocationExtents?.filterGroup0?.reduce((a,c)=>{
+            a[c.idx] = {label: c.label, count: 0}
+            return a
+        },{}) ?? {}
+    }
+    list.forEach(d=>{
+        let v
+        if(useBasic){
+            v = d.primitive.referenceParameters?.[field] ?? ""
+        }else{
+            const lookup = Array.isArray(d.filterGroup0) ? d.filterGroup0[0] : d.filterGroup0
+            v = lookup
+        }
+        values[v] ||= {label: v, count: 0}
+        values[v].count++
+    })
+    let scale
+    let max, min, count
+    if(options.renderOptions.calcRange && Array.isArray(options.rowRange)){
+        //max = options.range[1]
+        //min = options.range[0]
+        //max = options.rowRange[options.rIdx][1]
+        //min = options.rowRange[options.rIdx][0]
+        max = options.colRange[options.cIdx][1]
+        min = options.colRange[options.cIdx][0]
+        count = list.length 
+        scale = ((count / max) * 0.8) + 0.2
+        
+    }
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.itemSize,
+        height: config.itemSize
+    })
+    const sg = renderSubCategoryChart("", Object.values(values), {
+        x: config.itemSize * (options.renderOptions.show_legend ? 0.1 : 0), 
+        y: 0, 
+        itemSize: config.itemSize * (options.renderOptions.show_legend ? 0.8 : 1), 
+        innerPadding: config.padding, 
+        style: options.renderOptions.style, 
+        hideTitle: true, 
+        paletteName: options.renderOptions.colors,
+        scale,
+        max,
+        min,
+        count,
+        horizontalLegend: true,
+        reversePalette: options.renderOptions.reverse_palette,
+        hideLegend: !options.renderOptions.show_legend,
+        sort: "none"
+    })
+    g.add(sg)
+    return g
+})
+registerRenderer( {type: "default", configs: "set_overunder"}, function renderFunc(primitive, options = {}){
+    const config = {itemSize: 350, padding: [2,2,2,2], ...options}
+    const fontSize = 12
+    const barHeight = 20
+    const list = options.list ?? []
+    const scores = (options.allocations?.filterGroup0 ?? []).filter(d=>d.idx !== undefined && d.idx !== null && d.idx !== "_N_")
+    const groups = options.allocations?.filterGroup1 ?? [undefined]
+    let groupColors = categoryColors
+
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.itemSize,
+        height: config.itemSize
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.itemSize,
+        height: config.itemSize,
+        fill:"white"
+    })
+    g.add(r)
+
+
+    let positives, negatives
+
+    if( scores.length % 2 === 1){
+        const mid = (scores.length + 1) / 2
+        negatives = new Set(scores.map(d=>d.idx).slice(0,mid - 1))
+        positives = new Set(scores.map(d=>d.idx).slice(mid))
+    }else{
+        const mid = scores.length / 2
+        negatives = new Set(scores.map(d=>d.idx).slice(0,mid))
+        positives = new Set(scores.map(d=>d.idx).slice(mid))
+    }
+
+    const renderData = {}
+    const maximums = {positives: 0, negatives: 0}
+
+    for(const row of options.extents.row ){
+        for(const column of options.extents.column ){
+
+            let subList = list.filter((item)=>(Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx) && (Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx))
+
+            for(const group of groups){
+
+                let subListForGroup = group ? subList.filter((item)=>(Array.isArray(item.filterGroup1) ? item.filterGroup1.includes( group.idx ) : item.filterGroup1 === group.idx)) : subList
+                
+                const negativeScoreCounts = negatives.keys().toArray().reduce((a,c)=>{a[c] = 0; return a}, {})
+                const positiveScoreCounts = positives.keys().toArray().reduce((a,c)=>{a[c] = 0; return a}, {})
+                const global = {positives: 0, negatives: 0, total: 0}
+                
+                const key = `${column.idx}-${row.idx}`
+                renderData[key] ||= []
+                
+                for( const d of subListForGroup ){
+                    const score = Array.isArray(d.filterGroup0) ? d.filterGroup0[0] : d.filterGroup0
+                    if( negatives.has(score)){
+                        negativeScoreCounts[score] = (negativeScoreCounts[score]  || 0) + 1
+                        global.negatives++
+                    }else if( positives.has(score)){
+                        global.positives++
+                        positiveScoreCounts[score] = (positiveScoreCounts[score]  || 0) + 1
+                    }
+                    global.total++
+                }
+                if( global.positives > maximums.positives){
+                    maximums.positives = global.positives
+                }
+                if( global.negatives > maximums.negatives){
+                    maximums.negatives = global.negatives
+                }
+                renderData[key].push( {
+                    global,
+                    negativeScoreCounts,
+                    positiveScoreCounts
+                })
+            }
+        }
+    }
+    const usableWidth = (config.itemSize * 0.9) - (config.renderOptions.show_breakdown ? barHeight * 4 : 0)
+    const scale = usableWidth / (config.renderOptions?.center ? Math.max(maximums.negatives, maximums.positives) * 2 : (maximums.negatives + maximums.positives))
+    const axisOrigin = (config.renderOptions.show_breakdown ? barHeight * 2 : 0) + (config.renderOptions?.center ? (Math.max(maximums.negatives, maximums.positives) * scale) : (maximums.negatives * scale))
+
+    const heatColors = [...heatMapPalette.find(d=>d.name === "heat").colors].slice(-negatives.size).reverse()
+    const greenColors = [...heatMapPalette.find(d=>d.name === "green").colors].slice(-negatives.size)
+
+    let x = config.padding[3], y = config.padding[0]
+    let maxW = 0
+    let rIdx = -1
+    const includeNeutralInPercent = true
+    for(const row of options.extents.row ?? []){
+        rIdx ++
+        let cIdx = -1
+        for(const column of options.extents.column ?? []){
+            cIdx++
+            const key = `${column.idx}-${row.idx}`
+            const data = renderData[key]            
+            if( !data ){
+                continue
+            }
+
+            let sg = new Konva.Group({
+                x,
+                y,
+                width: config.itemSize,
+            })
+            let ly = 0
+            if( cIdx === 0){
+                sg.add(new CustomText({
+                    x: axisOrigin + 4,
+                    text: options.extents.row[rIdx].label,
+                    fontSize
+                }))
+                ly += fontSize * 1.2
+            }
+            let idx = -1
+            for(const thisData of data){
+                idx++
+                if( config.renderOptions.show_breakdown){
+                    sg.add(renderPieChart( Object.keys(thisData.negativeScoreCounts).map(d=>({label: scores.find(d2=>d2.idx === d)?.label, count: thisData.negativeScoreCounts[d] })),
+                    {
+                        x: 0,
+                        y: ly + barHeight * 0.1,
+                        size: barHeight * 0.8,
+                        colors: heatColors
+                    }))
+                    sg.add(new CustomText({
+                        x: (barHeight),
+                        y: ly + barHeight * 0.1,                        
+                        fontSize: fontSize * 0.7,
+                        text: `${((includeNeutralInPercent ? thisData.global.negatives / thisData.global.total : thisData.global.negatives  / (thisData.global.positives + thisData.global.negatives ) )* 100).toFixed(0)}%`
+                    }))
+                }
+                sg.add(new Konva.Rect({
+                    x: axisOrigin - (scale * thisData.global.negatives),
+                    y: ly,
+                    width: (scale * (thisData.global.negatives + thisData.global.positives)),
+                    height: barHeight,
+                    fill: groupColors[idx]
+                }))
+                if( config.renderOptions.show_breakdown){
+                    sg.add(renderPieChart( Object.keys(thisData.positiveScoreCounts).map(d=>({label: scores.find(d2=>d2.idx === d)?.label, count: thisData.positiveScoreCounts[d] })),
+                    {
+                        x: config.itemSize - barHeight,
+                        y: ly + barHeight * 0.1,
+                        size: barHeight * 0.8,
+                        colors: greenColors
+                    }))
+                    sg.add(new CustomText({
+                        x: config.itemSize - (barHeight * 2),
+                        fontSize: fontSize * 0.7,
+                        y: ly + barHeight * 0.1,                        
+                        text: `${((includeNeutralInPercent ? thisData.global.positives / thisData.global.total : thisData.global.positives / (thisData.global.positives + thisData.global.negatives ))* 100).toFixed(0)}%`
+                    }))
+                }
+                ly += barHeight * 1.2
+            }            
+            sg.height(ly)
+            g.add(sg)
+            y += sg.height() + (fontSize * 1.75)
+
+            x += config.itemSize
+            maxW = x > maxW ? x : maxW
+        }
+        x = config.padding[3] 
+    }
+    g.width(maxW)
+
+    g.add(new Konva.Line({
+        points: [ config.padding[3] + axisOrigin, config.padding[0], config.padding[3] + axisOrigin, y],
+        strokeWidth: 1 ,
+        stroke: "#828282"
+    }))
+    if( groups.length > 0){
+        if( options.show_legend){
+            const legend = renderLegend( groups,{
+                                ...options,
+                                fontSize: fontSize * 0.8,
+                                x: config.padding[3],
+                                y: y,
+                                itemSize: config.itemSize,
+                                colors: groupColors
+            })
+            g.add( legend)
+            y += legend.height()
+
+        }
+
+    }
+
+    r.height(y)
+    g.height(y)
+
+
+    if( options.getConfig){
+        return {
+            ...config,
+            width: g.width(),
+            height: g.height()
+        }
+    }
+
+    /*list.forEach(d=>{
+        const v = Array.isArray(d.filterGroup0) ? d.filterGroup0[0] : d.filterGroup0
+        values[v] ||= {label: v, count: 0}
+        values[v].count++
+    })*/
+    return g
 })
 
 function categoryGrid(primitive, options = {}){

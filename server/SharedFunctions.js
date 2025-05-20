@@ -30,7 +30,8 @@ import "./workflow.js"
 import FlowQueue from './flow_queue.js';
 import { getLogger } from './logger.js';
 import { queryQuoraByRapidAPI } from './rapid_helper.js';
-import { expandStringLiterals } from './actions/SharedTransforms.js';
+import { expandStringLiterals, findFilterMatches } from './actions/SharedTransforms.js';
+import { fetchMoneySavingExpertSearchResults, moneySavingExpertSERP } from './scrapers/moneysavingexpert.js';
 
 const logger = getLogger('sharedfn', "info"); // Debug level for moduleA
 
@@ -371,15 +372,21 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
                     {
                         $set: {deleted: true}
                     })
+        if( !removed ){
+            return
+        }
 
         removedIds.push( primitiveId )
     
+        console.log(`Removing doc`)
         if( removed.referenceParameters?.notes || removed.referenceParameters?.url ){
             await removeDocument( primitiveId )
         }
         if( removed.parentPrimitives ){
+            console.log(`Updating parent primitives ${Object.keys(removed.parentPrimitives).join(", ")}`)
             for( const parentId of Object.keys(removed.parentPrimitives) ){
                 if( parentId ){
+                    console.log(parentId)
                     await removeParentReference( removed, parentId)
                 }
             }
@@ -390,6 +397,8 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
             const childPrimitiveIds = pp.uniqueAllIds
 
             const toRemove = childPrimitiveIds.filter(d=>!cascadeIds.includes(d))
+            console.log(`Doing children`, toRemove.join(", "))
+            
 
             const result = await Primitive.updateMany(
                 {
@@ -461,7 +470,7 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
             SIO.notifyPrimitiveEvent(removed.workspaceId, {data: [{type: "remove_primitives", primitiveIds: removedIds}]})            
         }
     }catch(err){
-        console.log(`Error deleting - inner`)
+        console.log(`Error deleting - inner ${primitiveId}`)
         console.log(err)
         throw err
     }
@@ -1144,30 +1153,33 @@ export async function primitiveChildren(primitive, types){
     return await primitivePrimitives(primitive, 'primitives.origin', types )
 }
 export async function fetchPrimitives(ids, queryOptions, projection){
-    ids = ids ? [ids].flat() : undefined
+    try{
+        ids = ids ? [ids].flat() : undefined
 
-    let query = [
-        { deleted: {$exists: false}}
-    ]
-    //if( ids && ids.length > 0){
-    if( ids ){
-        query.push( {_id: {$in: ids}} )
-    }
-    if(queryOptions){
-        query = [...query, ...[queryOptions].flat()]   
-    }
-    if(query.length === 1){
-        return []
-    }
-
-    return (await Primitive.find(
-        {
-            $and:query
-        }, 
-        projection)) ?? []
+        let query = [
+            { deleted: {$exists: false}}
+        ]
+        //if( ids && ids.length > 0){
+        if( ids ){
+            query.push( {_id: {$in: ids}} )
+        }
+        if(queryOptions){
+            query = [...query, ...[queryOptions].flat()]   
+        }
+        if(query.length === 1){
+            return []
+        }
+        return (await Primitive.find(
+            {
+                $and:query
+            }, 
+            projection)) ?? []
+     }catch(e){
+        logger.error(`Error in fetchPrimitive`, e)
+     }
 }
-export async function fetchPrimitive(id){
-    return (await fetchPrimitives(id))?.[0]
+export async function fetchPrimitive(...args){
+    return (await fetchPrimitives(...args))?.[0]
 }
 
 export async function primitivePrimitives(primitive, path, types, deleted = false, fields){
@@ -1523,35 +1535,48 @@ async function filterItems(list, filters){
         let lookups = await multiPrimitiveAtOrginLevel( setToCheck, pivot, relationship)
 
         let scope
-        if( filter.type === "parent"){
-            if( filter.sourcePrimId ){
-                const sourcePrim = await fetchPrimitive(filter.sourcePrimId)
-                let node = new Proxy(sourcePrim.primitives ?? {}, parser)
-                scope = node.allIds
-            }
-        }else if( filter.type === "segment_filter"){
-            scope = [filter.sourcePrimId]
-        }else if( filter.subtype === "question"){
-            const prompts = await primitiveListOrigin( setToCheck, 1, ["prompt"], "ALL")
-            scope = prompts.map(d=>d.id)
-            check = check.map(d=>prompts.filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d))).flat().map(d=>d.id)
-        }else if( filter.subtype === "search"){
-            if( includeNulls){
-                const searches = await primitiveListOrigin( setToCheck, 1, ["search"], "ALL")
-                scope = uniquePrimitives(searches).map(d=>d.id)
-            }
-        }else if(filter.type === "not_category_level1"){
-            includeNulls = true
-            check = []
-            if( filter.sourcePrimId ){
-                const sourcePrim = await fetchPrimitive(filter.sourcePrimId)
-                let node = new Proxy(sourcePrim.primitives, parser)
-                scope = node.allIds
+        if( resolvedFilterType !== "segment_filter"){
+
+            if( filter.type === "parent"){
+                if( filter.sourcePrimId ){
+                    const sourcePrim = await fetchPrimitive(filter.sourcePrimId)
+                    let node = new Proxy(sourcePrim.primitives ?? {}, parser)
+                    scope = node.allIds
+                }
+            }else if( filter.subtype === "question"){
+                const prompts = await primitiveListOrigin( setToCheck, 1, ["prompt"], "ALL")
+                scope = prompts.map(d=>d.id)
+                check = check.map(d=>prompts.filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d))).flat().map(d=>d.id)
+            }else if( filter.subtype === "search"){
+                if( includeNulls){
+                    const searches = await primitiveListOrigin( setToCheck, 1, ["search"], "ALL")
+                    scope = uniquePrimitives(searches).map(d=>d.id)
+                }
+            }else if(filter.type === "not_category_level1"){
+                includeNulls = true
+                check = []
+                if( filter.sourcePrimId ){
+                    const sourcePrim = await fetchPrimitive(filter.sourcePrimId)
+                    let node = new Proxy(sourcePrim.primitives, parser)
+                    scope = node.allIds
+                }
             }
         }
             
         
-        thisSet = PrimitiveConfig.doFilter( {resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, {parentIds:(primitive)=>Object.keys(primitive.parentPrimitives ?? {})})
+        thisSet = PrimitiveConfig.doFilter( {
+            resolvedFilterType, 
+            filter, 
+            setToCheck, 
+            lookups, 
+            check, 
+            scope, 
+            includeNulls, 
+            isRange
+        }, {
+            parentIds:(primitive)=>Object.keys(primitive.parentPrimitives ?? {}),
+            findFilterMatches: (a,v)=>findFilterMatches(a,v)
+        })
     }
     return thisSet || list
 }
@@ -1836,12 +1861,24 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         if(source.type === "search"){
             const nestedSearch = [source, ...(await primitiveChildren(source, "search"))].filter(d=>d)
             logger.info(`Got ${nestedSearch.length} nested searches`)
-            const ids = nestedSearch.flatMap(d=>{
-                let node = new Proxy((d.primitives ?? {}), parser)
-                return node.uniqueAllIds
-            }).filter((d,i,a)=>a.indexOf(d) === i)
+            if( nestedSearch.length > 0){
 
-            list = await fetchPrimitives( ids, undefined, DONT_LOAD)
+                /*const ids = nestedSearch.flatMap(d=>{
+                    let node = new Proxy((d.primitives ?? {}), parser)
+                    return node.uniqueAllIds
+                    }).filter((d,i,a)=>a.indexOf(d) === i)
+                    
+                console.log(ids.length, ids.slice(0,5).join(", "))
+                list = await fetchPrimitives( ids, undefined, DONT_LOAD)*/
+                list = await fetchPrimitives(undefined, {
+                    workspaceId: nestedSearch[0].workspaceId,
+                    type: "result",
+                    $or: nestedSearch.map(c => ({[`parentPrimitives.${c.id}`]: "primitives.origin"}))
+                  },
+                  DONT_LOAD
+                );
+                console.log(`Fetched ${list.length}`)
+            }                
         }
 
         if( sourceConfig.extract ){
@@ -2668,6 +2705,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     if( frameworkResult.success ){
         return frameworkResult.result
     }
+    if( actionKey === "mse_test"){
+        //let items = await moneySavingExpertSERP({query: options.query ?? "mobile phone renewal"})
+        let items = await fetchMoneySavingExpertSearchResults(options.query ?? "mobile phone renewal", {count: 30})
+        return items
+    }
     if( actionKey === "pq_test"){
         let items = await runQueryOnPrimitive(primitive, options.steps)
         return items
@@ -2720,7 +2762,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     }
     if( actionKey === "auto_cascade" && options.ids && options.cascade_key){
         let prims 
-        if( options.cascade_key === "embed_content"){
+        if( options.cascade_key === "embed_content" && !options.force){
             const embeddings = (await ContentEmbedding.find({
                 foreignId: {$in: options.ids},
                 part: 0}, {foreignId: 1})).map(d=>d.foreignId)
@@ -4021,7 +4063,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
             }
             if( command === "embed_content"){
-                await indexDocument( primitive, {force:options.force}, req )
+                await indexDocument( primitive, {force:options?.force}, req )
             }
             if( command === "evidence_from_query"){
                 //await QueueDocument().extractEvidenceFromFragmentSearch( primitive, {...action, ...options})

@@ -2,6 +2,7 @@ import { combineGroupsToChunks, extractSentencesAndKeywords, fetchFragmentsForTe
 import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
 import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
+import { findFilterMatches } from "./actions/SharedTransforms";
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
 import { getLogger } from "./logger";
@@ -31,6 +32,7 @@ function getAllCombinations(axisValues) {
       });
     }, [[]]);
   }
+
 
 export async function getSegemntDefinitions( primitive, customAxis, config, withItems = false ){
     try{
@@ -91,6 +93,7 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
         }
         mappedFilter.type = thisAxis.type === "category" ? "parent" : thisAxis.type
 
+        /*
         if( thisAxis.type === "segment_filter"){
             resolvedFilterType = "parent"
             relationship = "auto"
@@ -99,53 +102,102 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
             mappedFilter.pivot = pivot
             mappedFilter.relationship = relationship
             mappedFilter.sourcePrimId = undefined
-        }
+        }*/
         delete mappedFilter["filter"]
 
-        filterConfig.push(mappedFilter)
         
         let lookups = await multiPrimitiveAtOrginLevel( items, pivot, relationship)
-
-        let values = lookups.map((item,idx)=>{
-            let data
-            if( resolvedFilterType === "title"){
-                data = item.map(d=>d.title)
-            }
-            else if( resolvedFilterType === "parameter"){
-                data = item.map(d=>d.referenceParameters?.[mappedFilter.parameter ?? mappedFilter.param])
-            }else if( resolvedFilterType === "type"){
-                data = item.map(d=>d.referenceId)
-            }else if( resolvedFilterType === "parent"){
-                if( thisAxis.subtype === "question"){
-                    data = item.filter(d=>d.type === "prompt").map(d=>primitiveOrigin(d))
-                }else if( mappedFilter.subtype === "search"){
-                    throw "Should filter by type"
-                }else if( thisAxis.type === "category" ){
-                    data = item.map(d=>d.id).map(d=>childCategories.includes(d) ? d : undefined).filter((d,i,a)=>d && a.indexOf(d)===i)
-                }else{
-                    data = item.map(d=>d.id)
+        let values = []
+        
+        if( thisAxis.type === "segment_filter" ){
+            const segmentsForAxis = {}
+            for(const items of lookups){
+                for(const d of items){
+                    const importConfig = d.referenceParameters?.importConfig
+                    if( importConfig && importConfig.length > 0){
+                        for( const thisImport of importConfig){
+                            segmentsForAxis[thisImport.id] ||= {id: thisImport.id}
+                            if( thisImport.filters){
+                                const filterForAxis = thisImport.filters[thisAxis.axis]
+                                if( filterForAxis){
+                                    segmentsForAxis[thisImport.id].filters ||= []
+                                    if( filterForAxis.pivot >= 1){
+                                        logger.warn(`NOT UPDATING RELATIONSHIP FOR SEGMENT FILTER 2nd STAGE`)
+                                    }
+                                    delete filterForAxis["axis"]
+                                    filterForAxis.segmentFilter = true
+                                    const existing = findFilterMatches(segmentsForAxis[thisImport.id].filters, filterForAxis)
+                                    if( !existing ){
+                                        segmentsForAxis[thisImport.id].filters.push( filterForAxis)
+                                        console.log(`Added item ${segmentsForAxis[thisImport.id].filters.length} for axis ${thisAxis.axis}`)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            }else if( resolvedFilterType === "primitive"){
-                    data = item
             }
+            axisValues.push( Object.values(segmentsForAxis)[0]?.filters) // just one import for now
+        }else{
+            values = lookups.map((item,idx)=>{
+                let data
+                if( resolvedFilterType === "title"){
+                    data = item.map(d=>d.title)
+                }
+                else if( resolvedFilterType === "parameter"){
+                    data = item.map(d=>d.referenceParameters?.[mappedFilter.parameter ?? mappedFilter.param])
+                }else if( resolvedFilterType === "type"){
+                    data = item.map(d=>d.referenceId)
+                }else if( resolvedFilterType === "parent"){
+                    if( thisAxis.subtype === "question"){
+                        data = item.filter(d=>d.type === "prompt").map(d=>primitiveOrigin(d))
+                    }else if( mappedFilter.subtype === "search"){
+                        throw "Should filter by type"
+                    }else if( thisAxis.type === "category" ){
+                        data = item.map(d=>d.id).map(d=>childCategories.includes(d) ? d : undefined).filter((d,i,a)=>d && a.indexOf(d)===i)
+                    }else{
+                        data = item.map(d=>d.id)
+                    }
+                }else if( resolvedFilterType === "primitive"){
+                        data = item
+                }
 
-            if( data?.length === 0){
-                data = [undefined]
-            }
+                if( data?.length === 0){
+                    data = [undefined]
+                }
 
-            if( thisAxis.filter){
-                data = data.filter(d=>!(d === undefined ? thisAxis.filter.includes("_N_") : thisAxis.filter.includes(d)) )
-            }
+                if( thisAxis.filter){
+                    data = data.filter(d=>!(d === undefined ? thisAxis.filter.includes("_N_") : thisAxis.filter.includes(d)) )
+                }
 
 
-            itemMap[ items[idx].id ] ||= []
-            itemMap[ items[idx].id ].push( data )
-            return data
-        })
-        let uniqueValues = [undefined, ...values].flat().map(d=>d ? d : undefined).filter((d,i,a)=>a.indexOf(d)===i)
-        axisValues.push(uniqueValues)
+                itemMap[ items[idx].id ] ||= []
+                itemMap[ items[idx].id ].push( data )
+                return data
+            })
+            let uniqueValues = [undefined, ...values].flat().map(d=>d ? d : undefined).filter((d,i,a)=>a.indexOf(d)===i)
+            axisValues.push(uniqueValues)
+        }
+        filterConfig.push(mappedFilter)
     }
     const combos = getAllCombinations( axisValues )
+    if( axis.find(d=>d.type === "segment_filter") ){
+
+        for(const d of combos){
+            console.log(d)
+        }
+        const importConfigList = combos.map(d=>{
+            return {
+                id: primitive.id, 
+                filters: d.map((_,i)=>{
+                return {
+                    ...filterConfig[i],
+                    ...d[i]
+                }
+            })
+        }})
+        return importConfigList
+    }
     const segmentFilter = combos.map(d=>{
         return d.map((d,i)=>{
             return {
@@ -154,6 +206,7 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
             }
         })
     })
+
 
     const itemPositions = Object.values(itemMap).map(d=>getAllCombinations(d)).flat()
 
@@ -330,8 +383,7 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
     logger.info(`Got ${segments.length} target segments and ${currentAggregators.length} aggregators`)
     
     for( const segment of segments){
-        let existing = currentAggregators.find(d=>Object.keys(d.parentPrimitives).includes(segment.id))
-        
+        let existing = config.split ? undefined : currentAggregators.find(d=>Object.keys(d.parentPrimitives).includes(segment.id))
         if( existing ){
             if( !options.force ){
                 if( existing.referenceParameters?.summary){
@@ -1676,62 +1728,66 @@ export async function summarizeWithQuery( primitive ){
 
             if( results.shouldMerge){
                 console.log(`Need to merge multiple responses to structured output`)
-                const flatten = results.summary.flatMap(d=>d.structure)
-                const idsList = {}
-                let idGroup = 1
+                if( primitiveConfig.split  ){
+                    console.log(`MERGE FOR SPLIT - NO NEED`)
+                }else{
+                    const flatten = results.summary.flatMap(d=>d.structure)
+                    const idsList = {}
+                    let idGroup = 1
 
-                modiftyEntries( flatten, "ids", entry=>{
-                    const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>parseInt(d)) : entry.ids
-                    const idKey = `g${idGroup}`
-                    idsList[idKey] = ids
-                    idGroup++
-                    return idKey
-                } )
+                    modiftyEntries( flatten, "ids", entry=>{
+                        const ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)) : entry.ids
+                        const idKey = `g${idGroup}`
+                        idsList[idKey] = ids
+                        idGroup++
+                        return idKey
+                    } )
 
-                const outputFormat = revised.output.replaceAll("List the numbers associated with all of the fragments of text used for this section", "List each and every item in the 'ids' field of each of the source summaries which you have rationalized into this new item - you MUST include ALL items from the relevant source summaries")
+                    const outputFormat = revised.output.replaceAll("List the numbers associated with all of the fragments of text used for this section", "List each and every item in the 'ids' field of each of the source summaries which you have rationalized into this new item - you MUST include ALL items from the relevant source summaries")
 
-                const consolidated = await processInChunk( flatten, 
-                    [
-                        {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
-                        {"role": "user", "content": `Here is a list of summaries:`}],
+                    const consolidated = await processInChunk( flatten, 
                         [
-                            {"role": "user", "content":  `Rationalize these summaries into a single response to address this original prompt. Be careful to note which summaries you are merging together. If asked to include quotes use a selection of the quotes stated in the interim results.  ${revised.task}`
-                        },
-                        {"role": "user", "content": outputFormat},
-                    ],
-                    {
-                        engine: primitiveConfig.engine ?? "gpt-4o",
-                        workspaceId: primitive.workspaceId,
-                        usageId: primitive.id,
-                        functionName: "queryWithStructure_merge",
-                        wholeResponse: true,
-                        field: undefined,
-                        debug: true,
-                        debug_content: false
-                    })
-                
-                if( Object.hasOwn(consolidated, "success")){
-                    logger.error(`Error in merging responses for summarizeWithQuery`, consolidated)
-                    throw "Error in merging responses for summarizeWithQuery"
-                }
-                if( consolidated.length > 1){
-                    logger.error(`Merged responses has multiple passes - unexpected`)
-                }
-                const refined = consolidated[0]?.structure
-                if( refined ){
-                    modiftyEntries( refined, "ids", entry=>{
-                        const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>d.trim()) : entry.ids
-                        const remapped = ids.flatMap(d=>{
-                            const mapped = idsList[d]
-                            if( !mapped ){
-                                logger.error(`Couldnt find ${d} in mapped Ids`)
-                                return undefined
-                            }
-                            return mapped
-                        }).filter((d,i,a)=>d !== undefined && a.indexOf(d)===i)
-                        return remapped
-                    })
-                    results.summary.structure = refined                
+                            {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                            {"role": "user", "content": `Here is a list of summaries:`}],
+                            [
+                                {"role": "user", "content":  `Rationalize these summaries into a single response to address this original prompt. Be careful to note which summaries you are merging together. If asked to include quotes use a selection of the quotes stated in the interim results.  ${revised.task}`
+                            },
+                            {"role": "user", "content": outputFormat},
+                        ],
+                        {
+                            engine: primitiveConfig.engine ?? "gpt-4o",
+                            workspaceId: primitive.workspaceId,
+                            usageId: primitive.id,
+                            functionName: "queryWithStructure_merge",
+                            wholeResponse: true,
+                            field: undefined,
+                            debug: true,
+                            debug_content: false
+                        })
+                    
+                    if( Object.hasOwn(consolidated, "success")){
+                        logger.error(`Error in merging responses for summarizeWithQuery`, consolidated)
+                        throw "Error in merging responses for summarizeWithQuery"
+                    }
+                    if( consolidated.length > 1){
+                        logger.error(`Merged responses has multiple passes - unexpected`)
+                    }
+                    const refined = consolidated[0]?.structure
+                    if( refined ){
+                        modiftyEntries( refined, "ids", entry=>{
+                            const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>d.trim()) : entry.ids
+                            const remapped = ids.flatMap(d=>{
+                                const mapped = idsList[d]
+                                if( !mapped ){
+                                    logger.error(`Couldnt find ${d} in mapped Ids`)
+                                    return undefined
+                                }
+                                return mapped
+                            }).filter((d,i,a)=>d !== undefined && a.indexOf(d)===i)
+                            return remapped
+                        })
+                        results.summary.structure = refined                
+                    }
                 }
             }
 
@@ -1851,7 +1907,7 @@ function removeOmittedItemsFromStructure(nodeResult){
     }
     return out
 }
-function extractFlatNodes(nodeResult, types = ["markdown formatted string"], out){
+export function extractFlatNodes(nodeResult, types = ["markdown formatted string"], out){
     out ||= []
     for(const d of nodeResult){
         //if( types.includes(d.type) ){

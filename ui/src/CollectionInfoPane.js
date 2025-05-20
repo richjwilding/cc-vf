@@ -240,7 +240,20 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             </div>
 
     if( frame?.type === "actionrunner" && Object.values(frame.metadata?.parameters ?? {}).filter(d=>d.type).length === 0){
-        const inputCategories = primitiveForContent.itemsForProcessing.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d)).filter(d=>d)
+        const itemsForCategories = primitiveForContent.itemsForProcessing
+        let inputCategories = []
+        if( itemsForCategories.length > 0){
+            inputCategories = itemsForCategories.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d)===i).map(d=>mainstore.category(d)).filter(d=>d)
+        }else{
+            // check import
+            inputCategories =frame.primitives.imports.allSearch.flatMap(d=>{
+                const meta = d.metadata
+                if( meta ){
+                    return d.getConfig.sources.flatMap(d=>meta.parameters?.sources?.options.find(d2=>d2.id === d).resultCategoryId)
+                }
+            }).filter((d,i,a)=>d && a.indexOf(d) === i).map(d=>mainstore.category(d))
+
+        }
 
         const actions = inputCategories.map(d=>d.actions).flat()
         const actionOptions = actions.filter(d=>d.actionRunner).map(d=>({

@@ -503,10 +503,15 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
                     if( sourcePrimitive ){
                         const instancesOfElement = await fetchPrimitives( sourcePrimitive.primitives?.config ?? [])
                         console.log(`- ${instancesOfElement.length}`)
-                        const relevantTargetInstanceForElementInstance = await relevantInstanceForFlowChain( instancesOfElement, [flowInstance.id])
-                        console.log(relevantTargetInstanceForElementInstance)
-                        for( const d of relevantTargetInstanceForElementInstance){
-                            targetImports.push({id: d.id, paths } )
+                        if( instancesOfElement.length > 0){
+                            const relevantTargetInstanceForElementInstance = await relevantInstanceForFlowChain( instancesOfElement, [flowInstance.id])
+                            console.log(relevantTargetInstanceForElementInstance)
+                            for( const d of relevantTargetInstanceForElementInstance){
+                                if( d ){
+
+                                    targetImports.push({id: d.id, paths } )
+                                }
+                            }
                         }
 
                     }

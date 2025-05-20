@@ -133,127 +133,6 @@ router.get('/avatarImage/:id', async function(req, res, next) {
         res.status(501).json({message: "Error", error: error})
     }
 })
-/*router.get('/enrichContact', async function(req, res, next) {
-    const contactId = req.query.contactId
-    try {
-        const contact = await Contact.findOne({_id:  new ObjectId(contactId)})
-
-        if( !contact.profile ){
-            const company = req.query.company
-            if( company ){
-                let [first_name, last_name, other] = contact.name.split(" ")
-                if( other ){
-                    first_name = last_name
-                    last_name = other
-                }
-                console.log(first_name)
-                console.log(last_name)
-                console.log(company)
-                    const query = new URLSearchParams({ 
-                        'enrich_profile': "skip",
-                        'company_domain': company,
-                        'first_name': first_name,
-                        'lasst_name': last_name
-                    }).toString()
-                    const url = `https://nubela.co/proxycurl/api/linkedin/profile/resolve?${query}`
-                    const response = await fetch(url,{
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
-                        },
-                    });
-                
-                console.log('send')
-                console.log(query)
-                const data = await response.json();
-                if( data.url ){
-                    contact.profile = data.url
-                    contact.markModified("profile")
-                    await contact.save()
-                }else{
-                    res.json({success: false, reason: "No profile url and no company url found"})
-                    return
-                }
-
-            }else{
-                res.json({success: false, reason: "No profile url or company name"})
-                return
-            }
-        }
-        if( !contact.profileInfo && contact.profile){
-            try{
-                
-                const query = new URLSearchParams({ 
-                    url: contact.profile,
-                    fallback_to_cache: 'on-error',
-                    'use_cache':'if-present',
-                    'skills':'include',
-                    'inferred_salary':'include',
-                    'personal_email':'include',
-                    'personal_contact_number':'include',
-                    'twitter_profile_id':'include',
-                    'facebook_profile_id':'include',
-                    'github_profile_id':'include',
-                    'extra':'include'
-                }).toString()
-                const url = `https://nubela.co/proxycurl/api/v2/linkedin?${query}`
-                const response = await fetch(url,{
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
-                    },
-                });
-                
-                const data = await response.json();
-                console.log(data)
-                res.json({result: data})
-                contact.profileInfo = data
-                contact.avatarPresent = await replicateURLtoStorage( data.profile_pic_url, contact.id, 'bucket-profiles-vf-cc' )
-                contact.avatarUrl = false
-                contact.markModified("profileInfo")
-                contact.markModified("avatarUrl")
-                contact.markModified("avatarPresent")
-                await contact.save()
-                return
-            }catch(error){
-                console.log(error)    
-                res.json({success: false, reason: error.message})
-                return
-            }
-        }
-        if( !contact.avatarUrl){
-            try{
-                
-                const query = new URLSearchParams({ linkedin_person_profile_url: contact.profile  }).toString()
-                const url = `https://nubela.co/proxycurl/api/linkedin/person/profile-picture?${query}`
-                const response = await fetch(url,{
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
-                    },
-                });
-                
-                const data = await response.json();
-                console.log(data)
-                if( data.tmp_profile_pic_url ){
-                    contact.avatarPresent = await replicateURLtoStorage( data.tmp_profile_pic_url, contact.id, 'bucket-profiles-vf-cc' )
-                    contact.markModified("avatarPresent")
-                    await contact.save()
-                }
-                res.json({result: data})
-                return
-            }catch(error){
-                console.log(error)    
-                res.json({success: false, reason: error.message})
-                return
-            }
-        }
-            
-    } catch (err) {
-        res.json({error: err.message})
-    }
-
-})*/
 router.get('/users', async function(req, res, next) {
 
     try {
@@ -767,6 +646,21 @@ router.get('/queue/status', async function(req, res, next) {
     const status = await queueStatus()
     res.json({success: true, result: status})
 
+})
+router.get('/primitive/:id/fetch', async function(req, res, next) {
+    const primitiveId = req.params.id
+    console.log( primitiveId)
+    try{
+        const primitive = await fetchPrimitive(primitiveId, undefined, DONT_LOAD_UI)
+
+        if( primitive.published !== true || !await userCanAccessPrimitive(primitive, req, res) ){
+            return
+        }
+        res.json({success: true, result: primitive})
+    }catch(error){
+        console.log(error)
+        res.status(501).json({message: "Error", error: error})
+    }
 })
 router.post('/primitive/:id/agent', async function(req, res, next) {
     const primitiveId = req.params.id

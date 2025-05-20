@@ -37,7 +37,7 @@ export async function indexDocument( primitive, {force} = {}, req){
         }
         let text
         const primitiveCategory = await Category.findOne({id: primitive.referenceId})
-        if( primitiveCategory ){
+        if( primitiveCategory && !primitiveCategory.ai?.process?.contextAsContent){
             const field = Object.keys(primitiveCategory.parameters ?? {}).find(d=>primitiveCategory.parameters[d].useAsContent)
             text = primitive.referenceParameters?.[field]
         }

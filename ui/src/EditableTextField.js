@@ -30,7 +30,6 @@ import clsx from 'clsx';
     const startEditing = ()=>{
       if( !editing.current ){
         editing.current = true
-        console.log(`starting edit`, editing.current.textContent, props.value)
         editBox.current.textContent = props.value ?? ""
       }
     }

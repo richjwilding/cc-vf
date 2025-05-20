@@ -119,7 +119,14 @@ const storeActions = {
         return receiver.allIds.map((d)=>obj.primitive(d)).filter((d)=>d)
     },
     uniqueAllItems(receiver, target,obj){
-        return receiver.uniqueAllIds.map((d)=>obj.primitive(d)).filter((d)=>d)
+        const out = []
+        for(const d of receiver.uniqueAllIds){
+            const p = obj.primitive(d)
+            if( p ){
+                out.push(p)
+            }
+        }
+        return out
     },
     allUniqueItems(receiver, target,obj){
         return receiver.uniqueAllIds.map((d)=>obj.primitive(d)).filter((d)=>d)

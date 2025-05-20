@@ -1,3 +1,5 @@
+
+
 function fastUnique(arr){
     return Array.from(new Set(arr));
 }
@@ -32,8 +34,22 @@ const heatMapPalette = [
             "#d45087",
             "#f95d6a",
             "#ff7c43",
-            "#ffa600"
+            "#ffa600",
         ]
+    },{
+        title: "Purple 12",
+        name: "purple_12",
+        colors: ['#003f5c', '#20456b', '#394a78', '#514d83', '#6b508b', '#855192', '#e55878', '#f16468', '#f97356', '#fd8443', '#ff952c', '#ffa600']
+        /*colors:[
+            "#003f5c",
+            "#2f4b7c",
+            "#665191",
+            "#a05195",
+            "#d45087",
+            "#f95d6a",
+            "#ff7c43",
+            "#ffa600",
+        ]*/
     },{
         title: "Heat",
         name: "heat",
@@ -44,6 +60,26 @@ const heatMapPalette = [
             "#f03b20",
             "#bd0026"
         ],text_colors:[
+            "#222",
+            "#222",
+            "#222",
+            "#f2f2f2",
+            "#f2f2f2"
+        ]
+    },{
+        title: "Sentiment 7",
+        name: "sentiment_7",
+        colors:[
+            "#bd0026",
+            "#f03b20",
+            "#fc8c3c",
+            "#fed976",
+            "#5ee9b5",
+            "#00bc7d",
+            "#007a55"
+        ],text_colors:[
+            "#f2f2f2",
+            "#f2f2f2",
             "#222",
             "#222",
             "#222",
@@ -105,7 +141,26 @@ const heatMapPalette = [
             "#00d472",
             "#00d967"
           ]
+    },
+    {
+        title: "Blue > yellow",
+        name: "blue_yellow",
+        text_colors:[
+            "#f2f2f2",
+            "#f2f2f2",
+            "#222",
+            "#222",
+            "#222",
+            "#222",
+            "#222",
+            "#222",
+            "#222",
+            "#222"
+        ],
+        colors: ['#00429d', '#2b57a7', '#426cb0', '#5681b9', '#6997c2', '#7daeca', '#93c4d2', '#abdad9', '#caefdf', '#ffffe0']
     }
+    
+
 ]
 
 
@@ -170,13 +225,13 @@ const PrimitiveConfig = {
             defaultTitle:false
         },
         "evidence":{
-            embed: ["title", "quote"]
+          //  embed: ["title", "quote"]
         },
         "result":{
-            embed: ["title"]
+            //embed: ["title"]
         },
         "entity":{
-            embed: ["title","referenceParameters.capabilities","referenceParameters.customers","referenceParameters.offerings"]
+          //  embed: ["title","referenceParameters.capabilities","referenceParameters.customers","referenceParameters.offerings"]
         },
         "activity": {
             needCategory:true,
@@ -416,7 +471,8 @@ const PrimitiveConfig = {
                         default: false,
                         options: [
                             {id:false, title: "No"},
-                            {id:true, title: "Yes"}
+                            {id:"number", title: "Number"},
+                            {id:"percentage", title: "Percentage"}
                         ]
                     },
                     "titles":{
@@ -605,6 +661,110 @@ const PrimitiveConfig = {
                         ]
                     }
                 }},
+            subchart: {id: 11,title:"Sub distribution chart", "matrixType": "distribution", renderType: "grid", configName: "grid", parameters: {},
+                needsAllAllocations: true,
+                config:{
+                    "colors":{
+                        type: "option_list",
+                        title: "Colors",
+                        default: "default",
+                        options: heatMapPalette.map(d=>({id: d.name, title:d.title}))
+                    },
+                    "show_title":{
+                        type: "option_list",
+                        title: "Show Title",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "style":{
+                        type: "option_list",
+                        title: "Style",
+                        default: "pie",
+                        options: [
+                            {id:"bar", title: "Bar"},
+                            {id:"stacked_bar", title: "Stacked Bar"},
+                            {id:"pie", title: "Pie"},
+                            {id:"dial", title: "Dial"},
+                            {id:"weighted", title: "Weighted average"},
+                        ]
+                    },
+                    "reverse_palette":{
+                        type: "option_list",
+                        title: "Reverse Palette",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_legend":{
+                        type: "option_list",
+                        title: "Show Legend",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "calcRange":{
+                        type: "option_list",
+                        title: "Show with range",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    }
+                }},
+            overUnderChart: {id: 12,title:"Over / under chart", "matrixType": "overunder", renderType: "grid", configName: "grid", parameters: {},
+                needsAllAllocations: true,
+                config:{
+                    "colors":{
+                        type: "option_list",
+                        title: "Colors",
+                        default: "default",
+                        options: heatMapPalette.map(d=>({id: d.name, title:d.title}))
+                    },
+                    "show_title":{
+                        type: "option_list",
+                        title: "Show Title",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "center":{
+                        type: "option_list",
+                        title: "Center Axis",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_legend":{
+                        type: "option_list",
+                        title: "Show Legend",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_breakdown":{
+                        type: "option_list",
+                        title: "Show Pie",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                }}
 
 
         },
@@ -681,6 +841,20 @@ const PrimitiveConfig = {
     },
     commonFilterSetup: (filter, isAxis = false )=>{
         //const needsValue = filter.type === "title" || filter.type === "parameter" || filter.type === "type" || filter.type === "parent"
+        if( filter.segmentFilter){
+            const {segmentFilter, axis, ...filterToRelay} = filter
+            if( filterToRelay.type === "parameter" || filterToRelay.type === "title"){
+                delete filterToRelay["sourcePrimId"]
+            }
+            return {
+                resolvedFilterType: "segment_filter",
+                pivot: 1, 
+                relationship: ["auto"], 
+                check: filterToRelay,
+                includeNulls: undefined,
+                isRange: false
+            }
+        }
         const needsValue = filter.type === "type" || filter.type === "parent"
         let isRange = false
         if( !isAxis && needsValue && filter.value === undefined){
@@ -1052,6 +1226,7 @@ const PrimitiveConfig = {
                             function extractDataFromSource( sources){
                                 let result = []
                                 let sourceData = sources.map(d=>{
+                                    if(!d){return ""}
                                     if(sourceField === "title"){
                                         return d.title
                                     }
@@ -1137,11 +1312,15 @@ const PrimitiveConfig = {
             if( isRange ){
                 doCheck =  (d)=>{
                     return check.find(c=>{
-                        if( c.min_value === null && c.max_value === null ){
+                        if( !c || (c.min_value === null && c.max_value === null) ){
                             return (d === null || d === undefined)
                         }
                         return (d >= (c.min_value ?? -Infinity) && d <= (c.max_value ?? Infinity))
                     }) !== undefined
+                }
+            }else if( resolvedFilterType === "segment_filter"){
+                doCheck = (d)=>{
+                    return fns.findFilterMatches(d, check)
                 }
             }else{
                 const checkSet = new Set(check);
@@ -1167,7 +1346,7 @@ const PrimitiveConfig = {
                 }
                 else if( resolvedFilterType === "parameter"){
                     data = lookups[idx].map(d=>PrimitiveConfig.decodeParameter(d.referenceParameters,filter.param))
-                    data = data.map(d=>Array.isArray(d) && d.length === 0 ? undefined : d).flat()
+                    data = data.flatMap(d=>Array.isArray(d) && d.length === 0 ? undefined : d)
                 }else if( resolvedFilterType === "type"){
                     data = lookups[idx].map(d=>d.referenceId)
                 }else if( resolvedFilterType === "not_category_level1"){
@@ -1175,7 +1354,7 @@ const PrimitiveConfig = {
                     data = scope.filter(d=>parentIds.includes(d))
                 }else if( resolvedFilterType === "segment_filter"){
                     data = lookups[idx].map(d=>{
-                        const imSections = d.referenceParameters?.importConfig?.filter(d=>scope.includes(d.id))
+                        /*const imSections = d.referenceParameters?.importConfig?.filter(d=>scope.includes(d.id))
                         if( imSections){
 
                             const alignSections = imSections.flatMap(d=>{
@@ -1187,9 +1366,15 @@ const PrimitiveConfig = {
                                 })
                                 return alignSections
                         }
-                        return []
+                        return []*/
+                        return d.referenceParameters?.importConfig?.flatMap(d=>d.filters).map(d=>{
+                            if(d.type === "parameter" || d.type === "title"){
+                                delete d["sourcePrimId"]
+                            }
+                            return d
+                        })
                     })                        
-                    data = fastUnique(data)
+                    //data = fastUnique(data)
                 }else if( resolvedFilterType === "parent"){
                     /*
                     if( filter.sourcePrimId ){

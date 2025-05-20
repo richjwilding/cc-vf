@@ -7,6 +7,7 @@ import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 import { unpack, pack } from 'msgpackr';
 import CollectionUtils from "./CollectionHelper";
+import { findFilterMatches } from "./SharedTransforms";
 
 export function _uniquePrimitives(list) {
     if (!Array.isArray(list) || list.length === 0) {
@@ -87,47 +88,47 @@ const actions = {
                 }
 
                 let scope
-                if( filter.type === "parent"){
-                    if( filter.sourcePrimId ){
-                        let filterSourcePrimitive = obj.primitive(filter.sourcePrimId)
-                        const isMongoId = (str) => /^[a-fA-F0-9]{24}$/.test(str);
-                        if( filter.value && Array.isArray(filter.value) && filter.value.find(d=>!isMongoId(d))){
-                            if( filterSourcePrimitive.referenceId === PrimitiveConfig.Constants.EVAL_CATEGORIZER){
-                                const relevantInstance = filterSourcePrimitive.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes(receiver.originId))
-                                if( relevantInstance ){
-                                    const embedded = relevantInstance.primitives.origin.allCategory[0]
-                                    if( embedded ){
-                                        const children = embedded.primitives.allItems
-                                        scope = embedded.primitives.allIds
-                                        check = check.map(d=>children.find(d2=>d2.title === d)?.id ?? d)
-                                    }
+                if( filter.type !== "segment_filter"){
+                    if( filter.type === "parent"){
+                        if( filter.sourcePrimId ){
+                            let filterSourcePrimitive = obj.primitive(filter.sourcePrimId)
+                            const isMongoId = (str) => /^[a-fA-F0-9]{24}$/.test(str);
+                            if( filter.value && Array.isArray(filter.value) && filter.value.find(d=>!isMongoId(d))){
+                                if( filterSourcePrimitive.referenceId === PrimitiveConfig.Constants.EVAL_CATEGORIZER){
+                                    const relevantInstance = filterSourcePrimitive.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes(receiver.originId))
+                                    if( relevantInstance ){
+                                        const embedded = relevantInstance.primitives.origin.allCategory[0]
+                                        if( embedded ){
+                                            const children = embedded.primitives.allItems
+                                            scope = embedded.primitives.allIds
+                                            check = check.map(d=>children.find(d2=>d2.title === d)?.id ?? d)
+                                        }
 
+                                    }
                                 }
+                            }else{
+                                scope = filterSourcePrimitive?.primitives.allIds ?? []
                             }
-                        }else{
-                            scope = filterSourcePrimitive?.primitives.allIds ?? []
                         }
-                    }
-                }else if( filter.type === "segment_filter"){
-                    scope = [filter.sourcePrimId]
-                }else if( filter.subtype === "question"){
-                    const prompts = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "prompt"})).flat()),
-                    scope = prompts.map(d=>d.id)
-                    check = check.map(d=>prompts.filter(d2=>d2.parentPrimitiveIds.includes(d))).flat().map(d=>d.id)
-                }else if( filter.subtype === "search"){
-                    if( includeNulls){
-                        scope = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "search"})).flat()).map(d=>d.id)
-                    }
-                }else if(filter.type === "not_category_level1"){
-                    includeNulls = true
-                    check = []
-                    if( filter.sourcePrimId ){
-                        scope = obj.primitive(filter.sourcePrimId).primitives.allIds
+                    }else if( filter.subtype === "question"){
+                        const prompts = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "prompt"})).flat()),
+                        scope = prompts.map(d=>d.id)
+                        check = check.map(d=>prompts.filter(d2=>d2.parentPrimitiveIds.includes(d))).flat().map(d=>d.id)
+                    }else if( filter.subtype === "search"){
+                        if( includeNulls){
+                            scope = uniquePrimitives(setToCheck.map(d=>d.findParentPrimitives({type: "search"})).flat()).map(d=>d.id)
+                        }
+                    }else if(filter.type === "not_category_level1"){
+                        includeNulls = true
+                        check = []
+                        if( filter.sourcePrimId ){
+                            scope = obj.primitive(filter.sourcePrimId).primitives.allIds
+                        }
                     }
                 }
                     
                 
-                thisSet = PrimitiveConfig.doFilter( {resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, {parentIds:(primitive)=>primitive.parentPrimitiveIds})
+                thisSet = PrimitiveConfig.doFilter( {resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, {findFilterMatches: (a,v)=>findFilterMatches(a,v), parentIds:(primitive)=>primitive.parentPrimitiveIds})
             }
             return thisSet || list
         }                        
@@ -208,7 +209,7 @@ const actions = {
             let importFrom = receiver
             let importFilter
             receiver.referenceParameters.importConfig.forEach(d2=>{
-                return d2.filters.forEach( d=>{
+                return d2.filters?.forEach( d=>{
                     if( d.type === "parent"){
                         idsToLookup.push(d.value)
                     }else if( d.type === "title" || d.type === "parameter"){
@@ -984,6 +985,21 @@ function MainStore (prims){
             }
             return primitive
         },
+        loadHomeScreenPrimitives:async function(id){
+            return new Promise((resolve)=>{
+                obj.loadControl(false)
+                const users = fetch(`/api/primitives`).then(response => {
+                    response.arrayBuffer().then(buffer => {
+                        const data = unpack(new Uint8Array(buffer))
+                        obj.data.primitives ||= {}
+                        data.forEach((d)=>obj.data.primitives[d._id] = primitive_access(d, "primitive"))
+                        obj.loadControl(true)
+                        obj.homescreenReady = true
+                        resolve(true)
+                    })
+                })
+            })
+        },
         loadWorkspaceFor:async function(id){
             console.log(`will load`)
             return new Promise((resolve)=>{
@@ -1014,6 +1030,25 @@ function MainStore (prims){
                 obj.socket.emit("room", newChannel)
             }
         },
+        fetchPrimitive:async function(primitiveId){
+            if(obj.primitive(primitiveId)){
+                return
+            }
+            if( obj.attemptedLoad?.[primitiveId]){
+                return
+            }
+            obj.loadControl(false)
+            obj.attemptedLoad ||= {}
+            obj.attemptedLoad[primitiveId] = true
+            const result = await fetch(`/published/fetch/${primitiveId}`)
+            const response = await result.json()
+            if( response.success){
+                console.log(response.result)
+                delete obj.attemptedLoad[primitiveId]
+                obj.data.primitives[primitiveId] = primitive_access(response.result, "primitive")
+            }
+            obj.loadControl(true)
+        },
         setActiveWorkspaceFrom:async function(primitive){
             if( primitive.workspaceId ){
                 console.warn(`No workspace for Primitive ${primitive.id}`)
@@ -1022,7 +1057,6 @@ function MainStore (prims){
 
             obj.loadControl(false)
 
-            const oldId = obj.activeWorkspaceId
             obj.activeWorkspaceId = primitive.workspaceId
             console.log(`Workspace set to ${obj.workspace(obj.activeWorkspaceId).title}`)
 
@@ -1062,6 +1096,9 @@ function MainStore (prims){
                         }
                         obj.triggerCallback("new_primitive", [newObj], undefined, true )
                         obj.triggerCallback("relationship_update", list, undefined, true)
+                        if( newObj.origin ){
+                            obj.triggerCallback("new_child", [newObj.origin.id],{child: newObj}, true )
+                        }
                     }
                 }else if(entry.type === "add_relationship"){
                         const parent = obj.primitive( entry.id)
@@ -3138,9 +3175,15 @@ function MainStore (prims){
         obj.loadProgress = []
             const status = await fetch('/api/status').then(response => response.json())
             if( !status.logged_in ){
-                if( window.location.pathname !== "/login"){
+                if( window.location.pathname !== "/login" && !window.location.pathname.startsWith("/published")){
                     window.location.href = "/login"
                 }
+                obj.data.categories = []
+                obj.data.primitives = {}
+                obj.activeUser = {}
+                obj.data.workspaces = []
+                obj.data.users = []
+                obj.data.frameworks = []
                 return
             }
                 obj.activeUser = status.user
@@ -3153,12 +3196,10 @@ function MainStore (prims){
             const companies = fetch('/api/companies').then(response => {obj.loadProgress.push('companies');return response.json()})
             const contacts = fetch('/api/contacts').then(response => {obj.loadProgress.push('contacts');return response.json()})
             const categories = fetch('/api/categories').then(response => {obj.loadProgress.push('categories');return response.json()})
-            //const primitives = fetch('/api/primitives').then(response => {obj.loadProgress.push('primitives');return response.json()})
-            const primitives = fetch('/api/primitives').then(response => response.arrayBuffer()).then(buffer => {obj.loadProgress.push('primitives');console.log("Unpacking...");return unpack(new Uint8Array(buffer))})
             const workspaces = fetch('/api/workspaces').then(response => {obj.loadProgress.push('workspaces');return response.json()})
             const frameworks = fetch('/api/frameworks').then(response => {obj.loadProgress.push('frameworks');return response.json()})
             
-            Promise.all([users,companies,contacts,categories,primitives,workspaces,frameworks]).then(([users, companies,contacts, categories,primitives,workspaces,frameworks])=>{
+            Promise.all([users,companies,contacts,categories,workspaces,frameworks]).then(([users, companies,contacts, categories,workspaces,frameworks])=>{
                 obj.data.users = users.map((d)=>{
                     return {...d, id: d.id || d._id}
                 })
@@ -3170,7 +3211,7 @@ function MainStore (prims){
                     }
                     return d} )
                 obj.data.categories = categories.reduce((o,d)=>{o[d.id] = d; return o}, {})
-                obj.data.primitives = primitives.reduce((o,d)=>{o[d._id] = primitive_access(d, "primitive"); return o}, {})
+                obj.data.primitives = {}
                 obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
                 obj.activeUser.id = obj.activeUser.info.id
                 obj.data.workspaces = workspaces.map((d)=>{d.id = d._id; return d})

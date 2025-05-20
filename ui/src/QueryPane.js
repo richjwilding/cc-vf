@@ -20,8 +20,6 @@ function QueryPaneInfo({primitive}){
 
     const total = termList.length * siteList.length
 
-    console.log(termList, siteList)
-
     if( total < 120 ){
         return <></>
     }
@@ -35,8 +33,18 @@ function QueryPaneInfo({primitive}){
 export function QueryPane({primitive, ...props}){
     useDataEvent("update_field update_parameter", primitive?.id)
     const asTitle = !primitive.referenceParameters.useTerms && !primitive.referenceParameters.hasOwnProperty("terms") && primitive.title
-    let action = false, active = false, error = false
-    let title = <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
+
+    const sourceOption = primitive.metadata.parameters.sources
+    const sources = primitive.referenceParameters.sources
+    let configParams
+    let activeConfig = primitive.metadata.parameters.sources.options.find(d=>d.id === sources[0])?.config
+    if(  activeConfig ){
+        configParams = {
+            sources: sourceOption,
+            ...activeConfig
+        }
+
+    }
     
     return (<div className={props.terms === false ?? props.detail === false ? "" : "space-y-2"}>
                 {props.terms !== false && <div className="w-full flex space-x-2 min-h-16">
@@ -62,7 +70,7 @@ export function QueryPane({primitive, ...props}){
                     <UIHelper.Disclosure.Button small={props.terms !== false} expand="right-down">Details</UIHelper.Disclosure.Button>
                     <UIHelper.Disclosure.Panel>
                         <div className="w-full flex-col text-xs my-2 space-y-1">
-                            <PrimitiveCard.Parameters primitive={primitive} hidden="terms" editing leftAlign inline compactList className="text-xs text-slate-500" fullList />
+                            <PrimitiveCard.Parameters primitive={primitive} activeParameters={configParams} hidden="terms" editing leftAlign inline compactList className="text-xs text-slate-500" fullList />
                         </div>
                     </UIHelper.Disclosure.Panel>
                 </UIHelper.Disclosure>}

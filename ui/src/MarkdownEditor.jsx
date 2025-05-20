@@ -1,10 +1,74 @@
-import React, { useMemo, useState, useCallback, useEffect, forwardRef } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, forwardRef, useImperativeHandle, useRef } from 'react';
 import { createEditor, Editor, Transforms, Text, Node, Element as SlateElement, Path } from 'slate';
 import { Slate, Editable, withReact, ReactEditor } from 'slate-react';
 import { withHistory } from 'slate-history';
 import { markdownToSlate } from './SharedTransforms';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import clsx from 'clsx';
+import MainStore from './MainStore';
+import { ArrowRightCircleIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
+import { Logo } from './logo';
+import { Stage } from 'react-konva';
+import { RenderPrimitiveAsKonva } from './RenderHelpers';
+import { KonvaPrimitive } from './KonvaPrimitive';
 
   
+
+function MarkdownBadge({ badgeType }) {
+
+  function runningBadge(title){
+    return <div className="animate-border inline-flex  animate-border bg-[length:400%_400%] bg-gradient-to-r bg-white from-green-500 inline-block to-blue-500 via-purple-500 p-[1px] rounded-full">
+      <span className="bg-slate-50 inline-flex  pl-1 pr-2 py-0.5 text-slate-700 rounded-full place-items-center text-sm">
+        <Logo active={true} className='bg-gray-100 h-4 w-4 rounded-full animate-ripple-color mr-1'/>
+        {title}
+        </span>
+    </div>
+  }
+
+  switch (badgeType) {
+    case 'agent_running':
+      return runningBadge("Running...")
+    // add more cases for different badges…
+    default:
+      if(badgeType.startsWith("update:")){
+        badgeType = badgeType.slice(7)
+        return runningBadge(badgeType.trim())
+      }
+      if(badgeType.startsWith("id:")){
+        const ids = badgeType.slice(3).split(",")
+        const mainstore = MainStore()
+        return ids.map(d=>{
+          const p = mainstore.primitive(d.trim())
+          if( p ){
+            return  <span 
+              className="bg-gray-200 border hover:bg-gray-300 hover:border-gray-400 inline-flex items-center justify-center p-0.5 rounded-full text-gray-600 hover:text-gray-800" 
+              onClick={()=>mainstore.sidebarSelect(p)}
+              >
+            <ArrowRightIcon className='w-3'/>
+          </span>
+          }
+          return <></>
+        })
+      }
+      if(badgeType.startsWith("ref:")){
+        const ids = badgeType.slice(4).split(",")
+        const mainstore = MainStore()
+        return ids.map(d=>{
+          const p = mainstore.primitive(d.trim())
+          console.log(p)
+          if( p ){
+            return <KonvaPrimitive primitive={p}/>
+          }
+          return <></>
+        })
+      }
+      return (
+        <span className="inline-block px-2 py-0.5 bg-gray-200 text-gray-800 rounded">
+          {badgeType}
+        </span>
+      );
+  }
+}
   
   const slateToMarkdown = (slateContent, depth = 0) => {
     return slateContent.map((node) => {
@@ -58,6 +122,22 @@ import { markdownToSlate } from './SharedTransforms';
 
   function convertInitialValue(initialMarkdown){
     if (initialMarkdown) {
+      if( Array.isArray(initialMarkdown ) ){
+        const slateNodes = [];
+        for (const { role, content } of initialMarkdown) {
+          const children = markdownToSlate(content);
+          slateNodes.push({
+            type: "chat-message",
+            side: role === "assistant" ? "left" : "right",
+            children,
+          });
+        }
+      
+        // ensure at least one node
+        return slateNodes.length
+          ? slateNodes
+          : [{ type: "paragraph", children: [{ text: "" }] }];
+      }
       return markdownToSlate(initialMarkdown);  
     } else {
       return [{ type: 'paragraph', children: [{ text: '' }] }];
@@ -67,16 +147,173 @@ import { markdownToSlate } from './SharedTransforms';
 //  export function MarkdownEditor({ initialMarkdown, ...props }){
 const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...props }, ref){
   const editor = useMemo(() => withHistory(withReact(createEditor())), []);
+  const slateRef = useRef()
 
   
 
   const [value, setValue] = useState(() => convertInitialValue( initialMarkdown));
 
   useEffect(()=>{
+    const wasAtTop = slateRef.current && (slateRef.current.scrollTop + slateRef.current.clientHeight) === slateRef.current.scrollHeight;
     editor.children = convertInitialValue( initialMarkdown)
     editor.onChange();
-    Transforms.select(editor, { path: [0, 0], offset: 0 });
+    //Transforms.select(editor, props.scrollToEnd ? Editor.end(editor, []) : { path: [0, 0], offset: 0 });
+    if (wasAtTop && props.scrollToEnd && slateRef.current) {
+      console.log(`scroll to end ${props.scrollToEnd}`)
+      setTimeout(()=>{
+        slateRef.current.scrollTop = slateRef.current.scrollHeight;
+      }, 20)
+    }
+
   },[initialMarkdown])
+
+
+  function isEditorEmpty(editor) {
+    const { children } = editor;
+    if (children.length !== 1) return false;
+  
+    const firstNode = children[0];
+    if (firstNode.type !== 'paragraph' || !Array.isArray(firstNode.children)) return false;
+  
+    return firstNode.children.length === 1 && Node.string(editor).trim() === '';
+  }
+
+  useImperativeHandle(ref, ()=>{
+    return {
+      copyToClipboard,
+      empty:()=>isEditorEmpty( editor ),
+      focus:()=>slateRef.current.focus(),
+      clear:()=>{
+        const d = convertInitialValue( "")
+        editor.children = d
+        editor.onChange();
+        Transforms.select(editor, { path: [0, 0], offset: 0 });
+      },
+      value:()=>{
+        return slateToMarkdown(value)
+      }
+    }
+  }, [value])
+
+ async function copyToClipboard(){
+    if (slateRef.current) {
+      try {
+        // Clone the div to avoid modifying the original content
+        const clone = slateRef.current.cloneNode(true);
+  
+        // Function to recursively apply computed styles as inline styles
+        const applyInlineStyles = (origElement, cloneElement) => {
+          if (origElement.nodeType !== Node.ELEMENT_NODE) return;
+  
+          let style = {};
+  
+          // If the element is a TD, copy styles from parent TR
+          if (origElement.tagName === 'TD' || origElement.tagName === 'TH') {
+            const parent = origElement.parentElement;
+            if (parent && parent.tagName === 'TR') {
+              const parentComputedStyle = window.getComputedStyle(parent);
+  
+              // Copy parent TR styles to style object
+              for (const key of parentComputedStyle) {
+                if( key === "width"){
+                    continue
+                }
+                let value = parentComputedStyle.getPropertyValue(key);
+  
+                // Convert rgba to rgb for background-color
+                if (key === 'background-color' && value.startsWith('rgba')) {
+                  value = rgbaToRgb(value);
+                }else if (key === 'background-color' && value.startsWith('rgb(')) {
+                  value = rgbaToRgb(value);
+                }
+  
+                if( value ){
+                    style[key] = value;
+                }
+              }
+            }
+          }
+          // Get computed styles from the original element
+          const computedStyle = window.getComputedStyle(origElement);
+  
+          // Copy original element's styles, overwriting parent styles if necessary
+          for (const key of computedStyle) {
+            let value = computedStyle.getPropertyValue(key);
+  
+            // Convert rgba to rgb for background-color
+            if (key === 'background-color'){
+                if (origElement.tagName === 'TR') {
+                    value = undefined
+                }else{
+                    if( value.startsWith('rgba')) {
+                        value = rgbaToRgb(value);
+                    }
+                }
+            } 
+  
+            if( value ){
+                style[key] = value;
+            }
+          }
+  
+          // Build style string
+          const styleString = Object.entries(style)
+            .map(([key, value]) => value ? `${key}: ${value};` : undefined).filter(d=>d)
+            .join(' ');
+  
+        if( origElement.tagName !== "TR"){
+            cloneElement.setAttribute('style', styleString);
+        }
+  
+          // Recursively apply styles to child elements
+          const origChildren = origElement.children;
+          const cloneChildren = cloneElement.children;
+  
+          for (let i = 0; i < origChildren.length; i++) {
+            applyInlineStyles(origChildren[i], cloneChildren[i]);
+          }
+        };
+  
+        // Function to convert rgba to rgb by removing alpha channel
+        const rgbaToRgb = (rgba) => {
+          const parts = rgba.match(/rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/);
+          if (parts) {
+            const r = parts[1];
+            const g = parts[2];
+            const b = parts[3];
+            if( r === "0" && g === "0" && b === "0"){
+                return undefined
+            }
+            return `rgb(${r}, ${g}, ${b})`;
+          } else {
+            // If it's already rgb, return as is
+            return rgba;
+          }
+        };
+  
+        // Start the recursive style application
+        applyInlineStyles(slateRef.current, clone);
+  
+        const htmlContent = clone.innerHTML;
+        const plainTextContent = clone.innerText;
+  
+        const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+        const textBlob = new Blob([plainTextContent], { type: 'text/plain' });
+        const data = [
+          new ClipboardItem({
+            'text/html': htmlBlob,
+            'text/plain': textBlob,
+          }),
+        ];
+  
+        await navigator.clipboard.write(data);
+        console.log('Content copied to clipboard.');
+      } catch (err) {
+        console.error('Failed to copy: ', err);
+      }
+    }
+  };
+  
 
 
   // Render the editor elements
@@ -110,6 +347,53 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
 
         case 'table-cell':
             return <td {...attributes} className="border px-2 py-1">{children}</td>;
+        case 'link':
+          return (
+            // wrapper makes this whole chunk non-editable and lets events through
+            <span {...attributes} contentEditable={false}>
+              <a
+                href={element.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline cursor-pointer"
+                onClick={e => {
+                  e.preventDefault();
+                  window.open(element.url, '_blank');
+                }}
+              >
+                {children}
+              </a>
+            </span>
+          );
+        case "chat-message":
+            return (
+              <div
+                {...attributes}
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    element.side === "right" ? "flex-end" : "flex-start",
+                  margin: "4px 0",
+                }}
+              >
+                <div
+                  contentEditable={false}
+                  className={clsx(
+                    element.side === "right" ? "rounded-lg bg-slate-200 px-2 py-1 max-w-[60%]" : "p-2 max-w-[90%]"
+                  )}
+                >
+                  {children}
+                </div>
+              </div>
+            );
+        case 'badge':
+            return (
+              <span {...attributes} contentEditable={false}>
+                <MarkdownBadge badgeType={element.badgeType} />
+                {children}
+              </span>
+      );
+
         default:
             return <p {...props.attributes}>{props.children}</p>;
     }
@@ -125,7 +409,19 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
   };
 
   // Handle key down events for keyboard shortcuts
+  const handleKeyUp = (event)=>{
+    if(props.onKeyUp ){
+      const result = props.onKeyUp(event)
+      if( result){
+        return
+      }
+    }
+
+  }
   const handleKeyDown = (event) => {
+
+  
+
     if (event.metaKey || event.ctrlKey) {
       switch (event.key) {
         case 'b': {
@@ -142,6 +438,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
           break;
       }
     }
+
 
     const { selection } = editor;
     if (!selection) return;
@@ -364,7 +661,6 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
         }
   
         const [newParentNode, newParentPath] = Editor.parent(editor, path);
-        console.log(newParentNode)
         if( newParentPath.length === 1){
             Transforms.setNodes(
                 editor,
@@ -406,21 +702,37 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
         props.onChange( md )
     }
   }
+  function handleFocus(){
+    if(props.onFocus){
+      props.onFocus()
+    }
+
+  }
+  function handleBlur(){
+    if(props.onBlur){
+      props.onBlur()
+    }
+    saveChanges()
+
+  }
+  
   return (
-    <div>
       <Slate  editor={editor} initialValue={value} onChange={(newValue) => setValue(newValue)}>
         <Editable
-          ref={ref}
-            style={{ minHeight: '160px'}}
-            className='p-1 border rounded-sm'
+          ref={slateRef}
+            className={clsx([
+              props.float ? "focus:outline-none" : "border",
+              'max-h-[inherit] overflow-y-scroll p-1 w-full'
+            ])}
           renderElement={renderElement}
           renderLeaf={renderLeaf} 
-          onBlur={saveChanges}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
           placeholder={props.placeholder}
         />
       </Slate>
-    </div>
   );
 });
 

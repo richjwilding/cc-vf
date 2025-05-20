@@ -52,14 +52,14 @@ Each section of the of the output should be an element of an array. If a section
                     If the section has subsections:
                     {
                         heading: a short heading that can be used when formatting the response (if this element is top level section - otherwise omit this field), 
-                        content: If the user has requested a title for this section, then an instruction to the AI on how to generate a title (and then omit the title from following subsections). Note that fragment IDs must not referenced / included in this field, otherwise omit this field
+                        content: If the user has requested a title for this section, then an instruction to the AI on how to generate a title (and then omit the title from following subsections), otherwise omit this field.
                         subsections: an array containing any the subsections 
                     } 
 
                     If the section does not have any subsections:
                     {
                         heading: a short heading that can be used when formatting the response (if this section is the top level section, or if the filed adds no additional value to the reader, then you should omit this field), 
-                        content: the description of what will be placed in the field by the AI included specific length or formatting instructions aligned to requests in the task if present - or your view of best practice if requests are not present. Note that fragment IDs must not referenced / included in this field, 
+                        content: the description of what will be placed in the field by the AI included specific length or formatting instructions aligned to requests in the task if present - or your view of best practice if requests are not present., 
                         type: what format the content should be (one of markdown formatted bullet list, markdown formatted string, number, boolean, markdown formatted table),
                     } 
 
@@ -81,12 +81,13 @@ Each section of the of the output should be an element of an array. If a section
     if( structureResult?.output?.[0]){
         structure = structureResult.output[0]
     }
-    augmentEntries(structure, "content", "ids", "List the numbers associated with all of the fragments of text used for this section.")
+    modiftyEntries(structure, "content", (d)=>`${d.content}. Note that fragment IDs must not referenced / included in this field`)
+    augmentEntries(structure, "content", "ids", "A json array containing the numbers associated with all of the fragments of text used for this section.")
     console.log(structure)
 
     const prompt2 = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to update the task to remove any mention of the output format or sturcture - i will be appending an updated format myself.  
                     The update task should include all aspects of the original task with the output format removed.                
-                   
+                    ${options.expansive ? "Augment the query to fetch additional relevant context and information to give the user a rich answer" : ""}
                     Here is the future task:`.replaceAll(/\s+/g," ")
 
     const taskResult = await processPromptOnText( request, {
@@ -196,7 +197,8 @@ export function augmentEntries(obj, entry, newEntry, neewValue) {
     }
  }
 export function modiftyEntries(obj, entry, callback) {
-    if( !callback ){
+
+    if( !callback || !obj){
         return obj
     }
     // Check if the object has a 'heading' key and delete it

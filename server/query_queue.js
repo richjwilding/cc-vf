@@ -1,6 +1,6 @@
 import QueueManager from './queue_manager'; 
 import Primitive from "./model/Primitive";
-import { addRelationship, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, fetchPrimitive, findResultSetForCategoryId, getConfig, getDataForProcessing, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParents, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
+import { addRelationship, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, executeConcurrently, fetchPrimitive, findResultSetForCategoryId, getConfig, getDataForProcessing, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParents, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { findCompanyLIPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
@@ -9,11 +9,15 @@ import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
 import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleScholar, queryYoutube } from "./google_helper";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
-import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
+import { queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryRedditWithBrightData, queryReviewsIO, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryQuoraByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
 import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
+import { findTrustPilotURLFromDetails } from './actions/trustpilot_helper';
+import { getLogger } from './logger';
+import { queryMoneySavingExpertForums } from './scrapers/moneysavingexpert';
 
+const logger = getLogger('query_queue', "debug"); // Debug level for moduleA
 
 let instance
 export async function processQueue(job, cancelCheck, extendJob){
@@ -52,8 +56,18 @@ export async function processQueue(job, cancelCheck, extendJob){
                             }
                         }
                     }*/
+                    let categoryParams = category.parameters
+                    const sourceOption = categoryParams.sources
+                    let activeConfig = category.parameters.sources.options.find(d=>d.id === config.sources[0])?.config
+                    if(  activeConfig ){
+                        categoryParams = {
+                            sources: sourceOption,
+                            ...activeConfig
+                        }
+                    }
+
                     
-                    for(const k of Object.keys(category.parameters)){
+                    for(const k of Object.keys(categoryParams)){
                         /*if(config[k] === undefined && k !== "title"){
                             config[k] = category.parameters[k].default
                         }
@@ -62,28 +76,26 @@ export async function processQueue(job, cancelCheck, extendJob){
                                 config[k] = parentSearch.referenceParameters?.[k]      
                             }
                         }*/
-                        if( config[k] && category.parameters[k].type === "options"){
-                            config[k] = config[k].map(d=>category.parameters[k].options.find(d2=>d2.id === d))
+                        if( config[k] && categoryParams[k].type === "options"){
+                            config[k] = config[k].map(d=>categoryParams[k].options.find(d2=>d2.id === d))
                         }
                         if(config[k] === undefined || (typeof(config[k]) === "string" && config[k].trim() === "")){
-                            if( category.parameters[k].default_process){
+                            if( categoryParams[k].default_process){
                                 let source = parentSearch ?? primitive
-                                if(category.parameters[k].default_process?.source.startsWith("parent")){
-                                    let [_, rId] = category.parameters[k].default_process?.source.split("_")
+                                if(categoryParams[k].default_process?.source?.startsWith("parent")){
+                                    let [_, rId] = categoryParams[k].default_process?.source.split("_")
                                     let candidates = await primitiveParents( primitive )
                                     if( rId !== undefined){
                                         candidates = candidates.filter(d=>d.referenceId === parseInt(rId))
                                     }
                                     source = candidates[0]
                                 }
-                                    console.log(source?.plainId)
                                 if( source ){
                                     let value = source.title
-                                    if( category.parameters[k].default_process.param){
-                                        value = decodePath( source.referenceParameters, category.parameters[k].default_process.param)
+                                    if( categoryParams[k].default_process.param){
+                                        value = decodePath( source.referenceParameters, categoryParams[k].default_process.param)
                                     }
-                                    console.log(value)
-                                    if( category.parameters[k].default_process.process === "domain"){
+                                    if( categoryParams[k].default_process.process === "domain"){
                                         try{
                                             //let url = new URL(value)
                                             let url = new URL(cleanURL(value))
@@ -91,6 +103,27 @@ export async function processQueue(job, cancelCheck, extendJob){
                                         }catch(e){
                                             console.log(`Not valid url - skipping search`)
                                             return
+                                        }
+                                    }else if( categoryParams[k].default_process.process === "resolve"){
+                                        if( categoryParams[k].default_process.fn === "trustpilot_url_from_name"){
+                                            console.log(`>>> Will resolce terms from company names`)
+                                            async function findURLForTerm(term){
+                                                if( term ){
+
+                                                    return await findTrustPilotURLFromDetails({
+                                                        title: term,
+                                                        description: topic,
+                                                        workspaceId: primitive.workspaceId
+                                                    })
+                                                }
+                                                return undefined
+                                            }
+                                            let urlsForTermsResponse = await executeConcurrently( (config.companies?? "").split(",").map(d=>d.trim()), findURLForTerm)
+                                            if( urlsForTermsResponse.results){
+                                                value = urlsForTermsResponse.results.filter(d=>d)
+                                            }
+                                            baseTerms = config.terms.join(", ")
+                                            await dispatchControlUpdate(primitive.id, `referenceParameters.${k}`, baseTerms)
                                         }
                                     }
                                     console.log(value)
@@ -100,8 +133,8 @@ export async function processQueue(job, cancelCheck, extendJob){
                         }
                     }
                     let missing = []
-                    for(const k of Object.keys(category.parameters)){
-                        if( category.parameters[k].optional === false ){
+                    for(const k of Object.keys(categoryParams)){
+                        if( categoryParams[k].optional === false ){
                             if( config[k] === undefined || (typeof(config[k])==="string" && config[k].trim().length === 0)){
                                 missing.push(k)
                             }
@@ -388,7 +421,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                                 data:{
                                     type: "result",
                                     ...d,
-                                    referenceId: source.resultCategoryId ,
+                                    referenceId: source.resultCategoryId,
                                 }
                             }
                             const newPrim = await createPrimitive( newData, skipActions )
@@ -427,6 +460,12 @@ export async function processQueue(job, cancelCheck, extendJob){
                         if( source.platform === "gdelt" ){
                             await fetchArticlesFromGdelt( terms, callopts) 
                         }
+                        if( source.platform === "moneysavingexpert" ){
+                            await queryMoneySavingExpertForums(primitive, terms, callopts)
+                        }
+                        if( source.platform === "reviewsio" ){
+                            await queryReviewsIO(primitive, terms, callopts)
+                        }
                         if( source.platform === "facebook_group" ){
                             await queryFacebookGroup( terms, callopts) 
                         }
@@ -448,14 +487,23 @@ export async function processQueue(job, cancelCheck, extendJob){
                             if( oId ){
                                 origin = origin ?? await Primitive.findOne({_id: oId})
                             }
+                            let searchedViaCompany = false
 
                             if( origin ){
                                 let targetProfile = origin.referenceParameters.trustpilot
                                 if( targetProfile ){
-                                    await queryTrustPilotForCompanyReviewsBrightData( primitive, targetProfile, terms, callopts)
+                                    searchedViaCompany = true
+                                    await queryTrustPilotForCompanyReviewsBrightData( primitive, [targetProfile], terms, callopts)
+                                }
+                            }
+                            if( !searchedViaCompany ){
+                                const urlsForTerms = terms.split(",").map(d=>cleanURL(d.trim())).filter(d=>d)
+                                if( urlsForTerms.length > 0){
+                                    await queryTrustPilotForCompanyReviewsBrightData( primitive, urlsForTerms, terms, callopts)
                                 }
                             }
                         }
+                        
                         if( source.platform === "instagram" ){
                             await queryInstagramPostsByRapidAPI( primitive, terms, callopts)
                         }

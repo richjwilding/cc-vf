@@ -52,21 +52,21 @@ export default function AIProcessButton({primitive, ...props}){
     }
     let active = false
     let error = false
-    if( primitive.processing?.ai){
-        error = props.active && primitive.processing.ai[props.active]?.state === "error"
-        active = !error && (props.active === undefined || primitive.processing.ai[props.active])
-        if( props.subset && primitive.processing.ai[props.active]?.subset ){
-          if( !primitive.processing.ai[props.active].subset.includes(props.subset)){
+    if( primitive.processing){
+        error = props.active && primitive.processing[props.active]?.state === "error"
+        active = !error && (props.active === undefined || primitive.processing[props.active]?.status === "pending" || primitive.processing[props.active]?.status === "running")
+        if( props.subset && primitive.processing[props.active]?.subset ){
+          if( !primitive.processing[props.active].subset.includes(props.subset)){
             active = false
           }
         }
 
-      if( error || (new Date() - new Date(primitive.processing.ai?.[props.active]?.started)) > (25 * 60 *1000) ){
+      if( error || (new Date() - new Date(primitive.processing[props.active]?.started)) > (25 * 60 *1000) ){
         title = <div className='text-red-600'><FontAwesomeIcon icon='triangle-exclamation'/> Error</div>
         active = false
         error = true
       }else if(active){
-        const percent = parseInt((primitive.processing.ai?.[props.active]?.progress ?? 0) * 100) + "%"
+        const percent = parseInt((primitive.processing[props.active]?.progress ?? 0) * 100) + "%"
         title = <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin"/>{props.small ? "" :" Processing " + percent}</div>
         //action = (e)=>{e.stopPropagation();}
       }

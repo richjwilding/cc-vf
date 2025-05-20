@@ -54,8 +54,65 @@ function instagramPostData(data){
     }
 }
 
-
 const bdExtractors = {
+    "mse_post":{
+        datasetId: "c_m9ydj3e41diwo5tth3",
+        id: (data)=>data.url,
+        linkConfig:linkToPrimitiveViaSearchPath,
+        customDataset: true,
+        data:  (data)=>{
+            const thisYear = moment().format("YYYY")
+            function convertDate(raw){
+                let datePart = (raw ?? "").match(/(.+) at /)?.[1]
+                if( datePart ){
+                    const parts = datePart.split(" ")
+                    if( parts.length === 2){
+                        datePart += thisYear
+                    }
+                    return  moment(datePart, 'D MMMM YYYY').format('DD MMM YY')
+                }
+                return undefined
+            }
+            return {
+                title: data.title,
+                referenceId: 146,
+                referenceParameters:{
+                    url: data.url,
+                    api_source: "bd_mse_post",
+                    username: data.author,
+                    post_date: convertDate(data.post_date),
+                    posts_count: data.posts_count,
+                    posts_content: data.post_content,
+                    comments: data.comments.map(d=>({
+                        username: d.author,
+                        posts_count: d.posts_count,
+                        comment: d.comment,
+                        post_date:  convertDate(data.post_date)
+                    }))
+                }
+            }
+        }
+    },
+    "reviewsio":{
+        datasetId: "c_maapuho928uerzr6fk",
+        id: (data)=>data.url,
+        linkConfig:linkToPrimitiveViaSearchPath,
+        customDataset: true,
+        data:  (data)=>{
+            return {
+                title: `Review by ${data.author}`,
+                referenceId: 147,
+                referenceParameters:{
+                    url: data.url,
+                    api_source: "bd_reviewsio",
+                    username: data.author,
+                    review_date: data.review_date,
+                    review_content: data.review,
+                    review_rating: data.rating
+                }
+            }
+        }
+    },
     "linkedin_post":{
         datasetId: "gd_lyy3tktm25m4avu764",
         id: (data)=>data.id,
@@ -267,6 +324,15 @@ const bdExtractors = {
     }
 }
 
+export async function queryReviewsIO(primitive, terms, options) {
+    const termList = terms.split(",").map(d=>d.trim()).filter(d=>d)
+    const input = termList.map(d=>({
+        url: d,
+        maxPage: 25
+     }))
+    await triggerBrightDataCollection(input, "reviewsio", primitive, terms,options)
+}
+
 export async function enrichPrimitiveViaBrightData( primitive, options = {} ){
     const configName = options.api + "_" + options.endpoint
     console.log(`Enrich ${primitive.id} / ${primitive.plainId} via ${configName}`)
@@ -282,12 +348,12 @@ export async function enrichPrimitiveViaBrightData( primitive, options = {} ){
     await triggerBrightDataCollection(input, configName, primitive, undefined, options.create ?? {})
 }
 
-export async function queryTrustPilotForCompanyReviewsBrightData( primitive, targetProfile, terms, callopts){
-    if( targetProfile ){
-        const input = [{        
-            url: targetProfile,
-            //date_posted:"Last 12 months"
-        }]
+export async function queryTrustPilotForCompanyReviewsBrightData( primitive, urls, terms, callopts){
+    if( urls ){
+        const input = urls.map(d=>({        
+            url: d,
+        }))
+        console.log(input)
         if( primitive.processing?.bd?.collectionId){
             //console.log(`Not redoing TrustPilot fetch`)
             return 
@@ -424,7 +490,10 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
     console.log(`Will trigger collection from BD for API: ${api}`)
     const config = bdExtractors[api]
 
-    let url = `https://api.brightdata.com/datasets/v3/trigger?dataset_id=${config.datasetId}${config.queryParams ?? ""}`
+    let url = config.customDataset  ? `https://api.brightdata.com/dca/trigger?collector=${config.datasetId}&queue_next=1${config.queryParams ?? ""}`
+                                    : `https://api.brightdata.com/datasets/v3/trigger?dataset_id=${config.datasetId}${config.queryParams ?? ""}`
+    
+
     if( config.limit ){
         url += `&limit_per_input=${config.limit}`
     }else if( callopts.limit_count ){
@@ -449,7 +518,7 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
         const data = response.data
         // Log the response from the API
         console.log('Data collection triggered successfully:', data);
-        dispatchControlUpdate(primitive.id, `processing.bd.${api}.collectionId` , data?.snapshot_id)
+        dispatchControlUpdate(primitive.id, `processing.bd.${api}.collectionId` , config.customDataset ? data?.collection_id : data?.snapshot_id)
 
         await BrightDataQueue().scheduleCollection( primitive, {api})
         
@@ -476,8 +545,12 @@ export async function handleCollection(primitive, {api} = {}, doCreation = true)
         console.log(`No snapshot id for ${primitive.id} / ${primitive.plainId}`)
         return {data: undefined}
     }
+    const config = bdExtractors[api]
     console.log(`Check status of ${snapshot_id}`)
-    const url = `https://api.brightdata.com/datasets/v3/snapshot/${snapshot_id}?format=json`;
+    const url = config.customDataset    ? `https://api.brightdata.com/dca/dataset?id=${snapshot_id}`
+                                        : `https://api.brightdata.com/datasets/v3/snapshot/${snapshot_id}?format=json`;
+
+
 
     try {
         
@@ -488,7 +561,7 @@ export async function handleCollection(primitive, {api} = {}, doCreation = true)
             },
         });
         if( !Array.isArray(response.data)){
-            if( response.data.status === "running" || response.data.status === "building"){
+            if( response.data.status === "running" || response.data.status === "building" || response.data.status === "collecting"){
                 console.log(`still running - retry`)
                 return {
                     reschedule: async (parent)=>{
@@ -568,7 +641,10 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
 
         // Parse the URL to determine if it's HTTP or HTTPS
         const parsedUrl = new URL(url);
-        const proxyUrl = options.proxy ?? process.env.BRIGHTDATA_DC_PROXY
+        let proxyUrl = options.proxy ?? process.env.BRIGHTDATA_DC_PROXY
+        if( options.country){
+            proxyUrl = proxyUrl.replace("-country-us",`-country-${options.country}`)
+        }
         const parsedProxy = new URL(proxyUrl);
 
 

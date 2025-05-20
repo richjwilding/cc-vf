@@ -1,4 +1,4 @@
-import { useReducer, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import useDataEvent from "./CustomHook";
 import MainStore from "./MainStore";
 import Panel from "./Panel";
@@ -12,18 +12,65 @@ import UIHelper from "./UIHelper";
 import { FlowInstanceOutput } from "./FlowInstanceOutput";
 import clsx from "clsx";
 import { VFImage } from "./VFImage";
+import { useLocation, useParams } from "react-router-dom";
 
 export default function FlowInstancePage({primitive, ...props}){
+    const { id } = useParams();
+    const location = useLocation();
+    const query = new URLSearchParams(location.search);
+    const isEmbedded = query.get("embed")
+
+    if (!primitive && id) {
+        primitive = MainStore().primitive(id)
+    }
+    useEffect(() => {
+        if( !primitive ){
+            MainStore().fetchPrimitive(id)
+        }
+      }, [primitive]);
+
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [showOutput, setShowOutput ]= useState(false)
+    const [dataForNewInstance, setDataForNewInstance ]= useState({})
+    
+    const [errors, setErrors ]= useState({})
+    const [missing, setMissing ]= useState({})
 
-    const targetFlow = primitive.origin
-
-    useDataEvent('relationship_update set_field set_parameter',primitive.id, ()=>{
-        console.log("hello")
+    useDataEvent('relationship_update set_field set_parameter',primitive?.id, ()=>{
         forceUpdate()
     })
-    const inputSource = targetFlow?.primitives.imports.allUniqueItems[0]    
+    if( !primitive){
+        return <></>
+    }
+
+    const isForNewInstance = primitive.type === "flow"
+    const targetFlow = isForNewInstance ? primitive : primitive.origin
+    const pins = isEmbedded ? {
+        ...primitive.getConfig?.inputPins,
+        split1:{split:true, title:"Your details"},
+        ext_name:{
+            "name": "Your Name",
+            "source": "param.ext_name",
+            "types": [
+              "string"
+            ]
+        },
+        ext_company_name:{
+            "name": "Your company",
+            "source": "param.ext_company_name",
+            "types": [
+              "string"
+            ]
+        },
+        ext_email:{
+            "name": "Your company email (for report)",
+            "source": "param.ext_email",
+            "types": [
+              "string"
+            ]
+        }
+    }: primitive.getConfig?.inputPins
+
 
     let steps = [], flowInstances = []
     targetFlow?.primitives.origin.allUniqueItems.forEach(d=>{
@@ -47,18 +94,27 @@ export default function FlowInstancePage({primitive, ...props}){
     if(!targetFlow){
         return <></>
     }
+    function newInstanceCallback(d,v){
+        setDataForNewInstance({
+            ...dataForNewInstance,
+            [d]: v
+        })
+        return true
+    }
 
+    
     const inputs = primitive.itemsForProcessing
     const color = targetFlow.workspace?.color || "slate"
     const showImage = targetFlow.referenceParameters?.hasImg
+    const enableSubmit = [...Object.values(missing), ...Object.values(errors)].filter(d=>d).length === 0
 
     return <div className={clsx([
-            "flex h-[calc(100vh_-_4rem)] w-full relative",
+            "flex h-full w-full relative",
             showOutput ? "bg-white" : "bg-gray-50"
         ])}>
                 <div className={clsx([
-                    "w-full min-w-[30em] font-['Poppins'] @container",
-                    showOutput ? "w-[25vw] max-w-2xl p-6 " : "mx-auto max-w-6xl px-9 py-6 shadow-xl bg-white"
+                    "w-full min-w-[30em] font-['Poppins'] @container flex flex-col",
+                    showOutput ? "w-[25vw] max-w-2xl p-6 " : "mx-auto max-w-6xl px-9 bg-white"
                 ])}>
                     <div className={clsx([
                         "flex relative shadow-md",                    
@@ -85,12 +141,18 @@ export default function FlowInstancePage({primitive, ...props}){
                             <PrimitiveCard.Title primitive={targetFlow} major={true}/>
                         </div>
                     </div>
-                    {!showOutput && <div className="flex place-items-center py-3 justify-end">
-                        <UIHelper.Button title="Results >" color='green' onClick={()=>setShowOutput(true)}/>
-                    </div>}
-                    <PrimitiveCard.InputPins primitive={primitive}/>
+                    <div className="h-full overflow-y-scroll">
+                        {!showOutput && !isForNewInstance && <div className="flex place-items-center py-3 justify-end">
+                            <UIHelper.Button title="Results >" color='green' onClick={()=>setShowOutput(true)}/>
+                        </div>}
+                        <PrimitiveCard.InputPins primitive={primitive} pins={pins} dataForNewInstance={dataForNewInstance} newInstanceCallback={newInstanceCallback} updateMissing={setMissing}/>
+                        {true&& <div className="flex place-items-center py-3 justify-end space-x-3">
+                            {isEmbedded && <UIHelper.Button title="Cancel" onClick={()=>{console.log("send");window.parent.postMessage("close_newflow","*")}}/>}
+                            <UIHelper.Button title="Submit" color='green' disabled={!enableSubmit} onClick={()=>setShowOutput(true)}/>
+                        </div>}
+                    </div>
                 </div>
-                {showOutput && <div className="w-full h-full flex ">
+                {showOutput && !isForNewInstance && <div className="w-full h-full flex ">
                     <div className="w-full h-full flex bg-[#fefefe] overflow-hidden shadow-lg relative">
                         <FlowInstanceOutput primitive={primitive} inputPrimitives={inputs} steps={steps} hideProgressAt="@4xl"/>
                         <div className="absolute top-2 left-2">

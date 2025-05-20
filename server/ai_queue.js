@@ -861,22 +861,22 @@ class AIQueueClass extends BaseQueue{
 
     async runPromptOnPrimitive(primitive, action){
         const workspaceId = primitive.workspaceId
-        const field = `processing.ai.run_prompt`
+        const field = `processing.run_prompt`
         const data = {id: primitive.id, action: action, mode: "run_prompt", field}
 
         await this.addJob(workspaceId, data)
     }
     async rebuildSummary(primitive, action, req){
         const workspaceId = primitive.workspaceId
-        const field = `processing.ai.rebuild_summary`
+        const field = `processing.rebuild_summary`
         const data = {id: primitive.id, action: action, mode: "rebuild_summary", field}
 
         await this.addJob(workspaceId, data)
     }
     async defineAxis(primitive, action, req){
         const workspaceId = primitive.workspaceId
-        const field = `processing.ai.define_axis`
-        if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
+        const field = `processing.define_axis`
+        if(primitive.processing?.define_axis && (new Date() - new Date(primitive.processing.define_axis.started)) < (5 * 60 *1000) ){
             console.log(`Already active - exiting`)
             return false
         }
@@ -884,9 +884,9 @@ class AIQueueClass extends BaseQueue{
         await this.addJob(workspaceId, data)
     }
     async rollUp(primitive, target, action, req){
-            const field = `processing.ai.rollup`
+            const field = `processing.rollup`
             const workspaceId = primitive.workspaceId
-            if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
+            if(primitive.processing?.rollup && (new Date() - new Date(primitive.processing.rollup.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
                 return false
             }
@@ -906,8 +906,8 @@ class AIQueueClass extends BaseQueue{
     async markCategories(primitive, target, action = {}, req){
         //if( primitive.type === "category"){
             const workspaceId = primitive.workspaceId
-            const field = `processing.ai.mark_categories`
-            if(primitive.processing?.ai?.mark_categories && (new Date() - new Date(primitive.processing.ai.mark_categories.started)) < (5 * 60 *1000) ){
+            const field = `processing.mark_categories`
+            if(primitive.processing?.mark_categories && (new Date() - new Date(primitive.processing.mark_categories.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
                 return false
             }
@@ -919,8 +919,8 @@ class AIQueueClass extends BaseQueue{
     async categorize(primitive, target, action, req){
         //if( primitive.type === "category"){
             const workspaceId = primitive.workspaceId
-            const field = `processing.ai.categorize`
-            if(primitive.processing?.ai?.categorize && (new Date() - new Date(primitive.processing.ai.categorize.started)) < (5 * 60 *1000) ){
+            const field = `processing.categorize`
+            if(primitive.processing?.categorize && (new Date() - new Date(primitive.processing.categorize.started)) < (5 * 60 *1000) ){
                 console.log(`Already active - exiting`)
                 return false
             }
@@ -1626,6 +1626,7 @@ export async function processQueue(job){
                                         dispatchControlUpdate(category.id, "rationale", rationale)
                                     }
                                 }
+                                console.log("done")
 
                                 let categoryAlloc
                                 let resultMap
@@ -1751,6 +1752,7 @@ export async function processQueue(job){
                                     }
                                     return
                                 }else{
+                                console.log("here")
                                     const config = await getConfig(primitive)
 
 

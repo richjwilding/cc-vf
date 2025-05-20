@@ -505,7 +505,7 @@ async function doDataQuery( options ) {
                             await executeConcurrently(interim, async (d, idx)=>{
 
                                 console.log(`++ Doing iter ${idx} for ${d.plainId} / ${d.title}`)
-                                await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: true})
+                                await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: false})
                                 return
                             }, undefined, undefined, 10)
                             console.log(`Groups all done - leaving`)
@@ -893,7 +893,7 @@ async function doDataQuery( options ) {
                                 if( options.inheritField ){
                                     extracts[options.inheritField] = options.inheritValue
                                 }
-                                const ids = typeof(d.ids) === "string" ? d.ids.split(",").map(d=>parseInt(d.trim())) : d.ids.map(d=>d)
+                                const ids = typeof(d.ids) === "string" ? d.ids.split(",").map(d=>parseInt(d.trim())) : d.ids?.map(d=>d)
                                 const newData = {
                                     workspaceId: primitive.workspaceId,
                                     parent: primitive.id,

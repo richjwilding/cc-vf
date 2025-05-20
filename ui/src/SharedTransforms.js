@@ -102,15 +102,18 @@ export function formatNumber(number){
 export function markdownToSlate(markdownContent = "") {
   const lines = markdownContent.split(/\r?\n/);
   const slateNodes = [];
-  // Stack of open lists: { node: ListNode, indent: number, type: 'ordered-list'|'unordered-list' }
-  const listStack = [];
 
-  // Flush all open lists
+  // For nested lists:
+  const listStack = []; // { node, indent, type }
+
+  // For tables:
+  let currentTable = null;
+  let isInTable    = false;
+
   const flushLists = () => {
     listStack.length = 0;
   };
 
-  // Helper: append a top-level node (or to the current list if open)
   const appendTop = (node) => {
     if (listStack.length) {
       listStack[listStack.length - 1].node.children.push(node);
@@ -118,31 +121,99 @@ export function markdownToSlate(markdownContent = "") {
       slateNodes.push(node);
     }
   };
+  let rowBuffer = ""
+  let rowPipeCount = 0
+  let nextRowBuffer = ""
+  let nextPipeCount = 0
 
   for (let raw of lines) {
-    const line = raw.replace(/\r$/, "");
+    if( isInTable ){
+      if( rowPipeCount >0 && rowPipeCount < currentTable.expectedPipeCount ){
+        let cols = raw.split("|")
+        const isHeaderSep = cols.length > 1 && cols.every(c => /^-+$/.test(c));
+        if( !isHeaderSep ){
+          const pipes = cols.length  - 1
+          if( rowPipeCount > 1 && raw.startsWith("|")){
+            nextRowBuffer = raw
+            nextPipeCount = pipes
+            raw = rowBuffer 
+          }else{
+            rowBuffer += (rowBuffer !== "" ? "\n" : "") + raw
+            //rowBuffer += raw
+            rowPipeCount += pipes
+            if(rowPipeCount == currentTable.expectedPipeCount ){
+              nextRowBuffer = ""
+              nextPipeCount = 0
+              raw = rowBuffer 
+            }else{
+              continue
+            }
+          }
+        }
+      }
+    }
+    const line    = raw.replace(/\r$/, "");
     const trimmed = line.trim();
 
     // 1) Continuation of last <li>?
     const cont = raw.match(/^(\s+)(\S.*)/);
     if (cont && listStack.length) {
-      const [, indents, text] = cont;
+      const [, , text] = cont;
       if (!/^(\d+\.)\s|^[-*]\s/.test(text)) {
-        const topList = listStack[listStack.length - 1].node;
+        const topList  = listStack[listStack.length - 1].node;
         const lastItem = topList.children[topList.children.length - 1];
-        // insert a newline so Markdown serializes a line-break
         lastItem.children.push({ text: "\n" });
-        parseMarkdownInline(text).forEach(tok => lastItem.children.push(tok));
+        parseInlineWithBadges(text).forEach(tok => lastItem.children.push(tok));
         continue;
       }
     }
 
-    // 2) Table rows (as before)
+    // 2) Table rows
     if (trimmed.includes("|")) {
+      // break out of any open lists
       flushLists();
-      // … your existing table logic here …
-      // Make sure you push table nodes onto slateNodes
+
+      // split out the cells
+      const cols = trimmed
+        .split("|")
+        .map(c => c.trim())
+        .slice(1, -1);
+
+      // header-separator row?
+      const isHeaderSep = cols.every(c => /^-+$/.test(c));
+      if (isHeaderSep) {
+        if (currentTable && currentTable.children.length) {
+          currentTable.children[0].isHeader = true;
+          rowBuffer = nextRowBuffer
+          rowPipeCount = nextPipeCount
+        }
+        continue;
+      }
+
+      // build the row
+      const row = {
+        type: "table-row",
+        children: cols.map(c => ({
+          type: "table-cell",
+          children: parseInlineWithBadges(c),
+        })),
+      };
+
+      if (isInTable) {
+        currentTable.children.push(row);
+        rowPipeCount = nextPipeCount
+        rowBuffer = nextRowBuffer
+      } else {
+        currentTable = { type: "table", children: [row] };
+        slateNodes.push(currentTable);
+        isInTable = true;
+          currentTable.expectedPipeCount = row.children.length + 1;
+          rowBuffer = nextRowBuffer
+          rowPipeCount = nextPipeCount
+      }
       continue;
+    } else {
+      isInTable = false;
     }
 
     // 3) Headings
@@ -153,50 +224,47 @@ export function markdownToSlate(markdownContent = "") {
       slateNodes.push({
         type: "heading",
         level,
-        children: parseMarkdownInline(h[2]),
+        children: parseInlineWithBadges(h[2]),
       });
       continue;
     }
 
-    // 4) List items (ordered or unordered)
-    const mo = raw.match(/^(\s*)(\d+\.)\s+(.*)$/);
-    const mu = !mo && raw.match(/^(\s*)([-*])\s+(.*)$/);
-    if (mo || mu) {
-      const [, indentSpaces, marker, rest] = mo || mu;
-      const indentLevel = indentSpaces.length;     // raw spaces
-      const isOrdered   = !!mo;
+    // 4) Lists
+    const mOrdered   = raw.match(/^(\s*)(\d+\.)\s+(.*)$/);
+    const mUnordered = !mOrdered && raw.match(/^(\s*)([-*])\s+(.*)$/);
+    if (mOrdered || mUnordered) {
+      const [, indentSpaces, marker, rest] = mOrdered || mUnordered;
+      const indentCount = indentSpaces.length;
+      const isOrdered   = !!mOrdered;
       const listType    = isOrdered ? "ordered-list" : "unordered-list";
+      const itemContent = parseInlineWithBadges(rest);
 
+      // capture explicit start if “3.” etc.
+      const explicitStart = isOrdered
+        ? parseInt(marker.slice(0, -1), 10)
+        : undefined;
 
-      const explicitStart = isOrdered ? parseInt(marker.slice(0, -1), 10) : undefined;
-
-      const itemContent = parseMarkdownInline(rest);
-
-      // a) If more indented than the last list, make a nested list under the last <li>
+      // a) deeper indent → nested list under last <li>
       if (
         listStack.length &&
-        indentLevel > listStack[listStack.length - 1].indent
+        indentCount > listStack[listStack.length - 1].indent
       ) {
-        const parentItem = listStack[listStack.length - 1].node
-          .children
-          .slice(-1)[0]; // last <li> of the parent list
+        const parentList = listStack[listStack.length - 1].node;
+        const parentItem = parentList.children[parentList.children.length - 1];
         const nestedList = { type: listType, children: [] };
-        // attach under that <li>
+        if (isOrdered && explicitStart > 1) nestedList.start = explicitStart;
         parentItem.children.push(nestedList);
-        // record it
-        listStack.push({ node: nestedList, indent: indentLevel, type: listType });
-        // append our new list‐item
-        const li = { type: "list-item", children: itemContent };
-        nestedList.children.push(li);
+        listStack.push({ node: nestedList, indent: indentCount, type: listType });
+        nestedList.children.push({ type: "list-item", children: itemContent });
         continue;
       }
 
-      // b) Otherwise, pop off any deeper or mismatched lists at this indent
+      // b) pop deeper/mismatched
       while (listStack.length) {
         const top = listStack[listStack.length - 1];
         if (
-          top.indent > indentLevel ||
-          (top.indent === indentLevel && top.type !== listType)
+          top.indent > indentCount ||
+          (top.indent === indentCount && top.type !== listType)
         ) {
           listStack.pop();
         } else {
@@ -204,38 +272,32 @@ export function markdownToSlate(markdownContent = "") {
         }
       }
 
-      // c) If the top of stack is the same type & indent, reuse it
+      // c) same list container → append
       if (
         listStack.length &&
-        listStack[listStack.length - 1].type === listType &&
-        listStack[listStack.length - 1].indent === indentLevel
+        listStack[listStack.length - 1].indent === indentCount &&
+        listStack[listStack.length - 1].type === listType
       ) {
         const existing = listStack[listStack.length - 1].node;
         existing.children.push({ type: "list-item", children: itemContent });
         continue;
       }
 
-      // d) Otherwise, start a brand-new list container
+      // d) new list container
       const newList = { type: listType, children: [] };
-      if (isOrdered && explicitStart > 1) {
-        newList.start = explicitStart;
-      }
+      if (isOrdered && explicitStart > 1) newList.start = explicitStart;
       appendTop(newList);
-      listStack.push({
-        node: newList,
-        indent: indentLevel,
-        type: listType,
-      });
+      listStack.push({ node: newList, indent: indentCount, type: listType });
       newList.children.push({ type: "list-item", children: itemContent });
       continue;
     }
 
-    // 5) Plain paragraph or blank line
+    // 5) Paragraph / blank
     flushLists();
     if (trimmed) {
       slateNodes.push({
         type: "paragraph",
-        children: parseMarkdownInline(trimmed),
+        children: parseInlineWithBadges(trimmed),
       });
     } else {
       slateNodes.push({
@@ -245,131 +307,12 @@ export function markdownToSlate(markdownContent = "") {
     }
   }
 
+  // ensure at least one node
   return slateNodes.length
     ? slateNodes
     : [{ type: "paragraph", children: [{ text: "" }] }];
 }
 
-  /*export function markdownToSlate(markdownContent){
-    const lines = (markdownContent ?? "").split('\n');
-    const slateNodes = [];
-  
-    let currentTable = null; // Keep track of the current table
-    let isInTable = false;
-  
-    lines.forEach((line) => {
-      const trimmedLine = line.trim();
-  
-      if (trimmedLine.includes('|')) {
-        let columns = trimmedLine
-          .split('|')
-          .map((col) => col.trim())
-          .slice(1, -1); // Remove the first and last empty elements due to leading and trailing '|'
-  
-        // Check if this is a header separator (---)
-        const isHeaderSeparator = columns.every((col) => /^-+$/.test(col));
-  
-        if (isHeaderSeparator) {
-          if (currentTable && currentTable.children.length > 0) {
-            currentTable.children[0].isHeader = true; // Mark the first row as a header
-          }
-          return; // Skip this line
-        }
-  
-        const row = {
-          type: 'table-row',
-          children: columns.map((col) => ({
-            type: 'table-cell',
-            children: parseMarkdownText(col), // Parse cell content for formatting
-          })),
-        };
-  
-        // If we're already in a table, append the row
-        if (isInTable) {
-          currentTable.children.push(row);
-        } else {
-          // Otherwise, create a new table and start it
-          currentTable = {
-            type: 'table',
-            children: [row],
-          };
-          slateNodes.push(currentTable);
-          isInTable = true;
-        }
-        return;
-      } else {
-        isInTable = false;
-      }
-  
-      // Handle headers
-      if (trimmedLine.startsWith('#')) {
-        const headingMatch = trimmedLine.match(/^(#+)\s*(.*)/);
-  
-        if (headingMatch) {
-          const headingLevel = headingMatch[1].length;
-          const headingText = headingMatch[2];
-  
-          // Ensure the heading level is between 1 and 6 (HTML heading levels)
-          const validHeadingLevel = Math.min(Math.max(headingLevel, 1), 6);
-  
-          slateNodes.push({
-            type: 'heading',
-            level: validHeadingLevel, // Add the heading level to the node
-            children: parseMarkdownInline(headingText),
-          });
-        }
-        return;
-      }
-  
-      // Handle ordered list items (e.g., "1. Item")
-      const orderedListMatch = line.match(/^(\s*)(\d+\.)\s+(.*)/);
-      if (orderedListMatch) {
-        //const indentLevel = Math.floor(orderedListMatch[1].length / 2); // Two spaces per indent level
-        const indentLevel = Math.max(1, Math.floor(orderedListMatch[1].length / 2)); // Two spaces per indent level
-        const content = parseMarkdownInline(orderedListMatch[3]);
-  
-        slateNodes.push({
-          type: 'ordered-list',
-          children: [
-            {
-              type: 'list-item',
-              indentLevel: indentLevel,
-              children: content,
-            },
-          ],
-        });
-        return;
-      }
-  
-      // Handle unordered list items (e.g., "- Item")
-      const unorderedListMatch = line.match(/^(\s*)(-|\*)\s+(.*)/);
-      if (unorderedListMatch) {
-        const indentLevel = Math.max(1, Math.floor(unorderedListMatch[1].length / 2)); // Two spaces per indent level
-        const content = parseMarkdownInline(unorderedListMatch[3]);
-  
-        const wrappedContent = wrapInNestedLists('unordered-list', content, indentLevel);
-  
-        slateNodes.push(wrappedContent);
-        return;
-      }
-  
-      // Handle regular paragraphs
-      if (trimmedLine) {
-        slateNodes.push({
-          type: 'paragraph',
-          children: parseMarkdownInline(trimmedLine),
-        });
-      } else {
-        // Handle blank lines by adding an empty paragraph node
-        slateNodes.push({
-          type: 'paragraph',
-          children: [{ text: '' }],
-        });
-      }
-    });
-  
-    return slateNodes;
-  };*/
   
   export function parseMarkdownText(text){
     const lines = text.split('\n');
@@ -392,7 +335,7 @@ export function markdownToSlate(markdownContent = "") {
           nodes.push({
             type: 'heading',
             level: validHeadingLevel, // Add the heading level to the node
-            children: parseMarkdownInline(headingText),
+            children: parseInlineWithBadges(headingText),
           });
         }
         return;
@@ -402,7 +345,7 @@ export function markdownToSlate(markdownContent = "") {
       const orderedListMatch = line.match(/^(\s*)(\d+\.)\s+(.*)/);
       if (orderedListMatch) {
         const indentLevel = Math.floor(orderedListMatch[1].length / 2); // Two spaces per indent level
-        const content = parseMarkdownInline(orderedListMatch[3]);
+        const content = parseInlineWithBadges(orderedListMatch[3]);
   
         nodes.push({
           type: 'ordered-list',
@@ -421,7 +364,7 @@ export function markdownToSlate(markdownContent = "") {
       const unorderedListMatch = line.match(/^(\s*)(-|\*)\s+(.*)/);
       if (unorderedListMatch) {
         const indentLevel = Math.floor(unorderedListMatch[1].length / 2); // Two spaces per indent level
-        const content = parseMarkdownInline(unorderedListMatch[3]);
+        const content = parseInlineWithBadges(unorderedListMatch[3]);
   
         const wrappedContent = wrapInNestedLists('unordered-list', content, indentLevel);
   
@@ -433,7 +376,7 @@ export function markdownToSlate(markdownContent = "") {
       if (trimmedLine) {
         nodes.push({
           type: 'paragraph',
-          children: parseMarkdownInline(trimmedLine),
+          children: parseInlineWithBadges(trimmedLine),
         });
       } else {
         // Handle blank lines by adding an empty paragraph node
@@ -447,6 +390,65 @@ export function markdownToSlate(markdownContent = "") {
   
     return nodes;
   };
+
+function parseInlineWithBadges(text) {
+    const RE = /(\[\[([^\]]+)\]\]|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))/g;
+    const parts = [];
+    let lastIndex = 0;
+    let m;
+  
+    while ((m = RE.exec(text)) !== null) {
+      const [fullMatch, , badgeType, linkLabel, linkUrl] = m;
+      // 1) Push any plain‐text (with bold/italic) before this match
+      if (m.index > lastIndex) {
+        parts.push(...parseMarkdownInline(text.slice(lastIndex, m.index)));
+      }
+      // 2) Badge?
+      if (badgeType) {
+        parts.push({
+          type: 'badge',
+          badgeType,
+          children: [{ text: '' }],
+        });
+      }
+      // 3) Link?
+      else if (linkLabel && linkUrl) {
+        parts.push({
+          type: 'link',
+          url: linkUrl,
+          children: parseMarkdownInline(linkLabel),
+        });
+      }
+      lastIndex = m.index + fullMatch.length;
+    }
+  
+    // 4) Trailing text after last match
+    if (lastIndex < text.length) {
+      parts.push(...parseMarkdownInline(text.slice(lastIndex)));
+    }
+  
+    // never return an empty array
+ //   return parts.length ? parts : [{ text: '' }];
+
+   const final = [];
+    for (let i = 0; i < parts.length; i++) {
+      const chunk = parts[i];
+      if (chunk.text && chunk.text.includes('\n')) {
+        const segments = chunk.text.split('\n');
+        segments.forEach((seg, idx) => {
+          //if (seg) final.push({ ...chunk, text: seg });
+          //if (idx < segments.length - 1) final.push({ type: 'line-break', children: [{ text: '' }] });
+          if (seg) final.push({ type:"paragraph", ...chunk, text: seg });
+          //if (idx < segments.length - 1) final.push({ type: 'line-break', children: [{ text: '' }] });
+        });
+      } else {
+        final.push(chunk);
+      }
+    }
+  
+    return final.length ? final : [{ text: '' }];
+
+}
   
   export function parseMarkdownInline(text){
     const tokens = [];
@@ -719,3 +721,43 @@ export function compareTwoStrings(first, second) {
 
   return (2.0 * intersectionSize) / (first.length + second.length - 2);
 }
+
+
+  function deepEqualIgnoreOrder(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null || typeof a !== typeof b) return false;
+  
+    // Array-as-set comparison
+    if (Array.isArray(a)) {
+      if (!Array.isArray(b)) return false;
+      const setA = new Set(a);
+      const setB = new Set(b);
+      if (setA.size !== setB.size) return false;
+      for (const x of setA) {
+        if (!setB.has(x)) return false;
+      }
+      return true;
+    }
+  
+    // Object comparison
+    if (typeof a === 'object') {
+      const keysA = Object.keys(a);
+      const keysB = Object.keys(b);
+      if (keysA.length !== keysB.length) return false;
+      for (const key of keysA) {
+        if (!(key in b) || !deepEqualIgnoreOrder(a[key], b[key])) {
+          return false;
+        }
+      }
+      return true;
+    }
+  
+    return false;
+  }
+  export function findFilterMatches(arr,target){
+    return findMatches(arr, target)
+  }
+  
+  function findMatches(arr, target) {
+    return arr.find(item => deepEqualIgnoreOrder(item, target));
+  }

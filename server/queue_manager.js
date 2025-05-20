@@ -275,7 +275,8 @@ class QueueManager {
     async sendNotification(jobId, data, childJob){
         let queue = this.getQueueObject(this.type)
         if( queue?.notify ){
-            let [id, mode] = jobId.split("-")
+            let [id, fulMmode] = jobId.split("-")
+            let [mode, time] = fulMmode.split(":t")
             await queue.notify({
                     id,
                     mode
@@ -611,7 +612,7 @@ class QueueManager {
 
     async addJob(workspaceId, jobData, options = {}) {
         try {
-            const jobId = jobData.id + "-" + jobData.mode + (jobData.scope ? "-" + jobData.scope : "") + (options.reschedule ? Date.now() : "")
+            const jobId = jobData.id + "-" + jobData.mode + (jobData.scope ? "-" + jobData.scope : "") + (options.reschedule ? `:t${Date.now()}` : "")
             const queue = await this.getQueue(workspaceId);
             const existing = await queue.getJob(jobId)
             if(  existing ){

@@ -2,6 +2,8 @@
 import { useEffect, useState, useRef } from 'react';
 import MarkdownEditor from './MarkdownEditor';
 import MainStore from './MainStore';
+import clsx from 'clsx';
+import { Logo } from './logo';
 
 const DB_RE = /_db([0-9a-fA-F]{24})/g;
 
@@ -14,27 +16,52 @@ function replaceDbPlaceholders(str, callback) {
 
 export default function AgentChat({primitive, ...props}) {
     const [messages, setMessages] = useState([]);
-      const [input, setInput] = useState('');
+        const inputBox = useRef({})
+      const [autoSend, setAutoSend] = useState('');
+   //   const [input, setInput] = useState('');
+      const [pending, setPending] = useState(false);
       const readerRef = useRef(null);
     
       const appendMessage = (msg) => {
         setMessages((m) => [...m, msg]);
       };
 
-      function updateAssistantUI(text) {
+      useEffect(()=>{
+        updateStatus( {active: !inputBox.current?.empty(), messages})
+      }, [messages])
+
+      function updateAssistantUI(text, hidden = false) {
         setMessages(h => {
-          if (h[h.length - 1].role === 'assistant') {
-            return [...h.slice(0, -1), { role:'assistant', content: text }];
+          const lastMsg = h[h.length - 1]
+          if (lastMsg.role === 'assistant'){
+            if( !hidden) {
+              if( !lastMsg.hidden ){
+                return [...h.slice(0, -1), { hidden, role:'assistant', content: text }];
+              }
+            }else{
+              if( lastMsg.content.endsWith("[[agent_running]]") || lastMsg.content.match(/\[\[update:[^\]]*\]\]$/)){
+                lastMsg.content = lastMsg.content.replace("[[agent_running]]","").replace(/\[\[update:[^\]]*\]\]$/, "");
+                if( lastMsg.content.length === 0){
+                  return [...h.slice(0, -1), { hidden, role:'assistant', content: text }];
+                }else{
+                  return [...h.slice(0, -1), lastMsg, { hidden, role:'assistant', content: text }];
+                }
+              }
+            }
           }
-          return [...h, { role:'assistant', content: text }];
+          return [...h, { hidden, role:'assistant', content: text }];
         });
       }
     
       async function sendChat() {
-        const userMsg = { role: 'user', content: input };
-        const nextFull = [...messages, userMsg];
-        setMessages(nextFull);
-        setInput('');
+        if( pending){return}
+        setPending(true)
+        const userMsg = { role: 'user', content: inputBox.current?.value().trim() };
+        const nextFull = [...messages, userMsg, { role: 'assistant', content: "[[update:Thinking...]]"}]
+        setMessages(nextFull);;
+        inputBox.current.clear()
+
+        updateStatus({active: false, messages: nextFull});
       
         // 2) Kick off the fetch + ReadableStream
         const res = await fetch(`/api/primitive/${primitive.id}/agent`, {
@@ -50,8 +77,6 @@ export default function AgentChat({primitive, ...props}) {
         const MAX_ID_LEN    = 36;                   // max length of your DB IDs
         const ID_TRIGGER_RE = /_db[A-Za-z0-9_-]{4,}/;  // heuristic for an ID
         const ID_TRIGGER_LENGTH = 7 
-        let buffering      = false;
-        let idBuffer       = '';
         let displayContent = '';
       
         // cancel any prior in-flight stream
@@ -71,48 +96,21 @@ export default function AgentChat({primitive, ...props}) {
             const payload = JSON.parse(part.slice(5).trim());
       
             if (payload.content) {
-              // always accumulate raw text
-              idBuffer += payload.content;
-      
-              if (!buffering) {
-                // haven’t hit an ID yet?
-                const m = ID_TRIGGER_RE.exec(idBuffer);
-                if (m) {
-                  // flush & scrub before the match
-                  const prefix = idBuffer.slice(0, m.index);
-                  displayContent += replaceDbPlaceholders(prefix);
-                  // keep the rest (ID in progress) buffered
-                  idBuffer = idBuffer.slice(m.index);
-                  buffering = true;
-                  updateAssistantUI(displayContent);
-                } else {
-                    if( idBuffer.length > ID_TRIGGER_LENGTH){
-                        const safe = idBuffer.slice(0, idBuffer.length - ID_TRIGGER_LENGTH)
-                        // no ID-like text: scrub & emit whole buffer
-                        displayContent += replaceDbPlaceholders(safe);
-                        idBuffer = idBuffer.slice(safe.length )
-                        updateAssistantUI(displayContent);
-                    }
-                }
-              } else {
-                // already buffering → sliding-window flush
-                while (idBuffer.length > 2 * MAX_ID_LEN) {
-                  const flushLen = idBuffer.length - MAX_ID_LEN;
-                  const toClean  = idBuffer.slice(0, flushLen);
-                  idBuffer       = idBuffer.slice(flushLen);
-                  displayContent += replaceDbPlaceholders(toClean);
-                  updateAssistantUI(displayContent);
-                }
+              if( displayContent.endsWith("[[agent_running]]")){
+                displayContent = displayContent.slice(0, displayContent.length - 17 )
+              }else  {
+                displayContent = displayContent.replace(/\[\[update:[^\]]*\]\]$/, "");
               }
+              displayContent += payload.content;
+              updateAssistantUI(displayContent, payload.hidden);
+              if( payload.hidden){
+                displayContent = ""
+              }
+      
             }
       
             if (payload.done) {
-              // final flush of whatever remains
-              if (buffering || idBuffer.length) {
-                displayContent += replaceDbPlaceholders(idBuffer);
-              }
-              updateAssistantUI(displayContent);
-      
+                setPending(false)
               reader.cancel();
               readerRef.current = null;
               return;
@@ -121,31 +119,52 @@ export default function AgentChat({primitive, ...props}) {
         }
       }
     
-      const onSubmit = (e) => {
-        e.preventDefault();
-        sendChat();
-      };
+      function handleInputKeyPress(e){
+        if(e.key === "Enter"){
+            if( !e.altKey ){
+                sendChat()
+                return true
+            }
+        }
+        return false
+      }
+      function updateStatus(status = {}){
+        if(props.setStatus){
+          console.log(`==== ${status.messages?.length}`)
+          props.setStatus({
+            activeChat: status.active || status.messages?.length > 0,
+            hasReplies: status.messages?.length > 0
+          })
+        }
+      }
+      function clear(){
+        setMessages([])
+        inputBox.current.clear()
+        inputBox.current.focus()
+        updateStatus({active: true, messages: []})
+      }
     
+      function handleInputFocus(){
+        updateStatus({active: true, messages})
+      }
+      function handleInputBlur(){
+        updateStatus({active: !inputBox.current?.empty(), messages})
+      }
       return (
-        <div style={{ maxWidth: 600, margin: 'auto' }}>
-          <div style={{ height: 400, overflowY: 'auto', border: '1px solid #ccc', padding: 10 }}>
-            {false && messages.map((m,i) => (
-              <div key={i} style={{ margin: '8px 0' }}>
-                <strong>{m.role}:</strong> {m.content}
-              </div>
-            ))}
-            <MarkdownEditor initialMarkdown={messages.map(d=>`**${d.role}**: ${d.content}`).join("\n")}/>
-          </div>
-          <form onSubmit={onSubmit} style={{ display: 'flex', marginTop: 10 }}>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message…"
-              style={{ flex: 1, padding: 8 }}
-            />
-            <button type="submit" style={{ padding: '0 16px' }}>Send</button>
-            <button style={{ padding: '0 16px' }} onClick={()=>{setMessages([])}}>Clear</button>
-          </form>
-        </div>
+          <>
+            {messages.length > 0 && <div className="flex flex-1 items-stretch oveflow-y-auto min-h-32 w-full mb-2">
+                <MarkdownEditor  scrollToEnd={true} initialMarkdown={messages.filter(d=>!d.hidden)} float={true}/>
+            </div>}
+            <div className={clsx([
+                    "w-full flex space-x-2",
+                    props.seperateInput ? "mt-4 bg-white shadow-lg p-3 rounded-lg border"  : "pt-3" 
+                ])}>
+                <div className="flex flex-1 items-stretch flex flex-1 items-stretch max-h-60 overflow-y-scroll">
+                    <MarkdownEditor onFocus={handleInputFocus} onBlur={handleInputBlur} ref={inputBox} initialMarkdown={""} onKeyUp={handleInputKeyPress} float={props.seperateInput}/>
+                </div>
+                <button type="submit" style={{ padding: '0 16px' }} onClick={()=>sendChat()}>Send</button>
+                <button style={{ padding: '0 16px' }} onClick={clear}>Clear</button>
+            </div>
+        </>
       );
 }

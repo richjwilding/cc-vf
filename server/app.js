@@ -17,6 +17,8 @@ import * as refresh from 'passport-oauth2-refresh';
 import { setRefreshTokenHandler } from './google_helper';
 import { google } from "googleapis";
 import { SIO } from './socket';
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import { fetchPrimitive } from './SharedFunctions';
 
 dotenv.config()
 
@@ -105,6 +107,18 @@ app.use((req, res, next) => {
 
 
 app.use('/published', publishedRouter);
+
+if (process.env.NODE_ENV !== 'production') {
+    app.use(
+      '/published',
+      createProxyMiddleware({
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        ws: true,
+      })
+    );
+  }
+
 
 app.get('/google/login',
   passport.authenticate('google', {
@@ -286,6 +300,8 @@ var ensureAuthenticated = async function (req, res, next) {
         return next();
     }
 
+    
+
     if (req.isAuthenticated()) {
         // Check if user data is already cached in the session
         if (req.session.user) {
@@ -325,6 +341,13 @@ var ensureAuthenticated = async function (req, res, next) {
             res.redirect('/login');
         }
     } else {
+        if (req.path.startsWith('/api/image')) {
+            const id = req.path.slice(11)
+            const prim = await fetchPrimitive( id, {published: true}, {_id: 1, published: 1})
+            if( prim ){
+                return next(); // skip auth for this path
+            }
+        }
         res.redirect('/login');
     }
 };

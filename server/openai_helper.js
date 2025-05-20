@@ -719,6 +719,10 @@ function tokensForModel(model){
         defaultTokens = 80000
     }else if( model === "o3-mini" ){
         defaultTokens = 120000
+    }else if( model === "o4-mini" ){
+        defaultTokens = 120000
+    }else if( model === "gpt-41" ){
+        defaultTokens = 800000
     }else if( model === "gpt3" || model === "gpt3t"){
         defaultTokens = 12000
     }
@@ -968,31 +972,30 @@ async function __executeAI(messages, options = {}){
 
     if( options.engine === "gpt4o-mini" ){
         model = "gpt-4o-mini"
-        sleepBase = 20000
         output = 16384
     }
     if( options.engine === "o3-mini" ){
         model = "o3-mini"
-        sleepBase = 20000
         output = 80000
         response_format = { type: "json_object" }
-    }
-    if( options.engine === "gpt4" ){
+    }else if( options.engine === "gpt4" ){
         model = "gpt-4-0613"
-        sleepBase = 20000
         output = 4096
-    }
-    if( options.engine === "gpt4t" ){
+    }else if( options.engine === "gpt4t" ){
         model = "gpt-4-turbo-2024-04-09"
         output = 4096
-        sleepBase = 20000
         response_format = { type: "json_object" }
-    }
-    if( options.engine === "gpt3" || options.engine === "gpt3t"){
+    }else if( options.engine === "gpt3" || options.engine === "gpt3t"){
         model = "gpt-3.5-turbo"
-        sleepBase = 2000
         response_format = undefined
         output = 1536
+    }else if( options.engine === "o4-mini" ){
+        output = 80000
+        response_format = { type: "json_object" }
+    }else if( options.engine === "gpt-41" ){
+        model = "gpt-4.1"
+        output = 32768
+        response_format = { type: "json_object" }
     }
     console.log(`Executing ${model}`)
     const request = async ()=>{
@@ -1088,26 +1091,22 @@ async function executeAI(messages, options = {}){
         model = "gpt-4o-mini"
         sleepBase = 20000
         output = 16384
-    }
-    if( options.engine === "gpt4" ){
+    }else if( options.engine === "gpt4" ){
         model = "gpt-4-0613"
         sleepBase = 20000
         output = 4096
-    }
-    if( options.engine === "gpt4t" ){
+    }else if( options.engine === "gpt4t" ){
         model = "gpt-4-turbo-2024-04-09"
         output = 4096
         sleepBase = 20000
         response_format = { type: "json_object" }
-    }
-    if( options.engine === "gpt3" || options.engine === "gpt3t"){
+    }else if( options.engine === "gpt3" || options.engine === "gpt3t"){
         model = "gpt-3.5-turbo"
         sleepBase = 2000
         response_format = undefined
         output = 1536
-    }
-    if( options.engine === "o3-mini" ){
-        model = "o3-mini"
+    }else if( options.engine === "o3-mini" || options.engine === "o4-mini"){
+        model = options.engine
         sleepBase = 20000
         output = 80000
         temperature = undefined
@@ -1119,19 +1118,48 @@ async function executeAI(messages, options = {}){
                 role: d.role === "system" ? "developer" : d.role
             }
         })
+    }else if( options.engine === "gpt-41" ){
+        model = "gpt-4.1"
+        output = 32768
+        response_format = { type: "json_object" }
     }
     console.log(`Executing ${model}`)
     
 
     try {
         // Directly call the OpenAI API method with built-in retry logic
-        response = await openai.chat.completions.create({
-            model: model,
-            response_format,
-            temperature,
-            messages: messages,
-            [max_tokens]: output,
-        });
+
+        if( options.stream){
+            const stream = await openai.chat.completions.create({
+                model: model,
+                temperature,
+                messages: messages,
+                stream: true,
+                [max_tokens]: output,
+            });
+            let buffer = ""
+            for await (const chunk of stream) {
+                const delta = chunk.choices[0].delta;
+                buffer += (delta.content || '');
+                options.stream(delta.content)
+            }
+            response = {
+                choices: [
+                    { 
+                        role: "assistant",
+                        message: {content: buffer},
+                    }
+                ]
+            }
+        }else{
+            response = await openai.chat.completions.create({
+                model: model,
+                temperature,
+                messages: messages,
+                response_format: response_format,
+                [max_tokens]: output,
+            });
+        }
     } catch (thisErr) {
         err = thisErr; // Capture the error for returning meaningful information
     }

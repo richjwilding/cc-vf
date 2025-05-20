@@ -118,16 +118,29 @@ let mainstore = MainStore()
 
             if(props.callback){
               if( newValue.includes(d.id)){
+                if( item.single ){
+                  return
+                }
                 newValue = newValue.filter(d2=>d2 !== d.id)
               }else{
+                if( item.single ){
+                  newValue = [d.id]
+                }
                 newValue.push(d.id)
               }
               props.callback(newValue)
             }else{
               if( newValue.includes(d.id)){
+                if( item.single ){
+                  return
+                }
                 props.primitive.removeFromParameter(item.key, d.id )
               }else{
-                props.primitive.addToParameter(item.key, d.id)
+                if( item.single ){
+                  props.primitive.setParameter(item.key, [d.id])
+                }else{
+                  props.primitive.addToParameter(item.key, d.id)
+                }
               }
             }
           }}/>)}</div>
@@ -347,8 +360,17 @@ let mainstore = MainStore()
                 unpackItems( items )
               }else if(scopeName === "parents"){
                 const type_filter = scope?.types
+                const seen = new Set()
                 const walk = (items)=>{
-                  const parents = items.map(d=>d.parentPrimitives).flat()
+                  let parents = items.flatMap(d=>d.parentPrimitives)
+                  parents = parents.filter(d=>{
+                    if( seen.has(d.id)){
+                      return false
+                    }                    
+                    seen.add(d.id)
+                    return true
+                  })
+                  
                   return mainstore.uniquePrimitives( type_filter ? parents.filter(d=>type_filter.includes(d.type)) : parents )
                 }
                 let parents = walk( items )
@@ -1167,7 +1189,9 @@ const Parameters = function({primitive, ...props}){
     }
   }, [])
 
-  let parameters = (primitive.metadata?.parameters || PrimitiveConfig.metadata[primitive.type]?.parameters)
+  let parameters = props.activeParameters ?? (primitive.metadata?.parameters || PrimitiveConfig.metadata[primitive.type]?.parameters)
+
+
   if( props.showParents ){
     parameters = undefined
     if( primitive.origin && primitive.origin.childParameters){
@@ -2511,37 +2535,59 @@ function Inputs({primitive}){
     const pins = primitive.outputPins
     return RenderPins({primitive, pins})
 }
-function InputPins({primitive}){
-  if( primitive.type !== "flowinstance"){
+function InputPins({primitive, dataForNewInstance, newInstanceCallback, updateMissing, pins}){
+  if( !(primitive.type === "flowinstance" || (primitive.type === "flow" && newInstanceCallback))){
     return <></>
   }
-  const pins = primitive.getConfig?.inputPins ?? {}
-  return EditablePins( primitive, pins)
+  pins = pins ?? primitive.getConfig?.inputPins
+  return EditablePins( {primitive, pins, dataForNewInstance, newInstanceCallback, updateMissing})
 }
 function ControlPins({primitive}){
   if( primitive.type !== "flow"){
     return <></>
   }
   const pins = primitive.getConfig?.controlPins ?? {}
-  return EditablePins( primitive, pins)
+  return EditablePins( {primitive, pins})
 }
-function EditablePins(primitive, pins){
+function EditablePins({primitive, pins, dataForNewInstance, newInstanceCallback, updateMissing}){
+    const pinsToRender = Object.keys(pins).filter(d=>d.split || pins[d].types?.includes("string") || pins[d].types?.includes("string_list"))
+    const [missing, setMissing ]= useState(()=>{
+      const v = pinsToRender.reduce((a,c)=>{a[c] = true;return a},{})
+      if( updateMissing ){
+        updateMissing( v )
+      }
+      return v
+    })
     return <DescriptionList inContainer={true}>
-      {Object.keys(pins).map(pinName=>{
+      {pinsToRender.map(pinName=>{
         const d = pins[pinName]
-        let control = <p>Not available</p>
-        if( d.types?.includes("string") || d.types?.includes("string_list")){
-          control = RenderItem({
+        if( d.split){
+          return <p className='col-span-2 py-2 w-full text-slate-400 text-xs font-semibold uppercase'>{d.title ?? ""}</p>
+        }
+        let control = RenderItem({
             primitive,
+            callback: (v)=>{
+              const newMissing = {
+                  ...missing,
+                  [pinName]: !v || v.trim() === ""
+              }
+              setMissing(newMissing)
+              if( updateMissing ){
+                updateMissing( newMissing )
+              }
+              if( newInstanceCallback ){
+                return newInstanceCallback(pinName, v)
+              }else{
+                return primitive.setParameter(pinName, v)
+              }
+            },
             item:{
               type: d.format ?? "long_string",
-              value: primitive.referenceParameters?.[pinName],
-              key: pinName,
-              forceUpdate: true
+              value: dataForNewInstance ? dataForNewInstance[pinName] : primitive.referenceParameters?.[pinName],
+              key: pinName
             }
           })
           
-        }
         return <>
                 <DescriptionTerm inContainer={true}>{d.name}</DescriptionTerm>
                 <DescriptionDetails inContainer={true}>{control}</DescriptionDetails>

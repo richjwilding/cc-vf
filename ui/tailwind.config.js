@@ -73,8 +73,24 @@ module.exports = {
       '5xl': '2000px',
     },
     extend: {
-      
+      transitionTimingFunction: {
+        // cubic-bezier for a gentle overshoot/back-out
+        'out-back': 'cubic-bezier(0.42, 0, 0.63, 1.51)',
+      },
+      animation: {
+        border: 'border 2s ease infinite',
+        'ripple-color': 'rippleColor 2s ease-in-out infinite',
+      },
       "keyframes": {
+        border: {
+          '0%, 100%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
+        },
+        rippleColor: {
+          '0%, 100%': { color: 'rgb(9, 95, 216)' }, // text-gray-800
+          '33%':     { color: 'rgb(199, 110, 227)' },
+          '66%':     { color: 'rgb(2, 216, 13)' }  // text-blue-500
+        },
         "shimmer": {
           "50%": {
             "transform": "translateX(90%)",
