@@ -20,7 +20,6 @@ import { buildDocumentTextEmbeddings, fetchFragmentsForTerm, indexDocument, stor
 import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
 import Embedding from './model/Embedding';
-import { buildPage } from './htmlexporter';
 import { aggregateItems, checkAndGenerateSegments, comapreToPeers, compareItems, extractor, getSegemntDefinitions, iterateItems, lookupPerson, queryByAxis, replicateFlow, resourceLookupQuery, runProcess, summarizeWithQuery } from './task_processor';
 import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helper';
 import { enrichPrimitiveViaBrightData, fetchSERPViaBrightData, handleCollection, restartCollection } from './brightdata';
@@ -2705,6 +2704,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     if( frameworkResult.success ){
         return frameworkResult.result
     }
+    if( actionKey === "text_test"){
+        //let items = await moneySavingExpertSERP({query: options.query ?? "mobile phone renewal"})
+        let result = await fetchURLPlainText(options.url)
+        return result
+    }
     if( actionKey === "mse_test"){
         //let items = await moneySavingExpertSERP({query: options.query ?? "mobile phone renewal"})
         let items = await fetchMoneySavingExpertSearchResults(options.query ?? "mobile phone renewal", {count: 30})
@@ -3628,11 +3632,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
 
                 }
             }
-            if( command === "export_page"){
-                const result = await buildPage( primitive )
-                console.log(result)
-            }
-
 
             if( command === "rebuild_summary"){
                 QueueAI().rebuildSummary( primitive, action )

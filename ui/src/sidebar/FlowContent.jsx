@@ -18,7 +18,7 @@ export function FlowContent({ primitive, axisData, ...props }) {
                 primitive={primitive}
                 page={0}
                 pageItems={20}
-                onEnter={(d) => MainStore().sidebarSelect(d)}
+                onExpand={(p)=>MainStore().sidebarSelect(p)}
                 data={itemsForList.filter(d=>d)} 
                 axisData={{
                     column: axisData?.column.reduce((a,c)=>{a[c.idx]=c;return a},{}),

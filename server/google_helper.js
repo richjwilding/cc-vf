@@ -24,6 +24,54 @@ import Category from "./model/Category";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { fetchRedditThreadAsText } from "./reddit_helper.js";
 import { fetchSERPViaBrightData, fetchViaBrightDataProxy } from "./brightdata.js";
+import parse from "node-html-parser";
+
+const TurndownService = require('turndown');
+let turndownService = new TurndownService();
+
+function extractSemantic(html, selectors = ['main','article']) {
+    const root = parse(html);
+    for (let sel of selectors) {
+      const el = root.querySelector(sel);
+      if (el) return el.innerHTML;
+    }
+    return root.querySelector('body')?.innerHTML ?? html;
+  }
+
+
+turndownService.addRule('skipJunk', {
+    filter: ['input', 'img', 'button','script', 'style', 'noscript', 'iframe', 'header'],
+    replacement: () => ""
+  });
+function extractMarkdown(html) {
+    function extractTitle(html) {
+        const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+        return match ? match[1].trim() : '';
+      }
+    
+    const semanticHtml = extractSemantic(html);
+    let fullText = turndownService.turndown( semanticHtml );
+
+    if (fullText) {
+        let title = extractTitle(html)
+        // Optional: remove bare URLs in brackets [ https://... ]
+        fullText = fullText.replace(/\[\s*(https?:\/\/[^\]]+)\s*\]/g, '');
+
+        // Clean up spacing
+        fullText = fullText.replace(/ +/g, ' ');
+        fullText = fullText.replace(/\n+/g, '\n');
+
+        if (fullText.length < 25) {
+            return undefined;
+        }
+
+        return {
+            title: title,
+            fullText: fullText,
+            description: fullText.split(" ").slice(0, 400).join(" ")
+        };
+    }
+}
 
 let adconfig = {}
 
@@ -2503,7 +2551,10 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                         }
                     }
 
-                    const extractOptions = {
+                    const details = extractMarkdown(results)
+                    console.log(details)
+                    return details
+                    /*const extractOptions = {
                         baseElements:{
                             selectors : ['title', 'body'],
                             returnDomByDefault: false
@@ -2532,7 +2583,7 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                             fullText: fullText, 
                             description: fullText?.split(" ").slice(0,400).join(" ")
                         }
-                    }
+                    }*/
                 }else{
                     console.log(`Unknown type ${contentType}`)
                     return {unhandled: true}

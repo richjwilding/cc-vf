@@ -15,7 +15,6 @@ import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
 import axios from 'axios';
 import { unpack, pack } from 'msgpackr';
-import { buildPage } from '../htmlexporter';
 import { handleChat } from '../actions/agent';
 
 var ObjectId = require('mongoose').Types.ObjectId;

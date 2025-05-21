@@ -104,6 +104,7 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
     //return  <div className="flex h-full w-full relative border rounded-lg border-gray-200 overflow-hidden mb-2 bg-white">
     return  <div className="@container flex h-full w-full relative overflow-hidden bg-white">
                 <InfiniteCanvas
+                    initialZoom="width"
                     primitive={primitive}
                     board
                     hideWidgets={true}
@@ -130,6 +131,18 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
                             },
                             primitive:(id, pageId, data, kG)=>{
                                 let stateData = kG.stateData?.[id]
+                                let findSelection = false
+                                if( !stateData ){
+                                    console.log(`>> Check level 1`)
+                                    let parent = kG.original?.parent
+                                    stateData = parent?.stateData?.[parent.id()]
+                                    if( parent && !stateData ){
+                                        console.log(`>> Check level 2`)
+                                        parent = parent.original?.parent
+                                        stateData = parent?.stateData?.[parent.id()]
+                                        findSelection = true
+                                    }
+                                }
                                 if( stateData?.primitive && stateData.config === "plain_object"){
                                     const ids = stateData.object?.ids ? stateData.object.ids.filter(d=>d) : undefined
                                     if( ids?.length > 0){
@@ -142,7 +155,7 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
                                     let axisData = stateData.extents
                                     if( stateData.axisSource ){
                                         const parentId = stateData.axisSource.configParent?.id
-                                        if( parentId ){
+                                        if( parentId && kG.stateData){
                                             const sourceState = kG.stateData[parentId]
                                             const sourceData = sourceState.list ?? sourceState.primitiveList
                                             if( sourceData ){
@@ -152,6 +165,13 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
                                         }
                                     }
                                     if( data ){
+                                        if( findSelection ){
+                                            data = data.filter(d=>id.includes(d.primitive?.id ?? d.id))
+                                            if( data.length === id.length){
+                                                mainstore.sidebarSelect(id)
+                                                return
+                                            }
+                                        }
                                         mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list: data, axisData})
                                     }else{
                                         mainstore.sidebarSelect(id)

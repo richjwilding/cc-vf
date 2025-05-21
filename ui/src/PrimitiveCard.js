@@ -2552,7 +2552,13 @@ function ControlPins({primitive}){
 function EditablePins({primitive, pins, dataForNewInstance, newInstanceCallback, updateMissing}){
     const pinsToRender = Object.keys(pins).filter(d=>d.split || pins[d].types?.includes("string") || pins[d].types?.includes("string_list"))
     const [missing, setMissing ]= useState(()=>{
-      const v = pinsToRender.reduce((a,c)=>{a[c] = true;return a},{})
+      const v = pinsToRender.reduce((a,c)=>{
+        if( pins[c].split){
+          return a
+        }
+        a[c] = true
+        return a
+      },{})
       if( updateMissing ){
         updateMissing( v )
       }
@@ -2562,7 +2568,7 @@ function EditablePins({primitive, pins, dataForNewInstance, newInstanceCallback,
       {pinsToRender.map(pinName=>{
         const d = pins[pinName]
         if( d.split){
-          return <p className='col-span-2 py-2 w-full text-slate-400 text-xs font-semibold uppercase'>{d.title ?? ""}</p>
+          return <p className='@lg:col-span-2 py-2 w-full text-slate-400 text-xs font-semibold uppercase'>{d.title ?? ""}</p>
         }
         let control = RenderItem({
             primitive,

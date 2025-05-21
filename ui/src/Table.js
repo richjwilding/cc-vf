@@ -73,29 +73,6 @@ function copyToClipboard( table ){
 }
 
 export function Table(props) {
-
-    const nullInfo = {isResizingColumn: false,
-        startOffset: null,
-        startSize: null,
-        deltaOffset: null,
-        deltaPercentage: null,
-        columnSizingStart: [],}
-
-    const mapRows = (rows) =>{
-        return rows.map((row)=>{
-            return columns.reduce((r, c)=>{
-                /*let accessParam = c.accessorKey !== "id" && c.accessorKey !== "plainId" && c.accessorKey !== "title"                
-                if( c.fromStructure){
-                    r[c.accessorKey] = (d.referenceParameters?.structured_summary ?? []).find(d=>d.heading === c.accessorKey)?.content
-                }else{
-
-                    r[c.accessorKey] = accessParam ? d[c.accessorKey] ?? d.referenceParameters?.[c.accessorKey] : d[c.accessorKey]
-                }
-                return r*/
-                r[c.accessorKey] = row.getValue(c.accessorKey)
-            },{data: row.data, id: row.id})
-        })
-    }
     const mapColumns = (columns) =>{
         const columnHelper = createColumnHelper()
 
@@ -159,18 +136,23 @@ export function Table(props) {
             {field: 'title', title: "Title"},
         ]
         if(data){
-            const hasColumn = "column" in data[0] && data.find(d=>d.column)
-            const hasRow = "row" in data[0] && data.find(d=>d.row)
+            const hasColumn = "column" in data[0] 
+            const hasRow = "row" in data[0] 
+            const activeColumn = hasColumn && data.find(d=>d.column)
+            const activeRow = hasRow && data.find(d=>d.row)
+            
             if(  hasColumn || hasRow ){
                 dynamic = buildDynamicFieldsForPrimitiveList( data.map(d=>d.primitive), (r)=>r.primitive )
-                dynamic.splice(2, 0,
-                    ...[ hasColumn && {field: 'column', title: "Column", width: 180, accessorFn: (r)=>{
-                        return r.column?.map(d=>props.axisData?.column[d]?.label).filter(d=>d).join(", ") ?? ""
-                    }},
-                    hasRow && {field: 'row', title: "Row", width: 180, accessorFn: (r)=>{
-                        return r?.row.map(d=>props.axisData?.row[d]?.label).filter(d=>d).join(", ") ?? ""
-                    }}].filter(d=>d),
-                )
+                if( activeRow || activeColumn){
+                    dynamic.splice(2, 0,
+                        ...[ activeColumn && {field: 'column', title: "Column", width: 180, accessorFn: (r)=>{
+                            return Array.isArray(r.column) ? (r.column?.map(d=>props.axisData?.column[d]?.label).filter(d=>d).join(", ") ?? "") : props.axisData?.column[r.column]?.label ?? ""
+                        }},
+                        activeRow && {field: 'row', title: "Row", width: 180, accessorFn: (r)=>{
+                            return Array.isArray(r.row) ? (r?.row.map(d=>props.axisData?.row[d]?.label).filter(d=>d).join(", ") ?? "") : props.axisData?.row[r.row]?.label ?? ""
+                        }}].filter(d=>d),
+                    )
+                }
 
                return dynamic 
             }
@@ -401,13 +383,13 @@ export function Table(props) {
                 </>
             ))}
             {table.getRowModel().rows.map((row,idx) => {
-                const id = row.original.id
-                const primitive = row.original.data?.primitive
+                const id = row.original.primitive?.id
+                const primitive = row.original.primitive
                 return (
                     <>
                     <div className="contents group">
                     <div                         
-                        onClick={(e)=>{e.stopPropagation();props.onEnter(primitive)}}
+                        onClick={props.onExpand ? (e)=>{e.stopPropagation();props.onExpand(primitive)} : undefined}
                         className={`group-hover:bg-gray-100 flex justify-center place-items-center pl-1 cursor-pointer text-gray-200 group-hover:text-gray-400 hover:text-gray-600 border-b border-gray-100 outline-none ${selected === id ? "bg-ccgreen-100" : ""}`}>
                         <ExpandArrow className='w-4 h-4 '/>
                     </div>

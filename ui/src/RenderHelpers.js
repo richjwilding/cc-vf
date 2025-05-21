@@ -546,11 +546,12 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_investment_landscap
     }
     const g = new Konva.Group({
         id: options.id,
-        name:"cell inf_track",
+        name:"inf_track primitive inf_keep",
         x: (options.x ?? 0),
         y: (options.y ?? 0),
         width: config.width,
-        height: config.height
+        height: config.height,
+        id: primitive.id
     })
     const r = new Konva.Rect({
         x: 0,
@@ -600,7 +601,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_investment_landscap
     let x = config.padding[3]
     for( const section of sections){
         const sg = new Konva.Group({
-            name:"cell inf_track",
+            name:"inf_track",
             x: x,
             y: config.padding[0],
             width: sectionWidth,
@@ -710,11 +711,12 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
     
     const g = new Konva.Group({
         id: options.id,
-        name:"cell inf_track",
+        name:"inf_track inf_keep primitive",
         x: (options.x ?? 0),
         y: (options.y ?? 0),
         width: config.width,
-        height: config.height
+        height: config.height,
+        id: primitive.id
     })
     const r = new Konva.Rect({
         x: config.padding[3],

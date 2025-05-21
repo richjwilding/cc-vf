@@ -1699,11 +1699,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             const w = (maxX - minX)
             const h = (maxY - minY)
-            let scale = Math.min(1, 0.95 * Math.min( myState.current.width / w, myState.current.height / h ))
+            const partial = props.initialZoom === "width" ? myState.current.width / w : Math.min( myState.current.width / w, myState.current.height / h )
+            let scale = Math.min(1, 0.95 * partial)
 
             let ox = -minX * scale, oy = -minY * scale
             let tx = ox + ((myState.current.width  - (w * scale)) /2)
-            let ty = oy + ((myState.current.height  - (h * scale)) /2)
+            let ty = oy + (props.initialZoom === "width"  ? +(w * 0.05) : ((myState.current.height  - (h * scale)) /2))
 
             alignViewport(tx, ty, scale, true)
             rescaleLinks()
@@ -3091,14 +3092,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             if( doDraw ){
                 let updates = []
-                if( props.highlights?.[type] === "border" ){
+                /*if( props.highlights?.[type] === "border" ){
                     if( cleared ){
                         updates.push(cleared)
                     }
                     if( found ){
                         updates.push(found)
                     }
-                }else{
+                }else{*/
 
                     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
                     
@@ -3113,29 +3114,37 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         if( y2 > maxY){maxY = y2}
                         
                     }
-                    let count = 0
+                    let count = 0, changed = false
                     for(const frame of myState.current.frames){
-                        for(const d of frame.lastNodes){
-                            let x1 = d.attrs.x + frame.x, y1 = d.attrs.y + frame.y
-                            let x2 = x1 + d.attrs.width, y2 = y1 + d.attrs.height  
-                            if(x2 >= minX &&  x1 <= maxX && y2 >= minY && y1 <= maxY){
-                                if(d.attrs.name === "frame" || d.attrs.name === "view"){
-                                    continue
+                        do{
+                            changed = false
+                            for(const d of frame.lastNodes){
+                                let x1 = d.attrs.x + frame.x, y1 = d.attrs.y + frame.y
+                                let x2 = x1 + d.attrs.width, y2 = y1 + d.attrs.height  
+                                if(x2 >= minX &&  x1 <= maxX && y2 >= minY && y1 <= maxY){
+                                    if(d.attrs.name === "frame"  || d.attrs.name === "view"){
+                                        continue
+                                    }
+                                    if( d.attrs.flagged ){
+                                        continue
+                                    }
+                                    updates.push(d)
+                                    d.attrs.flagged = true
+                                    changed = true
+                                    count++
+                                    if( x1 < minX){minX = x1}
+                                    if( y1 < minY){minY = y1}
+                                    if( x2 > maxX){maxX = x2}
+                                    if( y2 > maxY){maxY = y2}
                                 }
-                                updates.push(d)
-                                count++
-                                if( x1 < minX){minX = x1}
-                                if( y1 < minY){minY = y1}
-                                if( x2 > maxX){maxX = x2}
-                                if( y2 > maxY){maxY = y2}
                             }
-                        }
+                        }while(changed)
                     }
-                }
+               // }
                 requestAnimationFrame(()=>{
                     let canvas = layerRef.current.getCanvas()
                     for(const d of updates){
-                        //d.draw()
+                        delete d.attrs["flagged"] 
                         d.drawScene(canvas)
                     }
                 })

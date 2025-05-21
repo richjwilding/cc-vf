@@ -798,6 +798,8 @@ const PrimitiveConfig = {
         if( val instanceof Object && !Array.isArray(val)){
             if( val.bucket_min !== undefined || val.bucket_max !== undefined ){
             }else if(option?.type === "segment_filter"){
+            }else if(option?.type === "icon"){
+                val = val.label
             }else{
                 val = val.idx
             }
@@ -826,7 +828,9 @@ const PrimitiveConfig = {
             return {type: option.type, subtype: option.subtype, map: [val].flat(), pivot: option.access, relationship: option.relationship,  invert}
         }else if( option?.type === "type"){
             return {type: option.type, subtype: option.subtype, map: [val].flat().map(d=>parseInt(d)), pivot: option.access, relationship: option.relationship, invert}
-        }else if( option?.type === "title"){
+        }else if( option?.type === "title" ){
+            return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
+        }else if( option?.type === "icon"){
             return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
         }else if( option?.type === "segment_filter"){
             return  {type: "segment_filter", value: val.idx, sourcePrimId: val.sourcePrimId, pivot: option.access, relationship: option.relationship, invert}

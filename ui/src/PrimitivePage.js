@@ -386,8 +386,7 @@ export function PrimitivePage({primitive, ...props}) {
     return <AnalysisPage primitive={primitive}/>
   }
   if(primitive?.type === "flow"  ){
-    //return <FlowPage primitive={primitive}/>
-    return <FlowInstancePage primitive={primitive}/>
+    return <FlowPage primitive={primitive}/>
   }
   if( primitive?.type === "flowinstance"  ){
     return <FlowInstancePage primitive={primitive}/>

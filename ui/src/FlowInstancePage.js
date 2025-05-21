@@ -72,6 +72,12 @@ export default function FlowInstancePage({primitive, ...props}){
     }: primitive.getConfig?.inputPins
 
 
+    function createNewInstance(){
+        if( isForNewInstance ){
+            MainStore().doPrimitiveAction(targetFlow, "create_flowinstance", dataForNewInstance)
+        }
+    }
+
     let steps = [], flowInstances = []
     targetFlow?.primitives.origin.allUniqueItems.forEach(d=>{
         if(d.type === "flowinstance"){
@@ -109,11 +115,11 @@ export default function FlowInstancePage({primitive, ...props}){
     const enableSubmit = [...Object.values(missing), ...Object.values(errors)].filter(d=>d).length === 0
 
     return <div className={clsx([
-            "flex h-full w-full relative",
+            "flex w-full relative flex-1 min-h-0",
             showOutput ? "bg-white" : "bg-gray-50"
         ])}>
                 <div className={clsx([
-                    "w-full min-w-[30em] font-['Poppins'] @container flex flex-col",
+                    "w-full min-w-[30em] font-['Poppins'] @container flex flex-1 flex-col min-h-0",
                     showOutput ? "w-[25vw] max-w-2xl p-6 " : "mx-auto max-w-6xl px-9 bg-white"
                 ])}>
                     <div className={clsx([
@@ -141,14 +147,20 @@ export default function FlowInstancePage({primitive, ...props}){
                             <PrimitiveCard.Title primitive={targetFlow} major={true}/>
                         </div>
                     </div>
-                    <div className="h-full overflow-y-scroll">
+                    <div className="overflow-y-scroll flex-1">
                         {!showOutput && !isForNewInstance && <div className="flex place-items-center py-3 justify-end">
                             <UIHelper.Button title="Results >" color='green' onClick={()=>setShowOutput(true)}/>
                         </div>}
-                        <PrimitiveCard.InputPins primitive={primitive} pins={pins} dataForNewInstance={dataForNewInstance} newInstanceCallback={newInstanceCallback} updateMissing={setMissing}/>
-                        {true&& <div className="flex place-items-center py-3 justify-end space-x-3">
+                        <PrimitiveCard.InputPins 
+                            primitive={primitive} 
+                            pins={pins} 
+                            dataForNewInstance={isForNewInstance ? dataForNewInstance : undefined} 
+                            newInstanceCallback={isForNewInstance ? newInstanceCallback : undefined} 
+                            updateMissing={isForNewInstance ? setMissing : undefined}
+                        />
+                        {isForNewInstance&& <div className="flex place-items-center py-3 justify-end space-x-3">
                             {isEmbedded && <UIHelper.Button title="Cancel" onClick={()=>{console.log("send");window.parent.postMessage("close_newflow","*")}}/>}
-                            <UIHelper.Button title="Submit" color='green' disabled={!enableSubmit} onClick={()=>setShowOutput(true)}/>
+                            <UIHelper.Button title="Submit" color='green' disabled={!enableSubmit} onClick={createNewInstance}/>
                         </div>}
                     </div>
                 </div>

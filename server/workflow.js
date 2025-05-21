@@ -89,6 +89,8 @@ export async function getScaffoldWorkflow( flow, options = {} ){
 }
 
 export async function createWorkflowInstance( flow, options = {} ){
+    console.log(options)
+    return
     if( flow.primitives?.imports && flow.primitives.imports.length > 0){
         throw "Workflows with imports not handled right now"
     }
