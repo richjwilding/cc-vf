@@ -1428,10 +1428,10 @@ function makePt(x, y) {
   
 
     static route(links, target) {
-      let forceRedo = false
+      let redoForVisibility = false
       if(target.rescale || target.refocus){
         if( target.rescale ){
-          forceRedo = true
+          redoForVisibility = true
           target.scale = (target.rescale.a / 2)
           if(target.scale > 1){
             target.scale = 1
@@ -1442,7 +1442,7 @@ function makePt(x, y) {
           delete target["rescale"]
         }
         if( target.refocus ){
-          forceRedo = true
+          redoForVisibility = true
           target.focus = target.refocus
           target.focus.r = Rectangle.fromRect(target.focus)
           target.focus.blur = target.scale / 100 
@@ -1458,11 +1458,22 @@ function makePt(x, y) {
       }else{
         links = target.links
       }
+
+      if( target.pathCache.size > 0 ){
+        let canSkipCalcs = true
+        for(const [idx, entry] of target.pathCache){
+          if( entry.redo || ( entry.lastScale && entry.lastScale < target.scale)){
+            canSkipCalcs = false
+            break
+          }
+        }
+        if( canSkipCalcs ){
+          return []
+        }
+      }
       
       let shapeMargin = target.shapeMargin / (target.scale * 2 )
       
-      //const inflatedRects = Object.values(target.inflatedRects)
-      const rects = Object.values(target.shapes).map(d=>Rectangle.fromRect(d))
       const avoidRects = Object.values(target.shapes).filter(d=>d.obstacle).map(d=>Rectangle.fromRect(d))
   
       let verticals = [...target.verticals]
@@ -1471,8 +1482,7 @@ function makePt(x, y) {
       const vs = new Set(verticals)
       const hs = new Set(horizontals)
 
-      const shapesWithConnectors = []
-      const shapeTracker = new Set()
+      const scaleTracker = {}
       const termPoints = {}
       function makePt(x, y, scale) {
         x = scale === 1 ? x : (Math.floor(x * scale) / scale)
@@ -1516,6 +1526,7 @@ function makePt(x, y) {
             scale = target.focus.blur
           }
         } 
+        scaleTracker[key] = scale
 
         termPoints[key] = {a:[], b:[], oa:[], ob:[]}
 
@@ -1634,12 +1645,15 @@ function makePt(x, y) {
           }
 
         let cached
-        if (!forceRedo && target.pathCache.has(key)) {
+        if( target.pathCache.has(key)) {
           cached = target.pathCache.get(key);
           if ( !cached.redo){
-            continue;
+            if( cached.lastScale && cached.lastScale >= scaleTracker[key]){
+              continue;
+            }
           }
         }
+        
 
         const { pointA, pointB } = link;
         let bestPath = []
@@ -1719,6 +1733,7 @@ function makePt(x, y) {
           key,
           redo: false,
           path: pathForCache ?? fullPath,
+          lastScale: scaleTracker[key],
           shapeA: pointA.shape,
           shapeB: pointB.shape,
         });

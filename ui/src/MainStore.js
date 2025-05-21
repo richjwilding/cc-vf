@@ -600,6 +600,40 @@ const actions = {
     fetchInputs(d, receiver, obj){
         return (sourceId, mode = "inputs", pinMode = "input")=>{
             let inputMap = PrimitiveConfig.getInputMap(receiver, mode)
+            if( mode === "outputs"){
+                console.log(`do redorder`)
+                if( receiver.inFlow ){
+                    const cp = receiver.configParent
+                    const outputs = cp.primitives.outputs;
+                    const sectionMap = new Map();
+                    Object.entries(outputs).forEach(([sectionKey, sectionValue], sIdx) => {
+                        const posMap = new Map();
+                        sectionValue.allItems.forEach((item, groupIdx) => {
+                            const ids = item.primitives.config.allIds;
+                            for (const id of ids) {
+                                if (!posMap.has(id)) posMap.set(id, groupIdx);
+                            }
+                        });
+                        sectionMap.set(sectionKey, { sIdx, posMap });
+                    });
+                    
+                    inputMap.forEach(entry => {
+                        const key = `${entry.sourcePin}_${entry.inputPin}`;
+                        const info = sectionMap.get(key);
+                        if (info) {
+                            entry._sIdx = info.sIdx;
+                            entry._idx  = info.posMap.get(entry.sourceId) ?? -1;
+                        } else {
+                            entry._sIdx = Infinity;
+                            entry._idx  = -1;
+                        }
+                    });
+                    
+                    inputMap.sort((a, b) =>
+                        a._sIdx - b._sIdx || a._idx - b._idx
+                    );
+                }
+            }
             if( sourceId ){
                 inputMap = inputMap.filter(d=>d.sourceId === sourceId)
             }
