@@ -1142,10 +1142,7 @@ function SharedRenderView(d, primitive, myState) {
                 let viewPivot = primitiveConfig?.explore?.viewPivot
                 let viewFilters = []
                 if( viewConfig.needsAllAllocations ){
-                    //const items = getLocalPrimitiveListForBoardId(stateId, myState) ?? primitiveToPrepare.itemsForProcessing
-                    //const fullList = primitiveForContent.itemsForProcessingWithFilter(filters, {ignoreFinalViewFilter: true}) 
                     viewFilters = primitiveConfig?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(primitiveToPrepare, i, items)) ?? []            
-                    console.log(`------> viewFilters`)
                 }
                 let filterApplyColumns = primitiveConfig?.explore?.axis?.column?.filter ?? []
                 let filterApplyRows = primitiveConfig?.explore?.axis?.row?.filter ?? []
@@ -2969,10 +2966,13 @@ export default function BoardViewer({primitive,...props}){
     return <>
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
         <div key='chatbar' className={clsx([
-            'absolute bg-white border border-gray-200 bottom-4 divide-gray-200 divide-y space-y-2 flex flex-col left-4 overflow-hidden p-3 place-items-start rounded-md shadow-lg text-sm z-50 ',
+            'absolute bg-white border border-gray-200 bottom-4 space-y-2 flex flex-col left-4 overflow-hidden p-3 place-items-start rounded-md shadow-lg text-sm z-50 ',
             agentStatus.activeChat ? 'max-h-[80vh] w-[40vw] 4xl:max-w-3xl min-w-[24rem]' : "w-96 max-h-[80vh]"
         ])}>
-            <AgentChat setStatus={setAgentStatus} primitive={primitive}/>
+            <AgentChat 
+                setStatus={setAgentStatus} 
+                contextClick={(d)=>mainstore.sidebarSelect(d)}
+                primitive={primitive}/>
         </div>
         
         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>

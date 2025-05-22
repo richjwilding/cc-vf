@@ -4618,8 +4618,6 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
 
 export function finalizeImages( node, options ){
     const list = node.find('.img_ph')
-    console.log(`${list.length} to finalize`)
-    let idx = 0
     while(list.length > 0){
         const delay = 1 +(Math.random() * 50)
         const thisSection = list.splice(0,20)

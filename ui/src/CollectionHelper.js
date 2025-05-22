@@ -669,29 +669,6 @@ class CollectionUtils{
                     return v1 - b?.label
                 })
                 return {values: mapped}
-                
-                /*
-                mapped = mapped.filter((d,i,a)=>d && a.findIndex(d2=>d2?.label === d?.label)===i).sort((a,b)=>{
-                    const v1 =  (a?.label ?? "")
-                    if( v1.localeCompare){
-                        return v1?.localeCompare(b?.label ?? "")
-                    }
-                    return v1 - b?.label
-                })
-                if( doRemap ){
-                    interim.forEach(d=>{
-                        d["original_" + field] = d[field]
-                        if( Array.isArray(d[field])){
-                            d[field] = d[field].map(df=>mapped.find(d2=>d2.label === remap[df])?.idx)
-                        }else{
-                            d[field] = mapped.find(d2=>d2.label === remap[d[field]])?.idx
-                        }
-                    })
-                }
-                return {values: mapped}
-                */
-
-               // return {values: mapped.map((d,i)=>({idx: d, label: d}))}
             },
             "indexed":(field)=>{
                 let out = interim.map((d)=>d[field]).filter((v,idx,a)=>a.findIndex(d2=>d2.value === v.value)===idx).sort((a,b)=>a.order - b.order)
@@ -920,6 +897,7 @@ class CollectionUtils{
                 return {values: [{idx: "_N_", label: "Unknown"}, ...brackets.map((d,i)=>({idx: i, bucket_min: d.min, bucket_max: d.lessThan, label: d.label}))]}
             }
         }
+        bucket.string = bucket.raw
 
         let out 
 
@@ -947,7 +925,6 @@ class CollectionUtils{
         }else{
             let parser = bucket[axis.passType]
             if( !parser ){
-                console.log(axis)
                 console.warn(`Cant pass axis ${axis.passType}`)
                 parser = bucket["raw"]
             }

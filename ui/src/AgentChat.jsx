@@ -4,52 +4,76 @@ import MarkdownEditor from './MarkdownEditor';
 import MainStore from './MainStore';
 import clsx from 'clsx';
 import { Logo } from './logo';
-
-const DB_RE = /_db([0-9a-fA-F]{24})/g;
-
-function replaceDbPlaceholders(str, callback) {
-  return str.replace(DB_RE, (fullMatch, objectId) => {
-    return MainStore().primitive(objectId)?.plainId
-  });
-}
-
+import { PrimitiveCard } from './PrimitiveCard';
+import { HeroIcon } from './HeroIcon';
+import { Badge } from './@components/badge';
 
 export default function AgentChat({primitive, ...props}) {
     const [messages, setMessages] = useState([]);
         const inputBox = useRef({})
+        const editorRef = useRef()
       const [autoSend, setAutoSend] = useState('');
    //   const [input, setInput] = useState('');
       const [pending, setPending] = useState(false);
+      const [context, setContext] = useState(false);
       const readerRef = useRef(null);
+      const insertedCount = useRef(0)
     
-      const appendMessage = (msg) => {
-        setMessages((m) => [...m, msg]);
-      };
-
       useEffect(()=>{
+        const mainstore = MainStore()
         updateStatus( {active: !inputBox.current?.empty(), messages})
+        const contextMessages = messages.filter(d=>d.role === "assistant" && d.hidden).map(d=>d.content?.match(/\[\[chat_scope:([^\]]*)\]\]/)?.[1]?.split(",")).filter(d=>d)
+        const latestContext = contextMessages.at(-1)?.map(d=>{
+          const asNum = parseInt(d)
+          if( isNaN(asNum)){
+            return mainstore.primitive(d)
+          }else{
+            return mainstore.primitive(asNum)
+          }
+        }).filter(d=>d)
+        setContext( latestContext )
       }, [messages])
 
-      function updateAssistantUI(text, hidden = false) {
+
+      useEffect(() => {
+        if (insertedCount.current === 0 && messages.length > 0) {
+          editorRef.current.appendMessages(messages)
+          insertedCount.current = messages.length
+        }
+      }, [messages])
+    
+      // whenever messages grows, append only the tail
+      useEffect(() => {
+        if (messages.length > 0 && messages.length === insertedCount.current) {
+          editorRef.current.appendMessages(messages.slice(-1), true)
+        }else if (messages.length > insertedCount.current) {
+          const newMsgs = messages.slice(insertedCount.current)
+          editorRef.current.appendMessages(newMsgs)
+          insertedCount.current = messages.length
+        }
+      }, [messages])
+
+
+      function updateAssistantUI(text, hidden = false, other = {}) {
         setMessages(h => {
           const lastMsg = h[h.length - 1]
-          if (lastMsg.role === 'assistant'){
+          if (lastMsg.role === 'assistant' && !lastMsg.preview){
             if( !hidden) {
               if( !lastMsg.hidden ){
-                return [...h.slice(0, -1), { hidden, role:'assistant', content: text }];
+                return [...h.slice(0, -1), { hidden, role:'assistant', content: text, ...other }];
               }
             }else{
               if( lastMsg.content.endsWith("[[agent_running]]") || lastMsg.content.match(/\[\[update:[^\]]*\]\]$/)){
                 lastMsg.content = lastMsg.content.replace("[[agent_running]]","").replace(/\[\[update:[^\]]*\]\]$/, "");
                 if( lastMsg.content.length === 0){
-                  return [...h.slice(0, -1), { hidden, role:'assistant', content: text }];
+                  return [...h.slice(0, -1), { hidden, role:'assistant', content: text, ...other }];
                 }else{
-                  return [...h.slice(0, -1), lastMsg, { hidden, role:'assistant', content: text }];
+                  return [...h.slice(0, -1), lastMsg, { hidden, role:'assistant', content: text, ...other }];
                 }
               }
             }
           }
-          return [...h, { hidden, role:'assistant', content: text }];
+          return [...h, { hidden, role:'assistant', content: text, ...other }];
         });
       }
     
@@ -73,10 +97,6 @@ export default function AgentChat({primitive, ...props}) {
         const dec    = new TextDecoder();
         let buffer   = '';
       
-        // 3) Sliding-window buffering setup
-        const MAX_ID_LEN    = 36;                   // max length of your DB IDs
-        const ID_TRIGGER_RE = /_db[A-Za-z0-9_-]{4,}/;  // heuristic for an ID
-        const ID_TRIGGER_LENGTH = 7 
         let displayContent = '';
       
         // cancel any prior in-flight stream
@@ -106,7 +126,8 @@ export default function AgentChat({primitive, ...props}) {
               if( payload.hidden){
                 displayContent = ""
               }
-      
+            }else if(payload.preview){
+              updateAssistantUI(payload.preview, false, {preview: true});
             }
       
             if (payload.done) {
@@ -130,18 +151,23 @@ export default function AgentChat({primitive, ...props}) {
       }
       function updateStatus(status = {}){
         if(props.setStatus){
-          console.log(`==== ${status.messages?.length}`)
           props.setStatus({
             activeChat: status.active || status.messages?.length > 0,
             hasReplies: status.messages?.length > 0
           })
         }
       }
+      function rewind(){
+        setMessages(messages.slice(0,-1))
+        setPending(false)
+      }
       function clear(){
+        insertedCount.current = 0
         setMessages([])
         inputBox.current.clear()
         inputBox.current.focus()
         updateStatus({active: true, messages: []})
+        setPending(false)
       }
     
       function handleInputFocus(){
@@ -152,8 +178,31 @@ export default function AgentChat({primitive, ...props}) {
       }
       return (
           <>
-            {messages.length > 0 && <div className="flex flex-1 items-stretch oveflow-y-auto min-h-32 w-full mb-2">
+            {context && <div className={clsx([
+                    "w-full flex flex-col space-y-2 border-b px-1 py-2 max-w-full w-full",
+                ])}>
+                  <p className='text-xs text-gray-400 font-semibold '>Context</p>
+                  <div className='inline-flex'>
+                  {context.map(d=><div 
+                      onClick={props.contextClick ? ()=>props.contextClick(d) : undefined}
+                      className='border hover:border-gray-400 hover:shadow-sm rounded-md flex space-x-1 px-1 py-1 items-center'>
+                      {d.metadata?.icon && <HeroIcon icon={d.metadata.icon} className='w-5 h-5' strokeWidth={1}/>}
+                      <div className='flex flex-col space-y-0.5 max-w-48 '>
+                        <span className='text-sm/5 text-slate-800 font-semibold truncate ellipses'>{d.title}</span>
+                        <span className='text-xs text-slate-600 truncate'>{d.displayType} #{d.plainId}</span>
+                        <div className='flex'>
+                          <Badge color='zinc' className="!py-0 !text-slate-600">{d.itemsForProcessing.length ?? 0 } items</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  </div>
+            </div>}
+            {false && messages.length > 0 && <div className="flex flex-1 items-stretch oveflow-y-auto min-h-32 w-full mb-2">
                 <MarkdownEditor  scrollToEnd={true} initialMarkdown={messages.filter(d=>!d.hidden)} float={true}/>
+            </div>}
+            {messages.length > 0 && <div className="flex flex-1 items-stretch oveflow-y-auto min-h-32 w-full mb-2">
+                <MarkdownEditor  scrollToEnd={true} float={true} ref={editorRef} controlled={false}/>
             </div>}
             <div className={clsx([
                     "w-full flex space-x-2",
@@ -163,8 +212,10 @@ export default function AgentChat({primitive, ...props}) {
                     <MarkdownEditor onFocus={handleInputFocus} onBlur={handleInputBlur} ref={inputBox} initialMarkdown={""} onKeyUp={handleInputKeyPress} float={props.seperateInput}/>
                 </div>
                 <button type="submit" style={{ padding: '0 16px' }} onClick={()=>sendChat()}>Send</button>
+                <button style={{ padding: '0 16px' }} onClick={rewind}>Rewind</button>
                 <button style={{ padding: '0 16px' }} onClick={clear}>Clear</button>
             </div>
         </>
+
       );
 }

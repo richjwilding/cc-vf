@@ -11,6 +11,7 @@ import { Logo } from './logo';
 import { Stage } from 'react-konva';
 import { RenderPrimitiveAsKonva } from './RenderHelpers';
 import { KonvaPrimitive } from './KonvaPrimitive';
+import { VisualizationPreview } from './VisualizationPreview';
 
   
 
@@ -124,7 +125,26 @@ function MarkdownBadge({ badgeType }) {
     if (initialMarkdown) {
       if( Array.isArray(initialMarkdown ) ){
         const slateNodes = [];
-        for (const { role, content } of initialMarkdown) {
+        for (const { role, content, preview } of initialMarkdown) {
+          if( preview){
+
+            let parsed
+            try{
+              parsed = JSON.parse( content )
+              console.log(parsed)
+            }catch(e){
+              console.warn(`Error passing visualization config`)
+            }
+            if( parsed ){
+              slateNodes.push({
+                type: "preview",
+                side: role === "assistant" ? "left" : "right",
+                data: parsed,
+                children: [{ text: "" }]
+              });
+            }
+            continue
+          }
           const children = markdownToSlate(content);
           slateNodes.push({
             type: "chat-message",
@@ -154,12 +174,14 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
   const [value, setValue] = useState(() => convertInitialValue( initialMarkdown));
 
   useEffect(()=>{
+    if( props.controlled === false){
+      return
+    }
     const wasAtTop = slateRef.current && (slateRef.current.scrollTop + slateRef.current.clientHeight) === slateRef.current.scrollHeight;
     editor.children = convertInitialValue( initialMarkdown)
     editor.onChange();
     //Transforms.select(editor, props.scrollToEnd ? Editor.end(editor, []) : { path: [0, 0], offset: 0 });
     if (wasAtTop && props.scrollToEnd && slateRef.current) {
-      console.log(`scroll to end ${props.scrollToEnd}`)
       setTimeout(()=>{
         slateRef.current.scrollTop = slateRef.current.scrollHeight;
       }, 20)
@@ -188,6 +210,29 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
         editor.children = d
         editor.onChange();
         Transforms.select(editor, { path: [0, 0], offset: 0 });
+      },
+      appendMessages: (newMsgs = [], update) => {
+        const wasAtTop = slateRef.current && (slateRef.current.scrollTop + slateRef.current.clientHeight) === slateRef.current.scrollHeight;
+        const nodes = convertInitialValue(newMsgs)
+        let done = false
+        if( update ){
+          const endIndex = editor.children.length - 1
+          if (endIndex >= 0 ){
+            Transforms.removeNodes(editor, { at: [endIndex] });
+            Transforms.insertNodes(editor, nodes, { at: [endIndex] });
+            done = true
+          }
+        }
+        if( !done ){
+          Transforms.insertNodes(editor, nodes, { at: [editor.children.length] })
+        }
+        // insert at the end of the document
+        if (props.scrollToEnd && wasAtTop) {
+          // you can hook into your scroll‐to‐bottom logic here
+          setTimeout(() => {
+            slateRef.current.scrollTop = slateRef.current.scrollHeight;
+          }, 50)
+        }
       },
       value:()=>{
         return slateToMarkdown(value)
@@ -365,6 +410,10 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
               </a>
             </span>
           );
+        case "preview":
+          return <div className='p-2'>
+            {element.data.map(d=><VisualizationPreview {...d} size="small" />)}
+          </div>
         case "chat-message":
             return (
               <div
@@ -713,6 +762,22 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
       props.onBlur()
     }
     saveChanges()
+
+  }
+  if( props.controlled === false){
+    return (
+      <Slate  editor={editor} initialValue={[]}>
+        <Editable
+          ref={slateRef}
+            className={clsx([
+              props.float ? "focus:outline-none" : "border",
+              'max-h-[inherit] overflow-y-scroll p-1 w-full'
+            ])}
+          renderElement={renderElement}
+          renderLeaf={renderLeaf} 
+        />
+      </Slate>
+  );        
 
   }
   

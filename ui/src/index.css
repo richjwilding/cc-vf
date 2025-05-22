@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  /* hide the <br> Slate injects after any void node */
+  [data-slate-zero-width] br {
+    display: none;
+  }
+}
+
 html{
   overflow:hidden;
 }

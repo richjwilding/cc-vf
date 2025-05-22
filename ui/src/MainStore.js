@@ -1770,10 +1770,7 @@ function MainStore (prims){
         primitive:function(id){
             let data = obj.data.primitives[id]
             if( !data && !isNaN(id) ){
-                data = this.primitiveByPlain(id)
-                if( data ){
-                    console.warn(`Primitive lookup ${id} by plainId`)
-                }
+                data = this.primitiveByPlain(parseInt(id))
             }
             return data
         },

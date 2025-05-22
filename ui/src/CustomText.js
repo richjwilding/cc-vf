@@ -361,7 +361,6 @@ _setTextData() {
           }
       }
       if( frag === 0 && indent > startIndent ){
-        console.log(`Couldnt add ${text}`)
         currentHeightPx += lineHeightPx;
         const partial = placeText( text, large, bold, drawBullet, startIndent, startIndent, color, lastLine, tableInfo )
         indent = partial.indent
