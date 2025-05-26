@@ -7,6 +7,7 @@ import { Logo } from './logo';
 import { PrimitiveCard } from './PrimitiveCard';
 import { HeroIcon } from './HeroIcon';
 import { Badge } from './@components/badge';
+import { isObjectId } from './SharedTransforms';
 
 export default function AgentChat({primitive, ...props}) {
     const [messages, setMessages] = useState([]);
@@ -25,7 +26,7 @@ export default function AgentChat({primitive, ...props}) {
         const contextMessages = messages.filter(d=>d.role === "assistant" && d.hidden).map(d=>d.content?.match(/\[\[chat_scope:([^\]]*)\]\]/)?.[1]?.split(",")).filter(d=>d)
         const latestContext = contextMessages.at(-1)?.map(d=>{
           const asNum = parseInt(d)
-          if( isNaN(asNum)){
+          if( isObjectId(d) || isNaN(asNum)){
             return mainstore.primitive(d)
           }else{
             return mainstore.primitive(asNum)
@@ -45,12 +46,19 @@ export default function AgentChat({primitive, ...props}) {
       // whenever messages grows, append only the tail
       useEffect(() => {
         if (messages.length > 0 && messages.length === insertedCount.current) {
-          editorRef.current.appendMessages(messages.slice(-1), true)
+          const msg = messages.at(-1)
+          if( msg.hidden && msg.removePrevious){
+            editorRef.current.appendMessages(undefined, true)
+          }else{
+            editorRef.current.appendMessages([msg], true)
+          }
         }else if (messages.length > insertedCount.current) {
-          const newMsgs = messages.slice(insertedCount.current)
-          editorRef.current.appendMessages(newMsgs)
-          insertedCount.current = messages.length
+          const newMsgs = messages.slice(insertedCount.current).filter(d=>!d.hidden)
+          if( newMsgs.length > 0){
+            editorRef.current.appendMessages(newMsgs)
+          }
         }
+        insertedCount.current = messages.length
       }, [messages])
 
 
@@ -66,7 +74,7 @@ export default function AgentChat({primitive, ...props}) {
               if( lastMsg.content.endsWith("[[agent_running]]") || lastMsg.content.match(/\[\[update:[^\]]*\]\]$/)){
                 lastMsg.content = lastMsg.content.replace("[[agent_running]]","").replace(/\[\[update:[^\]]*\]\]$/, "");
                 if( lastMsg.content.length === 0){
-                  return [...h.slice(0, -1), { hidden, role:'assistant', content: text, ...other }];
+                  return [...h.slice(0, -1), { hidden, role:'assistant', content: text, removePrevious: true, ...other }];
                 }else{
                   return [...h.slice(0, -1), lastMsg, { hidden, role:'assistant', content: text, ...other }];
                 }
@@ -158,8 +166,15 @@ export default function AgentChat({primitive, ...props}) {
         }
       }
       function rewind(){
-        setMessages(messages.slice(0,-1))
+        const msgToRemove = messages.at(-1)
+        editorRef.current.appendMessages(undefined, true)
+        if( msgToRemove.hidden ){
+          console.log(`SKIP REMOVAL FROM SLATE OF HIDDEN MESSAFE`)
+        }
+        setMessages(messages.slice(0,  msgToRemove.hidden ? -2 : -1))
         setPending(false)
+        console.log(msgToRemove)
+       // insertedCount.current = insertedCount.current - 1
       }
       function clear(){
         insertedCount.current = 0

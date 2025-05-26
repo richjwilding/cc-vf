@@ -12,6 +12,7 @@ import { compareTwoStrings, convertOrganizationFinancialData, formatNumber, roun
 import { HeroIcon } from "./HeroIcon";
 import { cloneElement } from "react";
 import WedgeRing from "./WedgeRing";
+import { getConfig } from "@testing-library/react";
 const typeMaps = {}
 const categoryMaps = {}
 
@@ -128,7 +129,7 @@ export function RenderSetAsKonva( primitive, list, options = {} ){
     }
     let config = "set_" + (options.config || "default")
     let source =  list?.[0]
-    let referenceId =  options.referenceId ?? source?.primitive?.referenceId
+    let referenceId =  options.referenceId ?? source?.referenceId ?? source?.primitive?.referenceId
     let renderer = categoryMaps[referenceId]?.[config] ?? typeMaps[ source?.type ]?.[config]
     if( !renderer ){
         renderer = typeMaps[ "default" ]?.[config]
@@ -1560,51 +1561,6 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
         cIdx++
     }
 
-    if( primitive.plainId === 411195){
-        const order = [
-            "3-3-1",
-            "3-2-1",
-            "2-3-1",
-            "2-2-1",
-            "3-3-2",
-            "3-2-2",
-            "2-3-2",
-            "2-2-2",
-            "3-1-1",
-            "3-1-2",
-            "2-1-2",
-            "1-3-1",
-            "1-2-1",
-            "2-1-1",
-            "1-3-2",
-            "1-3-3",
-            "1-1-1",
-            "1-1-1"
-        ].reverse()
-        for(const thisLabel of rowLabels){
-            let scores = []
-            for(let idx = 1; idx <  4; idx++){
-                const cell = cells.find(d=>d.cIdx === pcLength + idx && d.rIdx === rIdx)
-                let ts = cell.list.map(d=>d.parentPrimitiveIds.map(d=>partialConfig[idx ]?.checkMap[d] ?? 0)).flat().reduce((a,c)=>a > c ? a : c, 0)
-                scores[idx - 1] = ts
-            }
-            let ov_score = order.indexOf(scores.join("-")) 
-            console.log(`Remap score for ${thisLabel} = ${pScores[rIdx]} / ${ov_score}`)
-            pScores[rIdx] = ov_score
-            rIdx++
-        }
-
-
-    }
-    if( primitive.plainId === 533912){
-        const countries = cells.filter(d=>d.cIdx === 2).map(d=>d.primitive?.referenceParameters.location).filter((d,i,a)=>d && a.indexOf(d)===i).sort()
-        for(const thisLabel of rowLabels){
-            const country = cells.find(d=>d.rIdx === rIdx && d.cIdx === 2)?.primitive?.referenceParameters?.location
-            pScores[rIdx] = countries.indexOf(country)
-            rIdx++
-        }
-    }
-    
     if( pScores.length > 0){
         const newOrder = rowLabels.map((d,i)=>[d,i]).sort((a,b)=>pScores[b[1]]-pScores[a[1]])
         newOrder.forEach((d,idx)=>{
@@ -5725,15 +5681,6 @@ function renderSubCategoryChart( title, data, options = {}){
     let pieSize = fullPieSize
     const pieMid = (fullPieSize / 2)
     if( options.style ==="bar" || options.style ==="stacked_bar"  ){
-        /*if( options.max !== undefined && options.min !== undefined ){
-            const N = colors.length;
-            const span = (options.max - options.min) / N;
-            if( span > 0 ){
-                let idx = Math.floor(((options.count ?? 0) - options.min) / span);
-                idx = Math.min(N - 1, Math.max(0, idx));
-                colors = new Array(N).fill( colors[idx])
-            }
-        }*/
         sg.add( renderBarChart(data, {size: fullPieSize, x: (itemSize - fullPieSize) / 2, barHeght: options.scale ? fullPieSize * options.scale : undefined, y: pieY, colors: colors, stack: options.style === "stacked_bar"}))
     }else if( options.style === "weighted"){
         showLegend = false
@@ -5754,10 +5701,6 @@ function renderSubCategoryChart( title, data, options = {}){
             label = data[rounded].label
             color = colors[rounded]
           }else{
-            /*avgSentiment = data.findIndex(d=>d.label.match(/neutral/i))
-            if( avgSentiment === -1){
-                avgSentiment = (data.length + (data.length % 2 === 1 ? 1 : 0)) / 2
-            }*/
            color = "white"
            label = "None"
         }
@@ -5800,7 +5743,6 @@ function renderSubCategoryChart( title, data, options = {}){
         })
         sg.add( legend)
         ly += legend.height()
-
     }
     ly += innerPadding[2]
     sg.height( ly )
@@ -6139,11 +6081,68 @@ registerRenderer( {type: "default", configs: "set_distribution"}, function rende
     const {list, extents, ...forwardOptions} = options
     const viewConfig = {
         renderType: "distribution_chart",
-        field: options.renderOptions.field //?? "is_verified_review"
+        field: options.renderOptions?.field //?? "is_verified_review"
     }
     return renderMatrix(primitive, list ?? [], {...forwardOptions, rowExtents: extents?.row, columnExtents: extents.column, viewConfig})
 })
+registerRenderer( {type: "default", configs: "datatable_distribution"}, function renderFunc({table, cell, renderOptions, ...options}){
+    const config = {itemSize: 280, padding: [10,10,10,10], ...options}
+    let scale = 1
+    let max, min
+
+    const count = cell.count
+    let values = Object.values(cell.allocations ?? {})?.[0]
+    if( !values ){
+        values = [{count:cell.count, label: "Count"}]
+    }
+    if(table.ranges && renderOptions.calcRange){
+        if( renderOptions.calcRange === "row"){
+            ({min, max} = table.ranges.rows.order[cell.rIdx])
+        }else if( renderOptions.calcRange === "column"){
+            ({min, max} = table.ranges.columns.order[cell.cIdx])
+        }else{
+            ({min, max} = table.ranges.table)
+        }
+        scale = ((count / max) * 0.8) + 0.2
+    }
+    
+
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.itemSize,
+        height: config.itemSize
+    })
+    const sg = renderSubCategoryChart("", Object.values(values), {
+        x: config.itemSize * (renderOptions.show_legend ? 0.1 : 0), 
+        y: 0, 
+        itemSize: config.itemSize * (renderOptions.show_legend ? 0.8 : 1), 
+        innerPadding: config.padding, 
+        style: renderOptions.style, 
+        hideTitle: true, 
+        paletteName: renderOptions.colors,
+        scale,
+        max,
+        min,
+        count,
+        horizontalLegend: true,
+        reversePalette: renderOptions.reverse_palette,
+        hideLegend: !renderOptions.show_legend,
+        sort: "none"
+    })
+    g.add(sg)
+    if( options.getConfig){
+        return {
+            width: sg.width(),
+            height: sg.height()
+        }
+    }
+    return g
+})
 registerRenderer( {type: "default", configs: "set_distribution_chart"}, function renderFunc(primitive, options = {}){
+ //   console.warn("USING OLD RENDER FOR SUB DIST - REPLACE")
     const config = {itemSize: 280, padding: [10,10,10,10], ...options}
     if( options.getConfig){
         return {
@@ -7358,3 +7357,297 @@ export function renderIndicators(indicatorList, options){
     return g
 }
 
+
+export function renderDatatable({id, data, stageOptions, renderOptions, viewConfig, ...options}){
+    const { 
+        width = 128, 
+        height = 128,
+    } = { 
+        ...renderOptions 
+    };
+    const {
+        x = 0, 
+        y = 0,
+        imageCallback        
+    } = stageOptions
+
+    const g = new Konva.Group({
+        id: id,
+        x,
+        y,
+        width,
+        height,
+        name:"view"
+    })
+
+    let showColumnheaders =  (renderOptions.hideColumnHeaders !== true ) && (data.columns.length > 1)
+    let showRowheaders =  (renderOptions.hideRowHeaders !== true ) && (data.rows.length > 1)
+
+
+    let rowHeights = data.rows.map(d=>0)
+    let columnWidths = data.columns.map(d=>0)
+
+    let config = viewConfig?.matrixType ?? "grid"
+    if( config === "distribution"){
+        config = "distribution_dt"
+    }
+
+    let renderer = typeMaps[ "default" ]["datatable_distribution"]
+
+    let configForCells = data.cells.reduce((a,cell)=>{
+        const cellConfig = renderer({table:data, getConfig: true, renderOptions, config, cell})
+        a[cell.id] = cellConfig
+        if( cellConfig.height > rowHeights[cell.rIdx]){
+            rowHeights[cell.rIdx] = cellConfig.height
+        }
+        if( cellConfig.width > columnWidths[cell.cIdx]){
+            columnWidths[cell.cIdx] = cellConfig.width
+        }
+        return a
+    },{})
+    let maxDim = Math.max(...columnWidths, ...rowHeights)
+    const spacing = Math.round( maxDim * 0.05)
+
+    const columnX = columnWidths.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + columnWidths[i - 1] + spacing : 0), acc), []);
+    const rowY = rowHeights.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + rowHeights[i - 1] + spacing : 0), acc), []);
+
+    const headers = prepareHeaders({columns: data.columns, rows: data.rows, columnWidths, rowHeights, columnX, rowY, spacing, refreshCallback: imageCallback})
+    let footers
+    if( (data.totals.columns && renderOptions.show_column_totals) || (data.totals.rows  && renderOptions.show_row_totals)){
+        footers = prepareHeaders({
+            columns: data.totals.columns && data.totals.columns.order.map(d=>({label: d})),
+            rows: data.totals.rows && data.totals.rows.order.map(d=>({label: d})),
+            background: false,
+            fontSize: headers.fontSize,
+            includeColumns: renderOptions.show_column_totals,
+            includeRows: renderOptions.show_row_totals,
+            columnWidths, rowHeights, columnX, rowY, spacing, refreshCallback: imageCallback
+        })
+    }
+
+
+    console.log(columnX)
+    console.log(rowY)
+    let maxX = 50, maxY = 50
+
+    let ox = 0, oy = 0
+    if( headers.columns ){
+        g.add( headers.columns)
+        oy += headers.columns.height() + spacing
+    }
+    if( headers.rows ){
+        g.add( headers.rows)
+        ox += headers.rows.width() + spacing
+    }
+
+    for(const cell of data.cells){
+        const x = ox + columnX[cell.cIdx]
+        const y =  oy + rowY[cell.rIdx]
+        const width = columnWidths[cell.cIdx]
+        const height = rowHeights[cell.rIdx]
+        const rendered = renderer({x, y, table:data, renderOptions, config, cell})
+        rendered.id(cell.id)
+        if( x + width > maxX){ maxX = x + width}
+        if( y + height > maxY){ maxY = y + height}
+        g.add(rendered)
+    }
+    if( footers?.columns){
+        footers?.columns.y(maxY)
+        if( headers?.columns){
+            footers.columns.x( headers.columns.x() )
+        }
+        maxY += footers?.columns.height()
+        g.add( footers.columns)
+
+    }
+    if( footers?.rows){
+        footers?.rows.x(maxX)
+        if( headers?.rows){
+            footers.rows.y( headers.rows.y() )
+        }
+        maxX += footers?.rows.width()
+        g.add( footers.rows)
+    }
+    g.width(maxX)
+    g.height(maxY)
+    if( options.getConfig ){
+        return {
+            width: maxX,
+            height: maxY
+        }
+    }
+    return g
+}
+function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, refreshCallback, longestPair}){
+    const d = header
+    let longestFrag
+    const words = `${(d.label  ?? "")}`.split(" ")
+    if( longestPair && words.length > 5){
+        const coupleLength = [words, words.map((d,i,a)=> i > 0 ? a[i-1] + " " + d : undefined ).filter(d=>d)].flat()
+        longestFrag = coupleLength.reduce((a,c)=>c.length > a.length ? c : a, "" )
+    }else{
+        longestFrag = words.reduce((a,c)=>a.length > c.length ? a : c, 0)
+    }
+
+    
+    const text = new CustomText({
+        fontSize,
+        text: longestFrag,
+        align:"center",
+        wrap: true,
+        verticalAlign:"middle",
+        bgFill:"#f3f4f6",
+        x: textPadding[3],
+        y: textPadding[0],
+        width: maxWidth ?? "auto",
+        height: "auto",
+        refreshCallback
+    })
+    
+    if( maxWidth ){
+        while( text.measureSize(longestFrag).width > maxWidth && fontSize > 6){
+            fontSize = fontSize > 50 ? fontSize -= (fontSize * 0.1) : fontSize - 0.25
+            text.fontSize( fontSize )
+        } 
+    }
+    text.text( d.label ?? "" )  
+    if( maxHeight ){
+        while( text.height() > maxHeight && fontSize > 6){
+            fontSize = fontSize > 50 ? fontSize -= (fontSize * 0.1) : fontSize - 0.25
+            text.fontSize( fontSize )
+        } 
+    }
+    
+    return {rendered: text, fontSize}
+}
+function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY, baseFontSize = 12, spacing, textPadding = [5,5,5,5], refreshCallback, includeColumns = true, includeRows = true, background = true,...options}){
+    const maxColumnWidth = Math.max(...columnWidths)
+    const maxRowHeight = Math.max(...rowHeights)
+    let maxFont =  Math.max(6, maxRowHeight / 4)
+    let headerScale = Math.max(1, Math.max(maxColumnWidth / 200 , maxRowHeight / 45 ))
+    let headerFontSize = options.fontSize ?? Math.min(baseFontSize * headerScale, maxFont, baseFontSize * 10)
+    const padding = textPadding.map(d=>d / baseFontSize * headerFontSize)
+
+    let columnLabelAsText = true
+    let rowLabelAsText = true
+
+    const renderedColumns = includeColumns && new Konva.Group({x: 0, y: 0})
+    const renderedRows = includeRows && new Konva.Group({x: 0, y: 0})
+
+    let needColumnFontRescale = false
+    let needRowFontRescale = false
+    
+    const idealWidth = Math.min(200, ...columnWidths)
+
+    const columnContent = includeColumns ? columns.map((d,i)=>{
+        if( d.imageUrl ){
+            columnLabelAsText = false
+            const iconSize = idealWidth
+            const logo = imageHelper( "/api/remoteImage?url=" + d.imageUrl, {
+                x: (columnWidths[i] - (iconSize * 0.8)) /2,
+                y: 0,
+                size: iconSize * 0.8,
+                imageCallback: refreshCallback
+            }) 
+            return logo
+        }else{
+            const r = prepareAxisText( d, {
+                fontSize: headerFontSize, 
+                maxWidth: columnWidths[i]  - padding[1] - padding[3],
+                textPadding: padding,
+                refreshCallback
+            } )
+            if( r.fontSize !== headerFontSize){
+                headerFontSize = r.fontSize
+                needColumnFontRescale = true
+            }
+            return r.rendered
+        }
+    }) : []
+    const rowContent = includeRows ? rows.map((d,i)=>{
+        const r = prepareAxisText( d, {
+            fontSize: headerFontSize, 
+            longestPair: true,
+            maxWidth: idealWidth - padding[1] - padding[3],
+            maxHeight: rowHeights[i],
+            textPadding: padding,
+            refreshCallback
+        } )
+        if( r.fontSize !== headerFontSize){
+            headerFontSize = r.fontSize
+            needRowFontRescale = true
+        }
+        return r.rendered
+    }) : []
+    if( needColumnFontRescale ){
+        columnContent.forEach(d=>d.fontSize(headerFontSize))
+    }
+    if( needRowFontRescale ){
+        rowContent.forEach(d=>d.fontSize(headerFontSize))
+    }
+
+    const maxColumnContentHeight = columnContent.reduce((a,d)=>{const h = d.height(); return h > a ? h : a}, 0)
+    const height = maxColumnContentHeight + padding[0] + padding[2]
+    if( includeColumns ){
+
+        columnContent.forEach((d,i)=>{
+            const h = new Konva.Group({
+                id: i,
+                name: "inf_track column_header",
+                x: columnX[i], y: 0,
+                width: columnWidths[i],
+                height
+            })
+            if( columnLabelAsText && background ){
+                const r = new Konva.Rect({
+                    x: 0, y: 0,
+                    width: columnWidths[i],
+                    height,
+                    fill:'#f3f4f6'
+                })
+                h.add(r)
+            }
+            d.y( (height - d.height()) / 2)
+            h.add(d)
+            renderedColumns.add(h)
+        })
+        renderedColumns.width(columnX.at(-1) + columnWidths.at(-1))
+        renderedColumns.height(height)
+
+        if( renderedRows ){
+            renderedRows.y(height + spacing)
+        }
+    }
+
+    if( includeRows){
+
+        rowContent.forEach((d,i)=>{
+            const h = new Konva.Group({
+                id: i,
+                name: "inf_track row_header",
+                x: 0, y: rowY[i],
+                width: idealWidth,
+                height: rowHeights[i]
+            })
+            if( background ){
+                const r = new Konva.Rect({
+                    x: 0, y: 0,
+                    width: idealWidth,
+                    height: rowHeights[i],
+                    fill:'#f3f4f6'
+                })
+                h.add(r)
+            }
+            d.y( (rowHeights[i] - d.height()) / 2)
+            h.add(d)
+            renderedRows.add(h)
+        })
+        if( renderedColumns ){
+            renderedColumns.x(idealWidth + spacing)
+        }
+        renderedRows.width(idealWidth)
+        renderedRows.height(rowY.at(-1) + rowHeights.at(-1))
+    }
+
+    return {columns: renderedColumns, rows: renderedRows, fontSize: headerFontSize}
+}

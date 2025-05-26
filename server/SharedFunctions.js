@@ -1858,17 +1858,10 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             }
         }
         if(source.type === "search"){
-            const nestedSearch = [source, ...(await primitiveChildren(source, "search"))].filter(d=>d)
+ //           const nestedSearch = [source, ...(await primitiveChildren(source, "search"))].filter(d=>d)
+            const nestedSearch = Object.values(source.primitives?.config ?? {}).length > 0 ? [source, ...(await primitivePrimitives(source, 'primitives.config', "search" ))].filter(d=>d) : [source]
             logger.info(`Got ${nestedSearch.length} nested searches`)
             if( nestedSearch.length > 0){
-
-                /*const ids = nestedSearch.flatMap(d=>{
-                    let node = new Proxy((d.primitives ?? {}), parser)
-                    return node.uniqueAllIds
-                    }).filter((d,i,a)=>a.indexOf(d) === i)
-                    
-                console.log(ids.length, ids.slice(0,5).join(", "))
-                list = await fetchPrimitives( ids, undefined, DONT_LOAD)*/
                 list = await fetchPrimitives(undefined, {
                     workspaceId: nestedSearch[0].workspaceId,
                     type: "result",

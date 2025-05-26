@@ -1,4 +1,7 @@
 
+export function isObjectId(id){
+  return /^[0-9a-fA-F]{24}$/.test(id);
+}
 export function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }

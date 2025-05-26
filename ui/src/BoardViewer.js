@@ -6,7 +6,7 @@ import { InputPopup } from './InputPopup';
 import DropdownButton from "./DropdownButton";
 import InfiniteCanvas from "./InfiniteCanvas";
 import CollectionUtils from "./CollectionHelper";
-import { RenderPrimitiveAsKonva, RenderSetAsKonva, renderMatrix, renderPlainObject } from "./RenderHelpers";
+import { RenderPrimitiveAsKonva, RenderSetAsKonva, renderDatatable, renderMatrix, renderPlainObject } from "./RenderHelpers";
 import HierarchyNavigator from "./HierarchyNavigator";
 import PrimitiveConfig from "./PrimitiveConfig";
 import FilterPane from "./FilterPane";
@@ -411,6 +411,17 @@ function SharedRenderView(d, primitive, myState) {
           items: stageOptions => {
             const data = myState[d.id].object;
             return renderPlainObject({ ...data, ...stageOptions, ...renderOptions, renderOptions });
+          }
+        };
+        break;
+      case "datatable":
+        renderView = {
+          ...baseRenderView,
+          canChangeSize: true,
+          items: stageOptions => {
+            const data = myState[d.id].data;
+            const viewConfig = myState[d.id].viewConfig;
+            return renderDatatable({ id: d.id, data, stageOptions, renderOptions, viewConfig });
           }
         };
         break;
@@ -1134,6 +1145,19 @@ function SharedRenderView(d, primitive, myState) {
                     mappedCategories
                 }
             }else{
+                if( viewConfig.matrixType === "distribution"){
+                    console.time("dt")
+                    const dataTable = CollectionUtils.createDataTableForPrimitive( basePrimitive )
+                    console.log(dataTable)
+                    console.log(basePrimitive.id)
+                    console.timeEnd("dt")
+
+                    myState[stateId].primitive = basePrimitive
+                    myState[stateId].config = "datatable"
+                    myState[stateId].viewConfig = viewConfig
+                    myState[stateId].data = dataTable
+                    return [stateId]
+                }                    
                 columnAxis.allowMove = columnAxis.access === 0 && !columnAxis.relationship
                 rowAxis.allowMove = rowAxis.access === 0 && !rowAxis.relationship
 
@@ -1193,13 +1217,14 @@ function SharedRenderView(d, primitive, myState) {
                     return a
                 }, {})
 
-                let filtered = CollectionUtils.filterCollectionAndAxis( data, [
+                /*let filtered = CollectionUtils.filterCollectionAndAxis( data, [
                     {field: "column", exclude: filterApplyColumns},
                     {field: "row", exclude: filterApplyRows},
                     ...viewFilters.map((d,i)=>{
                         return {field: `filterGroup${i}`, exclude: d.filter}
                     })
-                ], {columns: filteredColumnExtents, rows: filteredRowExtents, hideNull})
+                ], {columns: filteredColumnExtents, rows: filteredRowExtents, hideNull})*/
+                let filtered = CollectionUtils.filterCollectionAndAxis( data, [], {columns: filteredColumnExtents, rows: filteredRowExtents, hideNull})
 
                 if( myState[stateId].list ){
                     if( filtered.data.length !== myState[stateId].list.length){
@@ -1918,6 +1943,7 @@ export default function BoardViewer({primitive,...props}){
                         if( route.length > 0){
                             //console.log(`Checking view import ${left.plainId} -> ${right.plainId} ()`)
                             for(const axis of ["row","column"]){
+                                continue
                                 if( left.referenceParameters?.explore?.axis?.[axis]?.type === "category" ){
                                     const axisPrim = left.primitives.axis?.[axis]?.allIds?.[0]
                                     if(  axisPrim ){
@@ -3148,10 +3174,7 @@ export default function BoardViewer({primitive,...props}){
                                     },
                                     cell:(id, frameId)=>{
                                         const cell = id?.[0]
-                                        if( cell && myState[frameId].axis){
-                                            const [cIdx,rIdx] = cell.split("-")
-
-
+                                        if( cell ){
                                             let sourceState = myState[frameId]
                                             if( sourceState.axisSource ){
                                                 let axisSource = sourceState.axisSource
@@ -3161,13 +3184,27 @@ export default function BoardViewer({primitive,...props}){
                                                 sourceState = myState[axisSource.id]
                                             }
 
+                                            let cIdx, rIdx, infoPane
 
-                                            let infoPane = {
-                                                filters: [
-                                                    PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
-                                                    PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
-                                                ].filter(d=>d)
+                                            if(myState[frameId].axis){
+                                                [cIdx,rIdx] = cell.split("-")
+                                                infoPane = {
+                                                    filters: [
+                                                        PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
+                                                        PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
+                                                    ].filter(d=>d)
+                                                }
+                                            }else{
+                                                const data = myState[frameId].data
+                                                const cellData = data.cells.find(d=>d.id === cell)
+                                                infoPane = {
+                                                    filters: [
+                                                        PrimitiveConfig.encodeExploreFilter( data.defs?.columns, cellData.columnIdx ),
+                                                        PrimitiveConfig.encodeExploreFilter( data.defs?.rows, cellData.rowIdx ),
+                                                    ].filter(d=>d)
+                                                }
                                             }
+
                                             console.log(infoPane.filters[0])
                                             setCollectionPaneInfo({frame:  sourceState.underlying ??  sourceState.primitive, board: primitive, filters: infoPane.filters})
                                             if( !myState.activeBoard || myState.activeBoard.id !== frameId){

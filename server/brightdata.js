@@ -4,9 +4,36 @@ import axios from 'axios';
 import moment from "moment";
 import { addRelationship, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitives } from "./SharedFunctions";
 import BrightDataQueue from "./brightdata_queue";
-import { promises as fs } from 'fs';
 
 
+async function getCurrentIP() {
+  const response = await axios.get('https://api.ipify.org?format=json');
+  return response.data.ip;
+}
+
+async function whitelistIP(ip) {
+    const response = await axios.post(
+        'https://api.brightdata.com/zone/whitelist',
+        { ip },
+        {
+            headers: {
+                Authorization: `Bearer ${process.env.BRIGHTDATA_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        }
+    );
+  console.log('Bright Data whitelist response:', response.data);
+}
+
+export async function updateBrightDataWhitelist() {
+  try {
+    const ip = await getCurrentIP();
+    console.log('Current IP:', ip);
+    await whitelistIP(ip);
+  } catch (error) {
+    console.error('Error updating Bright Data whitelist:', error.response?.data || error.message);
+  }
+}
 
 async function linkToPrimitiveViaSearchPath( primitive ){
     const [oId, candidatePaths] = Object.keys(primitive.parentPrimitives ?? {})?.map(d=>primitive.parentPrimitives[d].map(d2=>[d,d2])).flat()?.find(d=>d[1].indexOf("primitives.search.") === 0) ?? []
@@ -113,6 +140,40 @@ const bdExtractors = {
             }
         }
     },
+    "linkedin_user_post":{
+        datasetId: "gd_lyy3tktm25m4avu764",
+        id: (data)=>data.id,
+        excludeIds:async ()=>{},
+    //    limit: 100,
+        linkConfig:linkToPrimitiveViaSearchPath,
+        queryParams: "&type=discover_new&discover_by=profile_url",
+        data:  (data)=>{
+            const date_posted = moment(data.date_posted).format('DD MMM YY')
+
+            return {
+                title: data.title,
+                referenceId: 123,
+                referenceParameters:{
+                    url: data.url,
+                    id: data.id,
+                    api_source: "bd_linkedin_post",
+                    username: data.user_id,
+                    userProfile: data.user_url,
+                    overview: data.headline,
+                    imageUrl: data.images?.[0],
+                    likes: data.num_likes,
+                    source: "LinkedIn",
+                    date_posted,
+                    location: data.location,
+                    posts_count: data.user_posts,
+                    followers: data.user_followers,
+                    description: data.post_text,
+                    hashtags: data.hashtags,
+                    account_type: data.account_type
+                }
+            }
+        }
+    },
     "linkedin_post":{
         datasetId: "gd_lyy3tktm25m4avu764",
         id: (data)=>data.id,
@@ -131,11 +192,12 @@ const bdExtractors = {
                     id: data.id,
                     api_source: "bd_linkedin_post",
                     username: data.user_id,
-                    userProfile: data.use_url,
+                    userProfile: data.user_url,
                     overview: data.headline,
                     imageUrl: data.images?.[0],
                     likes: data.num_likes,
                     source: "LinkedIn",
+                    date_posted,
                     location: data.location,
                     posts_count: data.user_posts,
                     followers: data.user_followers,
@@ -278,6 +340,12 @@ const bdExtractors = {
         },
         queryParams: "&type=discover_new&discover_by=url",
     },
+    "instagram_posts_from_profile":{
+        datasetId: "gd_lk5ns7kz21pck8jpis",
+        queryParams: "&type=discover_new&discover_by=url",
+        id: (data)=>data.post_id,
+        data: instagramPostData
+    },
     "instagram_posts":{
         datasetId: "gd_lk5ns7kz21pck8jpis",
         id: (data)=>data.post_id,
@@ -374,6 +442,19 @@ export async function queryLinkedInCompanyPostsBrightData( primitive, company_ur
 
     await triggerBrightDataCollection(input, "linkedin_post", primitive, terms,callopts)
 }
+export async function queryLinkedInUserPostsBrightData( primitive, terms, callopts){
+    const input = terms.split(",").map(d=>d.trim()).filter(d=>d).map(d=>({        
+        url: d,
+       // start_date: moment().subtract(2, "years").toISOString()
+    }))
+    console.log(input)
+    if( primitive.processing?.bd?.collectionId){
+        console.log(`Not redoing LI fetch`)
+        return 
+    }
+
+    await triggerBrightDataCollection(input, "linkedin_user_post", primitive, terms,callopts)
+}
 export async function queryGlassdoorReviewWithBrightData( primitive, terms, callopts){
     const individualTerms = terms.split(",").map(d=>d.trim())
     
@@ -438,12 +519,20 @@ export async function queryTiktokWithBrightData( primitive, terms, callopts){
     await triggerBrightDataCollection(input, "tiktok", primitive, terms,callopts)
 }
 
+export async function fetchInstagramPostsFromProfile( primitive, terms, callopts ){
+    const input = terms.split(",").map(d=>d.trim()).filter(d=>d).map(d=>({
+        url: d,
+        num_of_posts: callopts.count ?? 100
+    }))
+
+    await triggerBrightDataCollection(input, "instagram_posts_from_profile", primitive, undefined, {})
+
+}
 export async function fetchInstagramPosts( primitive, urls ){
     const input = urls.map(d=>({
         url: d
     }))
 
-    const config = bdExtractors["instagram_posts"]
 
     await triggerBrightDataCollection(input, "instagram_posts", primitive, undefined, {})
 

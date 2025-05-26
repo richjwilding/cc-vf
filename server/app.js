@@ -19,6 +19,7 @@ import { google } from "googleapis";
 import { SIO } from './socket';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { fetchPrimitive } from './SharedFunctions';
+import { updateBrightDataWhitelist } from './brightdata';
 
 dotenv.config()
 
@@ -60,6 +61,8 @@ refresh.use(strategy);
 setRefreshTokenHandler(refresh)
 
 var app = express();
+
+updateBrightDataWhitelist()
 
 const session = cookieSession({
     name: 'google-auth-session',

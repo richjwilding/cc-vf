@@ -62,6 +62,17 @@ const actions = {
     plainId(d, receiver, obj){
         return d.plainId
     },
+    originAtLevel(d,receiver, obj){
+        return function(level){
+            let node = receiver
+            while(level--){
+                if( node ){
+                    node = node.origin
+                }
+            }
+            return node
+        }                    
+    },
     doesImport(d, receiver, obj){
         return (id, filters)=>{
             //console.log(`Check primitive `, id, receiver.id)
@@ -324,7 +335,7 @@ const actions = {
                     let params = options.params ?? receiver.getConfig
                     if( params.descend ){
                         if( params.referenceId ){
-                            let noExpandIds = new Set()
+                            /*let noExpandIds = new Set()
                             if( params.referenceId ){
                                 const match = params.referenceId
                                 if( Array.isArray(match)){
@@ -346,13 +357,30 @@ const actions = {
                                     return d
                                 }
                                 return [d,d.primitives.strictDescendants]
-                            }).flat().filter(d=>d)
+                            }).flat().filter(d=>d)*/
+                            const seen = Object.create(null);
+                            const match = params.referenceId;
+                            const matchSet = new Set(Array.isArray(match) ? match : [match]);
+
+                            const newList = [];
+                            for (const d of list) {
+                                if (!seen[d.id]) {
+                                    seen[d.id] = true
+                                    const shouldExpand = !matchSet.has(d.referenceId);
+                                    newList.push(d);
+                                    if( shouldExpand ){
+                                        newList.push(...d.primitives.strictDescendants);
+                                    }
+                                }
+                            }
+
+                            // Filter falsy values only once
+                            list = newList.filter(Boolean);
                         }else{
                             list = list.flatMap(d=>[d,d.primitives.strictDescendants]).flat().filter(d=>d)
+                            list = uniquePrimitives(list)
                         }
-                        list = uniquePrimitives(list)
-                    }
-                    if( params.referenceId ){
+                    }else if( params.referenceId ){
                         const match = params.referenceId
                         if( Array.isArray(match)){
                             list = list.filter(d=>match.includes(d.referenceId))
@@ -826,39 +854,39 @@ const actions = {
     parentPrimitiveWithRelationship(d, receiver, obj){
         return (relationship)=>{
             let out
-            let [rel, rId] = relationship ? relationship.split(":") : []
+            let rel, rId
+            if( relationship ){
+                if( typeof(relationship) === "string"){
+                    [rel, rId] = relationship.split(":") 
+                }else{
+                    ({rel, rId} = relationship)
+                }
+            } 
             if( rId !== undefined){
                 rId = parseInt(rId)
             }
 
-            let ids
+            let ids = []
             const pp = d.parentPrimitives
             if( pp ){
                 if( rel === "origin_link_result"){
-                    ids = Object.keys(pp).filter(k=>{
+                    const ids = []
+                    const keys = Object.keys(pp);
+                    for (let i = 0, len = keys.length; i < len; i++) {
+                        const k = keys[i];
                         const arr = d.parentPrimitives[k];
-                        if (!Array.isArray(arr) || arr.length === 0) return false;
-                      
-                        for (let i = 0, len = arr.length; i < len; i++) {
-                          const s = arr[i];
-                          if (s.endsWith('.origin') || s.endsWith('.link'))  {
-                            return true;
-                          }
-                      
-                          const lastDot = s.lastIndexOf('.');
-                          if (lastDot > 0) {
-                            if( s.slice(0, lastDot).endsWith(".results")){
-                                return true
-                            }
-                            /*const prevDot = s.lastIndexOf('.', lastDot - 1);
-                            if (s.slice(prevDot + 1, lastDot) === 'results') {
-                              return true;
-                            }*/
-                          }
+                        if (!Array.isArray(arr) || arr.length === 0){
+                            continue
                         }
                       
-                        return false;
-                    })
+                        for (let j = 0, len = arr.length; j < len; j++) {
+                          const s = arr[j];
+                          if (s.endsWith('.origin') || s.endsWith('.link') || s.startsWith('primitives.results.')) {
+                            ids.push(k);
+                            break
+                          }
+                        }
+                    }
                 }else{
                     const check = `.${rel}`
                     ids = Object.keys(pp).filter(k=>pp[k].some(d => d.endsWith(check)))
@@ -868,19 +896,7 @@ const actions = {
                     return
                 }
                 if( rId ){
-                    //const _out = ids.map(id=>obj.primitive(id)).filter(d=>rId === d.referenceId)
-                    /*
-                     out = []
-                    for(const id of ids){
-                        const d = obj.primitive(id)
-                        if( rId === d.referenceId){
-                            out.push(d)
-                        }
-                    }
-                        */
-                       {
                     out = new Array(ids.length);
-                    // 2) Hold a write-index manually
                     let write = 0;
                     
                     for (let i = 0, len = ids.length; i < len; i++) {
@@ -889,9 +905,7 @@ const actions = {
                         out[write++] = d;
                       }
                     }
-                    // 3) Trim off any unused slots at the end
                     out.length = write;
-                }
                 }else{
                     out = ids.map(id=>obj.primitive(id))
                 }
@@ -2558,7 +2572,7 @@ function MainStore (prims){
                         if (level === 0) {
                           return [receiver];
                         }
-                        const rels = Array.isArray(original) ? original.flat() : [original];
+                        const rels = Array.isArray(original) ? original : [original];
                     
                         const depth = level == undefined ? rels.length : level;
                         if (depth === 0) {
@@ -2617,17 +2631,6 @@ function MainStore (prims){
                         return out
                     }                    
                 }*/
-                if( prop === "originAtLevel"){
-                    return function(level){
-                        let node = receiver
-                        while(level--){
-                            if( node ){
-                                node = node.origin
-                            }
-                        }
-                        return node
-                    }                    
-                }
                 if( prop === "metadata"){
                     let category = obj.category(d.referenceId)
                     if( category === undefined){

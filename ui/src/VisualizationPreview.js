@@ -3,8 +3,9 @@ import MainStore from "./MainStore"
 import CollectionUtils from "./CollectionHelper"
 import { finalizeImages, renderMatrix } from "./RenderHelpers"
 import { Layer, Stage } from "react-konva"
+import clsx from "clsx"
+import { isObjectId } from "./SharedTransforms"
 
-const isObjectId = id => /^[0-9a-fA-F]{24}$/.test(id);
 
 export function VisualizationPreview({source, title, layout, filters, x_axis, y_axis, palette, ...props}){
     const konvaObject = useMemo(()=>{
@@ -22,8 +23,8 @@ export function VisualizationPreview({source, title, layout, filters, x_axis, y_
             function convertAxis(def){
                 let axis = {type: "none", filter: []}
                 if( def ){
-                    const field = def.field ?? def.parameter
-                    if( isObjectId(field)){
+                    const field = def.field ?? def.parameter ?? def.category
+                    if( def.type === "category" || isObjectId(field) ){
                         axis = {
                             type: "category", 
                             primitiveId: field
@@ -40,6 +41,7 @@ export function VisualizationPreview({source, title, layout, filters, x_axis, y_
                     }
                 }
                 return axis
+                
             }
             function convertFilter(axis, extents){
                 const forAxis = filters?.find(d=>d.parameter === axis.parameter)
@@ -132,11 +134,19 @@ export function VisualizationPreview({source, title, layout, filters, x_axis, y_
 
     useLayoutEffect(()=>{
         if( stageRef.current && konvaObject){
-            const targetWidth = expand ? 1200 : 400
-            const targetHeight = targetWidth / 16 * 9
+            let targetWidth, targetHeight
+            
+            if( expand){
+                targetWidth = window.innerWidth * 0.75
+                targetHeight = window.innerHeight * 0.75
+            }else{
+                targetWidth = 400
+                targetHeight = targetWidth / 16 * 9
+            }
+
             const w = konvaObject.width()
             const h = konvaObject.height()
-            let scale = Math.min( targetHeight / w, targetHeight / h)
+            let scale = Math.min( targetWidth / w, targetHeight / h)
             stageRef.current.scale({x: scale, y: scale})
 
             stageRef.current.children[0].removeChildren()
@@ -151,9 +161,10 @@ export function VisualizationPreview({source, title, layout, filters, x_axis, y_
         }
     }, [stageRef.current, konvaObject?.attrs?.id, expand])
 
-    return <Stage 
+    const visual = <Stage 
             onClick={()=>setExpand(!expand)}
-            ref={stageRef} width={300} height={300} className="inline-flex rounded-lg border m-2 p-2 hover:shadow-md transform transition-transform duration-100 ease-out-back hover:-translate-y-1 hover:border-gray-300">
+            ref={stageRef} className="w-full h-full" 
+            >
                 <Layer
                     perfectDrawEnabled={false}
                     listening={false}
@@ -161,6 +172,35 @@ export function VisualizationPreview({source, title, layout, filters, x_axis, y_
                 </Layer>
             </Stage>
 
+    return <div
+            onClick={e => {
+            }}
+            className={expand
+                ? [
+                    "fixed inset-0 z-[5000] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center "
+                  ].join(" ")
+                : "inline-flex"
+              }
+        >
+        <div className={expand
+                ? [
+                    "bg-white p-4 w-min h-min m-auto"
+                  ].join(" ")
+                : "inline-flex rounded-lg border m-2 p-2 hover:shadow-md \
+                   transform transition-transform duration-100 ease-out-back \
+                   hover:-translate-y-1 hover:border-gray-300"
+              }
+        >
+                {visual}
+        </div>
+    </div>
+    return <div 
+            className={
+                expand ? "fixed m-auto top-1/2 left-1/2  transform -translate-x-1/2 -translate-y-1/2 z-[5000] bg-white rounded-lg shadow-lg p-4" 
+                        : "inline-flex rounded-lg border m-2 p-2 hover:shadow-md transform transition-transform duration-100 ease-out-back hover:-translate-y-1 hover:border-gray-300"}
+            >
+                {visual}
+            </div>
 }
 
 

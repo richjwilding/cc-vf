@@ -25,6 +25,37 @@ const actions = {
             return nest( path).join(".")
         }
     },
+    uniqueAllIds(receiver, target) {
+        const stack = [target];
+        const result = [];
+        let idx = 0;
+        const seen = Object.create(null);
+      
+        while (idx < stack.length) {
+          const current = stack[idx++];
+          if (current !== null && typeof current === "object") {
+            if (Array.isArray(current)) {
+              // fast array walk
+              for (let i = 0, len = current.length; i < len; i++) {
+                stack.push(current[i]);
+              }
+            } else {
+              // Object.keys gets own properties only
+              const keys = Object.keys(current);
+              for (let i = 0, len = keys.length; i < len; i++) {
+                stack.push(current[keys[i]]);
+              }
+            }
+          } else {
+            if( !seen[current] ){
+                seen[current] = true
+                result.push(current);
+            }
+          }
+        }
+      
+        return result;
+      },
     allIds(receiver, target) {
         const stack = [target];
         const result = [];
@@ -56,9 +87,9 @@ const actions = {
         return uniqueArray( receiver.ids )
     },
     allUniqueIds(receiver, target){
-        return uniqueArray( receiver.allIds )
+        return receiver.uniqueAllIds
     },
-    uniqueAllIds(receiver, target){
+    __uniqueAllIds(receiver, target){
         return uniqueArray( receiver.allIds )
     },
     includes(receiver, target){

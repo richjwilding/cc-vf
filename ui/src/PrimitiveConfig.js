@@ -700,6 +700,17 @@ const PrimitiveConfig = {
                             {id:true, title: "Yes"}
                         ]
                     },
+                    "calcRange":{
+                        type: "option_list",
+                        title: "Relative scale",
+                        default: false,
+                        options: [
+                            {id:false, title: "None"},
+                            {id:true, title: "by chart"},
+                            {id:"column", title: "by column"},
+                            {id:"row", title: "by row"}
+                        ]
+                    },
                     "show_legend":{
                         type: "option_list",
                         title: "Show Legend",
@@ -709,10 +720,19 @@ const PrimitiveConfig = {
                             {id:true, title: "Yes"}
                         ]
                     },
-                    "calcRange":{
+                    "show_row_totals":{
                         type: "option_list",
-                        title: "Show with range",
-                        default: true,
+                        title: "Row totals",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_column_totals":{
+                        type: "option_list",
+                        title: "Column totals",
+                        default: false,
                         options: [
                             {id:false, title: "No"},
                             {id:true, title: "Yes"}

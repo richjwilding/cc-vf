@@ -689,7 +689,8 @@ class CollectionUtils{
                 return {values: out.map((d,i)=>({idx: d.id, primitive:d, label: d.title ?? "None"}))}
             },
             "raw":(field)=>{
-                let out = interim.map((d)=>d[field]).flat().filter((v,idx,a)=>a.indexOf(v)===idx).sort()
+                //let out = interim.map((d)=>d[field]).flat().filter((v,idx,a)=>a.indexOf(v)===idx).sort()
+                let out = [...new Set(interim.flatMap((d)=>d[field]))].sort();
                 const extents = {values: out.map((d,i)=>({idx: d, label: d === undefined ? "None" : d}))}
                 if( axis.type === "parameter"){
                     const hasImage = interim[0]?.primitive?.metadata?.parameters?.[axis.parameter]?.image
@@ -942,6 +943,267 @@ class CollectionUtils{
         }
         return preCount
     }
+    
+    static renderDataTableAsCSV( tableData ){
+        function escapeCsvCell(cell) {
+            const str = String(cell);
+            if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+                // Escape quotes by doubling them, then wrap in double quotes
+                return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+        }
+
+        let out = ""
+        const includeRowHeader = tableData.rows.length > 1
+        const includeColumnHeader = tableData.columns.length > 1
+        if( includeColumnHeader){
+            out += (includeRowHeader ? "," : "") + tableData.columns.map(d=>escapeCsvCell(d.label)).join(",") + "\n"
+        }
+        for(let rIdx = 0; rIdx < tableData.rows.length; rIdx++){
+            out += (includeRowHeader ? `${escapeCsvCell(tableData.rows[rIdx].label)},` : "")
+            for(let cIdx = 0; cIdx < tableData.columns.length; cIdx++){
+                const id = `${cIdx}-${rIdx}`
+                let cell = tableData.cells.find(d=>d.id === id)
+                let cellData = cell?.count ?? "-"
+                if( tableData.allocations){
+                    for(const a of Object.entries(tableData.allocations)){
+                        cellData += "\n" + `${a[1].title}:\n${"-".repeat(a[1].title.length)}\n`
+                        cellData += cell.allocations[a[0]].map(d=>`${d.label}: ${d.count}`).join("\n")
+                        //${cell.allocations[a[0]].items[a[1].idx]}`)
+                    }
+                }
+                out += escapeCsvCell(cellData) + ","
+            }
+            out += "\n"
+        }
+        return out
+    }
+    static createDataTableForPrimitive(primitive, config ){
+        const primitiveConfig = primitive.getConfig
+        const items = primitive.itemsForProcessing
+        const columns = this.primitiveAxis(primitive, "column", items)
+
+        const rows = this.primitiveAxis(primitive, "row", items)
+        let viewFilters = []
+        if( true /*viewConfig.needsAllAllocations*/ ){
+            viewFilters = primitiveConfig?.explore?.filters?.map((d2,i)=>CollectionUtils.primitiveAxis(primitive, i, items)) ?? []            
+        }
+        let hideNull = primitiveConfig?.explore?.hideNull
+
+        return this.createDataTable( items, {columns, rows, viewFilters, config, hideNull, alreadyFiltered: true})
+
+    }
+    static createDataTable(items, {columns, rows, viewFilters, alreadyFiltered, hideNull, config}){
+        const mainstore = MainStore()
+        let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columns, rows, viewFilters, [], undefined )
+
+        const filters = []
+
+        if( columns?.filter?.length > 0){
+            filters.push({field:"column", exclude: columns.filter})
+        }
+        if( rows?.filter?.length > 0){
+            filters.push({field:"row", exclude: rows.filter})
+        }
+        viewFilters.forEach((d,i)=>{
+            if( d.filter?.length > 0 ){
+                filters.push({field: `filterGroup${i}`, exclude: d.filter})
+            }
+        })
+        const {column: columnExtents, row: rowExtents, ...otherExtents} = extents
+        const defs = {}
+        if( columns ){
+            defs.columns = columns
+        }
+        if( rows ){
+            defs.rows = rows
+        }
+        
+        const allocations = viewFilters.slice(0,1).map(d=>{
+            if( d ){
+                defs.allocations = [d]
+                const field = "filterGroup0"
+                if( otherExtents[field] && d.filter){
+                    otherExtents[field]= otherExtents[field].filter(f=>{
+                        if( f.idx === "_N_" && (d.filter.includes(undefined) || d.filter.includes(null))){
+                            return false
+                        }
+                        return !d.filter.includes(f.idx)
+                    })
+                }
+                return {...d, field}
+            }
+            return undefined
+        }).filter(d=>d)
+
+                
+        let {data: filtered, columns: finalColumns, rows: finalRows} = CollectionUtils.filterCollectionAndAxis( data, filters , {columns: columnExtents, rows: rowExtents, otherExtents, hideNull, skipItemsFilter: alreadyFiltered})
+        const table = {
+            defs,
+            columns: finalColumns,
+            rows: finalRows,
+            totals: {rows: {idx: {}, order: []}, columns: {idx: {}, order: []}, table: 0},
+            ranges: {rows: {idx: {}, order: []}, columns: {idx: {}, order: []}, table: {min: Infinity, max: -Infinity}},
+            cells: []
+        }
+        if( allocations?.length > 0 ){
+            table.allocations = {}
+            allocations.forEach((d)=>{
+                table.allocations[d.field] = {
+                    title: d.title ?? mainstore.primitive(d.sourcePrimId)?.title ?? d.parameter,
+                    items: otherExtents[d.field].map(d=>({...d}))
+                }
+            })
+        }
+
+        const cellMap = {}
+
+        finalRows.forEach((row,rIdx)=>{
+            const rowList = filtered.filter((item=>Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx))
+            finalColumns.forEach((column,cIdx)=>{
+                let subList = rowList.filter((item)=>Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx)
+                let count = subList.length
+
+                table.totals.rows.idx[row.idx] = (table.totals.rows.idx[row.idx] || 0) + count
+                table.totals.columns.idx[column.idx] = (table.totals.columns.idx[column.idx] || 0) + count
+                table.totals.table = table.totals.table + count
+
+                table.ranges.rows.idx[row.idx] ||= {min: Infinity, max: -Infinity}
+                table.ranges.columns.idx[column.idx] ||= {min: Infinity, max: -Infinity}
+                if( count > table.ranges.rows.idx[row.idx].max){
+                    table.ranges.rows.idx[row.idx].max = count
+                }
+                if( count < table.ranges.rows.idx[row.idx].min){
+                    table.ranges.rows.idx[row.idx].min = count
+                }
+                if( count > table.ranges.columns.idx[column.idx].max){
+                    table.ranges.columns.idx[column.idx].max = count
+                }
+                if( count < table.ranges.columns.idx[column.idx].min){
+                    table.ranges.columns.idx[column.idx].min = count
+                }
+
+
+                if( count > table.ranges.table.max){
+                    table.ranges.table.max = count
+                }
+                if( count < table.ranges.table.min){
+                    table.ranges.table.min = count
+                }
+                const idxId = `${column.idx}-${row.idx}`
+                const cell = {
+                    idxId,
+                    columnIdx: column.idx,
+                    rowIdx: row.idx,
+                    items: subList.map(d=>d.primitive),
+                    count: count
+                }
+                if( allocations?.length > 0 ){
+                    cell.allocations = {}
+                    allocations.forEach((d)=>{
+                        if( otherExtents[d.field] ){
+                            cell.allocations[d.field] = otherExtents[d.field].map((c)=>({idx: c.idx, label: c.label, count: 0, items: []}))
+                            const pos = Object.fromEntries(cell.allocations[d.field].map((d,i)=>[d.idx, i]))
+                            for(const item of subList){
+                                cell.allocations[d.field][pos[item[d.field]]].count++
+                                cell.allocations[d.field][pos[item[d.field]]].items.push( item.primitive)
+                            }
+                        }
+                    })
+                }
+                table.cells.push(cell)
+                cellMap[idxId] = cell
+            })
+        })
+        
+
+        function orderAxis( axis, order, name){
+
+            let orderMap
+            if( Array.isArray(order) ){
+                orderMap = new Map(
+                    order.map((idx, position) => [idx, position])
+                )
+            }else{
+
+                const field = order.field
+                let mappedRows
+                if( field === "count"){
+                    const totals = table.totals[name]?.idx
+                    mappedRows = axis.map((d,i)=>[d.idx, totals[d.idx]])
+                    console.log(mappedRows)
+                    mappedRows = mappedRows.sort((a,b)=>a[1] - b[1])
+                }else{
+                    const orth = name === "column" ? "rows" : "columns"
+                    const thisIdx = name === "column" ? "columnIdx" : "rowIdx"
+                    const orthIdx = name === "column" ? "rowIdx" : "columnIdx"
+                    let inScopeIdx = field.orthogonal
+
+                    const mapped = {}
+
+                    table.cells.forEach(cell=>{
+                        if( inScopeIdx && !inScopeIdx.includes(cell[orthIdx]) ){
+                            return
+                        }
+                        mapped[cell[thisIdx]] ||= 0
+                        if( field.allocation ){
+                            let items = cell.allocations[field.allocation] ?? [] 
+                            if(field.values){
+                                items = items.filter(d=>field.values.includes(d.idx))
+                            }
+                            for(const d of items){
+                                mapped[cell[thisIdx]] += d.count
+                            }
+                        }else{
+                            mapped[cell[thisIdx]] += cell.count
+                        }
+                    })
+                    mappedRows = Object.entries(mapped).sort((a,b)=>a[1] - b[1])
+
+                }
+                if( mappedRows ){
+                    if( order.descend){
+                        mappedRows = mappedRows.reverse()
+                    }
+                    orderMap = new Map(mappedRows.map((d,i)=>[d[0], i]))
+                }
+            }
+            if( orderMap ){
+                return axis.sort((a, b) => {
+                    const ia = orderMap.has(a.idx) ? orderMap.get(a.idx) : Infinity;
+                    const ib = orderMap.has(b.idx) ? orderMap.get(b.idx) : Infinity;
+                    return ia - ib;
+                });
+            }
+        }
+
+        if( columns.order ){
+            orderAxis( finalColumns, columns.order, "columns")
+        }
+        if( rows.order ){
+            orderAxis( finalRows, rows.order, "rows")
+        }
+        finalRows.forEach((row,rIdx)=>{
+            const rowList = filtered.filter((item=>Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx))
+            finalColumns.forEach((column,cIdx)=>{
+                const id = `${cIdx}-${rIdx}`
+                const idxId = `${column.idx}-${row.idx}`
+                
+                table.totals.rows.order[rIdx] = table.totals.rows.idx[row.idx]
+                table.totals.columns.order[cIdx] = table.totals.columns.idx[column.idx]
+                
+                table.ranges.rows.order[rIdx] ||= table.ranges.rows.idx[row.idx]
+                table.ranges.columns.order[cIdx] ||= table.ranges.columns.idx[column.idx]
+                
+                const cell = cellMap[idxId]
+                cell.id = id
+                cell.cIdx = cIdx
+                cell.rIdx= rIdx
+            })
+        })
+        return table
+    }
     static mapCollectionByAxis(list, column, row, others, liveFilters, viewPivot){
 
         let pinData = {}
@@ -951,6 +1213,12 @@ class CollectionUtils{
 
         const _pickProcess = ( option )=>{
             if( option ){
+                if(option.relationship && !option._relationship){
+                    option._relationship = [option.relationship].flat().map(d=>{
+                        const split = d.split(":")
+                        return {rel: split[0], rId: split[1]}
+                    })
+                }
                 if( option.type === "category"){
                     return (p)=>{
                         let candidates = option.relationship ? p.relationshipAtLevel(option.relationship, option.access) : [p]
@@ -992,12 +1260,8 @@ class CollectionUtils{
                 }else if( option.type === "title"){
                     return (p)=>{
                         let item = p
-                        //item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access)?.[0] : item.originAtLevel( option.access)
-                        //if( option.passType === "indexed" ){
-                        //    return {order: (item?.referenceParameters?.step ?? item?.referenceParameters?.index), value: item?.title, idx: item.id}
-                       // }
-                        //return item?.title
-                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access) : [item.originAtLevel( option.access)]
+                        //item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access) : [item.originAtLevel( option.access)]
+                        item = option.relationship ? item.relationshipAtLevel(option._relationship, option.access) : (option.access ? [item.originAtLevel( option.access)] : [item])
                         if( option.passType === "indexed" ){
                             item = item.map(d=>{
                                 return {order: (d?.referenceParameters?.step ?? d?.referenceParameters?.index), value: d?.title, idx: d.id}
@@ -1046,7 +1310,7 @@ class CollectionUtils{
                     }
                     return (d)=> {
                         let item = d
-                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access) : [item.originAtLevel( option.access)]
+                        item = option.relationship ? item.relationshipAtLevel(option.relationship, option.access) : (option.access ? [item.originAtLevel( option.access)] : [item])
 
                         item = item.map(d=>{
                             //let value = d?.referenceParameters[option.parameter]
@@ -1129,7 +1393,7 @@ class CollectionUtils{
         let colFilter = filters.find(d=>d.field === "column")?.exclude ?? []
         let rowFilter = filters.find(d=>d.field === "row")?.exclude ?? []
         
-        let list = CollectionUtils.filterCollection( data, filters)
+        let list = options.skipItemsFilter ? data : CollectionUtils.filterCollection( data, filters)
         
         let outColumns
         let outRows
@@ -1160,8 +1424,32 @@ class CollectionUtils{
         }
         return list
     }
+    static applyFilter(list, field, items) {
+        const flatItems = [items].flatMap(d =>d && typeof d === 'object' && d.idx != null ? d.idx : d);
+        const itemSet = new Set(
+          flatItems.map(v => (v === null ? undefined : v))
+        );
+      
+        return list.reduce((out, entry) => {
+          const val = entry[field];
+      
+          if (Array.isArray(val)) {
+            const filtered = val.filter(v => !itemSet.has(v));
+            if (filtered.length > 0) {
+              out.push({ ...entry, [field]: filtered });
+            }
+          } else {
+            // scalar case: only push if not filtered out
+            if (!itemSet.has(val)) {
+              out.push(entry);
+            }
+          }
+      
+          return out;
+        }, []);
+      }
 
-    static applyFilter(list, field, items){
+    /*static applyFilter(list, field, items){
 
         const partial = true // field === "column" || field === "row"
 
@@ -1204,7 +1492,7 @@ class CollectionUtils{
         }
 
         return outList
-    }
+    }*/
     static primitiveAxis( primitive, axisName, items, skipPinData){
         let config = primitive.getConfig
         let axis 
@@ -1371,3 +1659,4 @@ class CollectionUtils{
 }
 
 export default CollectionUtils
+window.utils = CollectionUtils

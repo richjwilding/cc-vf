@@ -14,6 +14,18 @@ import { KonvaPrimitive } from './KonvaPrimitive';
 import { VisualizationPreview } from './VisualizationPreview';
 
   
+function withBadges(editor) {
+  const { isInline, isVoid } = editor
+
+  editor.isInline = element =>
+    element.type === 'badge' ? true : isInline(element)
+
+  editor.isVoid = element =>
+    element.type === 'badge' ? true : isVoid(element)
+
+  return editor
+}
+
 
 function MarkdownBadge({ badgeType }) {
 
@@ -166,7 +178,7 @@ function MarkdownBadge({ badgeType }) {
 
 //  export function MarkdownEditor({ initialMarkdown, ...props }){
 const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...props }, ref){
-  const editor = useMemo(() => withHistory(withReact(createEditor())), []);
+  const editor = useMemo(() => withBadges(withHistory(withReact(createEditor()))), [])
   const slateRef = useRef()
 
   
@@ -212,27 +224,32 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
         Transforms.select(editor, { path: [0, 0], offset: 0 });
       },
       appendMessages: (newMsgs = [], update) => {
+        Editor.withoutNormalizing(editor, () => {
         const wasAtTop = slateRef.current && (slateRef.current.scrollTop + slateRef.current.clientHeight) === slateRef.current.scrollHeight;
+        const isEmpty = !newMsgs || newMsgs.length === 0
         const nodes = convertInitialValue(newMsgs)
         let done = false
         if( update ){
           const endIndex = editor.children.length - 1
           if (endIndex >= 0 ){
             Transforms.removeNodes(editor, { at: [endIndex] });
-            Transforms.insertNodes(editor, nodes, { at: [endIndex] });
-            done = true
+            if( !isEmpty ){
+              Transforms.insertNodes(editor, nodes, { at: [endIndex] });
+              done = true
+            }
           }
         }
-        if( !done ){
+        if( !done && !isEmpty){
           Transforms.insertNodes(editor, nodes, { at: [editor.children.length] })
         }
         // insert at the end of the document
-        if (props.scrollToEnd && wasAtTop) {
+        if (slateRef.current && props.scrollToEnd && wasAtTop) {
           // you can hook into your scroll‐to‐bottom logic here
           setTimeout(() => {
             slateRef.current.scrollTop = slateRef.current.scrollHeight;
           }, 50)
         }
+      })
       },
       value:()=>{
         return slateToMarkdown(value)

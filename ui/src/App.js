@@ -32,7 +32,6 @@ library.add(faTags, faRobot, faTrash, faChevronDown, faLinkedin, faFilter, faCir
 
 let mainstore = MainStore()
 window.mainstore = mainstore
-window.utils = CollectionUtils
 
 window.pc = PrimitiveConfig
 window.mainstore_tests = test// MainStoreTests
