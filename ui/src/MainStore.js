@@ -335,47 +335,27 @@ const actions = {
                     let params = options.params ?? receiver.getConfig
                     if( params.descend ){
                         if( params.referenceId ){
-                            /*let noExpandIds = new Set()
-                            if( params.referenceId ){
-                                const match = params.referenceId
-                                if( Array.isArray(match)){
-                                    list.forEach(d=>{
-                                        if(match.includes(d.referenceId)){
-                                            noExpandIds.add(d.id)
-                                        }
-                                    })
-                                }else{
-                                    list.forEach(d=>{
-                                        if(d.referenceId === match){
-                                            noExpandIds.add(d.id)
-                                        }
-                                    })
-                                }
-                            }
-                            list = list.flatMap(d=>{
-                                if( noExpandIds.has(d.id)){
-                                    return d
-                                }
-                                return [d,d.primitives.strictDescendants]
-                            }).flat().filter(d=>d)*/
-                            const seen = Object.create(null);
                             const match = params.referenceId;
                             const matchSet = new Set(Array.isArray(match) ? match : [match]);
+                            const expanded = new Set()
 
                             const newList = [];
                             for (const d of list) {
-                                if (!seen[d.id]) {
-                                    seen[d.id] = true
-                                    const shouldExpand = !matchSet.has(d.referenceId);
-                                    newList.push(d);
-                                    if( shouldExpand ){
-                                        newList.push(...d.primitives.strictDescendants);
+                                newList.push(d);
+                                if( !matchSet.has(d.referenceId) ){
+                                    for(const v of d.primitives.strictDescendantIds){
+                                        expanded.add( v )
                                     }
                                 }
                             }
 
-                            // Filter falsy values only once
-                            list = newList.filter(Boolean);
+                            list = newList//.filter(Boolean);
+                            for (const d of expanded) {
+                                const p = obj.primitive(d)
+                                if(p){
+                                    list.push(p);
+                                }
+                              }
                         }else{
                             list = list.flatMap(d=>[d,d.primitives.strictDescendants]).flat().filter(d=>d)
                             list = uniquePrimitives(list)
@@ -870,7 +850,6 @@ const actions = {
             const pp = d.parentPrimitives
             if( pp ){
                 if( rel === "origin_link_result"){
-                    const ids = []
                     const keys = Object.keys(pp);
                     for (let i = 0, len = keys.length; i < len; i++) {
                         const k = keys[i];

@@ -1145,17 +1145,16 @@ function SharedRenderView(d, primitive, myState) {
                     mappedCategories
                 }
             }else{
-                if( viewConfig.matrixType === "distribution"){
-                    console.time("dt")
-                    const dataTable = CollectionUtils.createDataTableForPrimitive( basePrimitive )
-                    console.log(dataTable)
-                    console.log(basePrimitive.id)
-                    console.timeEnd("dt")
+                if( viewConfig.matrixType === "distribution" || basePrimitive.plainId === 1205956){
+                    const dataTable = CollectionUtils.createDataTableForPrimitive( basePrimitive, undefined, items )
 
                     myState[stateId].primitive = basePrimitive
                     myState[stateId].config = "datatable"
                     myState[stateId].viewConfig = viewConfig
                     myState[stateId].data = dataTable
+                            
+                    myState[stateId].internalWatchIds = dataTable.ids
+
                     return [stateId]
                 }                    
                 columnAxis.allowMove = columnAxis.access === 0 && !columnAxis.relationship

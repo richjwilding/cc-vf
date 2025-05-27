@@ -979,9 +979,9 @@ class CollectionUtils{
         }
         return out
     }
-    static createDataTableForPrimitive(primitive, config ){
+    static createDataTableForPrimitive(primitive, config, items ){
         const primitiveConfig = primitive.getConfig
-        const items = primitive.itemsForProcessing
+        items = items ?? primitive.itemsForProcessing
         const columns = this.primitiveAxis(primitive, "column", items)
 
         const rows = this.primitiveAxis(primitive, "row", items)
@@ -1045,7 +1045,8 @@ class CollectionUtils{
             rows: finalRows,
             totals: {rows: {idx: {}, order: []}, columns: {idx: {}, order: []}, table: 0},
             ranges: {rows: {idx: {}, order: []}, columns: {idx: {}, order: []}, table: {min: Infinity, max: -Infinity}},
-            cells: []
+            cells: [],
+            ids: Array.from(new Set(filtered.map(d=>d.primitive.id) ))
         }
         if( allocations?.length > 0 ){
             table.allocations = {}
@@ -1147,7 +1148,7 @@ class CollectionUtils{
                             return
                         }
                         mapped[cell[thisIdx]] ||= 0
-                        if( field.allocation ){
+                        if( field.allocation && cell.allocations ){
                             let items = cell.allocations[field.allocation] ?? [] 
                             if(field.values){
                                 items = items.filter(d=>field.values.includes(d.idx))
@@ -1399,10 +1400,20 @@ class CollectionUtils{
         let outRows
 
         if( options.columns  ){
-            outColumns = options.columns.filter(d=>!colFilter.includes(d.idx) )
+            outColumns = options.columns.filter(d=>{
+                if( d.idx === "_N_" && (colFilter.includes(undefined) || colFilter.includes(null))){
+                    return false
+                }
+                return !colFilter.includes(d.idx)
+            })
         }
         if( options.rows  ){
-            outRows = options.rows.filter(d=>!rowFilter.includes(d.idx) )
+            outRows = options.rows.filter(d=>{
+                if( d.idx === "_N_" && (rowFilter.includes(undefined) || rowFilter.includes(null))){
+                    return false
+                }
+                return !rowFilter.includes(d.idx)
+            })
         }
 
         if( options.hideNull ){

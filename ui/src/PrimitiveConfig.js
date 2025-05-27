@@ -442,7 +442,7 @@ const PrimitiveConfig = {
                     },
                 }
             },
-            counts: {id:1, title:"Heatmap",
+            counts: {id:1, title:"Heatmap", "matrixType": "heatmap",
                 config:{
                     "colors":{
                         type: "option_list",
@@ -791,6 +791,14 @@ const PrimitiveConfig = {
     decodeParameter:(data, path)=>{
         if (!data || !path) return undefined;
         const parts = path.split(".");
+        for (let i = 0; i < parts.length; i++) {
+            if (!data) return undefined; 
+            data = data[parts[i]];
+        }
+        return data;
+    },
+    decodeParameterFromParts:(data, parts)=>{
+        if (!data || !parts) return undefined;
         for (let i = 0; i < parts.length; i++) {
             if (!data) return undefined; 
             data = data[parts[i]];
@@ -1369,8 +1377,19 @@ const PrimitiveConfig = {
                     data = lookups[idx].map(d=>d.title)
                 }
                 else if( resolvedFilterType === "parameter"){
-                    data = lookups[idx].map(d=>PrimitiveConfig.decodeParameter(d.referenceParameters,filter.param))
-                    data = data.flatMap(d=>Array.isArray(d) && d.length === 0 ? undefined : d)
+                    const parts = filter.param.split(".");
+                    if( parts.length > 1){
+                        data = lookups[idx].flatMap(d=>{
+                            const r = PrimitiveConfig.decodeParameterFromParts(d.referenceParameters, parts) 
+                            return Array.isArray(r) && r.length === 0 ? undefined : r
+                        })
+                    }else{
+                        data = lookups[idx].flatMap(d=>{
+                            const r = d.referenceParameters[parts[0]]
+                            return Array.isArray(r) && r.length === 0 ? undefined : r
+                        })
+                    }
+                    //data = data.flatMap(d=>Array.isArray(d) && d.length === 0 ? undefined : d)
                 }else if( resolvedFilterType === "type"){
                     data = lookups[idx].map(d=>d.referenceId)
                 }else if( resolvedFilterType === "not_category_level1"){

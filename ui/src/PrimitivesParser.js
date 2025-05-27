@@ -89,6 +89,27 @@ const actions = {
     allUniqueIds(receiver, target){
         return receiver.uniqueAllIds
     },
+    allUniqueCategory(receiver, target){
+        return receiver.uniqueAllItems.filter((p)=>p.type === "category")
+    },
+    allUniqueSegment(receiver, target){
+        return receiver.uniqueAllItems.filter((p)=>p.type === "segment")
+    },
+    allUniqueFlow(receiver, target){
+        return receiver.uniqueAllItems.filter((p)=>p.type === "flow")
+    },
+    allUniqueQuery(receiver, target){
+        return receiver.uniqueAllItems.filter((p)=>p.type === "query")
+    },
+    allUniqueSearch(receiver, target){
+        return receiver.uniqueAllItems.filter((p)=>p.type === "search")
+    },
+    allUniqueCategorizer(receiver, target){
+        return receiver.uniqueAllItems.filter((p)=>p.type === "categorizer")
+    },
+    allUniqueSummary(receiver, target){
+        return receiver.uniqueAllItems.filter((p)=>p.type === "summary")
+    },
     __uniqueAllIds(receiver, target){
         return uniqueArray( receiver.allIds )
     },
@@ -164,9 +185,12 @@ const storeActions = {
     },uniqueItems(receiver, target,obj){
         return receiver.uniqueIds.map((d)=>obj.primitive(d)).filter((d)=>d)
     },
+    strictDescendantIds(receiver, target,obj){
+        return receiver._buildDescendantIds( {}, true, true )
+    },
     strictDescendants(receiver, target,obj){
         const ids = receiver._buildDescendantIds( {}, true, true )
-        return ids.map((d)=>obj.primitive(d)).filter((d)=>d)
+        return ids.flatMap((d)=>obj.primitive(d))//.filter((d)=>d)
     },
     directDescendants(receiver, target,obj){
         const ids = receiver._buildDescendantIds( {}, true, false, true )

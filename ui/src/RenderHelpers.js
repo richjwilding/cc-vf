@@ -952,24 +952,25 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
     if( !options.list ){
         return undefined
     }
-    let range = options.range
-    let totals = options.totals
+    let range = options.range ?? [0,0]
+    let totals = options.totals ?? [0]
     let title = ""
     if(!options.inTable){
 
         if( renderOptions?.group_by === "row"){
-            totals = options.rowTotal[options.rIdx]
-            range = options.rowRange[options.rIdx]
-            title = options.colTitles[options.cIdx]
+            totals = options.rowTotal?.[options.rIdx]
+            range = options.rowRange?.[options.rIdx]
+            title = options.colTitles?.[options.cIdx]
         }else if( renderOptions?.group_by === "col"){
-            totals = options.colTotal[options.cIdx]
-            range = options.colRange[options.cIdx]
-            title = options.rowTitles[options.rIdx]
+            totals = options.colTotal?.[options.cIdx]
+            range = options.colRange?.[options.cIdx]
+            title = options.rowTitles?.[options.rIdx]
         }
     }
 
     const colors = heatMapPalette.find(d=>d.name === (renderOptions?.colors ?? "default"))?.colors ?? heatMapPalette[0].colors
     const textColors = heatMapPalette.find(d=>d.name === (renderOptions?.colors ?? "default"))?.text_colors ?? colors.map(d=>"black")
+    range ||= [0,0]
     const spread = range[1] - range[0] + 1
     
     
@@ -6078,6 +6079,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "set_format_grid"}, fun
     return categoryGrid( primitive, {...options, itemSize: 450})
 })
 registerRenderer( {type: "default", configs: "set_distribution"}, function renderFunc(primitive, options = {}){
+    console.warn("USING OLD RENDER FOR SUB DISTRIBITION")
     const {list, extents, ...forwardOptions} = options
     const viewConfig = {
         renderType: "distribution_chart",
@@ -6139,6 +6141,117 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
             height: sg.height()
         }
     }
+    return g
+})
+registerRenderer( {type: "default", configs: "datatable_heatmap"}, ({table, cell, renderOptions, ...options})=>{
+    const config = {width: 128, height: 128, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    let range = table.ranges.table
+    let totals = table.totals.table
+    let title = ""
+
+    if( renderOptions?.group_by === "row"){
+        totals = table.totals.rows?.order?.[cell.rIdx]
+        range = table.ranges.rows?.order?.[cell.rIdx]
+        //title = options.colTitles?.[options.cIdx]
+    }else if( renderOptions?.group_by === "col"){
+        totals = table.totals.columns?.order?.[cell.cIdx]
+        range = table.ranges.columns?.order?.[cell.cIdx]
+        //title = options.rowTitles?.[options.rIdx]
+    }
+
+    const colors = heatMapPalette.find(d=>d.name === (renderOptions?.colors ?? "default"))?.colors ?? heatMapPalette[0].colors
+    const textColors = heatMapPalette.find(d=>d.name === (renderOptions?.colors ?? "default"))?.text_colors ?? colors.map(d=>"black")
+    range ||= {min: 0, max: 0}
+    totals ||= 0
+    const spread = range.max - range.min + 1
+    
+    
+    const g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+
+    const idx = Math.floor((cell.count- range.min) / spread * colors.length) 
+
+    if( renderOptions.bubble){
+        const b = new Konva.Rect({
+            x: config.padding[3],
+            y: config.padding[0],
+            width: config.width - config.padding[3] - config.padding[1],
+            height: config.height - config.padding[0] - config.padding[2],
+            fill: "transparent",
+            name: "background"
+        })
+        g.add(b)
+        const maxR = Math.min((config.width - config.padding[3] - config.padding[1]) / 2,(config.height - config.padding[2] - config.padding[0]) / 2)
+        const s = cell.count
+        let r = s ===0 ? (!renderOptions.counts ? 1 : 0) : maxR / spread * (1+(s- range.min))
+        let color = s === 0 && !renderOptions.counts ? "#555" : s === 0 ? "white" : colors[idx]
+        if( r > 0){
+            const r2 = new Konva.Circle({
+                x: config.padding[3] + maxR,
+                y: config.padding[0] + maxR,
+                radius: r,
+                fill: color
+            })
+            g.add(r2)
+        }
+    }else{
+        const r2 = new Konva.Rect({
+            x: config.padding[3],
+            y: config.padding[0],
+            width: config.width - config.padding[3] - config.padding[1],
+            height: config.height - config.padding[0] - config.padding[2],
+            fill: cell.count === 0 ? "white" : colors[idx]
+        })
+        g.add(r2)
+    }
+    if( renderOptions?.counts){
+        const t = new Konva.CustomText({
+            x: config.padding[3],
+            y: (config.height) / 2,
+            text: renderOptions?.counts === "percentage" ? `${(cell.count / totals * 100).toFixed(0)}% ` : cell.count,
+            fontSize: renderOptions.bubble ? 10 : 16,
+            fontStyle: renderOptions.bubble ? "bold" : undefined,
+            fill: textColors[idx],
+            width: config.width - config.padding[3] - config.padding[1],
+            align:'center',
+            height:20,
+            bgFill: 'transparent',
+            refreshCallback: options.imageCallback
+        })
+        g.add(t)
+        t.y((config.height - t.textHeight ) /2)
+
+    }else if( renderOptions?.titles){
+        const t = new Konva.CustomText({
+            x: config.padding[3],
+            y: (config.height - 20) / 2,
+            text: title,
+            fontSize: 16,
+            width: config.width - config.padding[3] - config.padding[1],
+            fill: textColors[idx],
+            wrap: true,
+            ellipses: true,
+            align:'center',
+            //height:20,
+            bgFill: 'transparent',
+            refreshCallback: options.imageCallback
+        })
+        g.add(t)
+        t.y((config.height - t.height() ) /2)
+
+    }
+
+
+    if( options.getConfig){
+        return config
+    }
+
     return g
 })
 registerRenderer( {type: "default", configs: "set_distribution_chart"}, function renderFunc(primitive, options = {}){
@@ -7388,11 +7501,9 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     let columnWidths = data.columns.map(d=>0)
 
     let config = viewConfig?.matrixType ?? "grid"
-    if( config === "distribution"){
-        config = "distribution_dt"
-    }
 
-    let renderer = typeMaps[ "default" ]["datatable_distribution"]
+    let renderer = typeMaps[ "default" ][`datatable_${config}`]
+
 
     let configForCells = data.cells.reduce((a,cell)=>{
         const cellConfig = renderer({table:data, getConfig: true, renderOptions, config, cell})
