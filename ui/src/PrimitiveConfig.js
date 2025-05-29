@@ -410,7 +410,7 @@ const PrimitiveConfig = {
                     }
 
                 }},
-            checktable: {id: 2,title:"Truth table", renderType: "checktable",parameters: {},
+            checktable: {id: 2,title:"Truth table", matrixType: "checktable", renderType: "checktable",parameters: {},
                 config:{
 
                     "max_cols":{
@@ -487,6 +487,24 @@ const PrimitiveConfig = {
                     "bubble":{
                         type: "option_list",
                         title: "Show as bubbles",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_row_totals":{
+                        type: "option_list",
+                        title: "Row totals",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_column_totals":{
+                        type: "option_list",
+                        title: "Column totals",
                         default: false,
                         options: [
                             {id:false, title: "No"},

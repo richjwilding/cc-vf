@@ -47,6 +47,47 @@ router.get('/', async function(req, res, next) {
 })
 
 
+router.get('/companyLogo', async (req, res) => {
+    const name = req.query.name;
+
+    if (!name) {
+      return res.status(400).send('Missing name');
+    }
+  
+    try {
+        const { data } = await axios.get('https://api.logo.dev/search', {
+            params: { q: name },
+            headers: {
+              'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
+            }
+        });
+        let domain
+        if( data?.[0]?.domain  ){
+            domain = data[0].domain
+        }else{
+            return res.status(400).send('Couldnt find a match');
+        }
+        
+        const response = await axios({
+            method: 'get',
+            url: `https://img.logo.dev/${domain}?token=${process.env.LOGODEV_KEY}`,
+            responseType: 'stream'
+          });
+
+      // Set CORS header so the image can be used on your frontend
+      res.set('Access-Control-Allow-Origin', '*');
+      
+      // Forward the content-type header from the remote response
+      res.set('Content-Type', response.headers['content-type']);
+      res.set('Cache-Control', 'public, max-age=86400');
+      
+      // Pipe the remote image stream directly to the response
+      response.data.pipe(res);
+    } catch (error) {
+      console.error('Error fetching image:', error.message);
+      res.status(500).send('Error fetching image');
+    }
+  });
 router.get('/remoteImage', async (req, res) => {
     const imageUrl = req.query.url;
 

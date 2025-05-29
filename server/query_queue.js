@@ -9,7 +9,7 @@ import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
 import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleScholar, queryYoutube } from "./google_helper";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
-import { fetchInstagramPostsFromProfile, queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryLinkedInUserPostsBrightData, queryRedditWithBrightData, queryReviewsIO, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
+import { fetchInstagramPostsFromProfile, queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryLinkedInCompanyProfilePostsBrightData, queryLinkedInUserPostsBrightData, queryRedditWithBrightData, queryReviewsIO, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryQuoraByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
 import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
@@ -456,7 +456,10 @@ export async function processQueue(job, cancelCheck, extendJob){
                                 await searchLinkedInJobs( terms,  callopts) 
                             }else if( source.type === "user_posts" ){
                                 await queryLinkedInUserPostsBrightData( primitive, terms,  callopts) 
+                            }else if( source.type === "company_posts" ){
+                                await queryLinkedInCompanyProfilePostsBrightData( primitive, terms,  callopts) 
                             }
+
                         }
                         if( source.platform === "gdelt" ){
                             await fetchArticlesFromGdelt( terms, callopts) 

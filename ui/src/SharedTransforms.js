@@ -1,4 +1,20 @@
 
+export function pickAtRandom(input, count) {
+  const out = [];
+  const used = new Set();
+  const n = input.length;
+
+  count = Math.min(count, n);
+
+  while (out.length < count && used.size < n) {
+    const idx = Math.floor(Math.random() * n);
+    if (!used.has(idx)) {
+      used.add(idx);
+      out.push(input[idx]);
+    }
+  }
+  return out;
+}
 export function isObjectId(id){
   return /^[0-9a-fA-F]{24}$/.test(id);
 }
@@ -129,9 +145,11 @@ export function markdownToSlate(markdownContent = "") {
   let nextRowBuffer = ""
   let nextPipeCount = 0
 
-  for (let raw of lines) {
+  let lineCount = lines.length
+  for (let lineNumber = 0; lineNumber < lineCount; lineNumber++) {
+    let raw = lines[lineNumber] ?? ""
     if( isInTable ){
-      if( rowPipeCount >0 && rowPipeCount < currentTable.expectedPipeCount ){
+      if( (rowPipeCount >0 ||raw[0] === "|") && rowPipeCount < currentTable.expectedPipeCount ){
         let cols = raw.split("|")
         const isHeaderSep = cols.length > 1 && cols.every(c => /^-+$/.test(c));
         if( !isHeaderSep ){
@@ -140,6 +158,12 @@ export function markdownToSlate(markdownContent = "") {
             nextRowBuffer = raw
             nextPipeCount = pipes
             raw = rowBuffer 
+            if( raw.at(-1) !== "|"){
+              raw += "|"
+            }
+            if( lineNumber === (lineCount - 1)){
+              lineCount++
+            }
           }else{
             rowBuffer += (rowBuffer !== "" ? "\n" : "") + raw
             //rowBuffer += raw
@@ -148,6 +172,11 @@ export function markdownToSlate(markdownContent = "") {
               nextRowBuffer = ""
               nextPipeCount = 0
               raw = rowBuffer 
+            }else if( lineNumber === (lineCount - 1)){
+              raw = rowBuffer 
+              if( raw.at(-1) !== "|"){
+                raw += "|"
+              }
             }else{
               continue
             }

@@ -202,6 +202,7 @@ export async function summarizeMultiple(list, options = {} ){
         }
     }
     
+    
     let interim = await processInChunk( list, 
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
@@ -215,7 +216,9 @@ export async function summarizeMultiple(list, options = {} ){
                 no_num: list.length === 1 , 
                 field: wholeResponse ? undefined : (options.field ?? "response"), 
                 debug: false, 
-                ...options })
+                ...options,
+                stream: options.stream && !options.batch ? options.stream : undefined
+            })
 
 
     if( Object.hasOwn(interim, "success")){
@@ -782,6 +785,9 @@ export async function processInChunk( list, pre, post, options = {} ){
                                                                                     (backIdx)=>{
                                                                                         back++
                                                                                         console.log(`Batch ${backIdx} (${back} total) of ${batchData.length} completed`)
+                                                                                        if( options.notify ){
+                                                                                            options.notify(`Processed ${back * options.batch} of ${maxIdx + 1}`)
+                                                                                        }
                                                                                         if(options.progressCallback){
                                                                                             options.progressCallback({completed: back, total: batchData.length})
                                                                                         }

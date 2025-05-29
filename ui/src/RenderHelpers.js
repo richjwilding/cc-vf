@@ -356,6 +356,59 @@ registerRenderer( {type: "default", configs: "set_dials"}, (primitive, options =
 
     return g
 })
+registerRenderer( {type: "default", configs: "datatable_checktable"}, ({table, cell, renderOptions, ...options})=>{
+    const config = {width: 60, height: 60, padding: [2,2,2,2]}
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+        
+        const w = config.width - config.padding[3] - config.padding[1]
+        const h = config.height - config.padding[0] - config.padding[2]
+        const r = new Konva.Rect({
+            x: config.padding[3],
+            y: config.padding[0],
+            width: w,
+            height: h,
+            fill: '#f9fafb',
+            name: "background"
+        })
+        g.add(r)
+
+
+        if( cell.count > 0 ){
+
+                const cScale = Math.min(w,h * 0.75) / 500 
+                const dim = 500 * cScale
+                const points = [
+                    100, 300, 200, 400, 400, 100
+                ].map(d=>d * cScale)
+                
+                const polyline = new Konva.Line({
+                    points: points,
+                    x: config.padding[3] + ((w - dim) / 2),
+                    y: config.padding[0] + ((h - dim) / 2),
+                    stroke: "black",
+                    strokeWidth: 2,
+                    lineJoin: 'round',
+                    lineCap: 'round',
+                    closed: false
+                });
+                g.add(polyline)
+
+        }
+
+
+    if( options.getConfig){
+        return config
+    }
+
+    return g
+})
 registerRenderer( {type: "default", configs: "set_checktable"}, (primitive, options = {})=>{
     const config = {width: 60, height: 60, padding: [2,2,2,2], ...(options.renderConfig ?? {})}
     if( !options.list ){
@@ -7522,7 +7575,7 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     const columnX = columnWidths.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + columnWidths[i - 1] + spacing : 0), acc), []);
     const rowY = rowHeights.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + rowHeights[i - 1] + spacing : 0), acc), []);
 
-    const headers = prepareHeaders({columns: data.columns, rows: data.rows, columnWidths, rowHeights, columnX, rowY, spacing, refreshCallback: imageCallback})
+    const headers = prepareHeaders({columns: data.columns, rows: data.rows, columnWidths, rowHeights, columnX, rowY, spacing, renderOptions, refreshCallback: imageCallback})
     let footers
     if( (data.totals.columns && renderOptions.show_column_totals) || (data.totals.rows  && renderOptions.show_row_totals)){
         footers = prepareHeaders({
@@ -7532,6 +7585,7 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
             fontSize: headers.fontSize,
             includeColumns: renderOptions.show_column_totals,
             includeRows: renderOptions.show_row_totals,
+            renderOptions,
             columnWidths, rowHeights, columnX, rowY, spacing, refreshCallback: imageCallback
         })
     }
@@ -7631,7 +7685,7 @@ function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, re
     
     return {rendered: text, fontSize}
 }
-function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY, baseFontSize = 12, spacing, textPadding = [5,5,5,5], refreshCallback, includeColumns = true, includeRows = true, background = true,...options}){
+function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY, renderOptions, baseFontSize = 12, spacing, textPadding = [5,5,5,5], refreshCallback, includeColumns = true, includeRows = true, background = true,...options}){
     const maxColumnWidth = Math.max(...columnWidths)
     const maxRowHeight = Math.max(...rowHeights)
     let maxFont =  Math.max(6, maxRowHeight / 4)
@@ -7651,6 +7705,18 @@ function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY,
     const idealWidth = Math.min(200, ...columnWidths)
 
     const columnContent = includeColumns ? columns.map((d,i)=>{
+        if( renderOptions?.columnAsCompany){
+            columnLabelAsText = false
+            const iconSize = idealWidth
+            const logo = imageHelper( "/api/companyLogo?name=" + d.label, {
+                x: (columnWidths[i] - (iconSize * 0.8)) /2,
+                y: 0,
+                size: iconSize * 0.8,
+                imageCallback: refreshCallback
+            }) 
+            return logo
+
+        }
         if( d.imageUrl ){
             columnLabelAsText = false
             const iconSize = idealWidth

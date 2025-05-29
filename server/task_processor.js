@@ -1,7 +1,7 @@
 import { combineGroupsToChunks, extractSentencesAndKeywords, fetchFragmentsForTerm, groupNeighboringSentences } from "./DocumentSearch";
 import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
-import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
+import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { findFilterMatches } from "./actions/SharedTransforms";
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
@@ -145,7 +145,9 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
                     data = item.map(d=>d.title)
                 }
                 else if( resolvedFilterType === "parameter"){
-                    data = item.map(d=>d.referenceParameters?.[mappedFilter.parameter ?? mappedFilter.param])
+                    //data = item.map(d=>d.referenceParameters?.[mappedFilter.parameter ?? mappedFilter.param])
+                    const param = mappedFilter.parameter ?? mappedFilter.param
+                    data = item.map(d=>decodePath(d.referenceParameters, param))
                 }else if( resolvedFilterType === "type"){
                     data = item.map(d=>d.referenceId)
                 }else if( resolvedFilterType === "parent"){

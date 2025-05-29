@@ -66,11 +66,14 @@ async function moveItemWithinFrame(primitiveId, startZone, endZone, frame){
         let localItems
         if( myState[id].axisSource){
             if( ! myState[myState[id].axisSource.id] ){
-                console.error(`!!!!! Board not ready ${myState[id].axisSource.id}`)
+                SharedPrepareBoard(myState[id].axisSource, myState)
+                myState[myState[id].axisSource.id].skipNextBuild = true
             }
             const source = myState[myState[id].axisSource.id]
             if( source ){
-                if( source.primitiveList){
+                if( source.data){
+                    localItems = source.data.cells.flatMap(d=>d.items)
+                }else if( source.primitiveList){
                     localItems = source.primitiveList
                 }else{
                     localItems = source.list?.map(d=>d.primitive)
@@ -245,38 +248,36 @@ function preparePageElements( d, pageState ){
             const state = {
                 [d.id]: variantData[vId][d.id],
             }
-            //if( variantData[vId][d.id].axisSource ){
-                const subs = [variantData[vId][d.id].axisSource, ...(variantData[vId][d.id].pinSource ?? [])].filter(d=>d)
-                let buildNew = false
-                for( let axisSource of subs){
-                    //let axisSource = variantData[vId][d.id].axisSource
-                    if(!variantData[vId][axisSource.id]){
-                        let axisBoard = {}
-                        
-                        if (axisSource.inFlow && axisSource.configParent.flowElement) {
-                            const parent = axisSource.configParent
-                            const flowInstance = axisSource.origin
-                            const flow = parent.origin
-                            if( flowInstance.origin.id !== flow.id){
-                                throw `Flow mismatch ${flowInstance.id} ${flow.id}`
-                            }
-                            axisBoard[parent.id] = {
-                                id: parent.id,
-                                underlying: axisSource,
-                                inFlow: true,
-                                flow,
-                                flowInstance
-                            }
-                            axisSource = parent
+            const subs = [variantData[vId][d.id].axisSource, ...(variantData[vId][d.id].pinSource ?? [])].filter(d=>d)
+            let buildNew = false
+            for( let axisSource of subs){
+                //let axisSource = variantData[vId][d.id].axisSource
+                if(!variantData[vId][axisSource.id]){
+                    let axisBoard = {}
+                    
+                    if (axisSource.inFlow && axisSource.configParent.flowElement) {
+                        const parent = axisSource.configParent
+                        const flowInstance = axisSource.origin
+                        const flow = parent.origin
+                        if( flowInstance.origin.id !== flow.id){
+                            throw `Flow mismatch ${flowInstance.id} ${flow.id}`
                         }
-                        
-                        SharedPrepareBoard( axisSource, axisBoard)
-                        state[axisSource.id] = axisBoard[axisSource.id]
-                        buildNew = true
+                        axisBoard[parent.id] = {
+                            id: parent.id,
+                            underlying: axisSource,
+                            inFlow: true,
+                            flow,
+                            flowInstance
+                        }
+                        axisSource = parent
                     }
+                    
+                    SharedPrepareBoard( axisSource, axisBoard)
+                    state[axisSource.id] = axisBoard[axisSource.id]
+                    buildNew = true
                 }
-            //}
-            if( variantData[vId][d.id].pinSource && buildNew ){
+            }
+            if( buildNew ){
                 SharedPrepareBoard( d, {
                     ...state,
                     ...variantData[vId]
@@ -714,9 +715,14 @@ function SharedRenderView(d, primitive, myState) {
     }
 
     function SharedPrepareBoard(d, myState, element, forceViewConfig){
+        let stateId = element ? element.id : d.id
+        if( myState[stateId]?.skipNextBuild ){
+            console.log(`++++ SKIP THIS BUILD of ${stateId}`)
+            myState[stateId].skipNextBuild = false
+            return
+        }
         let didChange = false
         let boardsToRefresh = []
-        let stateId = element ? element.id : d.id
         if( !myState[stateId]){
                 myState[stateId] = {id: stateId}
         }
@@ -1145,8 +1151,27 @@ function SharedRenderView(d, primitive, myState) {
                     mappedCategories
                 }
             }else{
-                if( viewConfig.matrixType === "distribution" || basePrimitive.plainId === 1205956){
-                    const dataTable = CollectionUtils.createDataTableForPrimitive( basePrimitive, undefined, items )
+                if( viewConfig.matrixType === "checktable" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts){
+                    let dataTable 
+                    
+                    if(myState[stateId].axisSource){
+                        let dataSource
+                        if (myState[stateId].axisSource.inFlow && myState[stateId].axisSource.configParent?.flowElement) {
+                            dataSource = myState[myState[stateId].axisSource.configParent.id];
+                        } else {
+                            dataSource = myState[myState[stateId].axisSource.id];
+                        }
+                        if( dataSource){
+                            const columns = (dataSource.data ? dataSource.data.defs?.columns : dataSource.axis?.column ) ?? []
+                            const rows = (dataSource.data ? dataSource.data.defs?.rows : dataSource.axis?.row) ?? []
+                            dataTable = CollectionUtils.createDataTable( items, {columns, rows, viewFilters: [], config: undefined, hideNull: false, alreadyFiltered: true})
+                            console.log(`GOT from ${dataSource.id}`)
+                        }
+
+                    }
+                    if( !dataTable ){
+                        dataTable = CollectionUtils.createDataTableForPrimitive( primitiveToPrepare, undefined, items )
+                    }
 
                     myState[stateId].primitive = basePrimitive
                     myState[stateId].config = "datatable"

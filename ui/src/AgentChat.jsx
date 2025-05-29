@@ -124,6 +124,14 @@ export default function AgentChat({primitive, ...props}) {
             const payload = JSON.parse(part.slice(5).trim());
       
             if (payload.content) {
+              if( payload.content.startsWith("__SC_BK")){
+                const rewind = payload.content.match(/__SC_BK(\d+)__/)
+                if( rewind ){
+                  const rewindCount = parseInt(rewind[1])
+                  displayContent = displayContent.slice(0, displayContent.length - rewindCount)
+                  payload.content = payload.content.slice(rewind[0].length)
+                }
+              }
               if( displayContent.endsWith("[[agent_running]]")){
                 displayContent = displayContent.slice(0, displayContent.length - 17 )
               }else  {

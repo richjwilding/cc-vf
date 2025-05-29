@@ -140,6 +140,40 @@ const bdExtractors = {
             }
         }
     },
+    "linkedin_company_post":{
+        datasetId: "gd_lyy3tktm25m4avu764",
+        id: (data)=>data.id,
+        excludeIds:async ()=>{},
+    //    limit: 100,
+        linkConfig:linkToPrimitiveViaSearchPath,
+        queryParams: "&type=discover_new&discover_by=company_url",
+        data:  (data)=>{
+            const date_posted = moment(data.date_posted).format('DD MMM YY')
+
+            return {
+                title: data.title,
+                referenceId: 123,
+                referenceParameters:{
+                    url: data.url,
+                    id: data.id,
+                    api_source: "bd_linkedin_post",
+                    username: data.user_id,
+                    userProfile: data.user_url,
+                    overview: data.headline,
+                    imageUrl: data.images?.[0],
+                    likes: data.num_likes,
+                    source: "LinkedIn",
+                    date_posted,
+                    location: data.location,
+                    posts_count: data.user_posts,
+                    followers: data.user_followers,
+                    description: data.post_text,
+                    hashtags: data.hashtags,
+                    account_type: data.account_type
+                }
+            }
+        }
+    },
     "linkedin_user_post":{
         datasetId: "gd_lyy3tktm25m4avu764",
         id: (data)=>data.id,
@@ -442,10 +476,21 @@ export async function queryLinkedInCompanyPostsBrightData( primitive, company_ur
 
     await triggerBrightDataCollection(input, "linkedin_post", primitive, terms,callopts)
 }
+export async function queryLinkedInCompanyProfilePostsBrightData( primitive, terms, callopts){
+    const input = terms.split(",").map(d=>d.trim()).filter(d=>d).map(d=>({        
+        url: d,
+    }))
+    console.log(input)
+    if( primitive.processing?.bd?.collectionId){
+        console.log(`Not redoing LI fetch`)
+        return 
+    }
+
+    await triggerBrightDataCollection(input, "linkedin_company_post", primitive, terms,callopts)
+}
 export async function queryLinkedInUserPostsBrightData( primitive, terms, callopts){
     const input = terms.split(",").map(d=>d.trim()).filter(d=>d).map(d=>({        
         url: d,
-       // start_date: moment().subtract(2, "years").toISOString()
     }))
     console.log(input)
     if( primitive.processing?.bd?.collectionId){

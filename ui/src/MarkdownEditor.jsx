@@ -2,7 +2,7 @@ import React, { useMemo, useState, useCallback, useEffect, forwardRef, useImpera
 import { createEditor, Editor, Transforms, Text, Node, Element as SlateElement, Path } from 'slate';
 import { Slate, Editable, withReact, ReactEditor } from 'slate-react';
 import { withHistory } from 'slate-history';
-import { markdownToSlate } from './SharedTransforms';
+import { markdownToSlate, pickAtRandom } from './SharedTransforms';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import clsx from 'clsx';
 import MainStore from './MainStore';
@@ -27,6 +27,7 @@ function withBadges(editor) {
 }
 
 
+
 function MarkdownBadge({ badgeType }) {
 
   function runningBadge(title){
@@ -48,32 +49,46 @@ function MarkdownBadge({ badgeType }) {
         return runningBadge(badgeType.trim())
       }
       if(badgeType.startsWith("id:")){
-        const ids = badgeType.slice(3).split(",")
+        let ids = badgeType.slice(3).split(",")
         const mainstore = MainStore()
-        return ids.map(d=>{
+        let overflow = ids.length > 5 ? ids.length - 5 : undefined
+        if( overflow ){
+          ids = pickAtRandom(ids, 5)
+        }
+        const badges = ids.map(d=>{
           const p = mainstore.primitive(d.trim())
           if( p ){
             return  <span 
-              className="bg-gray-200 border hover:bg-gray-300 hover:border-gray-400 inline-flex items-center justify-center p-0.5 rounded-full text-gray-600 hover:text-gray-800" 
+              className="bg-gray-200 border hover:bg-gray-300 hover:border-gray-400 inline-flex mx-0.5 items-center justify-center p-0.5 rounded-full text-gray-600 hover:text-gray-800" 
               onClick={()=>mainstore.sidebarSelect(p)}
               >
             <ArrowRightIcon className='w-3'/>
           </span>
           }
-          return <></>
         })
+        return <>
+          {badges}
+          {overflow && <span className="-mt-1 align-middle bg-gray-200 inline-block mx-0.5 px-1 py-1 rounded text-gray-600 leading-none text-[8px]">+{overflow}</span>}
+        </>
       }
       if(badgeType.startsWith("ref:")){
-        const ids = badgeType.slice(4).split(",")
+        let ids = badgeType.slice(4).split(",")
         const mainstore = MainStore()
-        return ids.map(d=>{
+        let overflow = ids.length > 5 ? ids.length - 5 : undefined
+        if( overflow ){
+          ids = pickAtRandom(ids, 5)
+        }
+        const badges = ids.slice(0,5).map(d=>{
           const p = mainstore.primitive(d.trim())
-          console.log(p)
           if( p ){
             return <KonvaPrimitive primitive={p}/>
           }
           return <></>
         })
+        return <>
+          {badges}
+          {overflow && <span className="-mt-1 align-middle bg-gray-200 inline-block mx-1 px-1 py-1 rounded text-gray-600 leading-none text-[8px]">+{overflow} more</span>}
+        </>
       }
       return (
         <span className="inline-block px-2 py-0.5 bg-gray-200 text-gray-800 rounded">
