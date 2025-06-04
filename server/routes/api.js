@@ -705,18 +705,28 @@ router.get('/primitive/:id/fetch', async function(req, res, next) {
 router.post('/primitive/:id/agent', async function(req, res, next) {
     const primitiveId = req.params.id
     const action = req.params.action
-    const options = req.body
-    console.log( primitiveId, action, options)
+    const options = req.body.options ?? {}
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no"); // GFE/NGINX: disable buffering
     try{
         let result
-        const primitive = await fetchPrimitive(primitiveId)
+        const ids = [primitiveId]
+        if( options.parentId ){
+            ids.push(options.parentId)
+        }
+        const primitives = await fetchPrimitives(ids, undefined, {...DONT_LOAD_UI, frames: 0})
+        const primitive = primitives.find(d=>d.id === primitiveId)
+        const parent = options.parentId && primitives.find(d=>d.id === options.parentId)
+        
 
         if( !await userCanAccessPrimitive(primitive, req, res) ){
             return
         }
 
         if( primitive){
-            handleChat(primitive, req, res)
+            handleChat(primitive, {parent, ...options},req, res)
         }
     }catch(error){
         console.log(error)

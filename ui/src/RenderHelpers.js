@@ -7549,16 +7549,24 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     let showColumnheaders =  (renderOptions.hideColumnHeaders !== true ) && (data.columns.length > 1)
     let showRowheaders =  (renderOptions.hideRowHeaders !== true ) && (data.rows.length > 1)
 
+    const columns = data.columns.slice(0, renderOptions.max_cols ?? 200)
+    const rows = data.rows.slice(0, renderOptions.max_rows ?? 200)
 
-    let rowHeights = data.rows.map(d=>0)
-    let columnWidths = data.columns.map(d=>0)
+    let rowHeights = rows.map(d=>0)
+    let columnWidths = columns.map(d=>0)
 
     let config = viewConfig?.matrixType ?? "grid"
 
     let renderer = typeMaps[ "default" ][`datatable_${config}`]
 
+    const maxColIdx = columns.length - 1
+    const maxRowIdx = rows.length - 1
+
 
     let configForCells = data.cells.reduce((a,cell)=>{
+        if( cell.cIdx > maxColIdx || cell.rId > maxRowIdx){
+            return a
+        }
         const cellConfig = renderer({table:data, getConfig: true, renderOptions, config, cell})
         a[cell.id] = cellConfig
         if( cellConfig.height > rowHeights[cell.rIdx]){
@@ -7575,7 +7583,8 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     const columnX = columnWidths.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + columnWidths[i - 1] + spacing : 0), acc), []);
     const rowY = rowHeights.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + rowHeights[i - 1] + spacing : 0), acc), []);
 
-    const headers = prepareHeaders({columns: data.columns, rows: data.rows, columnWidths, rowHeights, columnX, rowY, spacing, renderOptions, refreshCallback: imageCallback})
+
+    const headers = prepareHeaders({columns: columns, rows: rows, columnWidths, rowHeights, columnX, rowY, spacing, renderOptions, refreshCallback: imageCallback})
     let footers
     if( (data.totals.columns && renderOptions.show_column_totals) || (data.totals.rows  && renderOptions.show_row_totals)){
         footers = prepareHeaders({
@@ -7769,7 +7778,7 @@ function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY,
 
         columnContent.forEach((d,i)=>{
             const h = new Konva.Group({
-                id: i,
+                id: `column_${i}`,
                 name: "inf_track column_header",
                 x: columnX[i], y: 0,
                 width: columnWidths[i],
@@ -7800,7 +7809,7 @@ function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY,
 
         rowContent.forEach((d,i)=>{
             const h = new Konva.Group({
-                id: i,
+                id: `row_${i}`,
                 name: "inf_track row_header",
                 x: 0, y: rowY[i],
                 width: idealWidth,

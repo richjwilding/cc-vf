@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState } from 'react'
 import { Dialog, Menu, Transition } from '@headlessui/react'
-import { Bars3CenterLeftIcon, Bars4Icon, ChevronDoubleDownIcon, ChevronDownIcon, ClockIcon, HomeIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { ArrowDownTrayIcon, Bars3CenterLeftIcon, Bars4Icon, ChevronDoubleDownIcon, ChevronDownIcon, ClockIcon, HomeIcon, SparklesIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import {
   ChevronRightIcon,
   ChevronUpDownIcon,
@@ -11,6 +11,8 @@ import MainStore from './MainStore'
 import { useLinkClickHandler, useNavigate, useParams } from 'react-router-dom'
 import { PrimitiveCard } from './PrimitiveCard'
 import PrimitivePicker from './PrimitivePicker'
+import UIHelper from './UIHelper'
+import { Logo } from './logo'
 
 
 function classNames(...classes) {
@@ -35,10 +37,21 @@ export default function SideNav(props) {
 
   const navigate = useNavigate()
   const showDetailPaneButton = primitive?.type !== "working"
+  const urlPath = window.location.pathname
 
 const navigation = [
-  { name: 'Home', onClick: ()=>{props.setWorkspace(undefined);navigate('/')}, icon: HomeIcon, current: props.workspace === undefined },
+  { name: 'Home', onClick: ()=>{navigate('/')}, icon: HomeIcon, current: urlPath === "" || urlPath === "/" },
+  { name: 'Workflows', onClick: ()=>{navigate('/workflows')}, icon: SparklesIcon, current: urlPath.includes("/workflows")},
+  { name: 'Downloads', onClick: ()=>{navigate('/')}, icon: ArrowDownTrayIcon, current: urlPath.includes("/downloads") },
 ]
+
+function setWorkspace(id){
+  props.setWorkspace(id)
+  if( urlPath.includes("/item/")){
+    navigate("/")
+  }
+}
+
 
 const mainMenu = navigation.map((item) => (
                   <a
@@ -73,7 +86,7 @@ const mainMenu = navigation.map((item) => (
                             'block px-4 py-2 text-sm'
                           )}
                         >
-                          View profile
+                          Setting
                         </a>
                       )}
                     </Menu.Item>
@@ -108,7 +121,7 @@ const mainMenu = navigation.map((item) => (
                     <Menu.Item>
                       {({ active }) => (
                         <a
-                          href="/google/logout"
+                          href="/logout"
                           className={classNames(
                             active ? 'bg-gray-100 text-gray-900' : 'text-gray-700',
                             'block px-4 py-2 text-sm'
@@ -174,54 +187,42 @@ const mainMenu = navigation.map((item) => (
                       </button>
                     </div>
                   </Transition.Child>
-                  <div className="flex flex-shrink-0 items-center px-4">
-                    <img
-                      className="h-8 w-auto"
-                      src="/images/logo.png"
-                      alt="Co-Created"
-                    />
+                  <div className="flex items-center px-3 pt-2 pb-5">
+                    <Logo className='w-6 h-6 shrink-0 mr-1'/>
+                    <p className="font-['Poppins'] font-black font-family-[Poppins] text-xl">SENSE</p>
                   </div>
-                  <div className="mt-5 h-0 flex-1 overflow-y-auto">
+                  <div className="h-0 flex-1 overflow-y-auto">
                     <nav className="px-2">
-                      <div className="space-y-1">
-                        {mainMenu}
-                  <a
-                    key='search'
-                    onClick={()=>setShowPicker(true)}
-                    className={classNames(
-                      'text-gray-700 hover:bg-gray-100 hover:text-gray-900',
-                      'group flex items-center rounded-md px-2 py-2 text-sm font-medium cursor-pointer'
-                    )}
-                  >
-                    <MagnifyingGlassIcon
-                      className={classNames(
-                        'text-gray-400 group-hover:text-gray-500',
-                        'mr-3 h-6 w-6 flex-shrink-0'
-                      )}
-                      aria-hidden="true"
+                      <div className="space-y-3 relative">
+                      <UIHelper.OptionList
+                    name="workspace"
+                    zIndex="50"
+                    value={props.workspace}
+                    placeholder="Workspace..."
+                    onChange={setWorkspace}
+                    options={workspaces.map(d=>({
+                      title: <><span className={classNames(`bg-${d.color}-500`, 'inline-flex shrink-0 mr-4 h-2.5 w-2.5 rounded-full')} aria-hidden="true"/><span>{d.title}</span></>, 
+                      id: d.id
+                    }))}
                     />
-                    Search
-                  </a>
-                      </div>
-                      <div className="mt-8">
-                        <h3 className="px-3 text-sm font-medium text-gray-500" id="mobile-teams-headline">
-                          Workspaces
-                        </h3>
-                        <div className="mt-1 space-y-1" role="group" aria-labelledby="mobile-teams-headline">
-                          {workspaces.map((workspace) => (
-                            <a
-                              key={workspace.title}
-                              onClick={()=>{props.setWorkspace(workspace);navigate('/')}}
-                              className="cursor-pointer group flex items-center rounded-md px-3 py-2 text-base font-medium leading-5 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                            >
-                              <span
-                                className={classNames(`bg-${workspace.color}-500`, 'mr-4 h-2.5 w-2.5 rounded-full')}
-                                aria-hidden="true"
-                              />
-                              <span className="truncate">{workspace.title}</span>
-                            </a>
-                          ))}
-                        </div>
+                        <a
+                          key='search'
+                          onClick={()=>setShowPicker(true)}
+                          className={classNames(
+                            'text-gray-700 hover:bg-gray-100 hover:text-gray-900',
+                            'group flex items-center rounded-md px-2 py-2 text-sm font-medium cursor-pointer'
+                          )}
+                        >
+                          <MagnifyingGlassIcon
+                            className={classNames(
+                              'text-gray-400 group-hover:text-gray-500',
+                              'mr-3 h-6 w-6 flex-shrink-0'
+                            )}
+                            aria-hidden="true"
+                          />
+                          Search
+                        </a>
+                        {mainMenu}
                       </div>
                     </nav>
                   </div>
@@ -247,55 +248,24 @@ const mainMenu = navigation.map((item) => (
             ].join(" ")
 
             }>
-          <div className="flex flex-shrink-0 items-center px-6">
-            <img
-              className="h-8 w-auto"
-              src="/images/logo.png"
-              alt="Co-Created"
-            />
+          <div className="flex items-center px-3 pt-2 pb-5">
+              <Logo className='w-8 h-8 shrink-0 mr-1'/>
+              <p className="font-['Poppins'] font-black font-family-[Poppins] text-2xl">SENSE</p>
           </div>
-          {/* Sidebar component, swap this element with another sidebar if you like */}
-          <div className="mt-5 flex h-0 flex-1 flex-col overflow-y-auto pt-1">
-            {/* User account dropdown */}
-            <Menu as="div" className="relative inline-block px-3 text-left">
-              <div>
-                <Menu.Button className="group w-full rounded-md bg-white px-3.5 py-2 text-left text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-ccgreen-500 focus:ring-offset-2 focus:ring-offset-gray-100">
-                  <span className="flex w-full items-center justify-between">
-                    <span className="flex min-w-0 items-center justify-between space-x-3">
-                      <img
-                        className="h-10 w-10 flex-shrink-0 rounded-full bg-gray-300"
-                        referrerPolicy="no-referrer"
-                        src={MainStore().activeUser.info.avatarUrl}
-                        alt=""
-                      />
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-sm font-medium text-gray-900">{MainStore().activeUser.info.name}</span>
-                        <span className="truncate text-sm text-gray-500">{(MainStore().activeUser.info.email || "").replace(/.+@/,"")}</span>
-                      </span>
-                    </span>
-                    <ChevronUpDownIcon
-                      className="h-5 w-5 flex-shrink-0 text-gray-400 group-hover:text-gray-500"
-                      aria-hidden="true"
+          <div className="mt-5 flex h-0 flex-1 flex-col overflow-y-auto pt-1 px-3 space-y-4">
+          <UIHelper.OptionList
+                    name="workspace"
+                    zIndex="50"
+                    value={props.workspace}
+                    placeholder="Workspace..."
+                    onChange={setWorkspace}
+                    options={workspaces.map(d=>({
+                      title: <><span className={classNames(`bg-${d.color}-500`, 'inline-flex shrink-0 mr-4 h-2.5 w-2.5 rounded-full')} aria-hidden="true"/><span>{d.title}</span></>, 
+                      id: d.id
+                    }))}
                     />
-                  </span>
-                </Menu.Button>
-              </div>
-              <Transition
-                as={Fragment}
-                enter="transition ease-out duration-100"
-                enterFrom="transform opacity-0 scale-95"
-                enterTo="transform opacity-100 scale-100"
-                leave="transition ease-in duration-75"
-                leaveFrom="transform opacity-100 scale-100"
-                leaveTo="transform opacity-0 scale-95"
-              >
-                <Menu.Items className="absolute left-0 right-0 z-10 mx-3 mt-1 origin-top divide-y divide-gray-200 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
-                    {userDropdownMenu}
-                </Menu.Items>
-              </Transition>
-            </Menu>
             {/* Sidebar Search */}
-            <div className="mt-5 px-3">
+            <div className="mt-5 ">
               <label htmlFor="search" className="sr-only">
                 Search
               </label>
@@ -318,32 +288,35 @@ const mainMenu = navigation.map((item) => (
               </div>
             </div>
             {/* Navigation */}
-            <nav className="mt-6 px-3">
+            <nav >
               <div className="space-y-1">
                 {mainMenu}
               </div>
-              <div className="mt-8">
-                {/* Secondary navigation */}
-                <h3 className="px-3 text-sm font-medium text-gray-500" id="desktop-teams-headline">
-                  Workspaces
-                </h3>
-                <div className="mt-1 space-y-1" role="group" aria-labelledby="desktop-teams-headline">
-                  {workspaces.map((workspace) => (
-                    <a
-                      key={workspace.title}
-                      onClick={()=>{props.setWorkspace(workspace);navigate('/')}}
-                      className={classNames('cursor-pointer group flex items-center rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900', props.workspace && props.workspace.id === workspace.id ? `bg-${workspace.color}-100` : '')}
-                    >
-                      <span
-                        className={classNames(`bg-${workspace.color}-500`, 'mr-4 h-2.5 w-2.5 rounded-full')}
-                        aria-hidden="true"
-                      />
-                      <span className="truncate">{workspace.title}</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
             </nav>
+            <div className='flex flex-col !mt-auto space-y-4'>
+              <div className='bg-slate-100 rounded-lg p-3 text-slate-700 text-sm border'>
+                <span>Credits:<strong>Unlimited</strong></span>
+              </div>
+              <UIHelper.Dropdown
+                anchor="top end"
+                className="justify-around "
+                title={<span className="flex min-w-0 items-center justify-between space-x-3">
+                        <img
+                          className="h-10 w-10 flex-shrink-0 rounded-full bg-gray-300"
+                          referrerPolicy="no-referrer"
+                          src={MainStore().activeUser.info.avatarUrl}
+                          alt=""
+                        />
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate text-sm font-medium text-gray-900">{MainStore().activeUser.info.name}</span>
+                          <span className="truncate text-sm text-gray-500">{(MainStore().activeUser.info.email || "").replace(/.+@/,"")}</span>
+                        </span>
+                      </span>}
+                options={[
+                  {title: "Account Details", id:"Account"},
+                  {title: "Logout", id:"logout"},
+                ]}/>
+              </div>
           </div>
         </div>
         {/* Main column */}

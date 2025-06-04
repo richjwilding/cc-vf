@@ -10,6 +10,7 @@ import { Badge } from './@components/badge';
 import { isObjectId } from './SharedTransforms';
 
 export default function AgentChat({primitive, ...props}) {
+    //const [messages, setMessages] = useState([{role: "assistant", content: 'Great, thanks for the detailed context. To help you design an effective competitor intelligence workflow for Sophos’ MDR product, I’d like to clarify a couple of points so we can tailor the search and data gathering for maximum relevance:\n\n1. **Key Competitors**: Do you already have a list of the main MDR providers you want to analyse (e.g., Rapid7, CrowdStrike, Arctic Wolf, SentinelOne, Secureworks, etc.), or should I include a broad scan to identify the most relevant companies?\n\n2. **Specific Areas of Interest**:\n   - Are you most interested in how competitors structure their **threat hunting** (e.g., default inclusion, tiers, manual/automated, methods)?\n   - Should we also look for **detailed descriptions of service scope**, **add-ons**, and **pricing models**, or are you prioritizing one of those most?\n\n3. **Geography & Customer Segment**: Are we targeting global players, or specific regions/markets (e.g., North America, EMEA)? Should the focus'}]);
     const [messages, setMessages] = useState([]);
         const inputBox = useRef({})
         const editorRef = useRef()
@@ -93,13 +94,13 @@ export default function AgentChat({primitive, ...props}) {
         setMessages(nextFull);;
         inputBox.current.clear()
 
-        updateStatus({active: false, messages: nextFull});
+        updateStatus({active: false, messages: nextFull,});
       
         // 2) Kick off the fetch + ReadableStream
         const res = await fetch(`/api/primitive/${primitive.id}/agent`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: nextFull }),
+          body: JSON.stringify({ messages: nextFull, options: {parentId: primitive.origin?.id} }),
         });
         const reader = res.body.getReader();
         const dec    = new TextDecoder();

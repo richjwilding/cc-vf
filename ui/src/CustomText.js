@@ -560,16 +560,31 @@ _setTextData() {
             const bullet = isListItem && (fragmentIdx === 0)
             const lastLine = lastSection && (fragmentIdx === (children.length - 1))
             const color = tableInfo?.row === 0 ? "white" : undefined
-            const result = placeText( frag.text, large, bold, bullet, startIndent, indent, color, lastLine, tableInfo)
-            
-            indent = result.indent
-            if( result.textWidth > maxUsedWidth ){
-              maxUsedWidth = result.textWidth
+            let text = frag.text
+            let fragChildren = frag.children
+            if( !text && fragChildren?.length > 0){
+              if( frag.type === "paragraph"){
+                const first = fragChildren.pop()
+                text = first.text
+              }
             }
-            didAdvance = result.newline
-            if( result.clippedForHeight ){
-              clipped = true
-              break
+            if( text ){
+
+              const result = placeText( text, large, bold, bullet, startIndent, indent, color, lastLine, tableInfo)
+              indent = result.indent
+              if( result.textWidth > maxUsedWidth ){
+                maxUsedWidth = result.textWidth
+              }
+              didAdvance = result.newline
+              if( result.clippedForHeight ){
+                clipped = true
+                break
+              }
+            }
+            if( fragChildren ){
+                for(const sub of fragChildren ){
+                  processSection( sub, false, false )
+                }
             }
             fragmentIdx++
           }

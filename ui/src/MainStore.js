@@ -73,6 +73,48 @@ const actions = {
             return node
         }                    
     },
+    sourcePrimitivesForFlowInstance(d,receiver,obj){
+        return (flowInstance)=>{
+            const flowInstanceId = flowInstance.id
+            return actions.int_sourcePrimitives(d, receiver, obj)([flowInstanceId])
+
+        }
+    },
+    sourcePrimitives(d,receiver,obj){
+        return actions.int_sourcePrimitives(d, receiver, obj)()
+    },
+    int_sourcePrimitives(d,receiver,obj){
+        return (flowInstanceIds)=>{
+            let out = []
+            let outputPin
+            if( receiver.type == "element"){
+                const parentPage = receiver.origin
+                const relName = (receiver._parentPrimitives[parentPage.id] ?? []).find(d=>d.startsWith("primitives.outputs."))
+                if( relName ){
+                    const [pinName, _] = relName.split(".").at(-1).split("_")
+                    const pageInputs = parentPage.primitives.inputs
+                    const importItem = Object.keys(pageInputs ?? {}).find(d=>d.endsWith(`_` + pinName))
+                    outputPin = importItem.split("_")[0]
+                    if( importItem ){
+                        const containers = pageInputs[importItem].allItems
+                        containers.forEach(s=>{
+                            out.push(s)
+                            if(s.flowElement){
+                                out.push(...s.primitives.config.allItems)
+                            }
+                        })
+                    }
+                }
+            }
+            if( flowInstanceIds ){
+                out = out.filter(d=>flowInstanceIds.includes(d.origin.id))
+            }
+            if( outputPin ){
+                return out.flatMap(d=>d.outputs[outputPin])
+            }
+            return []
+        }
+    },
     doesImport(d, receiver, obj){
         return (id, filters)=>{
             //console.log(`Check primitive `, id, receiver.id)
@@ -341,18 +383,19 @@ const actions = {
 
                             const newList = [];
                             for (const d of list) {
-                                newList.push(d);
                                 if( !matchSet.has(d.referenceId) ){
                                     for(const v of d.primitives.strictDescendantIds){
                                         expanded.add( v )
                                     }
+                                }else{
+                                    newList.push(d);
                                 }
                             }
 
                             list = newList//.filter(Boolean);
                             for (const d of expanded) {
                                 const p = obj.primitive(d)
-                                if(p){
+                                if( matchSet.has(p.referenceId) ){
                                     list.push(p);
                                 }
                               }
@@ -1077,14 +1120,24 @@ function MainStore (prims){
             obj.loadControl(true)
         },
         setActiveWorkspaceFrom:async function(primitive){
-            if( primitive.workspaceId ){
+            if( !primitive.workspaceId ){
                 console.warn(`No workspace for Primitive ${primitive.id}`)
+                return
             }
-            if( obj.activeWorkspaceId == primitive.workspaceId){return}
+            this.loadActiveWorkspace( primitive.workspaceId)
 
+        },
+        setActiveWorkspace:async function(id){
+            obj.activeWorkspaceId = id
+        },
+        loadActiveWorkspace:async function(id){
+            console.log(id)
+            if( !id || obj.loadedWorkspaceId === id){
+                return
+            }
             obj.loadControl(false)
 
-            obj.activeWorkspaceId = primitive.workspaceId
+            obj.activeWorkspaceId = id
             console.log(`Workspace set to ${obj.workspace(obj.activeWorkspaceId).title}`)
 
             const toPurge = obj.primitives().filter((d)=>this.workspaceId != obj.activeWorkspaceId)
@@ -1101,6 +1154,7 @@ function MainStore (prims){
 
             obj.joinChannel(obj.activeWorkspaceId)
             obj.loadControl(true)
+            obj.loadedWorkspaceId = id
 
         },
         processServerActions( list ){
@@ -3163,7 +3217,9 @@ function MainStore (prims){
         })
         return primObj
     }    
-    obj.data = {}
+    obj.data = {
+        primitives:{}
+    }
     if( prims ){
         obj.data = {primitives: prims.reduce((a,d)=>{a[d.id] = primitive_access(d, "primitive");return a}, {})}
     }
@@ -3188,7 +3244,7 @@ function MainStore (prims){
         obj.loadProgress = []
             const status = await fetch('/api/status').then(response => response.json())
             if( !status.logged_in ){
-                if( window.location.pathname !== "/login" && !window.location.pathname.startsWith("/published")){
+                if( window.location.pathname !== "/signup" && window.location.pathname !== "/login" && !window.location.pathname.startsWith("/published")){
                     window.location.href = "/login"
                 }
                 obj.data.categories = []
@@ -3225,7 +3281,7 @@ function MainStore (prims){
                     return d} )
                 obj.data.categories = categories.reduce((o,d)=>{o[d.id] = d; return o}, {})
                 obj.data.primitives = {}
-                obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
+                obj.activeUser.info = obj.users().find((d)=>d._id === obj.activeUser._id)
                 obj.activeUser.id = obj.activeUser.info.id
                 obj.data.workspaces = workspaces.map((d)=>{d.id = d._id; return d})
                 obj.data.frameworks = frameworks.map((d)=>{d.id = d._id; return d})

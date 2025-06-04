@@ -7,6 +7,7 @@ import FlowQueue from "./flow_queue";
 import Category from "./model/Category";
 import Primitive from "./model/Primitive";
 import { SIO } from "./socket";
+import PrimitiveConfig from "./PrimitiveConfig";
 
 
 registerAction("new_flow_instance", undefined, async (primitive, a, options)=>{
@@ -90,7 +91,7 @@ export async function getScaffoldWorkflow( flow, options = {} ){
 
 export async function createWorkflowInstance( flow, options = {} ){
     console.log(options)
-    return
+    //return
     if( flow.primitives?.imports && flow.primitives.imports.length > 0){
         throw "Workflows with imports not handled right now"
     }
@@ -259,7 +260,7 @@ export async function getInstanceStepsWithImports( flowInstance){
     } 
     };
 
-   let [{instanceSteps, importPrimitives}] = await Primitive.aggregate([
+   let [{instanceSteps, importPrimitives, configPrimitives}] = await Primitive.aggregate([
         // 1) filter down to only steps whose parentPrimitives[flowId] includes "primitives.origin"
         matchStage,
 
@@ -372,7 +373,32 @@ export async function getInstanceStepsWithImports( flowInstance){
                 },
                 { $unwind:      "$importPrimitives" },
                 { $replaceRoot: { newRoot: "$importPrimitives" } }
-            ]
+            ],
+            configPrimitives: [
+                { $project: { parentPrimitives: 1 } },
+                { $addFields: {
+                    pairs: { $objectToArray: "$parentPrimitives" }
+                  }
+                },
+                { $unwind: "$pairs" },
+                { $match: {
+                    $expr: { $in: [ "primitives.config", "$pairs.v" ] }
+                  }
+                },
+                { $addFields: {
+                    configObjectId: { $toObjectId: "$pairs.k" }
+                  }
+                },
+                { $lookup: {
+                    from:         Primitive.collection.name,
+                    localField:   "configObjectId",
+                    foreignField: "_id",
+                    as:            "configPrimitive"
+                  }
+                },
+                { $unwind: "$configPrimitive" },
+                { $replaceRoot: { newRoot: "$configPrimitive" } }
+              ]
         }}
     ]);
 
@@ -380,8 +406,9 @@ export async function getInstanceStepsWithImports( flowInstance){
 
     instanceSteps   = instanceSteps.map(doc => Primitive.hydrate(doc));
     importPrimitives = importPrimitives.map(doc => Primitive.hydrate(doc));
+    configPrimitives = configPrimitives.map(doc => Primitive.hydrate(doc));
 
-    return {instanceSteps, importPrimitives}
+    return {instanceSteps, importPrimitives, configPrimitives}
 
     
 }
@@ -837,7 +864,7 @@ export async function runFlowInstance( flowInstance, options = {}){
 
     logger.debug(stepStatus.map(d=>`${d.step.id} / ${d.step.plainId} / ${d.step.type} - N ${d.need} (${d.needReason}) C ${d.can} (${d.canReason})` ).join("\n"))
 
-    const stepsToRun = stepStatus.filter(d=>d.can && d.need)
+    const stepsToRun = stepStatus.filter(d=>d.can && d.need && !d.running)
 
     logger.info(`${stepsToRun.length} steps to run`, {steps: stepsToRun.map(d=>d.step.plainId)})
     
@@ -909,7 +936,7 @@ async function flowInstanceStepsStatus( flowInstance ){
     }
     console.log(`${importPrimitives.length} / ${secondLayerImportIds.length}`)
     */
-    const {instanceSteps: children, importPrimitives} = await getInstanceStepsWithImports( flowInstance )
+    const {instanceSteps: children, importPrimitives, configPrimitives} = await getInstanceStepsWithImports( flowInstance )
     const instanceSteps = children.filter(d=>!d.parentPrimitives[flowInstance.id].includes("primitives.subfi"))
     const subFlows = children.filter(d=>d.parentPrimitives[flowInstance.id].includes("primitives.subfi"))
 
@@ -920,12 +947,22 @@ async function flowInstanceStepsStatus( flowInstance ){
         return a
     }, {})
 
-    for(const step of instanceSteps){
+    const skipStatus = await PrimitiveConfig.buildFlowInstanceStatus( flowInstance, [...instanceSteps, ...subFlows], {
+        getPrimitives: (p)=>(new Proxy(p.primitives ?? {}, PrimitiveParser())),
+        getConfig: async (p)=>await getConfig(p)
+    },{
+        configPrimitives
+    })
+    console.log(skipStatus)
+    const activeInstanceSteps = instanceSteps.filter(d=>!skipStatus[d.id].skip)
+    for(const step of activeInstanceSteps){
         const status = await stepInstanceStatus(step, flowInstance, importCache)
         stepStatus.push({
             step,
             flowStepId: Object.keys(step.parentPrimitives ?? {}).find(d=>step.parentPrimitives[d].includes("primitives.config")),
-            ...status
+            ...status,
+            skip: skipStatus[step.id]?.skip,
+            skipForConfiguration: skipStatus[step.id]?.skipForConfiguration,
         })
     }
     for( const subFlow of subFlows){
@@ -973,7 +1010,7 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
         needReason = "not_executed"
     }
 
-    if(true || need ){
+    if( need ){
         can = true
         canReason = "all_ready"
 
@@ -991,7 +1028,6 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
             let can = true
             let inAncestor = false
             const pp = (new Proxy(step.primitives ?? {}, PrimitiveParser())).fromPath(rel)
-            //const importIds = Object.values(step.primitives?.[rel] ?? {})
             const importIds = pp.uniqueAllIds
             if( importIds.length > 0){
                 const importPrimitives = await fetchImports( importIds)
@@ -1034,15 +1070,12 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
                             }
                         }
                     }
-                    //const importPrimValid = (imp.id === flowInstance.id) || (((!inAncestor && imp.processing?.flow?.started === flowStarted && (flowStarted !== undefined) ) || (inAncestor && imp.processing?.flow?.started <= flowStarted && (flowStarted !== undefined) )) && imp.processing?.flow?.status === "complete")
-
                     const isSameFlow       = imp.id === flowInstance.id;
                     const hasValidStart    = flowStarted !== undefined;
                     const otherFlowStarted = imp.processing?.flow?.started;
                     const isComplete       = imp.processing?.flow?.status === "complete";
 
                     const timingOk = !inAncestor ? otherFlowStarted === flowStarted : otherFlowStarted <= flowStarted;
-
                     const importPrimValid = isSameFlow || (hasValidStart && isComplete && timingOk);
 
                     logger.debug(`Checking status of ${rel} step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
@@ -1055,9 +1088,7 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
         const waitInputs = await checkOutstandingSource( "inputs" )
         let waitAxis = false
         if( step.type === "view" || step.type === "query" ){
-            logger.info(`-- Checking col axis relationships for ${step.id} / ${step.plainId}`)
             const waitAxisCol = await checkOutstandingSource( "axis.column" )
-            logger.info(`-- Checking row axis relationships for ${step.id} / ${step.plainId}`)
             const waitAxisRow = await checkOutstandingSource( "axis.row" )
             waitAxis = waitAxisCol || waitAxisRow
         }
@@ -1075,17 +1106,6 @@ async function shouldStepRun( step, flowInstance, cache = {} ){
             canReason += "not_ready"
             can = false
         }
-        /*if( waitImports && waitImports ){
-            canReason = "data_inputs_not_ready"
-            can = false
-        }else if( waitImports ){
-            canReason = "data_not_ready"
-            can = false
-        }else if( waitInputs ){
-            canReason = "inputs_not_ready"
-            can = false
-        }*/
-
     }
 
 

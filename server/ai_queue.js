@@ -1757,7 +1757,6 @@ export async function processQueue(job){
 
 
                                     let types = targetConfig?.mark?.type
-                                    let focus = config?.focus ?? targetConfig?.mark?.theme ??config?.cat_theme
                                     let literal = config?.literal
                                     const complex = config?.complex ?? action.complex ?? false
                                     const theme = (config?.cat_theme && config?.cat_theme.trim().length > 0 ? config?.cat_theme : undefined ) ?? action?.theme 
@@ -1782,7 +1781,6 @@ export async function processQueue(job){
                                         no_num: !runInBatch,
                                         rationale: config?.rationale ?? action.rationale ?? false,
                                         types: types,
-                                        focus: focus,
                                         debug: true,
                                         debug_content: true,
                                         progressCallback:(status)=>{

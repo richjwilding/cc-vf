@@ -58,7 +58,7 @@ Each section of the of the output should be an element of an array. If a section
 
                     If the section does not have any subsections:
                     {
-                        heading: if the content of the subsection is meaningfully different and not just a formatting change, include a short heading that can be used when formatting the response, other wise omit this field (also omit this field if this is the  top level section of the response),
+                        heading: if the content of the subsection is about a different topic (ie not just a formatting change such as a list vs summary), then include a short heading that can be used when formatting the response, otherwise omit this field (also omit this field if this is the  top level section of the response),
                         content: the description of what will be placed in the field by the AI included specific length or formatting instructions aligned to requests in the task if present - or your view of best practice if requests are not present., 
                         type: what format the content should be (one of markdown formatted bullet list, markdown formatted string, number, boolean, markdown formatted table),
                     } 

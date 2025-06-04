@@ -86,6 +86,7 @@ function MarkdownBadge({ badgeType }) {
           return <></>
         })
         return <>
+        <br></br>
           {badges}
           {overflow && <span className="-mt-1 align-middle bg-gray-200 inline-block mx-1 px-1 py-1 rounded text-gray-600 leading-none text-[8px]">+{overflow} more</span>}
         </>
@@ -116,20 +117,52 @@ function MarkdownBadge({ badgeType }) {
   
         return rows.join('\n');
       } else if (node.type === 'list-item') {
-        const indent = '  '.repeat(depth); // Two spaces per indentation level
-  
-        // Determine if it's part of an ordered list or unordered list
-        const index = slateContent.findIndex(n => n === node);
-        const listPrefix = node.ordered ? `${index + 1}.` : '-';
-  
-        // Handle any child text (e.g., bold text)
-        const content = node.children.map((child) => {
-          if (child.bold) {
-            return `**${child.text}**`;
-          }
-          return child.text;
-        }).join('');
-  
+        const indent = "  ".repeat(depth);
+
+        // (1) Extract “plain text” from the new paragraph wrapper
+        //     If the first child is a paragraph, pull its inline children; otherwise,
+        //     fall back to whatever text nodes are directly under <li>.
+        let content = "";
+        if (node.children[0]?.type === "paragraph") {
+          content = node.children[0].children
+            .map((leaf) => {
+              if (leaf.bold) {
+                return `**${leaf.text}**`;
+              }
+              return leaf.text;
+            })
+            .join("");
+        } else {
+          content = node.children
+            .map((leaf) => {
+              if (leaf.bold) {
+                return `**${leaf.text}**`;
+              }
+              return leaf.text;
+            })
+            .join("");
+        }
+
+        // (2) Figure out list prefix. We no longer have node.ordered directly,
+        //     but in your original code, `node.ordered` was only truthy if it had
+        //     been set. In practice, if there’s no `node.ordered`, fall back to “-”.
+        const listPrefix = node.ordered ? `${node.index + 1}.` : "-";
+
+        // (3) Check for a nested sub-list (either ordered or unordered) under this <li>.
+        //     If found, serialize it at depth+1.
+        const nestedListNode = node.children.find(
+          (child) => child.type === "unordered-list" || child.type === "ordered-list"
+        );
+        if (nestedListNode) {
+          // Recursively serialize that one nested list node
+          const nestedMarkdown = slateToMarkdown(
+            nestedListNode.children,
+            depth + 1
+          );
+          return `${indent}${listPrefix} ${content}\n${nestedMarkdown}`;
+        }
+
+        // (4) No nested list, just emit this one line
         return `${indent}${listPrefix} ${content}`;
       } else if (node.type === 'unordered-list' || node.type === 'ordered-list') {
         // Recursively process list children with increased depth
@@ -499,7 +532,687 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
     }
 
   }
+
   const handleKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey) {
+      switch (event.key) {
+        case 'b': {
+          event.preventDefault();
+          toggleBoldMark();
+          break;
+        }
+        case '1': {
+          event.preventDefault();
+          toggleHeading();
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  
+    const { selection } = editor;
+    if (!selection) return;
+  
+    // Get all the currently selected blocks
+    const selectedBlocks = Array.from(
+      Editor.nodes(editor, {
+        match: (n) => SlateElement.isElement(n),
+        mode: 'lowest',
+      })
+    );
+    if (!selectedBlocks.length) return;
+  
+    if (event.key === 'Escape') {
+      const d = convertInitialValue(initialMarkdown);
+      editor.children = d;
+      editor.onChange();
+      Transforms.select(editor, { path: [0, 0], offset: 0 });
+    }
+
+    const getListDepth = (path) => {
+      let depth = 0;
+      let currPath = path;
+      while (currPath.length > 0) {
+        const parentEntry = Editor.parent(editor, currPath);
+        if (!parentEntry) break;
+        const [parentNode, parentPath] = parentEntry;
+        if (
+          SlateElement.isElement(parentNode) &&
+          (parentNode.type === 'unordered-list' || parentNode.type === 'ordered-list')
+        ) {
+          depth++;
+        }
+        currPath = parentPath;
+      }
+      return depth;
+    };
+  
+    if (event.key === 'Enter') {
+      // 1) Are we in a <list-item>? If not, let Enter work normally.
+      const [currentItemEntry] = Editor.nodes(editor, {
+        match: (n) => SlateElement.isElement(n) && n.type === 'list-item',
+        mode: 'lowest',
+      });
+      if (!currentItemEntry) {
+        return;
+      }
+    
+      event.preventDefault();
+      const [currentItemNode, currentItemPath] = currentItemEntry;
+      const currentText = Node.string(currentItemNode).trim();
+    
+      // 2) If this <li> has text, split it as usual.
+      if (currentText !== '') {
+        Transforms.splitNodes(editor, {
+          at: editor.selection,
+          match: (n) => SlateElement.isElement(n) && n.type === 'list-item',
+          mode: 'lowest',
+          always: true,
+        });
+        return;
+      }
+    
+      // 3) We have an empty <li>. We want to delete just that <li>, prune any now‐empty ancestor lists,
+      //    and then insert a paragraph after the *top‐level* list that contained it.
+    
+      // a) Find all ancestor entries (list and list-items) from the <li> upward
+      const ancestorEntries = Array.from(
+        Editor.levels(editor, {
+          at: currentItemPath,
+          match: (n) => SlateElement.isElement(n),
+        })
+      );
+      //   The last ancestorEntry is the document root. Just below that sits the top‐level list.
+    
+      // b) Within that list of ancestors, find the nearest <ul>/<ol> whose parent is NOT itself a <ul>/<ol>.
+      //    That is our top‐level list.
+      let topListPath = null;
+      for (let [node, path] of ancestorEntries) {
+        if (
+          SlateElement.isElement(node) &&
+          (node.type === 'unordered-list' || node.type === 'ordered-list')
+        ) {
+          // Check parent of this list:
+          const above = Editor.parent(editor, path);
+          if (!above) {
+            // Shouldn't happen, but if no parent, treat this as top‐level
+            topListPath = path;
+            break;
+          }
+          const [parentNode] = above;
+          if (
+            !(
+              SlateElement.isElement(parentNode) &&
+              (parentNode.type === 'unordered-list' || parentNode.type === 'ordered-list')
+            )
+          ) {
+            // This list's parent is not itself a list → this is the top‐level list
+            topListPath = path;
+            break;
+          }
+        }
+      }
+    
+      // c) Remove the empty <li> at currentItemPath.
+      Transforms.removeNodes(editor, { at: currentItemPath });
+    
+      // d) Now, starting from the deepest ancestor that was a list, remove any that are now empty,
+      //    but stop before removing the top‐level list itself. If the top‐level list becomes empty,
+      //    we will remove it in the next step after deciding where to insert our paragraph.
+      for (let [node, path] of ancestorEntries) {
+        if (
+          SlateElement.isElement(node) &&
+          (node.type === 'unordered-list' || node.type === 'ordered-list')
+        ) {
+          // If this list is at or above the top‐level list, stop.
+          if (Path.equals(path, topListPath)) {
+            break;
+          }
+          // Otherwise, check if it has any children left. If not, remove it.
+          try {
+            const updated = Node.get(editor, path);
+            if (updated.children.length === 0) {
+              Transforms.removeNodes(editor, { at: path });
+            }
+          } catch {
+            // If that node no longer exists, skip.
+          }
+        }
+      }
+    
+      // e) If the top‐level list itself has become empty, remove it too.
+      let insertPath;
+      try {
+        const updatedTop = Node.get(editor, topListPath);
+        if (updatedTop.children.length === 0) {
+          Transforms.removeNodes(editor, { at: topListPath });
+          // Since it’s gone, we will insert at that location:
+          insertPath = topListPath;
+        } else {
+          // Still has items → insert immediately after it
+          insertPath = Path.next(topListPath);
+        }
+      } catch {
+        // It no longer exists (was removed), so insert at topListPath
+        insertPath = topListPath;
+      }
+    
+      // f) Insert a brand‐new paragraph at insertPath
+      const paragraphNode = {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      };
+      Transforms.insertNodes(editor, paragraphNode, { at: insertPath });
+    
+      // g) Place the cursor inside that new paragraph
+      const [newPara] = Editor.nodes(editor, {
+        at: insertPath,
+        match: (n) => SlateElement.isElement(n) && n.type === 'paragraph',
+        mode: 'lowest',
+      });
+      if (newPara) {
+        const [, newParaPath] = newPara;
+        Transforms.select(editor, Editor.start(editor, newParaPath));
+      }
+    
+      return;
+    }
+    
+    if (event.key === 'Tab' && !event.shiftKey) {
+      event.preventDefault();
+    
+      selectedBlocks.forEach(([node, path]) => {
+        // 1) Find nearest <li> ancestor.
+        const liEntry = Editor.above(editor, {
+          at: path,
+          match: (n) => SlateElement.isElement(n) && n.type === 'list-item',
+          mode: 'lowest',
+        });
+    
+        // CASE A: not in a <li> → convert paragraph → <li> → wrap in <ul>
+        if (!liEntry) {
+          Transforms.wrapNodes(
+            editor,
+            { type: 'list-item', children: [] },
+            { at: path }
+          );
+          Transforms.wrapNodes(
+            editor,
+            { type: 'unordered-list', children: [] },
+            { at: path }
+          );
+    
+          // Merge that newly created <ul> with any adjacent <ul>
+          {
+            const [maybeListNode, maybeListPath] = Editor.node(editor, path);
+            if (
+              SlateElement.isElement(maybeListNode) &&
+              maybeListNode.type === 'unordered-list'
+            ) {
+              let listPath = maybeListPath;
+              // merge into previous if same‐type
+              try {
+                const prevPath = Path.previous(listPath);
+                const prevNode = Node.get(editor, prevPath);
+                if (SlateElement.isElement(prevNode) && prevNode.type === 'unordered-list') {
+                  Transforms.mergeNodes(editor, { at: listPath });
+                  listPath = prevPath;
+                }
+              } catch {}
+              // merge the “next” list into ours if same‐type
+              try {
+                const nextPath = Path.next(listPath);
+                const nextNode = Node.get(editor, nextPath);
+                if (SlateElement.isElement(nextNode) && nextNode.type === 'unordered-list') {
+                  Transforms.mergeNodes(editor, { at: nextPath });
+                }
+              } catch {}
+            }
+          }
+          return;
+        }
+    
+        // CASE B: in a <li> → compute depth
+        const [liNode, liPath] = liEntry;
+        const D = getListDepth(liPath);
+    
+        // 2) If top‐level <li> (D === 0) → wrap in nested list, then merge
+        if (D === 0) {
+          const listType = Editor.parent(editor, liPath)[0].type; // 'unordered-list' or 'ordered-list'
+          Transforms.wrapNodes(
+            editor,
+            { type: listType, children: [] },
+            {
+              at: liPath,
+              match: (n) => SlateElement.isElement(n) && n.type === 'list-item',
+            }
+          );
+    
+          // Merge that new nested list with any same‐type siblings
+          {
+            const [maybeListNode, maybeListPath] = Editor.node(editor, liPath);
+            if (
+              SlateElement.isElement(maybeListNode) &&
+              maybeListNode.type === listType
+            ) {
+              let listPath = maybeListPath;
+              try {
+                const prevPath = Path.previous(listPath);
+                const prevNode = Node.get(editor, prevPath);
+                if (SlateElement.isElement(prevNode) && prevNode.type === listType) {
+                  Transforms.mergeNodes(editor, { at: listPath });
+                  listPath = prevPath;
+                }
+              } catch {}
+              try {
+                const nextPath = Path.next(listPath);
+                const nextNode = Node.get(editor, nextPath);
+                if (SlateElement.isElement(nextNode) && nextNode.type === listType) {
+                  Transforms.mergeNodes(editor, { at: nextPath });
+                }
+              } catch {}
+            }
+          }
+          return;
+        }
+    
+        // CASE C: nested <li> (D > 0) → indent under previous sibling
+        const parentListEntry = Editor.parent(editor, liPath);
+        if (
+          !parentListEntry ||
+          !(
+            SlateElement.isElement(parentListEntry[0]) &&
+            (parentListEntry[0].type === 'unordered-list' ||
+             parentListEntry[0].type === 'ordered-list')
+          )
+        ) {
+          return;
+        }
+        const [parentListNode, parentListPath] = parentListEntry;
+        const indexInParent = liPath[liPath.length - 1];
+        if (indexInParent === 0) {
+          // can’t indent if it’s already the first item
+          return;
+        }
+    
+        const prevSiblingPath = [...parentListPath, indexInParent - 1];
+        const [prevSiblingNode] = Editor.node(editor, prevSiblingPath);
+        const listType = parentListNode.type; // either 'unordered-list' or 'ordered-list'
+    
+        // If prevSibling already has a nested list of this type, move into it
+        let childListIndex = -1;
+        for (let i = 0; i < prevSiblingNode.children.length; i++) {
+          const child = prevSiblingNode.children[i];
+          if (SlateElement.isElement(child) && child.type === listType) {
+            childListIndex = i;
+            break;
+          }
+        }
+    
+        if (childListIndex >= 0) {
+          const existingListPath = [...prevSiblingPath, childListIndex];
+          const endIndex = Node.get(editor, existingListPath).children.length;
+          Transforms.moveNodes(editor, {
+            at: liPath,
+            to: [...existingListPath, endIndex],
+          });
+    
+          // Merge that nested <ul> with any same‐type siblings
+          const movedListEntry = Editor.above(editor, {
+            at: prevSiblingPath,
+            match: (n) => SlateElement.isElement(n) && n.type === listType,
+          });
+          if (movedListEntry) {
+            let listPath = movedListEntry[1];
+            try {
+              const prevPath = Path.previous(listPath);
+              const prevNode = Node.get(editor, prevPath);
+              if (SlateElement.isElement(prevNode) && prevNode.type === listType) {
+                Transforms.mergeNodes(editor, { at: listPath });
+                listPath = prevPath;
+              }
+            } catch {}
+            try {
+              const nextPath = Path.next(listPath);
+              const nextNode = Node.get(editor, nextPath);
+              if (SlateElement.isElement(nextNode) && nextNode.type === listType) {
+                Transforms.mergeNodes(editor, { at: nextPath });
+              }
+            } catch {}
+          }
+          return;
+        }
+    
+        // Otherwise, create a brand‐new nested list under prevSibling
+        const newListPath = [...prevSiblingPath, 1];
+        Transforms.insertNodes(
+          editor,
+          { type: listType, children: [] },
+          { at: newListPath }
+        );
+        Transforms.moveNodes(editor, {
+          at: liPath,
+          to: [...newListPath, 0],
+        });
+    
+        // Then merge that new nested <ul> with any same‐type sibling
+        const movedListEntry = Editor.above(editor, {
+          at: prevSiblingPath,
+          match: (n) => SlateElement.isElement(n) && n.type === listType,
+        });
+        if (movedListEntry) {
+          let listPath = movedListEntry[1];
+          try {
+            const prevPath = Path.previous(listPath);
+            const prevNode = Node.get(editor, prevPath);
+            if (SlateElement.isElement(prevNode) && prevNode.type === listType) {
+              Transforms.mergeNodes(editor, { at: listPath });
+              listPath = prevPath;
+            }
+          } catch {}
+          try {
+            const nextPath = Path.next(listPath);
+            const nextNode = Node.get(editor, nextPath);
+            if (SlateElement.isElement(nextNode) && nextNode.type === listType) {
+              Transforms.mergeNodes(editor, { at: nextPath });
+            }
+          } catch {}
+        }
+        return;
+      }); // end selectedBlocks.forEach
+    
+      // ─── FINAL PASS: collapse any two consecutive top‐level lists of same type ───
+      {
+        const root = editor.children;
+        for (let i = 0; i < root.length - 1; i++) {
+          if (
+            SlateElement.isElement(root[i]) &&
+            SlateElement.isElement(root[i + 1]) &&
+            (root[i].type === 'unordered-list' || root[i].type === 'ordered-list') &&
+            root[i].type === root[i + 1].type
+          ) {
+            Transforms.mergeNodes(editor, { at: [i + 1] });
+            break;
+          }
+        }
+      }
+      // ──────────────────────────────────────────────────────────────────────────
+    
+      return;
+    }
+    // ─────────────────────────────────────────────────────────────────
+  
+    // ─────────────────────────────────────────────────────────────────
+    // ◀︎── CHANGE #2: SHIFT+TAB = UNINDENT (unwrap and convert to paragraph)
+    if (event.key === "Tab" && event.shiftKey) {
+      event.preventDefault();
+    
+      // 1) Collect unique <li> paths from selected blocks
+      const liPathSet = new Set();
+      const selectedBlocks = Array.from(
+        Editor.nodes(editor, {
+          match: (n) => SlateElement.isElement(n),
+          mode: "lowest",
+        })
+      );
+      selectedBlocks.forEach(([node, path]) => {
+        const liEntry = Editor.above(editor, {
+          at: path,
+          match: (n) => SlateElement.isElement(n) && n.type === "list-item",
+          mode: "lowest",
+        });
+        if (liEntry) {
+          const [, liPath] = liEntry;
+          liPathSet.add(JSON.stringify(liPath));
+        }
+      });
+    
+      // 2) Process each <li> once
+      Array.from(liPathSet).forEach((serializedPath) => {
+        const liPath = JSON.parse(serializedPath);
+    
+        // Capture original offset if cursor was inside this <li>
+        let originalOffset = 0;
+        const { selection } = editor;
+        if (selection && selection.anchor) {
+          const { anchor } = selection;
+          if (
+            anchor.path.length >= liPath.length &&
+            Path.isCommon(liPath, anchor.path)
+          ) {
+            originalOffset = anchor.offset;
+          }
+        }
+    
+        // 3) Find the immediate parent‐list (<ul> or <ol>) of this <li>
+        const parentListEntry = Editor.above(editor, {
+          at: liPath,
+          match: (n) =>
+            SlateElement.isElement(n) &&
+            (n.type === "unordered-list" || n.type === "ordered-list"),
+        });
+        if (!parentListEntry) {
+          return; // Not inside any list
+        }
+        const [parentListNode, parentListPath] = parentListEntry;
+    
+        // 4) Find the <li> that owns that parent‐list (if any)
+        const parentOfListEntry = Editor.parent(editor, parentListPath);
+        if (
+          !parentOfListEntry ||
+          !(
+            SlateElement.isElement(parentOfListEntry[0]) &&
+            parentOfListEntry[0].type === "list-item"
+          )
+        ) {
+          // ─────────── Depth 1 (top‐level) ───────────
+    
+          // a) Grab the full liNode, including any nested <ul>/<ol> under it
+          const [liNode] = Editor.node(editor, liPath);
+
+          //    • inlineLeaves = the array of leaf objects from the paragraph (child 0)
+          const inlineLeaves =
+            Array.isArray(liNode.children) && liNode.children[0]?.children
+              ? liNode.children[0].children
+              : [];
+
+          //    • nestedChildren = any block‐level nodes beyond index 0 (usually <ul> or <ol>)
+          //      that used to live under this <li>.
+          const nestedChildren = Array.isArray(liNode.children)
+            ? liNode.children.slice(1)
+            : [];
+
+          // b) Compute indices in the top‐level list
+          const liIndex = liPath[liPath.length - 1]; // position within that list
+          const listIndex = parentListPath[0];       // index of the entire list at root
+
+          // c) Collect same‐level siblings AFTER this <li>
+          const siblingsAfter = parentListNode.children.slice(liIndex + 1);
+
+          // d) Remove every item after this <li> in the original list (bottom‐up)
+          for (let i = parentListNode.children.length - 1; i > liIndex; i--) {
+            Transforms.removeNodes(editor, { at: [...parentListPath, i] });
+          }
+
+          // e) Remove the <li> itself
+          Transforms.removeNodes(editor, { at: [...parentListPath, liIndex] });
+
+          // f) Insert a new paragraph at root using inlineLeaves
+          const paragraphNode = {
+            type: "paragraph",
+            children: inlineLeaves,
+          };
+          const insertParaPath = [listIndex + 1];
+          Transforms.insertNodes(editor, paragraphNode, { at: insertParaPath });
+
+          // g) ◀︎── CHANGED: re‐insert each nestedChild as its own block directly below
+          //    the paragraph. Start at index [listIndex + 2], then increment.
+          let nextInsertIndex = listIndex + 2;
+          nestedChildren.forEach((childList) => {
+            Transforms.insertNodes(editor, childList, { at: [nextInsertIndex] });
+            nextInsertIndex++;
+          });
+
+          // h) If siblingsAfter existed, recreate them in a new top‐level list
+          //    at whatever index follows the nestedChildren blocks
+          if (siblingsAfter.length > 0) {
+            const newListNode = {
+              type: parentListNode.type,
+              children: siblingsAfter,
+            };
+            Transforms.insertNodes(editor, newListNode, { at: [nextInsertIndex] });
+          }
+
+          // i) Cleanup: if the original top‐level list is now empty, remove it
+          try {
+            const updatedList = Node.get(editor, parentListPath);
+            if (
+              SlateElement.isElement(updatedList) &&
+              updatedList.children.length === 0
+            ) {
+              Transforms.removeNodes(editor, { at: parentListPath });
+            }
+          } catch (e) {
+            // might already be gone—ignore
+          }
+
+          // j) Restore cursor into the newly inserted paragraph
+          const newParaNodePath = [listIndex + 1];
+          const [firstTextEntry] = Editor.nodes(editor, {
+            at: newParaNodePath,
+            match: (n) => Text.isText(n),
+            mode: "lowest",
+          });
+          if (firstTextEntry) {
+            const [textNode, textPath] = firstTextEntry;
+            const maxOffset = textNode.text.length;
+            const offset = Math.min(originalOffset, maxOffset);
+            Transforms.select(editor, { path: textPath, offset });
+          }
+
+          return;
+        }
+        // ─────────────────────────────────────────────────────────────────
+        // ◀︎── Depth ≥ 2: nested <li> → (unchanged from before)…
+    
+        // a) parentLiNode & parentLiPath refer to the <li> containing that child‐list
+        const [parentLiNode, parentLiPath] = parentOfListEntry;
+    
+        // b) Capture the liNode (including any nested children beyond first paragraph)
+        const [liNode] = Editor.node(editor, liPath);
+    
+        // c) Compute liIndex in parentListNode.children
+        const liIndex = liPath[liPath.length - 1];
+    
+        // d) Split siblingsBefore / siblingsAfter
+        const siblingsBefore = parentListNode.children.slice(0, liIndex);
+        const siblingsAfter = parentListNode.children.slice(liIndex + 1);
+    
+        // e) Remove the entire child‐list at parentListPath
+        Transforms.removeNodes(editor, { at: parentListPath });
+    
+        // f) Rebuild parentLiNode.children so it keeps only its paragraph at [parentLiPath, 0]
+        if (siblingsBefore.length > 0) {
+          Transforms.insertNodes(
+            editor,
+            { type: parentListNode.type, children: siblingsBefore },
+            { at: [...parentLiPath, 1] }
+          );
+        }
+        if (siblingsAfter.length > 0) {
+          const idx = siblingsBefore.length > 0 ? 2 : 1;
+          Transforms.insertNodes(
+            editor,
+            { type: parentListNode.type, children: siblingsAfter },
+            { at: [...parentLiPath, idx] }
+          );
+        }
+    
+        // g) Build a brand‐new <li> for the unindented item, now preserving:
+        //    1) Its original paragraph leaves
+        //    2) Any nested children it had beyond that paragraph (e.g. deeper <ul> under “Indent 3”)
+        const paragraphChildren =
+          Array.isArray(liNode.children) && liNode.children[0]?.children
+            ? liNode.children[0].children
+            : [];
+        const newLiChildren = [{ type: "paragraph", children: paragraphChildren }];
+    
+        // Add back any nested lists (children[1:]) that used to live under this <li>.
+        if (Array.isArray(liNode.children)) {
+          for (let i = 1; i < liNode.children.length; i++) {
+            newLiChildren.push(liNode.children[i]);
+          }
+        }
+    
+        // Finally, if there were siblingsAfter (same‐level), wrap those under this new <li>
+        if (siblingsAfter.length > 0) {
+          newLiChildren.push({
+            type: parentListNode.type,
+            children: siblingsAfter,
+          });
+        }
+    
+        const unindentedLi = { type: "list-item", children: newLiChildren };
+    
+        // h) Insert that new <li> into the grandparent list immediately after parentLi
+        const [grandListNode, grandListPath] = Editor.parent(
+          editor,
+          parentLiPath
+        );
+        const [, foundParentPath] = Editor.node(editor, parentLiPath);
+        const parentIndexNow = foundParentPath[foundParentPath.length - 1];
+        const insertIndex = parentIndexNow + 1;
+        Transforms.insertNodes(editor, unindentedLi, {
+          at: [...grandListPath, insertIndex],
+        });
+    
+        // i) Restore cursor into the new <li>’s paragraph
+        const newLiPath = [...grandListPath, insertIndex];
+        const [firstTextEntry] = Editor.nodes(editor, {
+          at: [...newLiPath, 0],
+          match: (n) => Text.isText(n),
+          mode: "lowest",
+        });
+        if (firstTextEntry) {
+          const [textNode, textPath] = firstTextEntry;
+          const maxOffset = textNode.text.length;
+          const offset = Math.min(originalOffset, maxOffset);
+          Transforms.select(editor, { path: textPath, offset });
+        }
+    
+        // j) Cleanup: remove any empty nested lists under parentLi
+        try {
+          const updatedParentLi = Node.get(editor, parentLiPath);
+          const filtered = updatedParentLi.children.filter((child) => {
+            if (
+              SlateElement.isElement(child) &&
+              (child.type === "unordered-list" || child.type === "ordered-list")
+            ) {
+              return child.children.length > 0;
+            }
+            return true; // keep paragraphs
+          });
+          if (filtered.length !== updatedParentLi.children.length) {
+            Transforms.setNodes(
+              editor,
+              { children: filtered },
+              { at: parentLiPath }
+            );
+          }
+        } catch (e) {
+          // parentLi may have been removed—ignore
+        }
+    
+        return;
+      });
+    
+      return;
+    }
+    // ─────────────────────────────────────────────────────────────────
+  };
+  
+  const __handleKeyDown = (event) => {
 
   
 
@@ -647,51 +1360,6 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
           levels: nestingDepth + 1,
         });
 
-        /*
-        // Non-empty list-item logic (handle as before)
-        // Find the top-level block that contains the list (go up one level beyond the parent list)
-        const grandParentBlock = Editor.above(editor, {
-          match: n => SlateElement.isElement(n),
-          at: parentPath,
-        });
-  
-        // Find the path to insert the new node after the parent list (outside of it)
-        const insertPath = grandParentBlock ? Path.next(grandParentBlock[1]) : Path.next(parentPath);
-  
-        // Insert a new list after the current list (outside of the list structure)
-        Transforms.insertNodes(
-          editor,
-          {
-            type: parentNode.type,  // Keep the same type (unordered-list or ordered-list)
-            children: [
-              {
-                type: 'list-item',
-                children: [{ text: '' }],
-              },
-            ],
-          },
-          { at: insertPath }
-        );
-  
-        // Set the selection to the newly created list-item in the new list
-        Transforms.select(editor, Editor.end(editor, insertPath));
-  
-        // Now, let's handle the indentation level (mirroring the current one)
-        const indentLevel = Editor.path(editor, path).length - 2;
-  
-        // If the current list item is indented, we need to create nested list-item nodes
-        if (indentLevel > 0) {
-          for (let i = 0; i < indentLevel; i++) {
-            Transforms.wrapNodes(
-              editor,
-              {
-                type: parentNode.type,  // Wrap in the same type of list (unordered/ordered)
-                children: [],
-              },
-              { at: insertPath }
-            );
-          }
-        }*/
       }
     }
   }

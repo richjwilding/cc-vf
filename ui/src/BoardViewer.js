@@ -65,7 +65,8 @@ async function moveItemWithinFrame(primitiveId, startZone, endZone, frame){
     function getLocalPrimitiveListForBoardId( id, myState ){
         let localItems
         if( myState[id].axisSource){
-            if( ! myState[myState[id].axisSource.id] ){
+
+            if( ! myState[myState[id].axisSource.id] && !myState[id].axisSource.inFlow ){
                 SharedPrepareBoard(myState[id].axisSource, myState)
                 myState[myState[id].axisSource.id].skipNextBuild = true
             }

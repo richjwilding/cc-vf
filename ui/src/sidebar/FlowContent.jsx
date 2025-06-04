@@ -24,7 +24,7 @@ export function FlowContent({ primitive, axisData, ...props }) {
                     column: axisData?.column.reduce((a,c)=>{a[c.idx]=c;return a},{}),
                     row: axisData?.row.reduce((a,c)=>{a[c.idx]=c;return a},{}),
                 }}
-                className='w-full min-h-[24em] max-h-inherit !text-xs'
+                className='w-full min-h-[24em] max-h-inherit !text-sm'
             />
             <PrimitiveCard.Title primitive={primitive}/>
         </>

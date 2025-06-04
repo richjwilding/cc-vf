@@ -1348,60 +1348,6 @@ export  async function __categorize(list, categories, options = {} ){
         
     return remap
 }
-export  async function _categorize(list, categories, options = {} ){
-    const targetType = options.types || "item"
-    const match = options.matchPrompt || `I am categorizing a list of ${options.longType ?? targetType}s.  You must assess how well each of the provided numbered ${targetType}s aligns with each of the candidate numbered categories${options.focus ? ` in terms of ${options.focus}` : ""} based on conceptual similarity, rather than exact text matches`
-    let tokens = 12000
-    if(options.engine === "gpt4"){
-        tokens = 2000
-    }
-    if(options.engine === "gpt4p"){
-        tokens = 10000
-    }
-    const instructions = `
-    ### Assessment Scale
-    - Not: The item does not conceptually align with the category.
-    - Hardly: The item has minimal conceptual similarity with the category.
-    - Somewhat: The item shares some conceptual elements with the category.
-    - Likely: The item has a significant conceptual alignment with the category.
-    - Clear: The item perfectly aligns with the conceptual definition of the category.
-    
-    **Steps**
-    1. Carefully examine all information provided for each numbered ${options.longType ?? targetType}s and compare and contrast it to each and every  provided numbered category, focusing on conceptual similarities.
-    2. For each numbered category, form an assessment of how related, relevant, and appropriate it is for the numbered ${options.longType ?? targetType} using the scale provided.
-    3. Carefully review your assignment and correct any mistakes
-    4. You must do this for every numbered item i have provided
-    
-    Return your results in a JSON object called results with the following structure:
-    [
-        {
-            id: <<id of numbered item as provided to you>>,
-            a:[
-                {
-                    c: <<id of category>>,
-                    s: <<assessment score using the scale i have provided>>
-                },
-                <<assessments for the remainder of categories>>
-            ] 
-        },
-        <<remaining entries for each item>>
-    ]`
-    const interim = await processInChunk( list, 
-            [
-                {"role": "system", "content": match},
-                {"role": "user", "content": `Here is the list of numbered ${options.longType ?? targetType}s: `}
-            ],
-            [
-                {"role": "user", "content": `And here are a list of numbered categories: ${categories.map((d,idx)=>`${idx}. ${d}`).join("\n")}`},
-                {"role": "user", "content": instructions}
-            ],
-            {field: "results", maxTokens: tokens, engine:  options.engine, ...options})
-    return interim
-}
-/*
-Find a maximum of 5  specific, concrete problems that are explicitly discussed in the article which relate to challenges to growth
-Return your results in a json object with a field called 'answered' set to the number of specific and concrete problems were discussed in the article, and an 'answers' field which is an array of problems (if any), with each entry being an object with the following fields: a 'quote' field containing no more than the first 30 words of the exact text from the article used to produce the answer without correcting bad spelling or grammar or altering the text in anyway,  and a problem field containing the problems you identify in the form 'It sucks that...'.Do not put anything other than the raw JSON in the response
-*/
 function repackLongText( text, options ){
     let list = text.split(`\n`)
     let maxTokens = tokensForModel(options.engine)

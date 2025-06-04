@@ -1,13 +1,16 @@
 import express from 'express';
+import compression from 'compression';
 import path from 'path';
 import cookieParser from 'cookie-parser';
 import logger from 'morgan';
 import indexRouter from './routes/index';
 import apiRouter from './routes/api';
 import publishedRouter from './routes/published';
+import authRouter from './routes/auth';
 import passport from 'passport';
 import cookieSession from 'cookie-session';
 import bodyParser from 'body-parser'
+import { Strategy as LocalStrategy } from 'passport-local'
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import * as dotenv from 'dotenv' 
 import mongoose from 'mongoose';
@@ -19,7 +22,45 @@ import { google } from "googleapis";
 import { SIO } from './socket';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { fetchPrimitive } from './SharedFunctions';
+import { body, validationResult } from 'express-validator'
 import { updateBrightDataWhitelist } from './brightdata';
+import NodeCache from 'node-cache'
+
+
+export const userCache = new NodeCache({ stdTTL: 300, checkperiod: 60 })
+
+export async function fetchUserProfile(userId) {
+    if( !userId){
+        return
+    }
+    if( typeof(userId) === "object"){
+        return
+    }
+    const cached = userCache.get(userId)
+    if (cached) {
+      return cached
+    }
+  
+    const userDoc = await User.findById(userId).lean()
+    if (!userDoc) {
+      throw new Error(`User not found: ${userId}`)
+    }
+  
+    const profile = {
+      _id: userDoc._id.toString(),
+      email: userDoc.email,
+      name: userDoc.name,
+      avatarUrl: userDoc.avatarUrl,
+      workspaceIds: userDoc.workspaces,  
+      accessToken:  userDoc.accessToken,
+        refreshToken: userDoc.refreshToken,
+        expiry_date:  userDoc.expiry_date,
+    }
+  
+    userCache.set(userId, profile)
+  
+    return profile
+  }
 
 dotenv.config()
 
@@ -27,33 +68,76 @@ mongoose.set('strictQuery', false);
 mongoose.connect(process.env.MONGOOSE_URL)
 
 
-passport.serializeUser(function(user, done) {
-    done(null, user);
-});
-
-passport.deserializeUser(function(user, done) {
-        done(null, user);
-});
-
-const strategy = new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret:process.env.GOOGLE_SECRET,
-    callbackURL: process.env.GOOGLE_CALLBACK,
-    passReqToCallback   : true
-},
-function(request, accessToken, refreshToken, params, profile, done) {
-    const expiry_date = moment().add(params.expires_in, "s").format("X");
-    
-    console.log( expiry_date )
-    const user = {
-        email: profile.emails[0].value,
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-        expiry_date: expiry_date
+passport.serializeUser((user, done) => {
+    done(null, user._id.toString())
+  })
+  
+  passport.deserializeUser(async (id, done) => {
+    try {
+      const user = await fetchUserProfile(id)
+      if (!user) {
+        return done(null, false);
+      }
+      // Pass the entire user object into `req.user`
+      return done(null, user);
+    } catch (err) {
+      return done(err);
     }
+  });
+
+  passport.use(new LocalStrategy({ usernameField: 'email' }, User.authenticate()));
+  
+
+const strategy = new GoogleStrategy(
+    {
+        clientID: process.env.GOOGLE_CLIENT_ID,
+        clientSecret:process.env.GOOGLE_SECRET,
+        callbackURL: process.env.GOOGLE_CALLBACK,
+        passReqToCallback   : true
+    },
+    async function (req, accessToken, refreshToken, params, profile, done) {
+        try {
+            const email = profile.emails[0].value.toLowerCase().trim()
+            let user = await User.findOne({ email })
     
-    return done(null, user);
-}
+          if (!user) {
+            const oauth2Client = new google.auth.OAuth2()
+            oauth2Client.setCredentials({ access_token: accessToken })
+            const peopleApi = google.people({ version: 'v1', auth: oauth2Client })
+            const me = await peopleApi.people.get({
+              resourceName: 'people/me',
+              personFields: 'emailAddresses,names,photos',
+            })
+    
+            const userInfo = {
+              googleId: profile.id,
+              email:   profile.emails[0].value,
+              name:    me.data.names?.[0]?.displayName || profile.displayName,
+              avatarUrl: me.data.photos?.[0]?.url || undefined,
+              accessToken,
+              refreshToken,
+              expiry_date: moment().add(params.expires_in, 's').format('X'),
+            }
+    
+            user = await User.findOneAndUpdate(
+              { googleId: profile.id }, // either match on googleId ...
+              userInfo,                 // ... fill in these fields
+              { upsert: true, new: true, setDefaultsOnInsert: true }
+            )
+          } else {
+            user.googleId = profile.id
+            user.accessToken  = accessToken
+            user.refreshToken = refreshToken
+            user.expiry_date  = moment().add(params.expires_in, 's').format('X')
+            await user.save()
+          }
+    
+          return done(null, user)
+        } catch (err) {
+          console.error('Error in GoogleStrategy callback:', err)
+          return done(err, null)
+        }
+      }
 )
 
 passport.use(strategy);
@@ -66,7 +150,8 @@ updateBrightDataWhitelist()
 
 const session = cookieSession({
     name: 'google-auth-session',
-    keys: ['eman', 'monkey']
+    keys: ['eman', 'monkey'],
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 24h
 })
 
 app.use(session)
@@ -110,6 +195,7 @@ app.use((req, res, next) => {
 
 
 app.use('/published', publishedRouter);
+app.use('/auth', authRouter);
 
 if (process.env.NODE_ENV !== 'production') {
     app.use(
@@ -140,17 +226,16 @@ app.get('/google/callback',
 
   }
 );
-app.get("/google/logout", (req, res) => {
-req.user = undefined
-console.log("do logout")
-  req.logout(function(err) {
-    if (err) { 
-        console.log(err)
-        return next(err);
-    }
-console.log("done - redirect")
-    res.redirect('/');
-  });
+app.get("/logout", (req, res) => {
+    req.user = undefined
+    req.logout(function(err) {
+        if (err) { 
+            console.log(err)
+            return next(err);
+        }
+        console.log("done - redirect")
+        res.redirect('/');
+    });
 })
 
 
@@ -159,10 +244,12 @@ var checkToken = async (req, res, next) => {
     if (!req.user ){
         return next();
     }
+    if (!req.user.googleId ){
+        return next();
+    }
     if (!req.user.refreshToken ){
         console.log(`no token`)
-        console.log(req.user)
-      res.redirect('/google/logout')
+      res.redirect('/logout')
       return
     }
     let user = req.user
@@ -198,166 +285,76 @@ var checkToken = async (req, res, next) => {
     }
   };
   
-app.use(checkToken);
 
 app.get('/api/status', (req, res) => {
     if (req.user) {
         res.status(200).json( {
             logged_in: true, 
-            user: req.user,
-            env:{
-             //   OPEN_API_KEY:process.env.OPEN_API_KEY,
-                GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
-                GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-                MIRO_CLIENT_ID: process.env.MIRO_CLIENT_ID,
-                MIRO_CLIENT_SECRET: process.env.MIRO_CLIENT_SECRET,
-                MIRO_REDIRECT_URL: process.env.MIRO_REDIRECT_URL,
-                PROXYCURL_KEY: process.env.PROXYCURL_KEY
-            }            
+            user: req.user
         })
     } else {
         res.status(200).json( {logged_in: false})
     }
 })
 
-/*var ensureAuthenticated = async function(req, res, next) {
-    if( ['/login', '/manifest.json', '/logo192.png'].includes(req?.originalUrl) ){
-        return next()
-    }
-    if( req.originalUrl?.slice(0,12) === '/static/css/' ){
-        return next()
-    }
-    if( req.originalUrl?.slice(0,11) === '/static/js/' ){
-        return next()
-    }
-    if( req.originalUrl?.slice(0,8) === '/images/' ){
-        return next()
-    }
-    if (req.isAuthenticated()) {
-        if (!req.session.user) {
-            console.log(`LOADING USER FROM DATABASE`)
-            // Load user data from the database
-            const user = await User.findOne({ email: req.user.email });
-
-            if (user) {
-                req.session.user = {
-                    email: user.email,
-                    workspaceIds: user.workspaces,
-                    name: user.name,
-                    avatarUrl: user.avatarUrl,
-                };
-            } else {
-                try {
-                    const auth = new google.auth.OAuth2();
-                    auth.setCredentials({ access_token: req.user.accessToken });
-
-                    const papi = google.people({ version: 'v1', auth });
-                    const data = await papi.people.get({
-                        resourceName: 'people/me',
-                        personFields: 'emailAddresses,names,photos',
-                    });
-
-                    if (data.data) {
-                        const userInfo = {
-                            name: data.data.names ? data.data.names[0].displayName : "Unknown",
-                            avatarUrl: data.data.photos ? data.data.photos[0].url : undefined,
-                            email: req.user.email,
-                        };
-
-                        const query = { email: req.user.email };
-                        const options = { upsert: true, new: true, setDefaultsOnInsert: true };
-                        const user = await User.findOneAndUpdate(query, userInfo, options);
-
-                        req.session.user = {
-                            email: user.email,
-                            workspaceIds: user.workspaces,
-                            name: user.name,
-                            avatarUrl: user.avatarUrl,
-                        };
-                    }
-                } catch (err) {
-                    console.error(err);
-                }
-            }
-        }else{
-            console.log(`REUSING USER FROM SESSION`)
-
-        }
-
-        // Attach session user data to the request
-        req.user = req.session.user;
-        return next();
-    }else{
-        res.redirect('/login')
-    }
-}*/
-
-const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
-
 var ensureAuthenticated = async function (req, res, next) {
-    const publicUrls = ['/login', '/manifest.json', '/logo192.png'];
-    const staticPrefixes = ['/static/css/', '/static/js/', '/images/'];
-
-    // Skip authentication for public URLs
-    if (publicUrls.includes(req?.originalUrl) || staticPrefixes.some(prefix => req.originalUrl.startsWith(prefix))) {
-        return next();
+    const publicUrls = ['/login', '/signup', '/manifest.json', '/logo192.png'];
+    const staticPrefixes = ['/auth','/static/css/', '/static/js/', '/images/'];
+  
+    if (
+      publicUrls.includes(req.originalUrl) ||
+      staticPrefixes.some((p) => req.originalUrl.startsWith(p))
+    ) {
+      return next();
     }
-
-    
-
-    if (req.isAuthenticated()) {
-        // Check if user data is already cached in the session
-        if (req.session.user) {
-            const now = Date.now();
-
-            // Check if cached user data is still valid
-            if (now - req.session.user.lastFetched < CACHE_DURATION) {
-                //req.user = req.session.user.data;
-                req.user = {...req.user,...req.session.user.data}
-                return next();
-            }
-        }
-
-        // If no cached data or cache expired, fetch fresh user data
-        try {
-            const user = await User.findOne({ email: req.user.email });
-
-            if (user) {
-                // Cache user data in the session with a timestamp
-                req.session.user = {
-                    data: {
-                        email: user.email,
-                        workspaceIds: user.workspaces,
-                        name: user.name,
-                        avatarUrl: user.avatarUrl,
-                    },
-                    lastFetched: Date.now(),
-                };
-
-                req.user = {...req.user,...req.session.user.data}
-                return next();
-            } else {
-                res.redirect('/login');
-            }
-        } catch (err) {
-            console.error('Error fetching user:', err);
-            res.redirect('/login');
-        }
-    } else {
-        if (req.path.startsWith('/api/image')) {
-            const id = req.path.slice(11)
-            const prim = await fetchPrimitive( id, {published: true}, {_id: 1, published: 1})
-            if( prim ){
-                return next(); // skip auth for this path
-            }
-        }
-        res.redirect('/login');
+  
+    if (!req.isAuthenticated() || !req.user || !req.user._id) {
+      if (req.path.startsWith('/api/image')) {
+        const id = req.path.slice(11);
+        const prim = await fetchPrimitive(id, { published: true }, { _id: 1, published: 1 });
+        if (prim) return next();
+      }
+      return res.redirect('/login');
     }
-};
+  
+    try {
+      const fullProfile = await fetchUserProfile(req.user._id);
+      req.user = fullProfile;
+      return next();
+    } catch (err) {
+      console.error('Error fetching user profile:', err);
+      return next(err);
+    }
+  }
 
 SIO.setAuthentication(session)
 
+app.use(checkToken)  
 app.use(ensureAuthenticated);
+app.use(
+    '/api',
+    compression({
+      threshold: 102400,
+      filter: (req, res) => {
+        const acceptHeader = req.headers.accept || '';
+        if (acceptHeader.includes('text/event-stream')) {
+            return false;
+        }
+
+        if (req.path.endsWith('/agent')) {
+            return false;
+        }
+
+        const contentType = res.getHeader('Content-Type') || '';
+        
+        if (contentType.includes('application/msgpack')) {
+          return true;
+        }
+        return compression.filter(req, res);
+      }
+    })
+  );
+
 app.use('/api', apiRouter);
 
 app.get("/google/failed", (req, res) => {

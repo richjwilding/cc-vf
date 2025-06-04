@@ -14,7 +14,7 @@ export default function HomeScreen(props){
         if( props.workspace === undefined ){
             return array
         }
-        return array.filter((d)=>d.workspaceId === props.workspace.id)
+        return array.filter((d)=>d.workspaceId === props.workspace)
     }
 
     useEffect(()=>{

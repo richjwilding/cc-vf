@@ -20,9 +20,10 @@ import SearchSet from "./SearchSet"
 import { QueryPane } from "./QueryPane"
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list"
 import { CheckboxField, Checkbox } from "./@components/checkbox"
-import { TrashIcon } from "@heroicons/react/24/outline"
+import { AdjustmentsVerticalIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
 import { Label } from "./@components/fieldset"
+import { Select, SelectItem } from "@heroui/react"
 
 // Add the icons to the library
 
@@ -214,6 +215,33 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
     }
     let content
 
+    const flowElementControl = ()=>{
+        if( frame.flowElement ){
+            function setConfigValue(k,v){
+                frame.setField(`referenceParameters.fc_${k}`,v) 
+            }
+            return <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2 @container">
+                    <UIHelper.Panel title="Control" icon={<AdjustmentsVerticalIcon className="w-5 h-5"/>}>
+                        <DescriptionList inContainer={true} className="my-2 space-y-2">
+                            <DescriptionTerm inContainer={true}>Active Configurations</DescriptionTerm>
+                            <DescriptionDetails inContainer={true}>
+                                <div className="space-y-2 flex flex-col">
+                                    {Object.entries(frame.origin.referenceParameters?.configurations ?? {}).map(([key, config]) => (
+                                        <Select className="w-full" selectionMode="multiple" label={config.title} variant="bordered" selectedKeys={frame.referenceParameters?.[`fc_${key}`] ?? []} onChange={(e)=>setConfigValue(key, e.target.value.split(","))}>
+                                            {config.options.map((d) => (
+                                                <SelectItem key={d.id}>{d.title}</SelectItem>
+                                            ))}
+                                        </Select>
+                                    ))}
+                                </div>
+                            </DescriptionDetails>
+                        </DescriptionList>    
+                    </UIHelper.Panel>
+                </div>
+        }
+        return <></>
+    }
+
     let primitiveForContent = underlying ?? frame
     const activeInfo = !underlying ? <></> : <div className="bg-yellow-100 border border-yellow-100 my-2 px-2 py-2 rounded-md">{(()=>{
                     return <div className="text-sm text-yellow-800">Configuration for flow item</div>
@@ -300,7 +328,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             mainstore.doPrimitiveAction(mainstore.primitive(id), "run_search")
         }
 
-        content = <div className="flex flex-col pb-2 px-3">
+        content = <div className="flex flex-col pb-2 px-3 space-y-3">
                     {activeInfo}
                     <span className="text-gray-400 text-xs mt-0.5 mb-2">#{frame.plainId}  {frame.metadata.title ?? "Search"}</span>
                     <div className="flex w-full space-x-3 place-items-center">
@@ -321,11 +349,11 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     <div className="w-full my-2">
                         <QueryPane primitive={frame} detail={false}/>
                     </div>
-                    <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 px-2 py-1.5">
+                    <div className="w-full border bg-gray-50 border-gray-200 rounded-lg px-2 py-1.5">
                         <QueryPane primitive={frame} terms={false}/>
                     </div>
 
-                    {frame.metadata?.nestedSearch &&  <div className="mt-2 space-y-2">
+                    {frame.metadata?.nestedSearch &&  <div className=" space-y-2">
                         <div className="border rounded-md bg-gray-50">
                             <div onClick={()=>setShowNested(!showNested)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">
                                 <p className="font-medium ">Nested Searches</p>
@@ -367,7 +395,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         </div>
                     </div>
                 }
-
+                    {flowElementControl()}
                     {underlyingInfo}
                     <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 p-2">
                         <CategoryHeader itemCategory={searchResultCategory} items={searchResults} actionAnchor={frame} />
@@ -662,6 +690,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             function pinSet(title, target ){
                 const pins = frame.referenceParameters?.[target] ?? {}
                 const pinIds = Object.keys(pins)
+                const showDescriptor = frame.type === "flow" || frame.type === "page"
 
                 function toggleType(pinId, type){
                     let types = (pins[pinId].types ?? [])
@@ -692,6 +721,23 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                     </DescriptionTerm>
                                     <DescriptionDetails inContainer={true}>
                                         <DescriptionList inContainer={true}>
+                                            {showDescriptor && <>
+                                                <DescriptionTerm inContainer={true}>Description</DescriptionTerm>
+                                                <DescriptionDetails inContainer={true}>
+                                                    <EditableTextField 
+                                                        submitOnEnter={true} 
+                                                        fieldClassName="!p-0 !bg-transparent"
+                                                        callback={(value)=>{
+                                                            if( value ){
+                                                                frame.setField(`referenceParameters.${target}.${pinId}.description`, value)
+                                                                return true
+                                                            }
+                                                            return false
+                                                        }}
+                                                        value={pins[pinId].description}>
+                                                    </EditableTextField>
+                                                </DescriptionDetails>
+                                            </>}
                                             <DescriptionTerm inContainer={true}>Types</DescriptionTerm>
                                             <DescriptionDetails inContainer={true}>
                                                 <CheckboxField>
@@ -749,6 +795,9 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         <ChevronRightIcon strokeWidth={2} className={`ml-auto w-5 h-5 ${showDetails ? '-rotate-90 transform' : ''}`}/>
                     </div>
                     {showDetails && <>
+                            <div className="p-2 ">
+                                <PrimitiveCard.Parameters primitive={frame} includeTitle editing leftAlign compactList className="text-xs text-slate-500" fullList />
+                            </div>
                         <div className="px-4 pb-2 space-y-2 text-sm text-gray-600">
                             {pinSet("Inputs", "inputPins")}
                             {pinSet("Outputs", "outputPins")}
@@ -773,6 +822,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     }
                 }}
                 />}
+
             </>
         }
 
@@ -954,6 +1004,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     </div>
                 </div>
             }
+            {flowElementControl()}
             {underlyingInfo}
             {itemCategory && <div className="px-3 py-2 bg-gray-50 border rounded-md">
                 <CategoryHeader newPrimitiveCallback={newPrimitiveCallback} itemCategory={itemCategory} items={list}  newItemParent={newItemParent} createNewView={props.createNewView} panelConfig={frame?.referenceParameters?.table} actionAnchor={frame} filters={filters}/>

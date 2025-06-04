@@ -171,7 +171,6 @@ export function Sidebar({primitive, ...props}) {
             if( primitive.metadata.type === "aggregator"){
                 const parentForScope = primitive.findParentPrimitives({type: "working"})[0]
                 if( parentForScope ){
-                    //list = parentForScope.itemsForProcessingWithParams({descend: true, ...primitive.referenceParameters})
                     allSegments = parentForScope.primitives.allSegment
                     segmentOriginId = parentForScope.id
                 }

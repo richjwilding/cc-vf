@@ -1,7 +1,7 @@
 import './App.css';
 import MainStore from './MainStore';
-import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useParams } from "react-router-dom";
+import React, { useEffect, useReducer } from 'react';
+import { BrowserRouter, Routes, Route, useParams, Outlet } from "react-router-dom";
 import { ComponentView } from './ComponentView';
 import { Sidebar } from './Sidebar';
 import { library } from '@fortawesome/fontawesome-svg-core'
@@ -24,6 +24,9 @@ import Popup from './Popup.js';
 import GenericEditor from './CategoryEditor.js';
 import PrimitiveConfig from './PrimitiveConfig.js';
 import FlowInstancePage from './FlowInstancePage.js';
+import WorkflowDashboard from './WorkflowDashboard.js';
+import { HeroUIProvider } from '@heroui/system';
+import SignupPage from './SignUp.js';
 
 library.add(faTags, faRobot, faTrash, faChevronDown, faLinkedin, faFilter, faCircleInfo, faSpinner, faTriangleExclamation)
 
@@ -46,12 +49,12 @@ function App() {
   const [primitive, setPrimitive] = React.useState(undefined)
   const [sidebarOptions, setSidebarOptions] = React.useState(undefined)
   const [widePage, setWidePage] = React.useState(false)
-  const [workspaceView, setWorkspaceView] = React.useState(undefined)
   const [showDeletePrompt, setShowDeletePrompt] = React.useState()
   const [showPicker, setShowPicker] = React.useState()
   const [manualInputPrompt, setManualInputPrompt] = React.useState(false)
   const [showNew, setShowNew] = React.useState(false)
   const [showCategoryPicker, setShowCategoryPicker] = React.useState()
+  const [update, forceUpdate] = useReducer((x)=>x + 1,0)
   const [showEditCategory, setShowEditCategory] = React.useState()
 
 
@@ -79,7 +82,7 @@ function App() {
       }
     })
   }, [])
-  useEffect(() => {
+/*  useEffect(() => {
     const handleGestureStart = (e) => {
       e.preventDefault();
     };
@@ -88,6 +91,7 @@ function App() {
       e.preventDefault();
     };
 
+    
     document.addEventListener('gesturestart', handleGestureStart);
     document.addEventListener('gesturechange', handleGestureChange);
 
@@ -96,7 +100,7 @@ function App() {
       document.removeEventListener('gesturechange', handleGestureChange);
     };
   }, []); // Empty dependency array means this effect runs once on mount and once on unmount
-              
+              */
 
   const selectPrimitive = (primitive, options)=>{
     console.log(primitive)
@@ -121,9 +125,17 @@ function App() {
   mainstore.globalNewPrimitive = setShowNew
   mainstore.globalCategoryPicker = setShowCategoryPicker
   mainstore.globalCategoryEditor = setShowEditCategory
+    
+  const { id } = useParams();
+  const pagePrimitive = mainstore.primitive(id)
 
-  return (
-    !loaded
+  function setWorkspace(workspace){
+    mainstore.setActiveWorkspace(workspace)
+    forceUpdate()
+  }
+
+  return (<HeroUIProvider>
+    {!loaded
     ? <div role="status" className='w-full h-screen flex justify-center place-items-center'>
         <svg aria-hidden="true" className="w-20 h-20 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600" viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor"/>
@@ -136,12 +148,13 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<SignIn/>}/>
-              <Route path="/" element={<SideNav workspace={workspaceView} setWorkspace={setWorkspaceView}><HomeScreen workspace={workspaceView} setWorkspace={setWorkspaceView}/></SideNav>}/>
+              <Route path="/signup" element={<SignupPage/>}/>
+              <Route path="/" element={<SideNav workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}>
+                <HomeScreen workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}/>
+              </SideNav>}/>
               <Route path="/published/new_instance/:id" element={<FlowInstancePage />}/>
-              <Route path="/item/:id" element={
-                <SideNav key='sidebar' widePage={widePage} workspace={workspaceView} setWorkspace={setWorkspaceView}>
-                  {(props)=>(
-                  <>
+              <Route element={
+                <SideNav key='sidebar' widePage={widePage} workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}>
                     <Toaster 
                       position="bottom-right"
                       reverseOrder={true}
@@ -154,10 +167,11 @@ function App() {
                           border:'1px solid #00d967'
                         }}}
                     />
-                    <PrimitivePage key={`${mainstore.activeWorkspaceId}-${props.primitive?.id}`} {...props} primitive={props.primitive} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>
-                  </>
-                  )}
-                </SideNav>}/>
+                    <Outlet/>
+                </SideNav>}>
+                  <Route path="/workflows/" element={<WorkflowDashboard widePage={widePage} setWidePage={setWidePage} workspaceId={mainstore.activeWorkspaceId} />}/>
+                  <Route path="/item/:id" element={<PrimitivePage key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`} primitive={pagePrimitive} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>}/>
+                </Route>
             </Routes>
           <Sidebar open={open} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
           {showDeletePrompt && <ConfirmationPopup title={showDeletePrompt.title ?? "Confirm deletion"} message={showDeletePrompt.prompt} confirm={showDeletePrompt.handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
@@ -167,8 +181,8 @@ function App() {
           {showCategoryPicker && <Popup padding='false' setOpen={()=>setShowCategoryPicker(false)}><NewPrimitive.CategorySelection  setOpen={()=>setShowCategoryPicker(false)} categoryId={showCategoryPicker.categoryIds} setSelectedCategory={(d)=>{const r = showCategoryPicker.callback(d); if(r){setShowCategoryPicker()}}}/></Popup>}
           {showEditCategory && <GenericEditor target={showEditCategory.originTask} set={(p)=>showEditCategory.primitive.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>[32].includes(d.id))} primitive={showEditCategory.primitive} setOpen={()=>setShowEditCategory(null)}/> }
           </BrowserRouter>
-      </div>
-  )
+      </div>}
+  </HeroUIProvider>)
 }
 
 export default App;

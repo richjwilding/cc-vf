@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import useDataEvent from "./CustomHook";
 import MainStore from "./MainStore";
 import Panel from "./Panel";
@@ -7,17 +7,30 @@ import EditableTextField from "./EditableTextField";
 import FeedList from "./@components/Feed";
 import { HeroIcon } from "./HeroIcon";
 import {DescriptionList, DescriptionTerm, DescriptionDetails} from './@components/description-list'
-import { FlowInstanceInfo } from "./FlowInstanceInfo";
 import UIHelper from "./UIHelper";
-import { FlowInstanceOutput } from "./FlowInstanceOutput";
 import clsx from "clsx";
 import { VFImage } from "./VFImage";
 import { useLocation, useParams } from "react-router-dom";
+import { Button, Select, SelectItem, Tab, Tabs } from "@heroui/react";
+import { ChevronDoubleLeftIcon, ChevronRightIcon, DocumentArrowDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import FlowInstanceOutput from "./FlowInstanceOutput";
+import AgentChat from "./AgentChat";
+import { Logo } from "./logo";
+
+const tabs = [
+  { title: 'Assistant', id: "ai" },
+  { title: 'Inputs', id: "input" },
+  { title: 'Progress', id: "progress"},
+]
 
 export default function FlowInstancePage({primitive, ...props}){
     const { id } = useParams();
     const location = useLocation();
     const query = new URLSearchParams(location.search);
+    const flowInfoRef = useRef({})
+    const [agentStatus, setAgentStatus] = useState({activeChat: false})
+
+    const [activeTab, setActiveTab ] = useState( tabs[0].id )
     const isEmbedded = query.get("embed")
 
     if (!primitive && id) {
@@ -114,17 +127,66 @@ export default function FlowInstancePage({primitive, ...props}){
     const showImage = targetFlow.referenceParameters?.hasImg
     const enableSubmit = [...Object.values(missing), ...Object.values(errors)].filter(d=>d).length === 0
 
+    const configurationOptions = targetFlow.referenceParameters.configurations ?? {}
+    const hasConfiguration = Object.keys(configurationOptions).length > 0
+
+    function setValue(k,v){
+        if( isForNewInstance ){
+            newInstanceCallback(k, v)
+        }else{
+            primitive.setField(`referenceParameters.${k}`, v)
+        }
+    }
+
+    function renderConfigOption( rawKey, info ){
+        const key = "fc_" + rawKey
+        const currentValue =[primitive.referenceParameters?.[key]].flat()
+        console.log(key, currentValue)
+        switch( info.type ){
+            case "options":
+                return <Select className="max-w-xs" label="Select option" variant="bordered" selectedKeys={currentValue ?? []} onChange={(e)=>setValue(key, e.target.value)}>
+                    {info.options.map((option) => (
+                    <SelectItem key={option.id}>{option.title}</SelectItem>
+                    ))}
+                </Select>
+            case "multiple":
+                return <Select className="max-w-xs" label="Select options" variant="bordered" selectedKeys={currentValue ?? []} selectionMode="multiple" onChange={(e)=>setValue(key, e.target.value.split(","))}>
+                    {info.options.map((option) => (
+                    <SelectItem key={option.id}>{option.title}</SelectItem>
+                    ))}
+                </Select>
+        }            
+    }
+
+    const pinsToShow = Object.entries(pins ?? {}).reduce((a, [k,d])=>{
+        let include = true
+        if( d.validForConfigurations ){
+            include = d.validForConfigurations.some(config=>{
+                const key = "fc_" + config.config
+                const currentValue = [isForNewInstance ? dataForNewInstance[key] : primitive.referenceParameters[key]].flat()
+                if( [config.values].flat().some(d=>currentValue.includes(d)) ){
+                    return true
+                }
+                return false
+            })
+        }
+        if( include ){
+            a[k] = d
+        }
+        return a
+    }, {})
+
     return <div className={clsx([
-            "flex w-full relative flex-1 min-h-0",
-            showOutput ? "bg-white" : "bg-gray-50"
+            "flex w-full relative flex-1 min-h-0 bg-gray-50",
+            showOutput ? "p-6 space-x-6" : ""
         ])}>
                 <div className={clsx([
-                    "w-full min-w-[30em] font-['Poppins'] @container flex flex-1 flex-col min-h-0",
-                    showOutput ? "w-[25vw] max-w-2xl p-6 " : "mx-auto max-w-6xl px-9 bg-white"
+                    "min-w-[30em] font-['Poppins'] @container flex flex-col min-h-0",
+                    showOutput ? "w-[25vw] max-w-2xl p-6 shadow-lg rounded-2xl bg-white" : "w-full mx-auto max-w-6xl px-9 bg-white"
                 ])}>
                     <div className={clsx([
-                        "flex relative shadow-md",                    
-                        showOutput ? "min-h-32 -mx-6 -mt-6 mb-0 overflow-hidden" : "min-h-64 -mx-9 -mt-6",
+                        "flex relative mb-4",                    
+                        showOutput ? "min-h-32 -mx-6 -mt-6 mb-0 overflow-hidden rounded-t-2xl" : "min-h-64 -mx-9 -mt-6 shadow-md ",
                         ])}>
                         {showImage && <VFImage 
                                             src={`/api/image/${targetFlow.id}`} 
@@ -147,28 +209,70 @@ export default function FlowInstancePage({primitive, ...props}){
                             <PrimitiveCard.Title primitive={targetFlow} major={true}/>
                         </div>
                     </div>
-                    <div className="overflow-y-scroll flex-1">
-                        {!showOutput && !isForNewInstance && <div className="flex place-items-center py-3 justify-end">
-                            <UIHelper.Button title="Results >" color='green' onClick={()=>setShowOutput(true)}/>
-                        </div>}
-                        <PrimitiveCard.InputPins 
-                            primitive={primitive} 
-                            pins={pins} 
-                            dataForNewInstance={isForNewInstance ? dataForNewInstance : undefined} 
-                            newInstanceCallback={isForNewInstance ? newInstanceCallback : undefined} 
-                            updateMissing={isForNewInstance ? setMissing : undefined}
-                        />
-                        {isForNewInstance&& <div className="flex place-items-center py-3 justify-end space-x-3">
-                            {isEmbedded && <UIHelper.Button title="Cancel" onClick={()=>{console.log("send");window.parent.postMessage("close_newflow","*")}}/>}
-                            <UIHelper.Button title="Submit" color='green' disabled={!enableSubmit} onClick={createNewInstance}/>
-                        </div>}
+                        <div className="flex place-items-center py-3 justify-center relative ">
+                            <Tabs variant="solid" selectedKey={activeTab} onSelectionChange={((id)=>setActiveTab(id))}>
+                                {tabs.map(d=><Tab key={d.id} title={d.title}/>)}
+                            </Tabs>
+                            <div className="absolute right-0">
+                                {!showOutput && !isForNewInstance && <Button variant="flat" className="bg-ccgreen-700 text-ccgreen-50" onClick={()=>setShowOutput(true)} endContent={<ChevronRightIcon className="w-5 h-4"/>}>Results</Button>}
+                            </div>
+                        </div>
+                    <div className="flex-1 min-h-0">
+
+                        <div className={clsx([
+                                    "flex flex-col h-full pb-8 bg-white",
+                                    activeTab === "ai" ? "" : "hidden",
+                                    agentStatus.hasReplies ? "justify-stretch" : "justify-center "
+                                ])}>
+                                    <div key='chatbar' className={clsx([
+                                        'flex flex-col overflow-hidden p-3 place-items-start text-md',
+                                        agentStatus.hasReplies ? "h-full w-full" : "w-[60%] mx-auto min-w-[44rem]"
+                                    ])}>
+                                        {!agentStatus.hasReplies && <div className="w-full flex justify-center space-x-2 place-items-center grow">
+                                            <div className="bg-gray-50 rounded-xl border p-6 m-4 text-slate-700 w-72">
+                                                SENSE AI can help you setup this workflow.  Tell it what you're looking to do...
+                                            </div>
+                                        </div>}
+                                        <AgentChat setStatus={setAgentStatus} primitive={primitive} seperateInput={true}/>
+                                    </div>
+                        </div>
+                        <div className={clsx([
+                            "overflow-y-scroll flex flex-col h-full",
+                            activeTab === "input" ? "" : "hidden"
+                            ])}>
+                            {hasConfiguration && <UIHelper.Panel title="Flow Options" narrow className="my-6">
+                                <DescriptionList inContainer={true}>
+                                {Object.entries(configurationOptions).map(([key, info])=>(
+                                    <>
+                                        <DescriptionTerm inContainer={true}>{info.title}</DescriptionTerm>
+                                        <DescriptionDetails inContainer={true}>
+                                            {renderConfigOption(key, info)}                                       
+                                        </DescriptionDetails>
+                                    </>
+                                ))}
+                                </DescriptionList>
+                            </UIHelper.Panel>}
+                            <PrimitiveCard.InputPins 
+                                primitive={primitive} 
+                                pins={pinsToShow} 
+                                dataForNewInstance={isForNewInstance ? dataForNewInstance : undefined} 
+                                newInstanceCallback={isForNewInstance ? newInstanceCallback : undefined} 
+                                updateMissing={isForNewInstance ? setMissing : undefined}
+                            />
+                            {isForNewInstance&& <div className="flex place-items-center py-3 justify-end space-x-3">
+                                {isEmbedded && <UIHelper.Button title="Cancel" onClick={()=>{console.log("send");window.parent.postMessage("close_newflow","*")}}/>}
+                                <UIHelper.Button title="Submit" color='green' disabled={!enableSubmit} onClick={createNewInstance}/>
+                            </div>}
+                        </div>
                     </div>
                 </div>
                 {showOutput && !isForNewInstance && <div className="w-full h-full flex ">
-                    <div className="w-full h-full flex bg-[#fefefe] overflow-hidden shadow-lg relative">
-                        <FlowInstanceOutput primitive={primitive} inputPrimitives={inputs} steps={steps} hideProgressAt="@4xl"/>
-                        <div className="absolute top-2 left-2">
-                            <UIHelper.Button title="Close" onClick={()=>setShowOutput(false)}/>
+                    <div className="w-full h-full flex bg-[#fefefe] overflow-hidden shadow-lg rounded-2xl relative">
+                        <FlowInstanceOutput ref={flowInfoRef} primitive={primitive} inputPrimitives={inputs} steps={steps} hideProgressAt="@4xl"/>
+                        <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute left-4 top-4 z-50 flex space-x-1 place-items-center p-1'>
+                            <Button isIconOnly variant="light" onClick={()=>setShowOutput(false)}><XMarkIcon className="text-slate-500 w-5 h-5"/></Button>
+                            <Button isIconOnly variant="light" onClick={()=>setShowOutput(false)}><ChevronDoubleLeftIcon className="text-slate-500 w-5 h-5"/></Button>
+                            <Button isIconOnly variant="light" onClick={()=>flowInfoRef?.current?.downloadAll()}><DocumentArrowDownIcon className="text-slate-500 w-5 h-5"/></Button>
                         </div>
                     </div>
                 </div>}

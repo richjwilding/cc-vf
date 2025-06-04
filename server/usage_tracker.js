@@ -3,6 +3,10 @@ import TrackUsage from "./model/TrackUsage"
 
 const cost_map = {
     "open_ai":{
+        "o4-mini-2025-04-16":{
+            "prompt_tokens": 1.1 / 1000000,
+            "completion_tokens": 4.4 / 1000000
+        },
         "o3-mini-2025-01-31":{
             "prompt_tokens": 1.1 / 1000000,
             "completion_tokens": 4.4 / 1000000
@@ -14,6 +18,14 @@ const cost_map = {
         "gpt-4o-mini-2024-07-18":{
             "prompt_tokens": 0.15 / 1000000,
             "completion_tokens": 0.6 / 1000000
+        },
+        "gpt-4.1-2025-04-14":{
+            "prompt_tokens": 2 / 1000000,
+            "completion_tokens": 8 / 1000000
+        },
+        "gpt-4.1-mini-2025-04-14":{
+            "prompt_tokens": 0.4 / 1000000,
+            "completion_tokens": 1.6 / 1000000
         }
     }
 }

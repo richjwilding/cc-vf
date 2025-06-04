@@ -270,6 +270,12 @@ export function markdownToSlate(markdownContent = "") {
       const isOrdered   = !!mOrdered;
       const listType    = isOrdered ? "ordered-list" : "unordered-list";
       const itemContent = parseInlineWithBadges(rest);
+      const wrappedItem = {
+        type: "list-item",
+        children: [
+          { type: "paragraph", children: itemContent }
+        ]
+      };
 
       // capture explicit start if “3.” etc.
       const explicitStart = isOrdered
@@ -287,7 +293,8 @@ export function markdownToSlate(markdownContent = "") {
         if (isOrdered && explicitStart > 1) nestedList.start = explicitStart;
         parentItem.children.push(nestedList);
         listStack.push({ node: nestedList, indent: indentCount, type: listType });
-        nestedList.children.push({ type: "list-item", children: itemContent });
+        //nestedList.children.push({ type: "list-item", children: itemContent });
+        nestedList.children.push( wrappedItem )
         continue;
       }
 
@@ -311,7 +318,8 @@ export function markdownToSlate(markdownContent = "") {
         listStack[listStack.length - 1].type === listType
       ) {
         const existing = listStack[listStack.length - 1].node;
-        existing.children.push({ type: "list-item", children: itemContent });
+        //existing.children.push({ type: "list-item", children: itemContent });
+        existing.children.push( wrappedItem )
         continue;
       }
 
@@ -320,7 +328,8 @@ export function markdownToSlate(markdownContent = "") {
       if (isOrdered && explicitStart > 1) newList.start = explicitStart;
       appendTop(newList);
       listStack.push({ node: newList, indent: indentCount, type: listType });
-      newList.children.push({ type: "list-item", children: itemContent });
+      newList.children.push( wrappedItem )
+      //newList.children.push({ type: "list-item", children: itemContent });
       continue;
     }
 
@@ -431,19 +440,21 @@ function parseInlineWithBadges(text) {
   
     while ((m = RE.exec(text)) !== null) {
       const [fullMatch, , badgeType, linkLabel, linkUrl] = m;
-      // 1) Push any plain‐text (with bold/italic) before this match
       if (m.index > lastIndex) {
         parts.push(...parseMarkdownInline(text.slice(lastIndex, m.index)));
       }
-      // 2) Badge?
       if (badgeType) {
+        const isRef = badgeType.startsWith('ref:');
+
+        if (isRef) {
+          parts.push({ type: 'line-break', children: [{ text: '' }] });
+        }
         parts.push({
           type: 'badge',
           badgeType,
           children: [{ text: '' }],
         });
       }
-      // 3) Link?
       else if (linkLabel && linkUrl) {
         parts.push({
           type: 'link',
@@ -454,13 +465,10 @@ function parseInlineWithBadges(text) {
       lastIndex = m.index + fullMatch.length;
     }
   
-    // 4) Trailing text after last match
     if (lastIndex < text.length) {
       parts.push(...parseMarkdownInline(text.slice(lastIndex)));
     }
   
-    // never return an empty array
- //   return parts.length ? parts : [{ text: '' }];
 
    const final = [];
     for (let i = 0; i < parts.length; i++) {
@@ -468,10 +476,7 @@ function parseInlineWithBadges(text) {
       if (chunk.text && chunk.text.includes('\n')) {
         const segments = chunk.text.split('\n');
         segments.forEach((seg, idx) => {
-          //if (seg) final.push({ ...chunk, text: seg });
-          //if (idx < segments.length - 1) final.push({ type: 'line-break', children: [{ text: '' }] });
           if (seg) final.push({ type:"paragraph", ...chunk, text: seg });
-          //if (idx < segments.length - 1) final.push({ type: 'line-break', children: [{ text: '' }] });
         });
       } else {
         final.push(chunk);

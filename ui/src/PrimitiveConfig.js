@@ -1118,7 +1118,10 @@ const PrimitiveConfig = {
     },getDynamicPins:(primitive, config, mode = "inputs")=>{
         if( mode === "inputs"){
             if( primitive.type === "query" || primitive.type === "summary" || primitive.type === "categorizer"|| primitive.type === "action"){
-                let src = config.prompt ?? config.query ?? config.conditions ?? config.evaluation ?? config.theme
+                let src = config.prompt ?? config.query 
+                if( primitive.type === "categorizer" ){
+                    src = [config.conditions ?? "", config.evaluation ?? "", config.theme ?? ""].filter(d=>d).join(" ")
+                }
                 if( src ){
                     const matches = src.match(/\{([^}]+)\}/g);
                     const dynamicNames =  matches ? matches.map(match => match.slice(1, -1)) : [];
@@ -1342,6 +1345,7 @@ const PrimitiveConfig = {
                             }else{
                                 let sources = input.sources ?? [source] 
                                 out[input.inputPin].data = extractDataFromSource( sources )
+                                out[input.inputPin].source = sources
                             }
                         }
                     }
@@ -1351,6 +1355,110 @@ const PrimitiveConfig = {
             }
         }
         return out
+
+    },async buildFlowInstanceStatus(flowInstance, steps, functions = {}, options){
+        let flowStarted = flowInstance.processing?.flow?.started
+        const map = {}
+        
+        const fcValues = Object.entries(flowInstance.referenceParameters ?? {}).reduce((a,[k,v])=>{
+            if( k.startsWith("fc_")){
+                a[k] = [v].flat()
+            }
+            return a
+        }, {})
+
+        async function setupStep( step ){
+            if( map[step.id]){
+                return
+            }
+            
+            const pp = functions.getPrimitives ? functions.getPrimitives(step) : step.primitives
+            const checkListIds = [
+                ...pp.imports.allIds, 
+                ...pp.inputs.allIds,
+            ]
+            if( step.type === "view" || step.type === "query" ){
+                checkListIds.push(...pp.axis.column.allIds, ...pp.axis.row.allIds)
+            }
+            const checkList = checkListIds.map(d=>{
+                const match = steps.find(d2=>d2.id === d)
+                if( match ){
+                    return match
+                }else{
+                    console.log(`>>>> Couldnt find ${d} when checking for skip status of ${step.id}`)
+                }
+            }).filter(d=>d)
+
+            let config = {}
+            if( options.configPrimitives){
+                const stepConfigId = Object.entries(step.parentPrimitives).filter(d=>d[1].includes("primitives.config"))[0]?.[0]
+                if( stepConfigId ){
+                    const configPrimitve = options.configPrimitives.find(d=>d.id === stepConfigId)
+                    config = configPrimitve?.referenceParameters ?? {}
+                }else{
+                    console.log(`>> Couldnt get config Id`)
+                }
+            }else{
+                config = functions.getConfig ? (await functions.getConfig(step)) : step.getConfig
+            }
+            const stepControlValues = Object.entries(config ?? {}).reduce((a,[k,v])=>{
+                if( k.startsWith("fc_")){
+                    a.push([k,[v].flat()])
+                }
+                return a
+            }, [])
+            let matchingConfig  = stepControlValues.some(([k,v])=>fcValues[k] && fcValues[k].some(d=>d.includes(v)))
+            const skipForConfiguration = stepControlValues.length > 0 && !matchingConfig
+
+            const status = {
+                skipForConfiguration,
+                skipForUpstream: undefined,
+                need: false,
+                can: undefined,
+            }
+            for(const p of checkList){
+                await setupStep( p )
+                if( map[p.id]){
+                    const thisSkipped = map[p.id].skip === true ? true : false
+                    if( status.skipForUpstream === undefined ){
+                        status.skipForUpstream = thisSkipped
+                    }else{
+                        status.skipForUpstream = thisSkipped && status.skipForUpstream
+                    }
+                }
+            }
+
+            status.skip = status.skipForConfiguration || status.skipForUpstream
+
+            
+            if( !status.skip ){
+                if( 
+                    (step.type === "flowinstance" && flowStarted && new Date(step.processing?.flow?.started) >= new Date(flowStarted)) ||
+                    (step.type !== "flowinstance" && flowStarted && step.processing?.flow?.started === flowStarted)
+                ){
+                    if(step.processing?.flow?.status === "complete"){
+                        status.needReason = "complete"
+                    }else{
+                        status.need = true
+                        status.needReason = "not_complete"
+                    }
+                }else{
+                    status.need = true
+                    status.needReason = "not_executed"
+                }
+                if( status.need ){
+                    if( functions.isStepRunning ){
+                        status.running = await functions.isStepRunning( step )
+                    }
+                }
+            }
+            map[step.id] = status
+        }
+        
+        for( const step of steps){
+            await setupStep(step)
+        }
+        return map
 
     },doFilter: ({resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, fns)=>{
             const invert = filter.invert ?? false

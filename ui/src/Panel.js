@@ -6,6 +6,7 @@ import {
 import { PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
 import DropdownButton from './DropdownButton';
 import { ArrowsPointingOutIcon } from '@heroicons/react/24/outline';
+import UIHelper from './UIHelper';
 
 
 const Title = (props)=>(
@@ -75,7 +76,7 @@ const MenuButton = (props)=>{
 }
 
 
-export default function Panel({...props}){
+export default function Panel({icon, ...props}){
   const ref = React.useRef()
   const toggleRef = React.useRef()
 
@@ -102,7 +103,8 @@ export default function Panel({...props}){
       {({ open }) => (
         <div className={`group/panel ${props.noSpace ? "" : "mt-6"} ${props.className || ""}`}>
           <div className='flex w-full place-items-center space-x-2'>
-            <Disclosure.Button as='div' key="title" className='flex w-full' ref={toggleRef}>
+            <Disclosure.Button as='div' key="title" className='flex w-full place-items-center space-x-1' ref={toggleRef}>
+              <UIHelper.ResolveIcon icon={icon}/>
               <Title {...props} open={open}/>
             </Disclosure.Button>
               {titleButton && (

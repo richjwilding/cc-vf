@@ -80,7 +80,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const [fontsReady, setFontsReady] = useState(false)
 
     if( !fontsReady ){
-        document.fonts.ready.then(() => {
+        //document.fonts.ready.then(() => {
+        document.fonts.load("1em Poppins").then(() => {
             setFontsReady(true)
           });
     }
@@ -1160,11 +1161,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         myState.current.routing.didLinks = false
 
-        refreshLinks()
+        refreshLinks(false, true)
     }
 
 
-    async function refreshLinks( override ){
+    async function refreshLinks( override, force ){
+        if( force && myState.current.linkUpdatePending){
+            cancelAnimationFrame( myState.current.linkUpdatePending )
+            myState.current.linkUpdatePending = undefined
+        }
         if( myState.current.linkUpdatePending ){
             return
         }
@@ -1241,6 +1246,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             }
                             if( myState.current.routing.didLinks ){
                                 myState.current.routing.router.addLink( link )
+                                myState.current.routing.routerLinks.push(link)
                             }else{
                                 myState.current.routing.routerLinks.push(link)
                             }
@@ -2372,8 +2378,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                         pinCache.push({
                                             frame: frame.id,
                                             pinId: pin.idx,
-                                            x: frame.node.attrs.x + pin.node.attrs.x + (pin.node.attrs.width / 2),
-                                            y: frame.node.attrs.y + pin.node.attrs.y + (pin.node.attrs.height / 2)
+                                            x: frame.node.attrs.x + (pin.node.attrs.x + (pin.node.attrs.width / 2)) * frame.node.attrs.scaleX,
+                                            y: frame.node.attrs.y + (pin.node.attrs.y + (pin.node.attrs.height / 2)) * frame.node.attrs.scaleY,
+                                            cx: frame.node.attrs.x + (pin.node.attrs.x + (pin.node.attrs.width / 2)) * frame.node.attrs.scaleX,
+                                            cy: frame.node.attrs.y + (pin.node.attrs.y + (pin.node.attrs.height / 2)) * frame.node.attrs.scaleY,
+                                            
                                         })
                                     }
                                 }
@@ -2501,7 +2510,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     
                     let revertPosition = undefined
                     if( closestPin ){
-                        [fx, fy] =[closestPin.x, closestPin.y ]
+                        [fx, fy] =[closestPin.cx, closestPin.cy ]
                     }
                     
                     let found = findTrackedNodesAtPosition( fx, fy, "pin" )?.[0]
@@ -2553,9 +2562,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         ])
                     
                     if( state.last ){
-                       // myState.current.routing.routereremoveLink( {id: "pin_drag"} )
                         myState.current.routing.router.removeShape( {id: "pin"} )
-
 
                         if( myState.current.dragging.dropData ){
                             const config = props.drag?.pin?.pin
@@ -2568,20 +2575,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
                     return memo
                 }
-                /*
-                if( props.snapDistance ){
-                    const [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
-                    const snapX = computeDistance( myState.current.dragging.clone.attrs.id, fx, "x", props.snapDistance)
-                    const snapY = computeDistance( myState.current.dragging.clone.attrs.id, fy, "y", props.snapDistance)
-                    if( snapX.v ){
-                        const [cx,cy] = convertSceneCoordToScreen(snapX.v)
-                        px = cx + myState.current.dragging.ox
-                    }
-                    if( snapY.v ){
-                        const [cx,cy] = convertSceneCoordToScreen(undefined, snapY.v)
-                        py = cy + myState.current.dragging.oy
-                    }
-                }*/
                if( myState.current.dragging.snaps ){
                     const snaps = myState.current.dragging.snaps
                     let [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)

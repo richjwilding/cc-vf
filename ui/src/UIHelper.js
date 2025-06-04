@@ -14,6 +14,7 @@ import { HeroIcon } from './HeroIcon'
 import { Disclosure, Transition } from '@headlessui/react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from './@components/description-list'
+import { isValidElementType } from 'react-is'
 
 function AxisPicker({className, options, name, title, type, small, disabled, autoFocus,'aria-label': ariaLabel,...props}){
     const [editing, setEditing] = useState(false)
@@ -121,8 +122,25 @@ function AxisPicker({className, options, name, title, type, small, disabled, aut
       </Headless.Disclosure>)
     
 }
+function resolveIcon({icon, small}){
+    const isElement = React.isValidElement(icon)
+    const isComponentType = isValidElementType(icon)
+    let renderedIcon = null
+  
+    if (isElement) {
+      renderedIcon = icon
+    } else if (isComponentType) {
+      renderedIcon = React.createElement(icon, {
+        className: small ? 'w-3 h-3' : 'w-4 h-4'
+      })
+    }
+    return renderedIcon
+}
 
 function IconButton({options, name, title, type, tooltip, icon, small, action, ...props}){
+    const isComponent = typeof icon === 'function'
+    const defaultSizeClass = small ? 'w-3 h-3' : 'w-4 h-4'
+
 
     return (<div
         type="button"
@@ -130,7 +148,7 @@ function IconButton({options, name, title, type, tooltip, icon, small, action, .
         title={tooltip}
         className={[
             'text-xs flex place-items-center justify-center p-1 shrink-0 grow-0 self-center rounded-full group font-medium  hover:text-gray-600 hover:shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
-            "bg-white text-gray-400"
+            "bg-white text-gray-500"
         ].join(" ")}
         onClick={(e)=>{
             e.stopPropagation()
@@ -138,26 +156,11 @@ function IconButton({options, name, title, type, tooltip, icon, small, action, .
             props.onClick && props.onClick(e)
         }}
         >
-            {icon ?? <></>}
-        </div>)
-
-    const control = <Button 
-            href={props.href} 
-            title={tooltip}
-            plain
-            onClick={action ? ()=>action() : undefined}
-            color="white"
-            className={clsx(
-                '!font-normal !text-xs !text-slate-500 !px-1 !rounded-full !w-4'
-            )}
-            {...props}
-            >
-                {icon ?? <></>}
-                {title ?? <></>}
-        </Button>
-    return control
+        {resolveIcon({icon, small})}
+    </div>)
 }
 function MyButton({options, name, title, type, tooltip, icon, small, action, className, ...props}){
+
     const control = <Button 
             href={props.href} 
             title={tooltip}
@@ -171,25 +174,26 @@ function MyButton({options, name, title, type, tooltip, icon, small, action, cla
             )}
             {...props}
             >
-                {icon ?? <></>}
-                {title}
+            {resolveIcon({icon, small})}
+            {title}
         </Button>
     return control
 }
-function MyDropdown({options, name, title, type, ...props}){
+function MyDropdown({options, name, title, anchor, type, className, ...props}){
     const control = <Dropdown>
         <DropdownButton 
             color="white"
             className={clsx(
                 '!font-normal gap-x-1',
-                props.small ? '!text-xs' : '!text-sm'
+                props.small ? '!text-xs' : '!text-sm',
+                className
             )}
             >
                 {props.icon ?? <></>}
                 {title}
-            <ChevronDownIcon className='w-4 h-4'/>
+           {anchor?.includes("top") ? <ChevronDownIcon className='w-4 h-4 rotate-180'/> : <ChevronDownIcon className='w-4 h-4'/>}
         </DropdownButton>
-        <DropdownMenu>
+        <DropdownMenu anchor={anchor}>
         {options.map(d=>(
             <DropdownItem key={d.id} href={d.href} onClick={props.action ? ()=>props.action(d.id) : undefined}>{d.title}</DropdownItem>
         ))}
@@ -216,15 +220,24 @@ function Panel(props){
     )
 }
 function OptionList({options, name, title, type, ...props}){
-    const control = <Listbox name={name} value={props.value} defaultValue={props.defaultValue ?? props.default} onChange={props.onChange} placeholder={props.placeholder} zIndex={props.zIndex} small={props.small} className={props.className ?? ""}>
-        {options.map(d=>(
-            <ListboxOption value={d.id} small={props.small ? true : false}>
-                {d.icon && <HeroIcon icon={d.icon} className='w-4 h-4'/>}
-                <ListboxLabel key={d.id}>{d.title}</ListboxLabel>
-                {props.showCount && <span className="inline-flex items-center rounded-full bg-gray-200 px-1.5 ml-3 text-[0.625rem] font-medium text-gray-600">{d.count ?? 0}</span>}
-            </ListboxOption>
-        ))}
-    </Listbox>
+    const control = <Listbox 
+                        name={name} 
+                        value={props.value} 
+                        defaultValue={props.defaultValue ?? props.default} 
+                        onChange={props.onChange} 
+                        placeholder={props.placeholder} 
+                        zIndex={props.zIndex} 
+                        small={props.small} 
+                        className={props.className ?? ""}
+                    >
+                        {options.map(d=>(
+                            <ListboxOption value={d.id} small={props.small ? true : false}>
+                                {d.icon && <HeroIcon icon={d.icon} className='w-4 h-4'/>}
+                                <ListboxLabel key={d.id}>{d.title}</ListboxLabel>
+                                {props.showCount && <span className="inline-flex items-center rounded-full bg-gray-200 px-1.5 ml-3 text-[0.625rem] font-medium text-gray-600">{d.count ?? 0}</span>}
+                            </ListboxOption>
+                        ))}
+                    </Listbox>
     if( title ){
         return (
             <Headless.Field>
@@ -286,7 +299,7 @@ function MyDisclosurePanel({ children, open, ...props }){
   return <Disclosure.Panel>{children}</Disclosure.Panel>;
 };
 
-function PrimitiveField({name, className, primitive, field, submitOnEnter, allowEmpty, major, ...props}){
+function PrimitiveField({name, className, primitive, field, submitOnEnter, editable, allowEmpty, major, ...props}){
     console.log(`update = ${props.update}`)
     let currentValue = field === "title" ? primitive.title : primitive.referenceParameters[field]
     function submit(target){
@@ -324,7 +337,7 @@ function PrimitiveField({name, className, primitive, field, submitOnEnter, allow
     }
     if( major ){
         return <div 
-            contentEditable={true}
+            contentEditable={editable}
             suppressContentEditableWarning={true}
             className={clsx([
                 "w-full text-4xl font-bold focus-visible:outline cursor-text",
@@ -379,3 +392,4 @@ UIHelper.IconButton = IconButton
 UIHelper.DelayedInput = DelayedInput
 UIHelper.AxisPicker = AxisPicker
 UIHelper.PrimitiveField = PrimitiveField
+UIHelper.ResolveIcon = resolveIcon

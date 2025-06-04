@@ -5,6 +5,8 @@ import clsx from 'clsx'
 import { Fragment } from 'react'
 
 export function Listbox({ className, placeholder, autoFocus, small, zIndex, 'aria-label': ariaLabel, children: options, ...props }) {
+  
+
   return (
     <Headless.Listbox {...props} multiple={false}>
       <Headless.ListboxButton
@@ -69,8 +71,10 @@ export function Listbox({ className, placeholder, autoFocus, small, zIndex, 'ari
       >
         <Headless.ListboxOptions
           anchor="selection start"
+          modal={false}
           className={clsx(
             // Anchor positioning
+            'max-h-[8-vh]',
             zIndex ? `z-${zIndex}` : "",
             '[--anchor-offset:-1.625rem] [--anchor-padding:theme(spacing.4)] sm:[--anchor-offset:-1.375rem]',
             // Base styles

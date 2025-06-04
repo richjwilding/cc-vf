@@ -419,7 +419,7 @@ export function PrimitivePage({primitive, ...props}) {
         }}
         ref={page}
       >
-          {!props.hideBanner && 
+          {!props.widePage && 
             <div key='banner' ref={header} className={`w-full overflow-hidden mt-10 z-40 mx-auto px-0.5 xs:px-6 flex items-center justify-between md:space-x-5 lg:px-8 sticky top-0 bg-gray-100 ${props.bannerClassName}`}>
               <PrimitiveCard.Banner primitive={primitive} showMenu={true} showStateAction={false} className='pl-4 pr-6 mx-auto w-full max-w-3xl lg:max-w-7xl'/>
               <PrimitiveCard.ProcessingBase primitive={primitive}/>

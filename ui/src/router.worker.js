@@ -1411,7 +1411,13 @@ function makePt(x, y) {
     }
     addLink(link){
       if( this.links ){
+        const existing = this.links.find(d=>d.id === link.id)
+        if( existing ){
+          console.warn(`Link ${link.id} already present`)
+          return
+        }
         this.links.push( link )
+        this.newLinkAdded = true
       }
     }
   
@@ -1455,11 +1461,13 @@ function makePt(x, y) {
       const interimSpots = [];
       if( links ){
         target.links = links
+        target.pathCache = new Map();
       }else{
         links = target.links
       }
 
-      if( target.pathCache.size > 0 ){
+      //if( target.pathCache.size > 0 && target.links.at(-1)?.id !== "pin_drag"){
+      if( !target.newLinkAdded && target.pathCache.size > 0){
         let canSkipCalcs = true
         for(const [idx, entry] of target.pathCache){
           if( entry.redo || ( entry.lastScale && entry.lastScale < target.scale)){
@@ -1471,6 +1479,7 @@ function makePt(x, y) {
           return []
         }
       }
+      target.newLinkAdded = false
       
       let shapeMargin = target.shapeMargin / (target.scale * 2 )
       

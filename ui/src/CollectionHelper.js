@@ -613,7 +613,7 @@ class CollectionUtils{
                 const remap = {}
                 let doRemap = true
                 let mapped = segments.map(d=>{
-                    const m =  axis.title?.match(/(.d+)/)
+                    const m =  axis.title?.match(/(\d+)/)
 
                     let filterConfig = d.referenceParameters?.importConfig?.[0]?.filters
                     const sourcePrimId = d.referenceParameters?.importConfig?.[0]?.id

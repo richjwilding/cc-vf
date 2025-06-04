@@ -1,21 +1,12 @@
-import { HeroIcon } from "./HeroIcon";
-import { PrimitiveCard } from "./PrimitiveCard";
-import { classNames } from "./SharedTransforms";
-import { ChevronDownIcon, DocumentArrowDownIcon, ChevronLeftIcon } from "@heroicons/react/24/outline";
-import UIHelper from "./UIHelper";
 import MainStore from "./MainStore";
-import { useRef, useState } from "react";
-import FeedList from "./@components/Feed";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import InfiniteCanvas from "./InfiniteCanvas";
 import BoardViewer, { IGNORE_NODES_FOR_EXPORT } from "./BoardViewer";
 import { createPptx, exportKonvaToPptx } from "./PptHelper";
 import Konva from "konva";
-import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list";
 import PrimitiveConfig from "./PrimitiveConfig";
 
-export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props}){
-    const [expand, setExpand] = useState(false)
-    const [showFeed, setShowFeed] = useState(true)
+const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, inputPrimitives, steps,...props},ref){
     const myState = useRef({})
     const canvas = useRef({})
 
@@ -26,9 +17,9 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
         const frames = canvas.current.frameList() 
         for(const id of frames){                    
             const root = canvas.current.frameData( id )
-            let pages = root.node.find("._page")
             const temp = root.node.children
             root.node.children = root.allNodes
+            let pages = root.node.find("._page")
 
             if( pages.length > 0){
                 for(const page of pages){
@@ -56,10 +47,16 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
                     }
                 }
             }
+            root.node.children = temp
         }
         pptx.writeFile({ fileName: "Konva_Stage_Export.pptx" });
 
     }
+    useImperativeHandle(ref, () => {
+        return {
+            downloadAll
+        };
+      }, []);
 
     myState.renderSubPages = true
     myState.hideWidgets = true
@@ -221,4 +218,5 @@ export function FlowInstanceOutput({primitive, inputPrimitives, steps,...props})
                     }}
                     render={renderedSet}/>
             </div>
-}
+})
+export default FlowInstanceOutput

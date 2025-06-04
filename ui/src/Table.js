@@ -23,6 +23,8 @@ import { Dropdown } from "./@components/dropdown";
 import { Combobox, ComboboxLabel, ComboboxOption } from "./@components/combobox";
 import { Input } from "./@components/input";
 import PrimitiveConfig from "./PrimitiveConfig";
+import { Badge } from "./@components/badge";
+import { Temporal } from "@js-temporal/polyfill";
   
 
 const ExpandArrow = function(props) {
@@ -77,8 +79,6 @@ export function Table(props) {
         const columnHelper = createColumnHelper()
 
         const fixed = columns.map((d)=>{
-            const width = d.width ?? 100
-
             if(d.callback){
                 return columnHelper.accessor(d.field,
                     {
@@ -97,8 +97,70 @@ export function Table(props) {
                         minSize: 20
                     })
                 }
-
-            return columnHelper.accessor(d.field,
+            if(d.renderType){
+                switch(d.renderType){
+                    case "numbered_title":
+                        return columnHelper.accessor(d.title,
+                            {
+                                cell: info => {
+                                    return <div className="flex flex-col space-y-1">
+                                        <span className="text-slate-700 text-md">{info.row.original?.title ?? ""}</span>
+                                        <span className="text-slate-600 font-light text-[0.75em]">W-{info.row.original?.plainId ?? ""}</span>
+                                    </div>
+                                },
+                                header: () => d.title,
+                                accessorFn:(info)=>info.plainId + " - " + info.title,
+                                export:(info)=>info.row.original?.plainId + " - " + info.row.original?.title,
+                                startSize: d.width,
+                                minSize:d.minWidth ?? d.width
+                            })
+                    case "pill":
+                        return columnHelper.accessor(d.title,
+                            {
+                                cell: info => {
+                                    const data = info.row.original?.[d.field] ?? {color:"gray", text: "Unknown"}
+                                    return <Badge color={data.color}>{data.text}</Badge>
+                                },
+                                header: () => d.title,
+                                accessorFn: (info)=>info[d.field]?.text,
+                                export:(info)=>info.row.original?.[d.field]?.text,
+                                startSize: d.width,
+                                minSize: d.minWidth ?? d.width
+                            })
+                    case "date":
+                        return columnHelper.accessor(d.title,
+                            {
+                                cell: info => {
+                                    const data = info.row.original?.[d.field]
+                                    if( data instanceof Temporal.PlainDate ){
+                                        return <p>{data.toString()}</p>
+                                    }
+                                    return data
+                                },
+                                accessorFn: (info)=>info[d.field]?.toString(),
+                                header: () => d.title,
+                                export:(info)=>info.row.original?.[d.field]?.toString(),
+                                startSize: d.width,
+                                minSize: d.minWidth ?? d.width
+                            })
+                    case "actions":
+                        return columnHelper.accessor(d.title,
+                            {
+                                cell: info => {
+                                    const data = d.field ? info.row.original?.[d.field] : info.row.original
+                                    return <div className="flex space-x-2">{
+                                        d.actions.map(d=><UIHelper.IconButton  icon={d.icon} action={()=>d.action(data)}/>)
+                                    }</div>
+                                },
+                                accessorFn: (info)=>"",
+                                header: () => d.title,
+                                export:(info)=>undefined,
+                                startSize: d.width,
+                                minSize: d.minWidth ?? d.width
+                            })
+                }
+            }
+            return columnHelper.accessor(d.field ?? d.title,
                 {
                     cell: info => <p className={d.wrap ? "" :"truncate"}>{info.getValue()}</p>,
                     header: () => d.name || d.title,
@@ -107,8 +169,7 @@ export function Table(props) {
                     accessorFn: d.accessorFn,
                     fromStructure: d.fromStructure,
                     startSize: d.width ?? (d.field === "id" ? 100 : undefined),
-                    startSize: width,
-                    minSize: width
+                    minSize: d.minWidth ?? d.width
                 })
         })
         return fixed
@@ -122,12 +183,15 @@ export function Table(props) {
       })    
       
 
-    const [totalWidth, setTotalWidth] = useState( null )
     const [selected, setSelected] = useState( null )
     const [focus, setFocus] = useState( null )
     const [sorting, setSorting] = useState([])
     const [count, forceUpdate] = useReducer( (x)=>x+1, 0)
+    const [columnSizing, setColumnSizing] = useState({});
     const gridRef = useRef()
+    const hasLeftAction = props.onExpand || props.enableCopy !== false 
+    
+
 
 
     function buildDynamicFieldsForPrimitiveList( data, getData = (r)=>r ){
@@ -199,7 +263,7 @@ export function Table(props) {
 
     const columns = useMemo( ()=>{
         if(props.columns){
-            mapColumns(props.columns)
+            return mapColumns(props.columns)
         }else{
             let dynamic = []
             if( props.data?.length > 0){
@@ -215,12 +279,31 @@ export function Table(props) {
      const table = useReactTable({
                                 columns,
                                 data: props.data,
+                                enableColumnResizing: true,
                                 columnResizeMode: "onChange",
+                                defaultColumn: { 
+                                    minSize: 50
+                                },
                                 globalFilterFn: 'includesString',
                                 state: {
                                     sorting,
                                     pagination,
-                                    globalFilter
+                                    globalFilter,
+                                    columnSizing
+                                  },
+                                  onColumnSizingChange: (updaterOrObject) => {
+                                    setColumnSizing(prev => {
+                                      const rawSizing = typeof updaterOrObject === "function" ? updaterOrObject(prev) : updaterOrObject;
+                                      const clamped = {};
+                                      table.getAllLeafColumns().forEach(col => {
+                                        const requested = rawSizing[col.id];
+                                        if (typeof requested !== "number") return; // skip if not set
+                                        const min = col.columnDef.minSize ?? 50;
+                                        clamped[col.id] = Math.max(requested, min);
+                                      });
+                                
+                                      return { ...prev, ...clamped };
+                                    });
                                   },
                                   onGlobalFilterChange: setGlobalFilter,
                                   onPaginationChange: setPagination,
@@ -232,31 +315,6 @@ export function Table(props) {
                             });
  
 
-    useLayoutEffect(()=>{
-        if( gridRef.current ){
-           const eWidths = {}
-            const style = window.getComputedStyle(gridRef.current.parentElement)
-            const parentWidth = parseInt(style.width) - parseInt(style.paddingLeft) - parseInt(style.paddingRight) - 20
-            setTotalWidth(parentWidth)
-            Array.from(gridRef.current.children).slice(1, columns.length).forEach((el, idx)=>{
-                eWidths[columns[idx].accessorKey] = columns[idx].startSize ? (columns[idx].startSize < 1 ? columns[idx].startSize * parentWidth : columns[idx].startSize) : parentWidth / columns.length 
-            })
-
-            table.setColumnSizing( eWidths )
-          
-        }
-    },[])
-    const widths = table.options.state.columnSizing
-    let gridWidths = columns.map((d)=>{
-        const newWidths = widths[d.accessorKey] ? widths[d.accessorKey] : undefined
-        return newWidths
-    })
-    const total = Object.values(gridWidths).reduce((r,c)=>r+c,0)
-    if( total < totalWidth ){
-        gridWidths[gridWidths.length - 1] +=  totalWidth - total
-    }
-
-    gridWidths = gridWidths.map((d)=>d ? `${d}px` : '1fr')
 
     const navigate = (delta)=>{
         let rows = table.getRowModel().rows
@@ -321,10 +379,67 @@ export function Table(props) {
 
       const pageOptions = [10,20,50,100].map(d=>({id: d, title: d}))
       window.table = table
-      // Number of rows that pass your filters (but before you slice into pages)
     const filteredCount = table.getFilteredRowModel().rows.length;
     const totalCount = table.getPreFilteredRowModel().rows.length;
 
+    
+
+    const didInit = useRef(false);
+    useLayoutEffect(() => {
+      if (didInit.current) return;
+      didInit.current = true;
+  
+      if (!gridRef.current) return;
+      const parent = gridRef.current.parentElement;
+      if (!parent) return;
+      const style = window.getComputedStyle(parent);
+      const parentWidth =
+        parent.clientWidth -
+        parseFloat(style.paddingLeft || 0) -
+        parseFloat(style.paddingRight || 0);
+  
+      // Grab every visible leaf column
+      const leafColumns = table.getVisibleLeafColumns();
+  
+      let sumMin = 0;
+      leafColumns.forEach((col) => {
+        const declaredMin = col.columnDef.minSize || 50;
+        sumMin += declaredMin;
+      });
+  
+      const extra = Math.max(0, parentWidth - sumMin);
+      const perColumnExtra = extra > 0 ? extra / leafColumns.length : 0;
+  
+      const initialSizing = {};
+      leafColumns.forEach((col) => {
+        const declaredMin = col.columnDef.minSize || 50;
+        initialSizing[col.id] = Math.floor(declaredMin + perColumnExtra);
+      });
+  
+      table.setColumnSizing(initialSizing);
+    }, [table]);
+  
+    const leafColumns = table.getVisibleLeafColumns();
+    const sizing = table.getState().columnSizing || {};
+  
+    const templateColsArray = [];
+    if (hasLeftAction) {
+      templateColsArray.push("min-content");
+    }
+    leafColumns.forEach((col, idx) => {
+        const raw = sizing[col.id];
+      
+        const widthPx = typeof raw === "number" ? raw: (col.columnDef.minSize || 50);
+      
+        if (idx < leafColumns.length - 1) {
+          templateColsArray.push(`${widthPx}px`);
+        } else {
+          templateColsArray.push(`minmax(${widthPx}px, 1fr)`);
+        }
+      });
+  
+    // Join them into one string for CSS:
+    const templateColumns = templateColsArray.join(" ");
     return (
         <>
         <UIHelper.DelayedInput
@@ -332,35 +447,30 @@ export function Table(props) {
           onChange={value => setGlobalFilter(value)}
           placeholder="Search table..."
         />
-        <div key="table" className={`my-2 rounded-md border overflow-y-scroll relative text-sm  ${props.className}`}>
-            <button 
-                onClick={()=>copyToClipboard(table)}
-                className="absolute top-2" style={{zIndex:10000}}>
-                <ClipboardDocumentIcon className="w-5 h-5 text-gray-200 hover:text-gray-800"/>
-            </button>
+        <div key="table" className={`my-2 rounded-md border overflow-y-scroll relative ${props.className}`}>
         <div 
             ref={gridRef}
             style={{
-                gridTemplateColumns: `20px ${Object.values(gridWidths).join(" ")}`
+                gridTemplateColumns: templateColumns
             }}
             onKeyDown={keyHandler}
             className="grid w-full overflow-x-auto relative max-h-full">
             {table.getHeaderGroups().map(headerGroup => (
                 <>
-                <div
-                    className="relative px-2 sticky top-0 z-10 bg-white border-b border-gray-200 py-2 font-semibold"
-                ></div>
+                {hasLeftAction && <div className="flex place-items-center relative sticky top-0 z-10 mx-0.5 bg-white border-b border-gray-200 shrink-0">
+                    {props.enableCopy && <UIHelper.IconButton icon={ClipboardDocumentIcon} onClick={()=>copyToClipboard(table)}/>}
+                </div>}
                 {headerGroup.headers.map((header,idx) => {
                     const last = idx === columns.length - 1
                     return (
                     <div 
                         key={header.id}
                         onClick={(e)=>handleHeaderClick(e, header.column)}
-                        className={`myheader flex place-items-center space-x-2 relative px-2 sticky top-0 z-10 bg-white border-b border-gray-200 py-2 font-semibold`}
+                        className={`myheader flex place-items-center space-x-2 relative px-2 sticky top-0 z-10 bg-white border-b border-gray-200 py-2 font-bold uppercase text-slate-500 text-[0.75em]`}
                         >
                     {header.isPlaceholder
                         ? null
-                        : <div className="myheader select-none">{flexRender(header.column.columnDef.header,header.getContext())}</div>
+                        : <div className="myheader select-none">{header.column.columnDef.header()}</div>
                     }
                         {
                             {
@@ -383,16 +493,19 @@ export function Table(props) {
                 </>
             ))}
             {table.getRowModel().rows.map((row,idx) => {
-                const id = row.original.primitive?.id
+                const id = row.original.primitive?.id ?? row.original.id
                 const primitive = row.original.primitive
                 return (
                     <>
                     <div className="contents group">
-                    <div                         
-                        onClick={props.onExpand ? (e)=>{e.stopPropagation();props.onExpand(primitive)} : undefined}
-                        className={`group-hover:bg-gray-100 flex justify-center place-items-center pl-1 cursor-pointer text-gray-200 group-hover:text-gray-400 hover:text-gray-600 border-b border-gray-100 outline-none ${selected === id ? "bg-ccgreen-100" : ""}`}>
-                        <ExpandArrow className='w-4 h-4 '/>
-                    </div>
+                    {hasLeftAction && !props.onExpand && <div></div>}
+                    {props.onExpand && 
+                        <div                         
+                            onClick={props.onExpand ? (e)=>{e.stopPropagation();props.onExpand(primitive)} : undefined}
+                            className={`group-hover:bg-gray-100 flex justify-center place-items-center pl-1 cursor-pointer text-gray-300 group-hover:text-gray-400 hover:text-gray-600 border-b border-gray-100 outline-none ${selected === id ? "bg-ccgreen-100" : ""}`}>
+                            <ExpandArrow className='w-4 h-4 '/>
+                        </div>
+                    }
                     {row.getVisibleCells().map(cell => {
                         return (
                             <>
@@ -412,7 +525,7 @@ export function Table(props) {
                                 id={`r_${id}`}
                                 onClick={(e)=>handleClick(e, id)}
                                 onBlur={updateFocus}
-                                className={`p-2 py-3 border-b group-hover:bg-gray-100 border-gray-100 outline-none flex ${alignTop ? "" : "place-items-center"} ${selected === id ? "bg-ccgreen-100" : ""}`}
+                                className={`place-items-center p-2 py-3 border-b group-hover:bg-gray-100 border-gray-100 outline-none flex ${alignTop ? "" : "place-items-center"} ${selected === id ? "bg-ccgreen-100" : ""}`}
                                 key={cell.id}
                                 >
                                     {flexRender(cell.column.columnDef.cell,cell.getContext())}
