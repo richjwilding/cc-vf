@@ -760,7 +760,7 @@ export function compareTwoStrings(first, second) {
 }
 
 
-  function deepEqualIgnoreOrder(a, b) {
+export function deepEqualIgnoreOrder(a, b) {
     if (a === b) return true;
     if (a == null || b == null || typeof a !== typeof b) return false;
   

@@ -7,7 +7,7 @@ import { Logo } from './logo';
 import { PrimitiveCard } from './PrimitiveCard';
 import { HeroIcon } from './HeroIcon';
 import { Badge } from './@components/badge';
-import { isObjectId } from './SharedTransforms';
+import { deepEqualIgnoreOrder, isObjectId } from './SharedTransforms';
 
 export default function AgentChat({primitive, ...props}) {
     //const [messages, setMessages] = useState([{role: "assistant", content: 'Great, thanks for the detailed context. To help you design an effective competitor intelligence workflow for Sophos’ MDR product, I’d like to clarify a couple of points so we can tailor the search and data gathering for maximum relevance:\n\n1. **Key Competitors**: Do you already have a list of the main MDR providers you want to analyse (e.g., Rapid7, CrowdStrike, Arctic Wolf, SentinelOne, Secureworks, etc.), or should I include a broad scan to identify the most relevant companies?\n\n2. **Specific Areas of Interest**:\n   - Are you most interested in how competitors structure their **threat hunting** (e.g., default inclusion, tiers, manual/automated, methods)?\n   - Should we also look for **detailed descriptions of service scope**, **add-ons**, and **pricing models**, or are you prioritizing one of those most?\n\n3. **Geography & Customer Segment**: Are we targeting global players, or specific regions/markets (e.g., North America, EMEA)? Should the focus'}]);
@@ -18,6 +18,7 @@ export default function AgentChat({primitive, ...props}) {
    //   const [input, setInput] = useState('');
       const [pending, setPending] = useState(false);
       const [context, setContext] = useState(false);
+      const [chatState, setChatState] = useState({});
       const readerRef = useRef(null);
       const insertedCount = useRef(0)
     
@@ -34,6 +35,25 @@ export default function AgentChat({primitive, ...props}) {
           }
         }).filter(d=>d)
         setContext( latestContext )
+
+        const stateMessages = messages.filter(d=>d.role === "assistant" && d.hidden).filter(d=>d.content?.startsWith("[[current_state:"))
+        const latestStateMsg = stateMessages.at(-1)
+        let latestState
+        if( latestStateMsg ){
+          const partial = latestStateMsg.content.slice(16,-2)
+          console.log(partial)
+          try{
+            latestState = JSON.parse(partial)
+          }catch(e){
+
+          }
+        }
+        if( !deepEqualIgnoreOrder(latestState, chatState) ){
+          if(props.setChatState ){
+            props.setChatState( latestState )
+          }
+          setChatState( latestState )
+        }
       }, [messages])
 
 

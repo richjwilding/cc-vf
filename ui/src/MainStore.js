@@ -1075,9 +1075,7 @@ function MainStore (prims){
             return new Promise((resolve)=>{
                 const users = fetch(`/api/primitives?owns=${id}`).then(response => {
                     response.arrayBuffer().then(buffer => {
-//                        obj.data.primitives = data 
-  //                      obj._cache_prim = undefined
-                            const data = unpack(new Uint8Array(buffer))
+                        const data = unpack(new Uint8Array(buffer))
 
                         obj.data.primitives = data.reduce((o,d)=>{o[d._id] = primitive_access(d, "primitive"); return o}, {})
                         
@@ -1089,6 +1087,7 @@ function MainStore (prims){
                             }
                         }
                         obj.activeWorkspaceId = primitive.workspaceId
+                        obj.loadedWorkspaceId = primitive.workspaceId
                         obj.joinChannel(obj.activeWorkspaceId)
                         resolve(true)
                     })

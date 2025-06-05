@@ -10,6 +10,7 @@ import Category from "./model/Category"
 import Primitive from "./model/Primitive";
 import { analyzeListAgainstTopics, buildEmbeddings, processInChunk, processPromptOnText, summarizeMultiple } from "./openai_helper";
 import { findEntries, modiftyEntries, removeEntries, reviseUserRequest } from "./prompt_helper";
+import axios from 'axios';
 
 const parser = PrimitiveParser()
 
@@ -1212,7 +1213,40 @@ export async function loopkupOrganization( value, referenceCategory, workspaceId
         return newPrim
     }
 }
+export async function findCompanyURLByNameLogoDev( name, context = {}){
+    try{
+        const { data } = await axios.get('https://api.logo.dev/search', {
+                params: { q: name },
+                headers: {
+                    'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
+            }
+        });
+        if( context.withDescriptions){
+            const withDescriptions = await executeConcurrently(data, async (d)=>{
+                try{
+                    const { data } = await axios.get(`https://api.logo.dev/describe/${d.domain}`, {
+                        headers: {
+                            'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
+                            }
+                        });
+                        return data
+                    }catch(e){
+                        logger.error(`Error in findCompanyURLByNameLogoDev`, name, context, e)
+                        return undefined                        
+                    }
+                })
+                if( withDescriptions.results){
+                    return  withDescriptions.results
+                }
+        }
+        return data.filter(d=>d)
+    }catch(e){
+        logger.error(`Error in findCompanyURLByNameLogoDev`, name, context, e)
+        return []
+    }
+}
 export async function findCompanyURLByName( name, context = {}){
+    console.log(`>>>> SHOULD USE LOGO.DEV`)
     let results = await Promise.all([
         findCompanyURLByNameByApollo(name, context),
         findCompanyURLByNameByZoominfo(name, context),

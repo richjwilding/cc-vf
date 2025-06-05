@@ -31,6 +31,8 @@ export default function FlowInstancePage({primitive, ...props}){
     const [agentStatus, setAgentStatus] = useState({activeChat: false})
 
     const [activeTab, setActiveTab ] = useState( tabs[0].id )
+    const [chatState, setChatState] = useState(undefined);
+    const [animateState, setAnimateState] = useState(true);
     const isEmbedded = query.get("embed")
 
     if (!primitive && id) {
@@ -54,6 +56,14 @@ export default function FlowInstancePage({primitive, ...props}){
     })
     if( !primitive){
         return <></>
+    }
+
+    function updateChatState(state){
+        setChatState(state)
+        setAnimateState(true)
+        setTimeout(() => {
+            setAnimateState(false)
+        }, 1200);
     }
 
     const isForNewInstance = primitive.type === "flow"
@@ -141,20 +151,14 @@ export default function FlowInstancePage({primitive, ...props}){
     function renderConfigOption( rawKey, info ){
         const key = "fc_" + rawKey
         const currentValue =[primitive.referenceParameters?.[key]].flat()
-        console.log(key, currentValue)
         switch( info.type ){
             case "options":
-                return <Select className="max-w-xs" label="Select option" variant="bordered" selectedKeys={currentValue ?? []} onChange={(e)=>setValue(key, e.target.value)}>
+                return <Select className="max-w-xs" label="Select option" variant="bordered" selectedKeys={currentValue ?? []} selectionMode={info.can_select_multiple === true ? "multiple" : ""} onChange={(e)=>setValue(key, e.target.value)}>
                     {info.options.map((option) => (
                     <SelectItem key={option.id}>{option.title}</SelectItem>
                     ))}
                 </Select>
-            case "multiple":
-                return <Select className="max-w-xs" label="Select options" variant="bordered" selectedKeys={currentValue ?? []} selectionMode="multiple" onChange={(e)=>setValue(key, e.target.value.split(","))}>
-                    {info.options.map((option) => (
-                    <SelectItem key={option.id}>{option.title}</SelectItem>
-                    ))}
-                </Select>
+            
         }            
     }
 
@@ -181,7 +185,7 @@ export default function FlowInstancePage({primitive, ...props}){
             showOutput ? "p-6 space-x-6" : ""
         ])}>
                 <div className={clsx([
-                    "min-w-[30em] font-['Poppins'] @container flex flex-col min-h-0",
+                    "min-w-[30em] font-['Poppins'] @container flex flex-col min-h-0 relative",
                     showOutput ? "w-[25vw] max-w-2xl p-6 shadow-lg rounded-2xl bg-white" : "w-full mx-auto max-w-6xl px-9 bg-white"
                 ])}>
                     <div className={clsx([
@@ -218,6 +222,33 @@ export default function FlowInstancePage({primitive, ...props}){
                             </div>
                         </div>
                     <div className="flex-1 min-h-0">
+                        {chatState && activeTab === "ai" && <div className={clsx([
+                                                                animateState ? "animate-border bg-[length:400%_400%] bg-gradient-to-r from-green-500 to-blue-500 via-purple-500 " : "",
+                                                                "border absolute flex-col left-[calc(100vh_-_39rem)] left-[105%] top-[7rem] rounded-[20px] shadow-lg text-xs w-[28rem] z-50 p-[1px]",
+                                                                "hidden min-[2150px]:flex "
+                                                            ])}>
+                                                                <div className="bg-ccgreen-50 rounded-[18px] px-3 py-2 flex flex-col overflow-y-scroll  @container  space-y-1.5 max-h-[calc(100vh_-_12rem)]">
+                                                                    <p className="text-sm font-semibold text-slate-600">Flow settings</p>
+                                                                    <p className="text-md text-slate-700">Configuration</p>
+                                                                    <DescriptionList className="!text-xs">
+                                                                    {Object.entries(chatState.configuration ?? {}).map(([k,v])=>{
+                                                                        return <>
+                                                                            <DescriptionTerm>{configurationOptions[k]?.title ?? k}</DescriptionTerm>
+                                                                            <DescriptionDetails>{[v].flat().map(d=>configurationOptions[k].options.find(d2=>d2.id==d)?.title ?? d).join(", ")}</DescriptionDetails>
+                                                                        </>
+                                                                    })}                            
+                                                                    </DescriptionList>
+                                                                    <p className="text-md text-slate-700">Inputs</p>
+                                                                    <DescriptionList className="!text-xs">
+                                                                    {Object.entries(chatState.inputs ?? {}).map(([k,v])=>{
+                                                                        return <>
+                                                                            <DescriptionTerm>{pins[k]?.name ?? k}</DescriptionTerm>
+                                                                            <DescriptionDetails>{Array.isArray(v) ? v.join(", ") : (v ?? "")}</DescriptionDetails>
+                                                                        </>
+                                                                    })}                            
+                                                                    </DescriptionList>
+                                                                    </div>
+                                                                </div>}
 
                         <div className={clsx([
                                     "flex flex-col h-full pb-8 bg-white",
@@ -233,7 +264,7 @@ export default function FlowInstancePage({primitive, ...props}){
                                                 SENSE AI can help you setup this workflow.  Tell it what you're looking to do...
                                             </div>
                                         </div>}
-                                        <AgentChat setStatus={setAgentStatus} primitive={primitive} seperateInput={true}/>
+                                        <AgentChat setChatState={updateChatState} setStatus={setAgentStatus} primitive={primitive} seperateInput={true}/>
                                     </div>
                         </div>
                         <div className={clsx([
