@@ -132,8 +132,13 @@ export function Table(props) {
                             {
                                 cell: info => {
                                     const data = info.row.original?.[d.field]
-                                    if( data instanceof Temporal.PlainDate ){
-                                        return <p>{data.toString()}</p>
+                                    if( data instanceof Temporal.Instant || data instanceof Temporal.PlainDate || data instanceof Temporal.ZonedDateTime ){
+                                        const justDate = data.toPlainDate().toLocaleString("en-US", {
+                                            day:   "numeric",
+                                            month: "long",
+                                            year:  "numeric"
+                                          });
+                                        return <p>{justDate}</p>
                                     }
                                     return data
                                 },
@@ -501,7 +506,7 @@ export function Table(props) {
                     {hasLeftAction && !props.onExpand && <div></div>}
                     {props.onExpand && 
                         <div                         
-                            onClick={props.onExpand ? (e)=>{e.stopPropagation();props.onExpand(primitive)} : undefined}
+                            onClick={props.onExpand ? (e)=>{e.stopPropagation();props.onExpand(primitive ?? id)} : undefined}
                             className={`group-hover:bg-gray-100 flex justify-center place-items-center pl-1 cursor-pointer text-gray-300 group-hover:text-gray-400 hover:text-gray-600 border-b border-gray-100 outline-none ${selected === id ? "bg-ccgreen-100" : ""}`}>
                             <ExpandArrow className='w-4 h-4 '/>
                         </div>

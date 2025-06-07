@@ -228,9 +228,12 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                             logger.error(`Found mutiple searches ${childSearches.length} for run_seach ${primitive.id} <> ${d.id}`)
                         }
                         if( childSearch ){
-                            logger.info(` --- Found child search ${childSearch.id} / ${childSearch.plainId} for ${d.id} / ${d.plainId}`)
-                            logger.info("--- Skipping")
-                            continue
+                            const status = childSearch.proccessing?.query?.status
+                            logger.info(` --- Found child search ${childSearch.id} / ${childSearch.plainId} for ${d.id} / ${d.plainId} = ${status}`)
+                            if(  status !== "rerun"){
+                                logger.info("--- Skipping")
+                                continue
+                            }
                         }else{
                             logger.info(` --- No child search found for ${d.id} / ${d.plainId}`)
                             childSearch = await createPrimitive({
@@ -251,7 +254,7 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                             }
                         }
                         if( childSearch ){
-                            await QueryQueue().doQuery(childSearch)
+                            await QueryQueue().doQuery(childSearch, {flow})
                             console.log(`do_search dispatched for ${childSearch.id}`)
                         }
                         

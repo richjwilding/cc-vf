@@ -769,7 +769,7 @@ export async function runFlowInstance( flowInstance, options = {}){
         logger.info(`Cant continue flow - no progress data`)
         return
     }
-    let flowStarted = options.flowStarted ?? flowInstance.processing?.flow?.last_run?.started ?? flow.processing?.flow?.started
+    let flowStarted = options.flowStarted ?? flowInstance.processing?.flow?.last_run?.started ?? flowInstance.processing?.flow?.started
     if( options.force || !flowStarted){
         flowStarted = new Date().toISOString()
 
@@ -862,12 +862,11 @@ export async function runFlowInstance( flowInstance, options = {}){
     logger.info(`Looking for next steps to run`)
     const stepStatus = await flowInstanceStepsStatus( flowInstance )
 
-    logger.debug(stepStatus.map(d=>`${d.step.id} / ${d.step.plainId} / ${d.step.type} - N ${d.need} (${d.needReason}) C ${d.can} (${d.canReason})` ).join("\n"))
+    logger.debug(stepStatus.map(d=>`${d.step.id} / ${d.step.plainId} / ${d.step.type} - [${d.candidateForRun ? "RC" : "--"}] N ${d.need} (${d.needReason}) C ${d.can} (${d.canReason})` ).join("\n"))
 
     const stepsToRun = stepStatus.filter(d=>d.can && d.need && !d.running)
 
     logger.info(`${stepsToRun.length} steps to run`, {steps: stepsToRun.map(d=>d.step.plainId)})
-    
 
     let iteration = 0
     const lastRun = flowInstance.processing?.flow?.last_run?.steps ?? []
@@ -896,46 +895,6 @@ export async function runFlowInstance( flowInstance, options = {}){
 
 }
 async function flowInstanceStepsStatus( flowInstance ){
-    //const instanceSteps = await getFlowInstanceSteps(flowInstance)
-    //const subFlows = await primitivePrimitives(flowInstance, "primitives.subfi")
-    console.time("Fetching")
-    /*
-    const children = await fetchPrimitives([...(flowInstance.primitives.origin ?? []), ...(flowInstance.primitives.subfi ?? [])], {workspaceId: flowInstance.workspaceId})
-
-    const importPrimitiveIds = [...instanceSteps, ...subFlows].flatMap(d=>{
-        const pp = (new Proxy(d.primitives ?? {}, PrimitiveParser()))
-        return [pp.imports.uniqueAllIds, pp.inputs.uniqueAllIds,]
-    }).flat().filter((d,i,a)=>a.indexOf(d) === i)
-
-
-    const importPrimitives = await fetchPrimitives( importPrimitiveIds, {workspaceId: flowInstance.workspaceId} )
-
-    const secondLayerImportIds = subFlows.flatMap(d=>{
-        const pp = (new Proxy(d.primitives ?? {}, PrimitiveParser()))
-        const importIds = [...pp.imports.uniqueAllIds, ...pp.inputs.uniqueAllIds]
-        const imps = importPrimitives.filter(d=>importIds.includes(d.id))
-        const origins = imps.map(d=>primitiveOrigin(d)).filter(d=>!importPrimitiveIds.includes(d))
-        return origins
-    }).flat(Infinity).filter((d,i,a)=>a.indexOf(d) === i)
-    
-    for(const step of instanceSteps ){
-        if( step.type === "view" || step.type === "query" ){
-            const pp = (new Proxy(step.primitives ?? {}, PrimitiveParser()))
-            const axisIds = [...pp.fromPath("axis.column").allUniqueIds,...pp.fromPath("axis.row").allUniqueIds]
-            for(const d of axisIds){
-                if( !importPrimitiveIds.includes(d) && !secondLayerImportIds.includes(d)){
-                    secondLayerImportIds.push(d)
-                }
-            }
-        }
-    }
-
-    if( secondLayerImportIds.length > 0){
-        importPrimitives.push( ...(await fetchPrimitives( secondLayerImportIds, {workspaceId: flowInstance.workspaceId} )) )
-
-    }
-    console.log(`${importPrimitives.length} / ${secondLayerImportIds.length}`)
-    */
     const {instanceSteps: children, importPrimitives, configPrimitives} = await getInstanceStepsWithImports( flowInstance )
     const instanceSteps = children.filter(d=>!d.parentPrimitives[flowInstance.id].includes("primitives.subfi"))
     const subFlows = children.filter(d=>d.parentPrimitives[flowInstance.id].includes("primitives.subfi"))
@@ -949,14 +908,34 @@ async function flowInstanceStepsStatus( flowInstance ){
 
     const skipStatus = await PrimitiveConfig.buildFlowInstanceStatus( flowInstance, [...instanceSteps, ...subFlows], {
         getPrimitives: (p)=>(new Proxy(p.primitives ?? {}, PrimitiveParser())),
-        getConfig: async (p)=>await getConfig(p)
+        fetchPrimitives: async (p)=>await fetchPrimitives( p ),
+        getConfig: async (p)=>await getConfig(p),
+        relevantInstanceForFlowChain: async (a,b)=>await relevantInstanceForFlowChain(a,b)
     },{
-        configPrimitives
+        configPrimitives,
+        withPrimitives: true,
+        cache: importCache
     })
-    console.log(skipStatus)
+    const out = []
+    for(const d of Object.values(skipStatus)){
+        const running = d.need ? await stepIsRunning( d.primitive, flowInstance ) : false
+        const {primitive, ...data} = d
+        out.push({
+            ...data,
+            step: primitive,
+            subflow: primitive.type === "flowinstance",
+            running,
+            flowStepId: primitive.type === "flowinstance"  ? primitiveOrigin(primitive) : Object.entries(primitive.parentPrimitives ?? {}).filter(d=>d[1].includes("primitives.config"))?.[0]
+        })
+    }
+    return out
     const activeInstanceSteps = instanceSteps.filter(d=>!skipStatus[d.id].skip)
     for(const step of activeInstanceSteps){
         const status = await stepInstanceStatus(step, flowInstance, importCache)
+        console.assert(status.can === skipStatus[step.id].can )
+        console.assert(status.canReason === skipStatus[step.id].canReason )
+        console.assert(status.needReason === skipStatus[step.id].needReason )
+        console.assert(status.need === skipStatus[step.id].need )
         stepStatus.push({
             step,
             flowStepId: Object.keys(step.parentPrimitives ?? {}).find(d=>step.parentPrimitives[d].includes("primitives.config")),
@@ -975,7 +954,6 @@ async function flowInstanceStepsStatus( flowInstance ){
         })
 
     }
-    console.timeEnd("Fetching")
     return stepStatus
 }
 async function stepInstanceStatus( step, flowInstance, cache){

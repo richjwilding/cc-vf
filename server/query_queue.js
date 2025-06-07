@@ -27,6 +27,7 @@ export async function processQueue(job, cancelCheck, extendJob){
             if( primitive){
                 if( job.data.mode === "query" ){
                     let embeddedTopic
+                    let errorMessage
                     const category = await Category.findOne({id: primitive.referenceId})
                     if( category === undefined){
                         throw `Cant find category ${primitive.referenceId} for ${primitive.id}`
@@ -553,26 +554,17 @@ export async function processQueue(job, cancelCheck, extendJob){
                                 console.log(targetProfile)
                                 if( targetProfile ){
                                     await queryLinkedInCompanyPostsBrightData( primitive, targetProfile, terms, callopts)
+                                }else{
+                                    errorMessage = {
+                                        message: `Cannot find LinkedIn URL for ${origin.title}`,
+                                        type: "no_url",
+                                        sourceId: origin.id,
+                                        info: "linkedin_profile",
+                                        action:"search"
+                                    }
                                 }
                             }
                         }
-                        /*if( source.platform === "linkedin_ddg" ){
-                            origin = origin ?? await Primitive.findOne({_id: oId})
-                            //const company = origin.referenceParameters?.linkedIn?.match(/linkedin\.com\/company\/(.+)\//i)?.[1]
-                            let company = origin.referenceParameters?.linkedIn?.match(/linkedin\.com\/company\/([^\/]+)(?=\/|$)/i)?.[1]
-                            if( !company ){
-                                console.log(`Looking up company`)
-                                let url = await findCompanyLIPage( origin )
-                                company = url.match(/linkedin\.com\/company\/([^\/]+)(?=\/|$)/i)?.[1]
-                                console.log(`Got ${company}`)
-                            }
-                            console.log(`company = `, company)
-                            if( company ){
-                                const query = `site:linkedin.com/posts ${company}`
-                                const url = `linkedin.com/posts/${company}`
-                                await queryGoogleSERP( "", {...callopts, prefix: query,engine: "ddg", urlFilter: url}) 
-                            }
-                        }*/
                         if( source.platform === "crunchbase" ){
                             if( source.type === "organization" ){
 
@@ -596,11 +588,23 @@ export async function processQueue(job, cancelCheck, extendJob){
 
                     const totalCount = Object.values(primitive.primitives?.origin ?? []).length
 
-                    dispatchControlUpdate(primitive.id, job.data.field , {
+                    const status = {
                         status: "complete",
                         message: `Found ${totalCount} items`
-                    } , {track: primitive.id})
-                    //dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
+                    }
+                    let throwError = false
+                    if( errorMessage ){
+                        status.error = errorMessage
+                        if( job.data.flow && config.fcStopOnError ){
+                            status.status = "error"
+                            throwError = true
+                        }
+                    }
+
+                    dispatchControlUpdate(primitive.id, job.data.field , status, {track: primitive.id})
+                    if( throwError ){
+                        throw `Error returned from query ${errorMessage}`
+                    }
                     console.log(`Finished ${primitive.id} / ${primitive.plainId}`)
                 }
             }

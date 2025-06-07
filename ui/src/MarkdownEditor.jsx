@@ -6,12 +6,13 @@ import { markdownToSlate, pickAtRandom } from './SharedTransforms';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import clsx from 'clsx';
 import MainStore from './MainStore';
-import { ArrowRightCircleIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
+import { ArrowRightCircleIcon, ArrowRightIcon, PlusCircleIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { Logo } from './logo';
 import { Stage } from 'react-konva';
 import { RenderPrimitiveAsKonva } from './RenderHelpers';
 import { KonvaPrimitive } from './KonvaPrimitive';
 import { VisualizationPreview } from './VisualizationPreview';
+import { Button } from '@heroui/react';
 
   
 function withBadges(editor) {
@@ -28,7 +29,7 @@ function withBadges(editor) {
 
 
 
-function MarkdownBadge({ badgeType }) {
+function MarkdownBadge({ badgeType, actionCallback }) {
 
   function runningBadge(title){
     return <div className="animate-border inline-flex  animate-border bg-[length:400%_400%] bg-gradient-to-r bg-white from-green-500 inline-block to-blue-500 via-purple-500 p-[1px] rounded-full">
@@ -70,8 +71,7 @@ function MarkdownBadge({ badgeType }) {
           {badges}
           {overflow && <span className="-mt-1 align-middle bg-gray-200 inline-block mx-0.5 px-1 py-1 rounded text-gray-600 leading-none text-[8px]">+{overflow}</span>}
         </>
-      }
-      if(badgeType.startsWith("ref:")){
+      }else if(badgeType.startsWith("ref:")){
         let ids = badgeType.slice(4).split(",")
         const mainstore = MainStore()
         let overflow = ids.length > 5 ? ids.length - 5 : undefined
@@ -90,6 +90,12 @@ function MarkdownBadge({ badgeType }) {
           {badges}
           {overflow && <span className="-mt-1 align-middle bg-gray-200 inline-block mx-1 px-1 py-1 rounded text-gray-600 leading-none text-[8px]">+{overflow} more</span>}
         </>
+      }else if(badgeType.startsWith("action_item:")){
+        const [_, _2,id, text] = badgeType.match(/^([^:]+):([^:]+):(.*)$/)
+
+        return <div className="inline-flex">
+          <Button startContent={<PlusCircleIcon className='w-4 h-5'/>} className="text-slate-500" variant="faded" size="sm" onPress={actionCallback ? ()=>actionCallback(id) : undefined}>{text}</Button>
+        </div>
       }
       return (
         <span className="inline-block px-2 py-0.5 bg-gray-200 text-gray-800 rounded">
@@ -225,7 +231,7 @@ function MarkdownBadge({ badgeType }) {
   }
 
 //  export function MarkdownEditor({ initialMarkdown, ...props }){
-const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...props }, ref){
+const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, actionCallback, ...props }, ref){
   const editor = useMemo(() => withBadges(withHistory(withReact(createEditor()))), [])
   const slateRef = useRef()
 
@@ -503,7 +509,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, ...
         case 'badge':
             return (
               <span {...attributes} contentEditable={false}>
-                <MarkdownBadge badgeType={element.badgeType} />
+                <MarkdownBadge badgeType={element.badgeType} actionCallback={actionCallback}/>
                 {children}
               </span>
       );

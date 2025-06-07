@@ -19,11 +19,13 @@ import PrimitiveConfig from "./PrimitiveConfig"
 import SearchSet from "./SearchSet"
 import { QueryPane } from "./QueryPane"
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list"
-import { CheckboxField, Checkbox } from "./@components/checkbox"
-import { AdjustmentsVerticalIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { CheckboxField, Checkbox as LegacyCheckbox } from "./@components/checkbox"
+import { AdjustmentsVerticalIcon, CloudArrowDownIcon, PlayCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
 import { Label } from "./@components/fieldset"
-import { Select, SelectItem } from "@heroui/react"
+import { Input, Select, SelectItem } from "@heroui/react"
+import {Checkbox} from "@heroui/react";
+import InputWithSync from "./InputWithSync"
 
 // Add the icons to the library
 
@@ -220,9 +222,19 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             function setConfigValue(k,v){
                 frame.setField(`referenceParameters.fc_${k}`,v) 
             }
+            function debounceInput(target, value){
+
+            }
             return <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2 @container">
                     <UIHelper.Panel title="Control" icon={<AdjustmentsVerticalIcon className="w-5 h-5"/>}>
                         <DescriptionList inContainer={true} className="my-2 space-y-2">
+                            <DescriptionTerm inContainer={true}>Map view</DescriptionTerm>
+                            <DescriptionDetails inContainer={true}>
+                                <div className="space-y-2 flex flex-col">
+                                <Checkbox size="sm" isSelected={frame.referenceParameters.showInMap !== false} onValueChange={(selected)=>frame.setField('referenceParameters.showInMap', selected)}>Show in map</Checkbox>
+                                 <InputWithSync label="Label" placeholder="Label to show user" variant="bordered" primitive={frame} field="labelFoMap"/>
+                                 </div> 
+                            </DescriptionDetails>
                             <DescriptionTerm inContainer={true}>Active Configurations</DescriptionTerm>
                             <DescriptionDetails inContainer={true}>
                                 <div className="space-y-2 flex flex-col">
@@ -322,10 +334,18 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
         const searchCategoryIds = frame.metadata.resultCategoryId ?? frame.metadata.parameters?.sources?.options?.map(d=>d.resultCategoryId ) ?? []
         const searchResultCategory = mainstore.category( searchCategoryIds[0] )
         const searchResults = primitiveForContent.primitives.strictDescendants.filter(d=>searchCategoryIds.includes(d.referenceId))
-        const nestedSearch = frame.primitives.origin.uniqueSearch
+        const nestedSearch = primitiveForContent.primitives.origin.uniqueSearch
         
         const nestedCallback = (id)=>{
             mainstore.doPrimitiveAction(mainstore.primitive(id), "run_search")
+        }
+        const fetchResults = (id)=>{
+            const d = mainstore.primitive(id)
+            for(const [api, data]  of Object.entries(d.processing.bd ?? {})){
+                console.log( `Fetch ${api}`)
+                mainstore.doPrimitiveAction(d, "bdcollect", {api})
+            }
+
         }
 
         content = <div className="flex flex-col pb-2 px-3 space-y-3">
@@ -364,23 +384,25 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                     primitive={frame}
                                     page={0}
                                     pageItems={50}
-                                    onEnter={(d)=>mainstore.sidebarSelect(d)}
+                                    onExpand={(d)=>mainstore.sidebarSelect(d)}
                                     columns={[
-                                        {field: 'plainId', title: "ID", width: 80},
-                                        {field: 'title', title: "Title"},
+                                        {field: 'plainId', title: "ID", width: 50},
+                                        {field: 'title', title: "Title", width:200},
                                         {field: 'count', title: "Results"},
-                                        {field: 'action', title: "", callback: nestedCallback}
+                                        {renderType: "actions", title: "Actions", width: 70, actions: [
+                                            {title: "Run", icon: PlayCircleIcon, action: (d)=>nestedCallback(d.id)},
+                                            {title: "Refetch", icon: CloudArrowDownIcon, action: (d)=>fetchResults(d.id)},
+                                        ]},
                                     ]}
-                                    data={nestedSearch.map(d=>{
-                                        const target = d.parentPrimitives.filter(d=>d.id !== frame.id)[0]
+                                    data={nestedSearch.map(target=>{
+                                        const linkedItemId = Object.entries(target._parentPrimitives ?? {}).find(d=>d[1].find(d=>d.startsWith("primitives.search.")))?.[0]
+                                        const linkedItem = linkedItemId ? mainstore.primitive(linkedItemId) : undefined
                                         if( target ){
-
                                             return {
-                                                id: target.id,
-                                                plainId: target.plainId,
-                                                title: target.title,
-                                                count: d.primitives.origin.allUniqueIds.length,
-                                                action: d.id,
+                                                id: linkedItem ? linkedItem.id : target.id,
+                                                plainId: linkedItem ? linkedItem.plainId : target.plainId,
+                                                title: linkedItem ? `Search for ${linkedItem.title}` : target.title,
+                                                count: target.primitives.origin.allUniqueIds.length,
                                                 data:{
                                                     id: target.id,
                                                     primitive: target
@@ -741,21 +763,21 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                             <DescriptionTerm inContainer={true}>Types</DescriptionTerm>
                                             <DescriptionDetails inContainer={true}>
                                                 <CheckboxField>
-                                                    <Checkbox 
+                                                    <LegacyCheckbox 
                                                         onClick={()=>toggleType(pinId, "primitive")}
                                                         checked={(pins[pinId].types ?? []).includes("primitive")} 
                                                         />
                                                         <Label>Primitive</Label>
                                                 </CheckboxField>
                                                 <CheckboxField>
-                                                    <Checkbox 
+                                                    <LegacyCheckbox 
                                                         onClick={()=>toggleType(pinId, "string")}
                                                         checked={(pins[pinId].types ?? []).includes("string")} 
                                                         />
                                                     <Label>Text</Label>
                                                 </CheckboxField>
                                                 <CheckboxField>
-                                                    <Checkbox 
+                                                    <LegacyCheckbox 
                                                         onClick={()=>toggleType(pinId, "string_list")}
                                                         checked={(pins[pinId].types ?? []).includes("string_list")} 
                                                         />
@@ -861,7 +883,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                                                         <DescriptionTerm inContainer={true}>{d}</DescriptionTerm>
                                                                         {!show && <div className="grid grid-cols-1 text-base/6 text-sm/6 @lg:!grid-cols-[min(40%,theme(spacing.40))_auto] py-2">
                                                                                 <p>Include</p>
-                                                                                    <Checkbox
+                                                                                    <LegacyCheckbox
                                                                                         onClick={()=>{frame.setField(`referenceParameters.sections.${d}.show`, true)}}
                                                                                     />
                                                                                 </div>
@@ -870,14 +892,14 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                                                             <DescriptionList inContainer={true}>
                                                                                 <DescriptionTerm inContainer={true}>Include</DescriptionTerm>
                                                                                 <DescriptionDetails inContainer={true}>
-                                                                                    <Checkbox 
+                                                                                    <LegacyCheckbox 
                                                                                         checked={true} 
                                                                                         onClick={()=>{frame.setField(`referenceParameters.sections.${d}.show`, false)}}
                                                                                         />
                                                                                 </DescriptionDetails>
                                                                                 <DescriptionTerm inContainer={true}>Include heading</DescriptionTerm>
                                                                                 <DescriptionDetails inContainer={true}>
-                                                                                    <Checkbox 
+                                                                                    <LegacyCheckbox 
                                                                                         checked={includeHeading} 
                                                                                         onClick={()=>{frame.setField(`referenceParameters.sections.${d}.heading`, !includeHeading)}}
                                                                                         />

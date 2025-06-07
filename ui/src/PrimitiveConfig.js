@@ -1356,9 +1356,10 @@ const PrimitiveConfig = {
         }
         return out
 
-    },async buildFlowInstanceStatus(flowInstance, steps, functions = {}, options){
+    },async buildFlowInstanceStatus(flowInstance, steps, functions = {}, options = {}){
         let flowStarted = flowInstance.processing?.flow?.started
         const map = {}
+        const flowId = Object.entries(flowInstance._parentPrimitives ?? flowInstance.parentPrimitives ?? {}).find(d=>d[1].includes("primitives.origin"))?.[0]
         
         const fcValues = Object.entries(flowInstance.referenceParameters ?? {}).reduce((a,[k,v])=>{
             if( k.startsWith("fc_")){
@@ -1367,8 +1368,13 @@ const PrimitiveConfig = {
             return a
         }, {})
 
-        async function setupStep( step ){
+        async function setupStep( step, child ){
             if( map[step.id]){
+                if( child ){
+                    if(!map[step.id].children.find(d=>d.id === child.id)){
+                        map[step.id].children.push( child )
+                    }
+                }
                 return
             }
             
@@ -1385,7 +1391,9 @@ const PrimitiveConfig = {
                 if( match ){
                     return match
                 }else{
-                    console.log(`>>>> Couldnt find ${d} when checking for skip status of ${step.id}`)
+                    if( d !== flowId ){
+                        console.log(`>>>> Couldnt find ${d} when checking for skip status of ${step.id}`)
+                    }
                 }
             }).filter(d=>d)
 
@@ -1411,13 +1419,18 @@ const PrimitiveConfig = {
             const skipForConfiguration = stepControlValues.length > 0 && !matchingConfig
 
             const status = {
+                id: step.id,
                 skipForConfiguration,
                 skipForUpstream: undefined,
                 need: false,
                 can: undefined,
+                children: child ? [child] : []
+            }
+            if( options.withPrimitives){
+                status.primitive = step
             }
             for(const p of checkList){
-                await setupStep( p )
+                await setupStep( p, status )
                 if( map[p.id]){
                     const thisSkipped = map[p.id].skip === true ? true : false
                     if( status.skipForUpstream === undefined ){
@@ -1451,7 +1464,14 @@ const PrimitiveConfig = {
                         status.running = await functions.isStepRunning( step )
                     }
                 }
+                if( status.need ){
+                    const {can, canReason} = await PrimitiveConfig.canStepRun( flowInstance, step, map, functions, options)
+                    status.can = can
+                    status.canReason = canReason
+                    
+                }
             }
+            status.candidateForRun = status.can && status.need
             map[step.id] = status
         }
         
@@ -1460,6 +1480,121 @@ const PrimitiveConfig = {
         }
         return map
 
+    },async canStepRun(flowInstance, step, stepState, functions = {}, options = {}){
+        let flowStarted = flowInstance.processing?.flow?.started
+        let can = true
+        let canReason = "all_ready"
+
+        async function fetchImports( importIds ){
+            if( !options.cache ){
+                return await functions.fetchPrimitives(importIds)
+            }
+            let importPrimitives = importIds.map(d=>options.cache[d]).filter(d=>d)
+            if( importPrimitives.length !== importIds.length){
+                console.log(`-- Cache miss - fetching importIds`)
+                importPrimitives = await functions.fetchPrimitives( importIds )
+            }
+            return importPrimitives
+        } 
+
+
+        async function checkOutstandingSource( rel ){
+            let can = true
+            let inAncestor = false
+            const pp = functions.getPrimitives(step).fromPath(rel)
+            const importIds = pp.uniqueAllIds
+            if( importIds.length > 0){
+                const importPrimitives = await fetchImports( importIds)
+                for(const baseImp of importPrimitives){
+                    if( !can ){
+                        continue
+                    }
+                    const baseId = baseImp.id
+                    if( !stepState[baseId] ){
+                        if( baseId !== flowInstance.id){
+                            console.warn( `No state for ${baseId} when processing ${step.id}`)
+                        }
+                    }else{
+                        if( stepState[baseId].skip ){
+                            continue
+                        }
+                    }
+                    let imp = baseImp
+                    const originId = Object.entries(imp._parentPrimitives ?? imp.parentPrimitives ?? {}).find(d=>d[1].includes("primitives.origin"))?.[0]
+                    if( imp.type === "segment"){
+                        if( step.type === "flowinstance"){
+                            console.log(`Got segment import for instance of sub flow`)
+                            const parentStep = (await fetchImports( originId ))[0]
+                            if( !parentStep || (parentStep.id !== flowInstance.id && !Object.keys(parentStep._parentPrimitives ?? parentStep.parentPrimitives ?? {}).includes( flowInstance.id ))){
+                                throw `mismatch on segment origin ${parentStep.id} not a child of flowInstance ${flowInstance.id}`                                
+                            }
+                            imp = parentStep
+                        }else{
+                            throw "Need to move to segment origin to get flow step?"
+                        }
+                    }
+                    if( imp.type === "category" ){
+                        console.log(`-- Got category ${imp.id} / ${imp.plainId} for ${rel} - checking parent`)
+                        const parent = (await fetchImports( originId ))[0]
+                        if( parent ){
+                            console.log(`-- Got parent of catgeory  = ${parent.id} / ${parent.plainId}`)
+                            imp = parent
+                        }else{
+                            console.log(`-- Couldnt get parent`)
+                        }
+
+                    }
+                    if( imp.id !== flowInstance.id){
+                        if( !Object.keys(imp._parentPrimitives ?? imp.parentPrimitives ?? {}).includes(flowInstance.id) ){
+                            console.log(`-- ${imp.id} / ${imp.plainId} not in this flow instance - checking ancestors`)
+                            const chainResult = await functions.relevantInstanceForFlowChain( [imp], [flowInstance.id])
+                            if( chainResult.length === 0){
+                                console.log(`${imp.id} / ${imp.plainId} is not linked to flow instance ${flowInstance.id} / ${flowInstance.plainId} for ${step.id} / ${step.plainId}`)
+                                can = false
+                                continue
+                            }else{
+                                inAncestor = true
+                                console.log(`-- found in ancestor chain`)
+                            }
+                        }
+                    }
+                    const isSameFlow       = imp.id === flowInstance.id;
+                    const hasValidStart    = flowStarted !== undefined;
+                    const otherFlowStarted = imp.processing?.flow?.started;
+                    const isComplete       = imp.processing?.flow?.status === "complete";
+
+                    const timingOk = !inAncestor ? otherFlowStarted <= flowStarted : otherFlowStarted <= flowStarted;
+                    const importPrimValid = isSameFlow || (hasValidStart && isComplete && timingOk);
+
+                    console.log(`Checking status of ${rel} step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
+                    can = can && importPrimValid
+                }
+            }
+            return !can
+        }
+        const waitImports = await checkOutstandingSource( "imports" )
+        const waitInputs = await checkOutstandingSource( "inputs" )
+        let waitAxis = false
+        if( step.type === "view" || step.type === "query" ){
+            const waitAxisCol = await checkOutstandingSource( "axis.column" )
+            const waitAxisRow = await checkOutstandingSource( "axis.row" )
+            waitAxis = waitAxisCol || waitAxisRow
+        }
+        if( waitImports || waitInputs || waitAxis){
+            canReason = ""
+            if( waitImports){
+                canReason = "data_"
+            }
+            if( waitInputs){
+                canReason += "inputs_"
+            }
+            if( waitAxis){
+                canReason += "axis_"
+            }
+            canReason += "not_ready"
+            can = false
+        }
+        return {can, canReason}
     },doFilter: ({resolvedFilterType, filter, setToCheck, lookups, check, scope, includeNulls, isRange}, fns)=>{
             const invert = filter.invert ?? false
             const temp = []

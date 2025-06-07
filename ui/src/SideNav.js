@@ -20,7 +20,7 @@ function classNames(...classes) {
 }
 
 export default function SideNav(props) {
-  const workspaces = MainStore().activeUser.info.workspaces.map((d)=>MainStore().workspace(d))
+  const workspaces = MainStore().activeUser?.info.workspaces.map((d)=>MainStore().workspace(d)) ?? []
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [pageDetailPane, setPageDetailPane] = useState(false)
   const sizeToggle = props.widePage ? "3xl" : "xl"

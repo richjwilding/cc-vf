@@ -1,17 +1,20 @@
 import OpenAI from "openai"
-import { buildContext, createPrimitive, decodePath, dispatchControlUpdate, DONT_LOAD, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, uniquePrimitives } from "../SharedFunctions";
+import { addRelationship, addRelationshipToMultiple, buildContext, createPrimitive, decodePath, dispatchControlUpdate, DONT_LOAD, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, uniquePrimitives } from "../SharedFunctions";
 import Category from "../model/Category";
 import Primitive from "../model/Primitive";
-import { buildCategories, categorize, processPromptOnText, summarizeMultiple } from "../openai_helper";
+import { buildCategories, categorize, processAsSingleChunk, processPromptOnText, summarizeMultiple } from "../openai_helper";
 import { fetchFragmentsForTerm } from "../DocumentSearch";
 import { modiftyEntries, reviseUserRequest } from "../prompt_helper";
-import { flattenStructuredResponse } from "../PrimitiveConfig";
+import PrimitiveConfig, { flattenStructuredResponse } from "../PrimitiveConfig";
 import { parser } from "stream-json/Parser";
 import { PassThrough } from "stream";
 import Assembler from "stream-json/Assembler";
 import { get, set } from "lodash";
 import { extractFlatNodes, findCompanyURLByNameLogoDev } from "../task_processor";
 import { pickAtRandom } from "./SharedTransforms";
+import { registerAction, runAction } from "../action_helper";
+import { getLogger } from '../logger.js';
+const logger = getLogger('agent', "debug"); // Debug level for moduleA
 
 const isObjectId = id => /^[0-9a-fA-F]{24}$/.test(id);
 
@@ -412,7 +415,9 @@ const functionMap = {
             }
             
             notify("Fetching data...")
-            let [items, toSummarize] = await getDataForAgentAction( params, scope)
+            let [items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( params, scope)
+
+            notify(`[[chat_scope:${resolvedSourceIds.join(",")}]]`, false, true)
 
             if( toSummarize.length > 200 && !params.limit && !params.confirmed){
                 return {result: `There are ${toSummarize.length} results to process - confirm user is happy to wait and call again with confirmed=true`}
@@ -504,9 +509,14 @@ const functionMap = {
             const scanRatio = config?.scanRatio ?? 0.12
             const serachScope = [{workspaceId: scope.workspaceId}]
 
+            let sourceIds
             if( params.sourceIds?.length > 0){
                 let validTypes = ["result", "summary"]
                 let sources = await resolveId(params.sourceIds, {...scope, projection: "_id primitives type"})
+                sourceIds = sources.map(d=>d.id)
+                
+                notify(`[[chat_scope:${sourceIds.join(",")}]]`, false, true)
+
                 console.log(`Looking up valid sources from ${sources.length}`)
                 const inScopeIds = [sources.filter(d=>validTypes.includes(d.type)), await primitiveDescendents( sources, validTypes )].flat().map(d=>d.id)
                 serachScope.push(  {foreignId: {$in: inScopeIds}})
@@ -525,172 +535,11 @@ const functionMap = {
                 return a.id.localeCompare(b.id)
             })
             notify(`Retrieved ${fragments.length} entries for analysis`)
-            const primitiveIds = fragmentList.map(d=>d.id).filter((d,i,a)=>a.indexOf(d) === i)
             const fragmentText = fragmentList.map(d=>d.text)
             
-
-            const pass = new PassThrough();
-            //const jsonParser = pass.pipe(parser());
-            const jsonParser = pass.pipe(parser({ packStrings: false /* enable stringChunk */ }));
-            const assembler  = new Assembler();
-
-            let doc;
-            let initialized = false;
-            const path = [];            // stack of keys & array-indices
-            const typeStack  = [];  // parallel stack: 'object' or 'array'
-            let parsingKey = false;     // are we inside a key name?
-            let currentKey = "";        // buffer for the key string
-            let keyCount = 0
-
-            let lastSent = ""
-            jsonParser.on("data", ({ name, value }) => {
-                if (!initialized) {
-                    if (name === "startObject") {
-                        doc = {};
-                        typeStack.push("object");
-                        initialized = true;
-                      } else if (name === "startArray") {
-                        doc = [];
-                        typeStack.push("array");
-                        path.push(0);    // enter array at index 0
-                        initialized = true;
-                      }
-                  return;
-                }
-            
-                try {
-                  switch (name) {
-                case "startKey":
-                    parsingKey = true;
-                    currentKey = "";
-                    break;
-            
-                    case "stringChunk":
-                        if (parsingKey) {
-                            currentKey += value;
-                        } else {
-                            // string *value* chunk
-                            const existing = get(doc, path, null);
-                            set(doc, path, existing  ? existing + value : value);
-                        }
-                        break;
-            
-                    case "endKey":
-                        parsingKey = false;
-                        // create placeholder and descend
-                        if( keyCount > 0){
-                            path.pop()
-                        }
-                        keyCount++
-                        set(doc, [...path, currentKey], null);
-                        path.push(currentKey);
-                        break;
-            
-                    // —— OBJECT STRUCTURE —— 
-                    case "startObject":
-                        // if we’re in an array, push a new element
-                        if (typeStack[typeStack.length - 1] === "array") {
-                            const arr = get(doc, path.slice(0, -1));
-                            arr.push({});
-                            // descend into that new element
-                            path[path.length - 1] = arr.length - 1
-                        }
-                        // mark new object context
-                        typeStack.push("object");
-                        set(doc, path, get(doc, path, {}));
-                        keyCount = 0
-                        break;
-            
-                    case "endObject":
-                        typeStack.pop();
-                        const was2 = path.pop();
-                        break;
-            
-                    // —— ARRAY STRUCTURE —— 
-                    case "startArray":
-                        // we’re either the value of a key (object) or nested in an array
-                        const existing = get(doc, path )
-                        set(doc, path, existing ?? []);
-                        typeStack.push("array");
-                        // descend into first slot
-                        path.push(0);
-                        break;
-                
-                    case "endArray":
-                        typeStack.pop();
-                        const was = path.pop();
-                        break;
-            
-                    // —— PRIMITIVES —— 
-                    case "stringValue":
-                    case "numberValue":
-                    case "trueValue":
-                    case "falseValue":
-                    case "nullValue":
-                        set(doc, path, value);
-                        break;
-                }
-            
-                // —— ADVANCE FOR NEXT ARRAY ELEMENT —— 
-                // If we’re in an array value context and we just finished
-                // a primitive or object, bump the index for the next element.
-                const topType = typeStack[typeStack.length - 1];
-                if (topType === "array" && ["stringValue","numberValue","trueValue","falseValue","nullValue","endObject"].includes(name)) {
-                    const arr = get(doc, path.slice(0, -1));
-                    path[path.length - 1] = arr.length //- 1
-                }
-              
-            
-
-                const nodeResult = doc.structure
-                modiftyEntries( nodeResult, "content", entry=>{
-                    let content = entry.content
-                    entry._content = content
-                    let ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)).filter(d=>isNaN(d)) : entry.ids
-                    if( ids ){
-                        let sourceIds = ids.map(d=>{
-                            if( fragmentList[d] ){
-                                return fragmentList[d].id
-                            }else{
-                                console.warn(`Cant find referenced fragment ${d} in `, ids, entry.ids)
-                            }
-                        }).filter((d,i,a)=>a.indexOf(d) === i)
-                        if( sourceIds.length === 0){
-                            if( fragmentList.length === 1){
-                                content += ` [[id:${fragmentList[0]}]]`
-                            }
-                        }else{
-                            content += ` [[id:${sourceIds.join(", ")}]]`
-                        }
-                    }
-                    return content
-                } )
-                const out = flattenStructuredResponse( nodeResult, nodeResult)
-                modiftyEntries( nodeResult, "content", entry=>{
-                    return entry._content
-                })
-                let backup = ""
-                let lastSentLength = lastSent.length
-                if( lastSent.endsWith("]]") && out.slice(lastSentLength - 2) != "]]"){
-                    backup = "__SC_BK2__"
-                    lastSentLength -= 2
-                }
-                const delta = out.slice(lastSentLength)
-                if( delta.length > 0){
-                    notify(backup + delta, false)
-                }
-                lastSent = out
-
-                } catch (err) {
-                  console.error("Parser handling error:", err);
-                }
-              });
-            
-            // 4) catch parse errors
-            jsonParser.on("error", err => {
-                console.error("parse error", err);
-            });
+            const pass = streamingResponseHandler( notify, fragmentList )
             notify("Analyzing...")
+
             const results = await summarizeMultiple( fragmentText,{
                 ...config, 
                 workspaceId: scope.workspaceId,
@@ -727,16 +576,39 @@ const functionMap = {
 
             let out = ""
             let nodeResult = results?.summary?.structure
+            modiftyEntries( nodeResult, "ids", entry=>{
+                let ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)).filter(d=>isNaN(d)) : entry.ids
+                if( ids ){
+                    let sourceIds = ids.map(d=>{
+                        if( fragmentList[d] ){
+                            return fragmentList[d].id
+                        }else{
+                            console.warn(`Cant find referenced fragment ${d} in `, ids, entry.ids)
+                        }
+                    }).filter((d,i,a)=>a.indexOf(d) === i)
+                    return sourceIds
+                }
+                return []
+            } )
             if( nodeResult ){
                 const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
                 const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
-                let sourceIds = allIds.map(d=>fragmentList[d]?.id).filter((d,i,a)=>d !== undefined && a.indexOf(d) === i)
-                if( sourceIds.length > 0){
-                    notify(`[[ref:${sourceIds.join(",")}]]`, false)
+                if( allIds.length > 0){
+                    notify(` [[ref:${allIds.join(",")}]]`, false)
                 }
             }
             
-            return {summary: out, result: out, __ALREADY_SENT: true}
+            return {
+                __ALREADY_SENT: true, 
+                forClient:["context"], 
+                context: {
+                    canCreate: true,
+                    type: "one_shot_query",
+                    queryResult: nodeResult,
+                    query: params.query,
+                    revised,
+                    sourceIds
+                }}
         }catch(e){
             console.log(`error in agent query`)
             console.log(e)
@@ -1189,7 +1061,7 @@ const functionMap = {
   const functions = [
     {
         "name": "one_shot_summary",
-        "description": "Performs a user specified summarization task using all specified source data as the input. Will run in multiple passes and can take several minutes for large datasets. If the source data contains >200 items (call get_data_sources to check) then you MUST prompt the user before callingto confirm they are happy to wait as it may take several minutes ",
+        "description": "Performs a user specified summarization task using all specified source data as the input. Will run in multiple passes and can take several minutes for large datasets. Only to be called when the user specifically indicates they want a summary / summarization. If the source data contains >200 items (call get_data_sources to check) then you MUST prompt the user before calling to confirm they are happy to wait as it may take several minutes ",
         "parameters": {
           "type": "object",
           "properties": {
@@ -2452,19 +2324,15 @@ export async function handleChat(primitive, options, req, res) {
                             sendSse({ done: true });
                             break
                         }else{
-                            if( fnResult.__ALREADY_SENT){
-                                sendSse({ done: true });
-                                break
-                            }
                             if( fnResult.forClient){
                                 const forClient = fnResult.forClient.reduce((a,c)=>{a[c] = fnResult[c]; return a},{})
+                                console.log(fnResult.forClient)
+                                console.log(forClient)
                                 sendSse({
                                     hidden: true,
-                                    content: JSON.stringify({
-                                        role:"assistant",
-                                        name: `context from ${funcName}`,
-                                        content: forClient
-                                    })
+                                    context: true,
+                                    contentFor: funcName,
+                                    context: forClient
                                 })
                                 delete fnResult["forClient"]
                             }
@@ -2472,6 +2340,10 @@ export async function handleChat(primitive, options, req, res) {
                                 sendSse({[fnResult.dataType ?? "content"]: fnResult.dataForClient})
                                 delete fnResult["dataForClient"]
                                 delete fnResult["dataType"]
+                            }
+                            if( fnResult.__ALREADY_SENT){
+                                sendSse({ done: true });
+                                break
                             }
                             result = JSON.stringify(fnResult)
                         }
@@ -2509,3 +2381,80 @@ export async function handleChat(primitive, options, req, res) {
 
     }
   }
+
+registerAction( "run_agent_create", undefined, async (primitive, action, options, req)=>{
+    console.log(`Target primitive = ${primitive.plainId}`)
+    const sub_action = `${action}_${options.type}`
+    return await runAction(primitive, sub_action, options)
+
+})
+registerAction( "run_agent_create_one_shot_query", undefined, async (primitive, action, options, req)=>{
+    if( primitive.type !== "board"){
+        logger.warn(`Can only run ${action} on board primitives`)
+        return
+    }
+    if( !options.queryResult ){
+        logger.warn(`No result data`)
+        return
+    }
+    if( !options.sourceIds ){
+        logger.warn(`No source Ids`)
+        return
+    }
+    const title = await processAsSingleChunk(`Produce 1) a short title (no more than 15 words) describing my query, and 2 a hort title (no more than 15 words) for the answer of my query. Here is my query: ${options.query}`,
+        {
+            output: "Provide your response as a JSON object with fields called 'query_title' and 'answer_title' containing your resposne",
+            engine: "gpt4o",
+            wholeResponse: true
+        }
+    )
+    console.log(title)
+    const queryData = {
+        workspaceId: primitive.workspaceId,
+        paths: ['origin'],
+        parent: primitive.id,
+        data:{
+            type: "query",
+            title: title?.results?.query_title ?? "New query from Agent" ,
+            referenceId: 81,
+            referenceParameters:{
+                engine: "o4-mini",
+                referenceId: options.referenceId,
+                "query": options.query,
+                "target":"items",
+                "revised_query": {
+                    ...options.revised,
+                    cache: options.query
+                }
+            }
+        }
+    }
+    const queryPrimitive = await createPrimitive( queryData )
+    if( !queryPrimitive ){
+        throw `Error creating query primitive in ${action}`
+    }
+    await addRelationshipToMultiple(queryPrimitive.id, options.sourceIds, "imports", primitive.workspaceId)
+
+    const idsForSections = extractFlatNodes(options.queryResult).map(d=>d.ids)
+    const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
+
+    const summaryData = {
+        workspaceId: primitive.workspaceId,
+        paths: ['origin', 'config'],
+        parent: queryPrimitive.id,
+        data:{
+            type: "summary",
+            title: title?.results?.answer_title ?? "New query from Agent" ,
+            referenceId: PrimitiveConfig.Constants.GENERIC_SUMMARY,
+            referenceParameters:{
+                engine: "o4-mini",
+                "structured_summary": options.queryResult,
+                "summary": flattenStructuredResponse(options.queryResult, options.queryResult)
+            }
+        }
+    }
+    const summaryPrimitive = await createPrimitive( summaryData )
+    if( summaryPrimitive){
+        await addRelationshipToMultiple(summaryPrimitive.id, allIds, "source", primitive.workspaceId)
+    }
+})

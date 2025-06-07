@@ -83,6 +83,31 @@ const actions = {
     sourcePrimitives(d,receiver,obj){
         return actions.int_sourcePrimitives(d, receiver, obj)()
     },
+    instanceStatus(d,receiver,obj){
+        if( receiver.type !== "flowinstance"){
+            return
+        }
+        return (async () => {
+            const steps = receiver.origin.primitives.origin.allUniqueItems.filter(d=>d.type !=="flowinstance")
+            const allInstanceSteps = [...receiver.primitives.origin.allItems, ...receiver.primitives.subfi.allItems];
+            const stepsForInstance = steps.map(step=>allInstanceSteps.find(d=>d.configParent?.id === step.id))
+            const mainstore = MainStore()
+        
+            const status = await PrimitiveConfig.buildFlowInstanceStatus(
+              receiver,
+              stepsForInstance,
+              {
+                fetchPrimitives: (ids)=>ids.map(d=>mainstore.primitive(d)),
+                getPrimitives: (p)=>p.primitives
+              },
+              {
+                withPrimitives: true
+              }
+            );
+        
+            return status;
+          })();
+    },
     int_sourcePrimitives(d,receiver,obj){
         return (flowInstanceIds)=>{
             let out = []
@@ -1910,27 +1935,29 @@ function MainStore (prims){
             }
             items = [items].flat()
 
-            items = items.map((d)=> d instanceof Object ? d.id : d)
+            const ids = items.map((d)=> d instanceof Object ? d.id : d)
+            items = items.map((d)=> d instanceof Object ? d : obj.primitive(d))
 
             let name = e
 
             this.callbacks[e].forEach((e)=>{
                 const doCall = true
                 if( e.filterIds ){
-                    if( !items.some((item)=>e.filterIds.includes(item)).length === 0){
+                    if( !ids.some((item)=>e.filterIds.includes(item)).length === 0){
                         doCall = false
                     }
                 }
                 if( e.descendIds ){
                     if( items.filter((item)=>{
-                            const allIds = obj.primitive(item).primitives.uniqueAllIds
+                            //const allIds = obj.primitive(item).primitives.uniqueAllIds
+                            const allIds = item.primitives.uniqueAllIds
                             return allIds.some(item=>e.filterIds.includes(item)).length > 0
                         }).length === 0){
                             doCall = false
                     }
                 }
                 if( doCall){
-                    e.callback(items, name, data, fromRemote)
+                    e.callback(ids, name, data, fromRemote, items)
                 }
             })
 

@@ -52,19 +52,21 @@ Each section of the of the output should be an element of an array. If a section
                     If the section has subsections:
                     {
                         heading: a short heading that can be used when formatting the response (if this element is top level section - otherwise omit this field), 
-                        content: If the user has requested a title for this section, then an instruction to the AI on how to generate a title (and then omit the title from following subsections), otherwise omit this field.
+                        content: If the user has requested a title for this section, then an instruction to the AI on how to generate a title (and then omit the title from following subsections), otherwise omit this field. Do not repease the heading field in this field
                         subsections: an array containing any the subsections 
                     } 
 
                     If the section does not have any subsections:
                     {
                         heading: if the content of the subsection is about a different topic (ie not just a formatting change such as a list vs summary), then include a short heading that can be used when formatting the response, otherwise omit this field (also omit this field if this is the  top level section of the response),
-                        content: the description of what will be placed in the field by the AI included specific length or formatting instructions aligned to requests in the task if present - or your view of best practice if requests are not present., 
+                        content: the description of what will be placed in the field by the AI included specific length or formatting instructions aligned to requests in the task if present - or your view of best practice if requests are not present. Do not repease the heading field in this field
                         type: what format the content should be (one of markdown formatted bullet list, markdown formatted string, number, boolean, markdown formatted table),
                     } 
 
                     Favour concise summaries with the minimal number of sections and subsections to deliver on the requested task
                     Take note of any instructions from the user about what constitutes a single part of your answer and / or what to group , and ensure the structure aligns to it by nesting items where appropriate 
+
+                    Do not mention the type of formatting requested in the content fields (ie do not say "Here is the markdown formatted response" or similar)
                    
 
                     Here is the future task::`.replaceAll(/\s+/g," ")

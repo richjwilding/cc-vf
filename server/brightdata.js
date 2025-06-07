@@ -216,7 +216,7 @@ const bdExtractors = {
         linkConfig:linkToPrimitiveViaSearchPath,
         queryParams: "&type=discover_new&discover_by=company_url",
         data:  (data)=>{
-            const date = moment(data.date_posted).format('DD MMM YY')
+            const date_posted = moment(data.date_posted).format('DD MMM YY')
 
             return {
                 title: data.title,

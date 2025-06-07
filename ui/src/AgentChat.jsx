@@ -10,16 +10,15 @@ import { Badge } from './@components/badge';
 import { deepEqualIgnoreOrder, isObjectId } from './SharedTransforms';
 
 export default function AgentChat({primitive, ...props}) {
-    //const [messages, setMessages] = useState([{role: "assistant", content: 'Great, thanks for the detailed context. To help you design an effective competitor intelligence workflow for Sophos’ MDR product, I’d like to clarify a couple of points so we can tailor the search and data gathering for maximum relevance:\n\n1. **Key Competitors**: Do you already have a list of the main MDR providers you want to analyse (e.g., Rapid7, CrowdStrike, Arctic Wolf, SentinelOne, Secureworks, etc.), or should I include a broad scan to identify the most relevant companies?\n\n2. **Specific Areas of Interest**:\n   - Are you most interested in how competitors structure their **threat hunting** (e.g., default inclusion, tiers, manual/automated, methods)?\n   - Should we also look for **detailed descriptions of service scope**, **add-ons**, and **pricing models**, or are you prioritizing one of those most?\n\n3. **Geography & Customer Segment**: Are we targeting global players, or specific regions/markets (e.g., North America, EMEA)? Should the focus'}]);
     const [messages, setMessages] = useState([]);
         const inputBox = useRef({})
         const editorRef = useRef()
       const [autoSend, setAutoSend] = useState('');
-   //   const [input, setInput] = useState('');
       const [pending, setPending] = useState(false);
       const [context, setContext] = useState(false);
       const [chatState, setChatState] = useState({});
       const readerRef = useRef(null);
+      const actionData = useRef([])
       const insertedCount = useRef(0)
     
       useEffect(()=>{
@@ -59,7 +58,7 @@ export default function AgentChat({primitive, ...props}) {
 
       useEffect(() => {
         if (insertedCount.current === 0 && messages.length > 0) {
-          editorRef.current.appendMessages(messages)
+          editorRef.current.appendMessages(messages.filter(d=>!d.hidden))
           insertedCount.current = messages.length
         }
       }, [messages])
@@ -70,10 +69,29 @@ export default function AgentChat({primitive, ...props}) {
           const msg = messages.at(-1)
           if( msg.hidden && msg.removePrevious){
             editorRef.current.appendMessages(undefined, true)
+            delete msg["removePrevious"]
           }else{
             editorRef.current.appendMessages([msg], true)
           }
         }else if (messages.length > insertedCount.current) {
+          const reverseCheck = messages.slice(0,insertedCount.current).reverse().filter(d=>!d.hidden)
+          const addBack = []
+          let removed = false
+          for( const history of reverseCheck){
+            if( history.updated ){
+              removed = true
+              editorRef.current.appendMessages(undefined, true)
+              delete history["updated"]
+              addBack.push( history)
+            }else{
+              if(removed){
+                break
+              }
+            }
+
+            editorRef.current.appendMessages(addBack)
+          } 
+          
           const newMsgs = messages.slice(insertedCount.current).filter(d=>!d.hidden)
           if( newMsgs.length > 0){
             editorRef.current.appendMessages(newMsgs)
@@ -86,10 +104,10 @@ export default function AgentChat({primitive, ...props}) {
       function updateAssistantUI(text, hidden = false, other = {}) {
         setMessages(h => {
           const lastMsg = h[h.length - 1]
-          if (lastMsg.role === 'assistant' && !lastMsg.preview){
+          if (lastMsg.role === 'assistant' && !lastMsg.preview && !lastMsg.context && !other.context){
             if( !hidden) {
               if( !lastMsg.hidden ){
-                return [...h.slice(0, -1), { hidden, role:'assistant', content: text, ...other }];
+                return [...h.slice(0, -1), { hidden, updated: true, role:'assistant', content: text, ...other }];
               }
             }else{
               if( lastMsg.content.endsWith("[[agent_running]]") || lastMsg.content.match(/\[\[update:[^\]]*\]\]$/)){
@@ -163,8 +181,24 @@ export default function AgentChat({primitive, ...props}) {
               if( payload.hidden){
                 displayContent = ""
               }
+            }else if(payload.context){
+              let contextText = ""
+              if( payload.context.context.canCreate ){
+                const action = "create"
+                const text = "Add query to canvas"
+                const itemId = actionData.current.length 
+                actionData.current.push({
+                  id: itemId,
+                  action,
+                  data: payload.context.context
+                })
+                contextText = `[[action_item:${itemId}:${text}]]`
+              }
+              updateAssistantUI(contextText, payload.context.context.canCreate ? false :true, {context: payload.context.context});
+                displayContent = ""
             }else if(payload.preview){
               updateAssistantUI(payload.preview, false, {preview: true});
+                displayContent = ""
             }
       
             if (payload.done) {
@@ -176,7 +210,7 @@ export default function AgentChat({primitive, ...props}) {
           }
         }
       }
-    
+
       function handleInputKeyPress(e){
         if(e.key === "Enter"){
             if( !e.altKey ){
@@ -211,7 +245,13 @@ export default function AgentChat({primitive, ...props}) {
         inputBox.current.clear()
         inputBox.current.focus()
         updateStatus({active: true, messages: []})
+        actionData.current = []
         setPending(false)
+      }
+      function actionCallback(id){
+        const {action, data} = actionData.current[id]
+        console.log(data)
+        MainStore().doPrimitiveAction( primitive, `run_agent_${action}`, data)
       }
     
       function handleInputFocus(){
@@ -242,11 +282,8 @@ export default function AgentChat({primitive, ...props}) {
                   )}
                   </div>
             </div>}
-            {false && messages.length > 0 && <div className="flex flex-1 items-stretch oveflow-y-auto min-h-32 w-full mb-2">
-                <MarkdownEditor  scrollToEnd={true} initialMarkdown={messages.filter(d=>!d.hidden)} float={true}/>
-            </div>}
             {messages.length > 0 && <div className="flex flex-1 items-stretch oveflow-y-auto min-h-32 w-full mb-2">
-                <MarkdownEditor  scrollToEnd={true} float={true} ref={editorRef} controlled={false}/>
+                <MarkdownEditor  actionCallback={actionCallback} scrollToEnd={true} float={true} ref={editorRef} controlled={false}/>
             </div>}
             <div className={clsx([
                     "w-full flex space-x-2",

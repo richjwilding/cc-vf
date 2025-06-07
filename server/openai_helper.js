@@ -1099,6 +1099,7 @@ async function executeAI(messages, options = {}){
         output = 16384
     }else if( options.engine === "gpt4" ){
         model = "gpt-4-0613"
+        response_format = undefined
         sleepBase = 20000
         output = 4096
     }else if( options.engine === "gpt4t" ){

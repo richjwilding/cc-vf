@@ -16,6 +16,8 @@ import { ChevronDoubleLeftIcon, ChevronRightIcon, DocumentArrowDownIcon, XMarkIc
 import FlowInstanceOutput from "./FlowInstanceOutput";
 import AgentChat from "./AgentChat";
 import { Logo } from "./logo";
+import WorkflowStructurePreview from "./WorkflowStructurePreview";
+import PrimitiveConfig from "./PrimitiveConfig";
 
 const tabs = [
   { title: 'Assistant', id: "ai" },
@@ -50,14 +52,11 @@ export default function FlowInstancePage({primitive, ...props}){
     
     const [errors, setErrors ]= useState({})
     const [missing, setMissing ]= useState({})
+    const [statusMap, setStatusMap ]= useState({})
 
     useDataEvent('relationship_update set_field set_parameter',primitive?.id, ()=>{
         forceUpdate()
     })
-    if( !primitive){
-        return <></>
-    }
-
     function updateChatState(state){
         setChatState(state)
         setAnimateState(true)
@@ -106,11 +105,20 @@ export default function FlowInstancePage({primitive, ...props}){
         if(d.type === "flowinstance"){
             flowInstances.push(d)
         }else{
-            if( d.type !== "view" && d.type !== "page"){
+            //if( d.type !== "view" && d.type !== "page"){
                 steps.push(d)
-            }
+            //}
         }
     })
+    useEffect(()=>{
+        if( primitive && activeTab === "progress"){
+            primitive.instanceStatus.then(d=>setStatusMap(d))
+        }
+    },[primitive?.id, activeTab])
+    if( !primitive){
+        return <></>
+    }
+
     
     const stepOrder = targetFlow?.stepOrder ?? []
     steps = steps.sort((a,b)=>{
@@ -153,7 +161,15 @@ export default function FlowInstancePage({primitive, ...props}){
         const currentValue =[primitive.referenceParameters?.[key]].flat()
         switch( info.type ){
             case "options":
-                return <Select className="max-w-xs" label="Select option" variant="bordered" selectedKeys={currentValue ?? []} selectionMode={info.can_select_multiple === true ? "multiple" : ""} onChange={(e)=>setValue(key, e.target.value)}>
+                return <Select 
+                            className="max-w-xs" 
+                            label="Select option" 
+                            variant="bordered" 
+                            selectedKeys={currentValue ?? []} 
+                            selectionMode={info.can_select_multiple === true ? "multiple" : ""} 
+                            onChange={(e)=>setValue(key, info.can_select_multiple === true ? e.target.value.split(",").map(d=>d.trim()) : e.target.value)
+
+                            }>
                     {info.options.map((option) => (
                     <SelectItem key={option.id}>{option.title}</SelectItem>
                     ))}
@@ -219,6 +235,8 @@ export default function FlowInstancePage({primitive, ...props}){
                             </Tabs>
                             <div className="absolute right-0">
                                 {!showOutput && !isForNewInstance && <Button variant="flat" className="bg-ccgreen-700 text-ccgreen-50" onClick={()=>setShowOutput(true)} endContent={<ChevronRightIcon className="w-5 h-4"/>}>Results</Button>}
+                                {<Button variant="flat" className="bg-ccgreen-700 text-ccgreen-50" onClick={()=>MainStore().doPrimitiveAction( primitive, "continue_flow_instance")} endContent={<ChevronRightIcon className="w-5 h-4"/>}>Run...</Button>}
+                                
                             </div>
                         </div>
                     <div className="flex-1 min-h-0">
@@ -295,6 +313,9 @@ export default function FlowInstancePage({primitive, ...props}){
                                 <UIHelper.Button title="Submit" color='green' disabled={!enableSubmit} onClick={createNewInstance}/>
                             </div>}
                         </div>
+                        {activeTab === "progress" && <div className="flex w-full h-full">
+                            <WorkflowStructurePreview statusMap={statusMap}/>
+                        </div>}
                     </div>
                 </div>
                 {showOutput && !isForNewInstance && <div className="w-full h-full flex ">

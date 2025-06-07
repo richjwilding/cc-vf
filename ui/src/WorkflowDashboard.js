@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState } from "react" 
 import MainStore from "./MainStore"
 import Panel from "./Panel"
 import { PrimitiveCard } from "./PrimitiveCard"
@@ -52,15 +52,34 @@ export default function WorkflowDashboard(props){
         }
     }))
 
-    const flowInstanceInfo = flowInstances.map(d=>({
-        id: d.id,
-        plainId: d.plainId,
-        title: d.title,
-        type: d.origin.title,
-        status: {text: "Complete", color:"green"},
-        started: Temporal.Now.plainDateISO().subtract({weeks: 2})   
-    }))
+    const flowInstanceInfo = flowInstances.map(d=>{
+        const status = d.processing?.flow?.status ?? "not_started"
+        const completedTime = status === "complete" && d.processing?.flow?.completed ? Temporal.Instant.from(d.processing.flow.completed).toZonedDateTimeISO("UTC").toPlainDate().toLocaleString("en-US", {
+            day:   "numeric",
+            month: "long",
+            year:  "numeric"
+          }) : "";
+        const statusText = {
+            "not_started": "Not Started",
+            "running": "Running...",
+            "complete": `Completed: ${completedTime}`,
+        }[status]
+        const color = {
+            "not_started": "grey",
+            "running": "blue",
+            "complete": "green",
+        }[status]
+        return {
+            id: d.id,
+            plainId: d.plainId,
+            title: d.title,
+            type: d.origin.title,
+            status: {text: statusText, color},
+            started: d.processing?.flow?.started ? Temporal.Instant.from(d.processing.flow.started).toZonedDateTimeISO("UTC") : ""
+        }
+    })
 
+    console.log(flowInstanceInfo)
     return (
     <div className="w-full h-full px-4 pb-4 max-w-7xl mx-auto space-y-6">
         <Panel key='boards' icon={SparklesIcon} title='Create new flow' collapsable={true} count={workflows.length} open={true} major='true' className='w-full rounded-xl bg-white/60 p-4 shadow-md'>

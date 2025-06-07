@@ -5,10 +5,10 @@ export default function useDataEvent(fields, ids, callback){
     const callbackId = React.useRef(null)
     const [count, forceUpdate] = React.useReducer( (x)=>x+1, 0)
 
-    const wrap = (ids, d, e, remote)=>{
+    const wrap = (...args)=>{
         let doUpdate = true
         if( callback ){
-            const r = callback(ids, d, e, remote)
+            const r = callback(...args)
             if( r === false){
                 doUpdate = false
             }
