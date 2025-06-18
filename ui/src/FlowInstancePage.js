@@ -275,7 +275,8 @@ export default function FlowInstancePage({primitive, ...props}){
                                 ])}>
                                     <div key='chatbar' className={clsx([
                                         'flex flex-col overflow-hidden p-3 place-items-start text-md',
-                                        agentStatus.hasReplies ? "h-full w-full" : "w-[60%] mx-auto min-w-[44rem]"
+                                        agentStatus.hasReplies ? "h-full w-full" : "mx-auto",
+                                        showOutput ? "w-full" : "min-w-[44rem] w-[60%] "
                                     ])}>
                                         {!agentStatus.hasReplies && <div className="w-full flex justify-center space-x-2 place-items-center grow">
                                             <div className="bg-gray-50 rounded-xl border p-6 m-4 text-slate-700 w-72">

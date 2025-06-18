@@ -832,6 +832,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             </div>
             {!filters && (frame.type === "flow" && !frame.flowElement) && <UIHelper.Button outline title="New Instance" onClick={()=>mainstore.doPrimitiveAction(frame,"create_flowinstance")}/>}
             {!filters && (frame.type === "flow" && frame.flowElement && flowInstanceToShow) && <UIHelper.Button outline title="Run subflow" onClick={()=>mainstore.doPrimitiveAction(flowInstanceToShow,"run_subflow", {subFlowId: frame.id})}/>}
+
             {!filters && (frame.type === "flow") && 
                 <UIHelper.Button outline title="Scaffold" onClick={()=>{
                     if( flowInstanceToShow ){

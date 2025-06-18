@@ -1764,7 +1764,6 @@ export async function getRevisedQueryWithLocalMods(primitive, primitiveConfig, o
         revised = primitiveConfig.revised_query?.structure
 
 
-        prompt = await substitutePlaceholders(prompt, primitive, segmentName)
 
         if( !revised || primitiveConfig.revised_query.cache !== prompt){
             revised = await reviseUserRequest(prompt, primitiveConfig)
@@ -1775,12 +1774,14 @@ export async function getRevisedQueryWithLocalMods(primitive, primitiveConfig, o
             if( doUpdate ){
                 const configParent = await getConfigParentForTerm(primitive, "prompt")
                 if( configParent ){
-                    logger.info(`Revised query built for top level query - storing`)
-                    await dispatchControlUpdate( primitive.id, "referenceParameters.revised_query", {structure: revised, cache: prompt})
+                    logger.info(`Revised query built for top level query - storing to ${configParent.id}`)
+                    await dispatchControlUpdate( configParent.id, "referenceParameters.revised_query", {structure: revised, cache: prompt})
                 }
             }
         }
     }
+    
+    revised.task = await substitutePlaceholders(revised.task, primitive, segmentName)
 
     if( segmentName ){
         revised.task = revised.task.replaceAll(/\{focus\}/gi, segmentName);
@@ -1796,11 +1797,17 @@ export async function getRevisedQueryWithLocalMods(primitive, primitiveConfig, o
 }
 
 export async function getFragmentsForQuery( primitive, query,  {sourceIds = [], fromPrimitive, types, referenceIds} = {}, {lookupCount = 10, thresholdSeek = 0.005, thresholdMin = 0.85,searchTerms = 1000, scanRatio = 0.15} = {}){
+    const placeholders = query.match(/\{[^}]+\}/g) 
+
+    const buildPrompt = `Build a list of ${lookupCount} keywords and phrases that will retrieve information from the database which can answer this task or question.
+                    ${placeholders ? `Note that ${placeholders.join(", ")} are placeholders that will be filled in later - do not use these placeholders to create keywords / phrases` : ""}
+                    `.replaceAll(/\s+/g," ")
+
     const _prompts = await processPromptOnText( query,{
         workspaceId: primitive.workspaceId,
         functionName: "fragment-fetch-for-query",
         opener: `You are an agent helping a user answer questions about the data that have stored in a database of many thousands of text fragments. You must answer questions or complete tasks using information in the database only.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases.`,
-        prompt: `Build a list of ${lookupCount} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
+        prompt: buildPrompt,
         output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
         engine: "o4-mini",
         debug: true,

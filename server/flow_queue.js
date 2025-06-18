@@ -33,21 +33,27 @@ class FlowQueueClass extends BaseQueue {
     constructor() {
         super('flow', undefined, 3); // Call the base constructor with queue name and options
 
-        this.registerNotification("run_flow_instance", async (primitive, result)=>{
+        this.registerNotification("run_flow_instance", async (primitive, result, mode, parentJob)=>{
             if( result.success === true){
-                console.log(`Flow instance ${primitive.plainId} finished step`)
-                const update = {
-                    ...primitive.processing?.flow,
-                    completed: (new Date()).toISOString(),
-                    status: "complete"
-                }
-                await dispatchControlUpdate(primitive.id, "processing.flow", update)
-                if( update.last_run?.steps ){
-                    await this.runFlowInstance( primitive, { continue: true} )
+                if( primitive.processing?.flow.last_run?.steps ){
+                    console.log(`Flow instance ${primitive.plainId} finished step`)
+                    console.log(`------------------------------------------------------------\n---------- CHECKING FOR NEXT STEP IN FLOW WITHIN CURRENT JOB\n------------------------------------------------------------`)
+                    
+                    await this._queue.invokeWorkerJob({ id: primitive.id, mode: "run_flow_instance", field:  "processing.run_flow_instance"}, parentJob, {nextStep: true, workspaceId: primitive.workspaceId})
+
+                    return {keepAlive: true}
+                }else{
+                    console.log(`Flow instance ${primitive.plainId} finished last step`)
+                    const update = {
+                        ...primitive.processing?.flow,
+                        completed: (new Date()).toISOString(),
+                        status: "complete"
+                    }
+                    primitive = await dispatchControlUpdate(primitive.id, "processing.flow", update)
                 }
             }
         })
-        this.registerNotification("run_step", async (primitive, result)=>{
+        this.registerNotification("run_step", async (primitive, result, mode, parentJob)=>{
             if( result.success === true){
                 console.log(`Step ${primitive.id} ${primitive.plainId} finished`)
                 const update = {

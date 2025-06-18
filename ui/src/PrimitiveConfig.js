@@ -1456,6 +1456,7 @@ const PrimitiveConfig = {
 
             const status = {
                 id: step.id,
+                routing: step.type === "segment",
                 skipForConfiguration,
                 skipForUpstream: undefined,
                 need: false,
@@ -1479,8 +1480,7 @@ const PrimitiveConfig = {
 
             status.skip = status.skipForConfiguration || status.skipForUpstream
 
-            
-            if( !status.skip ){
+            if( !status.skip && !status.routing){
                 if( 
                     (step.type === "flowinstance" && flowStarted && new Date(step.processing?.flow?.started) >= new Date(flowStarted)) ||
                     (step.type !== "flowinstance" && flowStarted && step.processing?.flow?.started === flowStarted)
@@ -1521,6 +1521,20 @@ const PrimitiveConfig = {
         for( const step of steps){
             await setupStep(step)
         }
+        for(const id of Object.keys(map)){
+            const thisItem = map[id]
+            if( thisItem.routing ){
+                console.log(`Need to remove ${id}`)
+                const nodesToUpdate = Object.values(map).filter(d=>d.children.some(d2=>d2.id === thisItem.id))
+                console.log(`- Need to modify dependencies of ${nodesToUpdate.length}`)
+                for(const updateNode of nodesToUpdate){
+                    updateNode.children = updateNode.children.filter(d=>d.id !== thisItem.id)
+                    updateNode.children.push(...thisItem.children)
+                    console.log(`--- done`)
+                }
+                delete map[id]
+            }
+        }
         return map
 
     },async canStepRun(flowInstance, step, stepState, functions = {}, options = {}){
@@ -1559,6 +1573,9 @@ const PrimitiveConfig = {
                         }
                     }else{
                         if( stepState[baseId].skip ){
+                            continue
+                        }
+                        if( stepState[baseId].routing ){
                             continue
                         }
                     }

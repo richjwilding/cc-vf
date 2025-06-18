@@ -71,6 +71,8 @@ Each section of the of the output should be an element of an array. If a section
 
                     Here is the future task::`.replaceAll(/\s+/g," ")*/
 
+    const placeholders = request.match(/\{[^}]+\}/g) 
+
     const prompt = `
                     You are *only* to output a JSON schema describing how to structure the answer to the following task. 
                     Do **not** answer the task itself, and do **not** output any plain text, headings or explanation—your entire response must be valid JSON (a single array).
@@ -123,7 +125,8 @@ Each section of the of the output should be an element of an array. If a section
                             "type": "number"
                         }
                     ]
-
+                    ${placeholders ? `Note that ${placeholders.join(", ")} are placeholders that will be filled in later - do not constrain the structure based on those terms` : ""}
+                    Do not include any sections about word count or format compliance
                     Here is the user’s task:
                     `.replaceAll(/\s+/g," ")
 
@@ -131,6 +134,8 @@ Each section of the of the output should be an element of an array. If a section
     const prompt2 = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to update the task to remove any mention of the output format or sturcture - i will be appending an updated format myself.  
                     The update task should include all aspects of the original task with the output format removed.                
                     ${options.expansive ? "Augment the query to fetch additional relevant context and information to give the user a rich answer" : ""}
+                    ${placeholders ? `Note that ${placeholders.join(", ")} are placeholders that will be filled in later - do not define the tasks based on those terms` : ""}
+                    Do not include any sections about word count or format compliance
                     Here is the future task:`.replaceAll(/\s+/g," ")
 
     const structurePromise = processPromptOnText( request, {

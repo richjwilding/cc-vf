@@ -5,7 +5,6 @@ import path from 'path';
 import { SIO } from './socket';
 import { parentPort, workerData, isMainThread} from 'worker_threads';
 import { getLogger } from './logger';
-import EventEmitter from 'events';
 import { getQueueObjectByName } from './queue_register';
 
 /*
@@ -18,7 +17,7 @@ import BrightDataQueue from './brightdata_queue';*/
 
 const asyncLocalStorage = require('./asyncLocalStorage');
 
-const logger = getLogger('queue-manager', "info"); // Debug level for moduleA
+const logger = getLogger('queue-manager', "debug"); // Debug level for moduleA
 
 
 class QueueManager {
@@ -48,25 +47,24 @@ class QueueManager {
         this.settings = settings
         this.processCallback = callback
         this.isWorkerThread = !isMainThread
-        this.eventEmitter = new EventEmitter();
+        this.requestIdCounter = 0;
+        this.pendingRequests = new Map();
 
         this.redis = createClient({socket: {host: redisOptions.host, port: redisOptions.port}});
 
         this.redis.connect().catch(console.error);
 
-        console.log(`QUEUE MANAGER INIIT ${this.type}`)
-        
         if (this.isWorkerThread) {
             // In worker thread
-            console.log(`QueueManager instantiated in worker thread for ${this.type}`);
+            logger.info(`QueueManager instantiated in worker thread for ${this.type}`);
             this.overrideMethodsForWorkerThread();
         } else {
             // In main thread
-            console.log(`QueueManager instantiated in main thread for ${this.type}`);
+            logger.info(`QueueManager instantiated in main thread for ${this.type}`);
             if( !this.processCallback ){
                 let readyCount = 0
                 for (let i = 0; i < this.numWorkersPerQueue; i++) {
-                    console.log(`-- ${this.type} Thread ${i}`)
+                    logger.debug(`-- ${this.type} Thread ${i}`)
 
                     const createThisWorker = (isReplacement)=>{
                         let worker = new WorkerThread(path.resolve(__dirname, './job-worker.js'), {
@@ -79,7 +77,7 @@ class QueueManager {
                         
                         worker.on('message', async (message) => {
                             if (message.type === 'startJob') {
-                                console.log(`Job has started in worker ${message.queueName} / ${worker.threadId} - ${message.jobId}`)
+                                logger.debug(`Job has started in worker ${message.queueName} / ${worker.threadId} - ${message.jobId}`)
                                 workerState.running.add(`${message.queueName}/${message.jobId}/${message.token}`)
                                 this.setQueueActivity(message.queueName, true);
                                 
@@ -115,9 +113,19 @@ class QueueManager {
                                     }
                                 )
                                 
+                            }else if (message.type === 'invoke_job_response') {
+                                const { requestId, status, jobId, error } = message;
+                                logger.debug(`Handling invokeJobResponse response ${requestId} for ${this.type} - ${jobId}`)
+                                const { resolve, reject } = this.pendingRequests.get(requestId) || {};
+                                if (resolve) {
+                                    resolve(jobId);
+                                    this.pendingRequests.delete(requestId);
+                                }else{
+                                    logger.error(`Couldnt find job to resolve in invokeJobResponse handler ${this.type}`)
+                                }
                             }else if (message.type === 'endJob') {
                                 
-                                logger.info(`Job has ended in worker ${message.queueName} - ${message.jobId} ${this.type}`)
+                                logger.debug(`Job has ended in worker ${message.queueName} - ${message.jobId} ${this.type}`)
                                 workerState.running.delete(`${message.queueName}/${message.jobId}/${message.token}`)
                                 
                                 await this.resetChildWaiting(message.queueName, message.jobId)
@@ -128,13 +136,38 @@ class QueueManager {
                                 this.setQueueActivity(message.queueName, false);
                                 await this.redis.del(`job:${message.jobId}:cancel`);
                                 await this.redis.del(`job:${message.jobId}:parent`)
-                                
+
+                                let parentJob
                                 if( parentJobFromRedis ){
-                                    try{
-                                        const parentJob = JSON.parse( parentJobFromRedis )
+                                        try{
+                                            parentJob = JSON.parse( parentJobFromRedis )
+                                        }catch(error){
+                                            logger.error(`Couldnt parse parent data`)
+                                            logger.error(error)
+                                            logger.error(error.stack)
+                                        }
+                                    
+                                }
+                                logger.debug(`Sending notification from ${this.type} ${message.jobId}`)
+                                const childResponse = await this.sendNotification(
+                                    message.jobId,{
+                                        result: message.result,
+                                        error: message.error,
+                                        success: message.success
+                                    },
+                                    {
+                                        parentJob: parentJob
+                                    }
+                                )
+                                logger.verbose(`Got child response `, childResponse)
+
+                                if( parentJob ){
+                                    if( childResponse?.keepAlive ){
+                                        logger.info(`--- Child requested to not notify parent`)
+                                    }else{
                                         const [qId, qType] = parentJob.queueName.split("-")
                                         const qo = this.getQueueObject(qType)
-
+                                        
                                         logger.info(`Sending notification for child ${qType} from ${this.type} ${parentJob.id} ${message.jobId}`)
                                         await qo.sendNotification(
                                             parentJob.id,
@@ -143,23 +176,13 @@ class QueueManager {
                                                 error: message.error,
                                                 success: message.success,
                                             },
-                                            message.jobId
+                                            {
+                                                childJob: message.jobId
+                                            }
                                         )
-                                    }catch(error){
-                                        logger.error(`Couldnt parse parent data`)
-                                        logger.error(error)
-                                        logger.error(error.stack)
                                     }
                                 }
 
-                                logger.info(`Sending notification from ${this.type} ${message.jobId}`)
-                                await this.sendNotification(
-                                    message.jobId,{
-                                        result: message.result,
-                                        error: message.error,
-                                        success: message.success
-                                    }
-                                )
                                 worker.postMessage({
                                     type: 'endJobResponse',
                                     requestId: message.requestId,
@@ -192,7 +215,7 @@ class QueueManager {
 
                                 let queue = this.getQueueObject(queueType)
                                 if( !queue ){
-                                    console.log(message)
+                                    logger.info(message)
                                     throw `Dont have queue ${queue} to forward message to`
                                 }
                                 const jobOptions = {
@@ -210,9 +233,7 @@ class QueueManager {
                                        logger.debug(`Set Redis parent job:${childId}:parent to ${JSON.stringify(parentJob)}`)
                                         await this.redis.set(`job:${childId}:parent`, JSON.stringify(parentJob));
 
-                                        logger.debug("AFTER REDIS SENT")
                                         this.markChildWaiting( parentJob.queueName, parentJob.id)
-
                                         
                                         worker.postMessage({
                                             type: 'addJobResponse',
@@ -278,20 +299,51 @@ class QueueManager {
             }
         }
     }
-    async sendNotification(jobId, data, childJob){
+    async sendNotification(jobId, data, {childJob, parentJob} = {}){
         let queue = this.getQueueObject(this.type)
+        let result
         if( queue?.notify ){
             let [id, fulMmode] = jobId.split("-")
             let [mode, time] = fulMmode.split(":t")
-            await queue.notify({
+            result = await queue.notify({
                     id,
                     mode
                 },
                 data,
-                childJob)
+                {
+                    childJob,
+                    parentJob
+                })
         }else{
             logger.error(`Got no notify method for ${this.type}`)
         }
+        return result
+    }
+    async invokeWorkerJob( data, parentJob, options){
+        const requestId = ++this.requestIdCounter;
+        return new Promise((resolve, reject) => {
+            this.pendingRequests.set(requestId, { resolve, reject });
+        
+            if( parentJob ){
+                logger.debug(`Sending job request to worker as child of ${parentJob.queueName} / ${parentJob.id}`)
+                const worker = this.workerThreads[0]
+                if( worker ){
+                    worker.postMessage({type:"invoke_job", data, requestId, parentJob, options})
+                    setTimeout(() => {
+                    if (this.pendingRequests.has(requestId)) {
+                        reject(new Error(`invokeWorkerJob timed out ${requestId}`));
+                        this.pendingRequests.delete(requestId);
+                    }
+                    }, 15000);
+                }else{
+                    throw "Cant find worker"
+                }
+            }else{
+                logger.debug(`No parent job - running from main thread`)
+                this.addJob( options.workspaceId, data, options)
+            }
+        
+        });
     }
     async getJobFromQueue(job){
         try{
@@ -323,14 +375,12 @@ class QueueManager {
         return getQueueObjectByName( queueType )
     }
     overrideMethodsForWorkerThread() {
-        this.requestIdCounter = 0;
-        this.pendingRequests = new Map();
 
         this.endJob = (data) => {
             const requestId = ++this.requestIdCounter;
             return new Promise((resolve, reject) => {
               this.pendingRequests.set(requestId, { resolve, reject });
-              console.log(`--> Sending endJOb with requestId ${requestId} `)
+              logger.verbose(`--> Sending endJOb with requestId ${requestId} `)
             
                 parentPort.postMessage({ type: "endJob", requestId,...data });
           
@@ -345,7 +395,7 @@ class QueueManager {
 
         this.endJobResponse = async (message) => {
             const { requestId, status, jobId, error } = message;
-            console.log(`Handling endJob response ${requestId} for ${this.type} - ${jobId}`)
+            logger.verbose(`Handling endJob response ${requestId} for ${this.type} - ${jobId}`)
             const { resolve, reject } = this.pendingRequests.get(requestId) || {};
             if (resolve) {
                 resolve(jobId);
@@ -357,7 +407,7 @@ class QueueManager {
 
         this.addJobResponse = async (message) => {
             const { requestId, status, jobId, error } = message;
-            console.log(`Handling addJob response ${requestId} for ${this.type} - ${jobId}`)
+            logger.verbose(`Handling addJob response ${requestId} for ${this.type} - ${jobId}`)
             const { resolve, reject } = this.pendingRequests.get(requestId) || {};
             if (resolve) {
                 if (status === 'success') {
@@ -448,6 +498,7 @@ class QueueManager {
         this.purgeAllQueues = async () => { /* Do nothing */ };
         this.purgeQueue = async () => { /* Do nothing */ };
         this.status = async () => { return {}; }; // Return empty status or minimal information
+        this.invokeWorkerJob = async () => { /* Do nothing */ };
     }
 
     async initializeActiveQueues() {
@@ -538,7 +589,7 @@ class QueueManager {
 
     async checkIfJobCancelled(jobId) {
         const isCancelled = await this.redis.get(`job:${jobId}:cancel`);
-        console.log(`Checking if  ${jobId} cancelled `, isCancelled )
+        logger.debug(`Checking if  ${jobId} cancelled `, isCancelled )
         return isCancelled === 'true';
     }
 
@@ -558,7 +609,7 @@ class QueueManager {
             for (const queueName in this.queues) {
                 const { activeCount, lastActivity } = await this.getQueueActivity(queueName);
                 if (activeCount === 0 && lastActivity && now - lastActivity > this.idleTimeBeforePurge) {
-                    console.log(`Purging queue for timeout`)
+                    logger.info(`Purging queue for timeout`)
                     await this.purgeQueue(queueName.split('-')[0]);
                 }
             }
@@ -579,8 +630,7 @@ class QueueManager {
         
 
         if (!this.queues[queueName]) {
-            console.log(`Creating queue ${queueName}`)
-            console.log(this.connection)
+            logger.info(`Creating queue ${queueName}`)
             this.queues[queueName] = new Queue(queueName, { connection: this.connection });
             await this.markQueueActive(workspaceId);
 
@@ -588,33 +638,32 @@ class QueueManager {
                 this.workers[queueName] = [];
                 for (let i = 0; i < this.numWorkersPerQueue; i++) {
                 
-                    console.log(`Creating queue worker in main thread for ${queueName}`)
+                    logger.debug(`Creating queue worker in main thread for ${queueName}`)
                     
                     this.workers[queueName].push(new Worker(queueName, async job => {
                         await this.setQueueActivity(queueName, true);
                         
                         const extendJob = async ()=>{
-                            console.log(`Job still active`)
+                            logger.debug(`Job still active`)
 
                             try{
                                 await job.updateProgress(1); 
                             }catch(e){
-                                logger.info(`ERROR EXTENDING LOCK FOR JOB ${job.id}`);
-                                logger.info(e)
+                                logger.error(`ERROR EXTENDING LOCK FOR JOB ${job.id}`);
+                                logger.erroro(e)
                             }
 
                         }
                         // Process job here
-                        console.log(`Processing job ${job.name}`);
+                        logger.info(`Processing job ${job.name}`);
                         let result
                         let rescheduled = false
                         if( this.processCallback ){
                             result = await this.processCallback( job, ()=>this.checkIfJobCancelled(job.name), extendJob )
                             if( result?.reschedule ){
-                                console.log(`Job asked to be rescheduled`)
+                                logger.info(`Job asked to be rescheduled`)
                                 rescheduled = true
                                 const state = await job.getState();
-                                console.log(state)
                                 await result.reschedule()
                             }
                         }
@@ -627,9 +676,8 @@ class QueueManager {
                     }, { connection: this.connection, ...this.settings }));
                 }
             }else{
-                console.log(`Notifying ${this.workerThreads?.length} ${this.type} worker threads for ${queueName}`)
+                logger.debug(`Notifying ${this.workerThreads?.length} ${this.type} worker threads for ${queueName}`)
                 for(const worker of this.workerThreads){
-                    console.log(`-`)
                     worker.postMessage({type:"watch", queueName})
                 }
 
@@ -647,7 +695,7 @@ class QueueManager {
 
     async addJob(workspaceId, jobData, options = {}) {
         try {
-            const jobId = jobData.id + "-" + jobData.mode + (jobData.scope ? "-" + jobData.scope : "") + (options.reschedule ? `:t${Date.now()}` : "")
+            let jobId = jobData.id + "-" + jobData.mode + (jobData.scope ? "-" + jobData.scope : "") + (options.reschedule ? `:t${Date.now()}` : "")
             const queue = await this.getQueue(workspaceId);
             const existing = await queue.getJob(jobId)
             if(  existing ){
@@ -655,24 +703,31 @@ class QueueManager {
                 if( status === "completed"){
                     await existing.remove()
                 }else{
-                    if( jobId.endsWith("run_flow_instance")){
-                        let retry = options.retry ?? 0
-                        console.log(`Got request to re-run flow instance but present in queue - assuming last iteration is in cleanup - trying again (${retry})`)
-                        if( retry < 3){
-                            const queue = this
-                            setTimeout(async ()=>{
-                                console.log(`Scheduled`)
-                                return await queue.addJob( workspaceId, jobData, {...options, retry: retry + 1})
-                            },100)
-                            return 
+                    if( jobData.mode === "run_flow_instance"){
+                        if( options.nextStep ){
+                            jobId += `:t${Date.now()}`
+                            logger.debug(`Got request to re-run flow instance for next step`)
+                        }else{
+                            let retry = options.retry ?? 0
+                            logger.debug(`Got request to re-run flow instance but present in queue - assuming last iteration is in cleanup - trying again (${retry})`)
+                            if( retry < 3){
+                                const queue = this
+                                setTimeout(async ()=>{
+                                    logger.debug(`Scheduled`)
+                                    return await queue.addJob( workspaceId, jobData, {...options, retry: retry + 1})
+                                },100)
+                                return 
+                            }
+                            logger.info(`Job already present - skipping ${jobId}`)
+                            return
                         }
-
+                    }else{
+                        logger.info(`Job already present - skipping ${jobId}`)
+                        return
                     }
-                    console.log(`Job already present - skipping ${jobId}`)
-                    return
                 }
             }
-            console.log(`Adding job ${jobId} on ${workspaceId}`)
+            logger.info(`Adding job ${jobId} on ${workspaceId}`)
             await queue.add(jobId, jobData, {
                 removeOnFail: true, 
                 removeOnComplete: { age: 180},
@@ -752,7 +807,7 @@ class QueueManager {
         }
     
         if (this.queues[queueName]) {
-            console.log(`Purging queue: ${queueName}`);
+            logger.info(`Purging queue: ${queueName}`);
     
             for (const worker of this.workerThreads) {
                 try {
@@ -766,7 +821,7 @@ class QueueManager {
             try {
                 await this.queues[queueName].pause(); // Pause the queue
                 await this.queues[queueName].obliterate({ force: true }); // Remove all jobs from the queue
-                console.log(`Queue obliterated: ${queueName}`);
+                logger.info(`Queue obliterated: ${queueName}`);
             } catch (err) {
                 console.error(`Error obliterating queue: ${queueName}`, err);
             }
@@ -781,7 +836,7 @@ class QueueManager {
             // Clean up queue reference
             delete this.queues[queueName];
         } else {
-            console.log(`Queue ${queueName} does not exist, skipping purge.`);
+            logger.debug(`Queue ${queueName} does not exist, skipping purge.`);
         }
     }
 

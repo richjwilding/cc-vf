@@ -32,6 +32,7 @@ import { queryQuoraByRapidAPI } from './rapid_helper.js';
 import { expandStringLiterals, findFilterMatches } from './actions/SharedTransforms.js';
 import { fetchMoneySavingExpertSearchResults, moneySavingExpertSERP } from './scrapers/moneysavingexpert.js';
 import mongoose, { Types } from 'mongoose';
+import { reviseUserRequest } from './prompt_helper.js';
 
 const logger = getLogger('sharedfn', "info"); // Debug level for moduleA
 
@@ -2709,7 +2710,7 @@ export async function updateFieldWithCallbacks(id, field, value, req = {}){
 export async function dispatchControlUpdate(id, controlField, status, flags = {}){
     try{
         let primitive 
-        console.log(`${id} = ${controlField} : ${status}`)
+        console.log(`${id} = ${controlField} : ${JSON.stringify(status)}`)
 
         if( status === undefined ){
             primitive = await Primitive.findOneAndUpdate(
@@ -2920,6 +2921,11 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     const frameworkResult = await runAction(primitive, actionKey, options, req)
     if( frameworkResult.success ){
         return frameworkResult.result
+    }
+    if( actionKey === "reviseprompt_test"){
+        //let items = await moneySavingExpertSERP({query: options.query ?? "mobile phone renewal"})
+        let result = await reviseUserRequest(options.prompt, options)
+        return result
     }
     if( actionKey === "text_test"){
         //let items = await moneySavingExpertSERP({query: options.query ?? "mobile phone renewal"})

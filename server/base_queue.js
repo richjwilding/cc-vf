@@ -62,8 +62,9 @@ export class BaseQueue {
         this.notifyTracker["_child_" + mode] = callback
     }
 
-    async notify(job, result, childJob) {
+    async notify(job, result, {childJob, parentJob}) {
         let status 
+        let notifyResponse
         if( result.started){
             status = "running"
         }else if(result.success === true){
@@ -87,14 +88,15 @@ export class BaseQueue {
                 if( this.notifyTracker["_child_" + job.mode]){
                     const [childId, childMode] = childJob.split("-")
                     const child = await fetchPrimitive( childId)
-                    await this.notifyTracker["_child_" + job.mode](prim, child, result, childMode, job.mode)
+                    notifyResponse = await this.notifyTracker["_child_" + job.mode](prim, child, result, childMode, job.mode)
                 }
             }else{
                 if( this.notifyTracker[job.mode]){
-                    await this.notifyTracker[job.mode](prim, result, job.mode)
+                    notifyResponse = await this.notifyTracker[job.mode](prim, result, job.mode, parentJob)
                 }
             }
         }
+        return notifyResponse
     }
 
     async myInit() {

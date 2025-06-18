@@ -2250,6 +2250,7 @@ function renderBaselineOverviewSet(primitive, options){
             y: y, 
             width: width - config.itemPadding[1] - config.itemPadding[3], 
             imageCallback: options.imageCallback,
+            renderOptions: options.renderOptions,
             padding: config.itemPadding, imageCallback: options.imageCallback})
         
         g.add(node)
@@ -2514,7 +2515,8 @@ registerRenderer( {type: "categoryId", id: 44, configs: "overview"}, (primitive,
 
 })
 registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive, options = {})=>{
-    const config = {width: 300, itemSize: 60, padding: [10,10,10,10], fontSize: 10, leftSize: 150, maxScale: 100, parameter: "funding", ...options}
+    let showDescription = options.renderOptions?.showDescription
+    const config = {width: showDescription ? 300 : 500, itemSize: 60, padding: [10,10,10,10], fontSize: showDescription ? 10 : 28, leftSize: 150, maxScale: 100, parameter: "funding", ...options}
     if( options.getConfig){
         return config
     }
@@ -2575,40 +2577,45 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
             refreshCallback: options.imageCallback
         })
         g.add(title);
-
-        let overview = primitive.referenceParameters?.description ?? ""
-
-        if(overview.length > 200){
-            let lines = overview.split(/(?<!\d)\.(?!\d)|\n/).map(d=>d.trim())
-            overview = ""
-            do{
-                overview += lines.shift() + " "
-
-            }while(lines[0] && ((overview.length + lines[0].length) < 200))
-        }
-        
-        const t = new CustomText({
-            x: tx,
-            y: config.padding[0] + oy + 16,
-            fontSize: config.fontSize,
-            lineHeight: 1.5,
-            text: overview.trim(),
-            fill: '#334155',
-            wrap: true,
-            refreshCallback: options.imageCallback,
-            ellipsis: true,
-            width: availableWidth - tx,
-            height: availableHeight ? availableHeight - (config.padding[0] +oy+16) : undefined,
-        })
-        g.add(t)
         if( !availableHeight){
-            const h = Math.max( t.height() + t.y(), config.itemSize + oy) + config.padding[2]
+            const h = Math.max( title.height() + title.y(), config.itemSize + oy) + config.padding[2]
             r.height(h)
             g.height(h)
         }
-
-
-
+        if( showDescription ){
+            let overview = primitive.referenceParameters?.description ?? ""
+            
+            if(overview.length > 200){
+                let lines = overview.split(/(?<!\d)\.(?!\d)|\n/).map(d=>d.trim())
+                overview = ""
+                do{
+                    overview += lines.shift() + " "
+                    
+                }while(lines[0] && ((overview.length + lines[0].length) < 200))
+                }
+                
+                const t = new CustomText({
+                            x: tx,
+                            y: config.padding[0] + oy + 16,
+                            fontSize: config.fontSize,
+                            lineHeight: 1.5,
+                    text: overview.trim(),
+                    fill: '#334155',
+                    wrap: true,
+                    refreshCallback: options.imageCallback,
+                    ellipsis: true,
+                    width: availableWidth - tx,
+                    height: availableHeight ? availableHeight - (config.padding[0] +oy+16) : undefined,
+                })
+            g.add(t)
+            if( !availableHeight){
+                const h = Math.max( t.height() + t.y(), config.itemSize + oy) + config.padding[2]
+                r.height(h)
+                g.height(h)
+            }
+        }else{
+            title.y( (r.height() - title.height() )/ 2)
+        }
     }
     return g
 

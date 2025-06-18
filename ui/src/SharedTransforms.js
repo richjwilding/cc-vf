@@ -750,8 +750,9 @@ export function cartesianProduct(arrays) {
 
 export function compareTwoStrings(first, second) {
     //https://github.com/aceakash/string-similarity#readme
-  first = first.replace(/\s+/g, '')
-  second = second.replace(/\s+/g, '')
+    
+  first = first?.replace(/\s+/g, '') ?? ""
+  second = second?.replace(/\s+/g, '') ?? ""
 
   if (first === second) return 1; // identical or empty
   if (first.length < 2 || second.length < 2) return 0; // if either is a 0-letter or 1-letter string

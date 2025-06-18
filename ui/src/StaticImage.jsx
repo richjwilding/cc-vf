@@ -13,8 +13,11 @@ export function StaticImage({ svgString, x, y, width, height, color }) {
   const imageRef = useRef(null);
   const imgObjRef = useRef(null); // to avoid re-creating image on each render
 
+  if( typeof(svgString) !== "string"){
+    console.warn("StaticImage expects a string")
+  }    
   useEffect(() => {
-    if( svgString){
+    if( typeof(svgString) === "string"){
 
       if( color ){
         svgString = svgString.replace("currentColor", color)

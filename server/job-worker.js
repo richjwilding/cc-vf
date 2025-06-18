@@ -190,21 +190,35 @@ async function getQueueObject(type) {
                 let children
                 if(queueObject.default().getChildWaiting){
                     children = await queueObject.default().getChildWaiting(queueName, job.id)
-                    logger.debug(`Got children count ${children} for ${queueName} / ${job.id}`)
+                    logger.debug(`Got children count ${children} for ${queueName} / ${job.id} token = ${token}`)
 
                     if( children && children > 0){
                         let shouldWait = false
                         let count = 5
+                        let alreadyMoved = false
                         do{
-                            shouldWait = await job.moveToWaitingChildren(token);
-                            if( !shouldWait ){
-                                count--
-                                logger.debug( `Job ${job.id} has children but could not move to wait state - ${count} tries remaining`)
-                                await new Promise((resolve)=>setTimeout(()=>resolve(), 500))
+                            try{
+                                shouldWait = await job.moveToWaitingChildren(token);
+                                if( !shouldWait ){
+                                    count--
+                                    logger.debug( `Job ${job.id} has children but could not move to wait state - ${count} tries remaining`)
+                                    await new Promise((resolve)=>setTimeout(()=>resolve(), 500))
+                                }
+                            }catch(err){
+                                if (
+                                    err.message.includes('Missing key for job') &&
+                                    err.message.includes('moveToWaitingChildren')
+                                  ) {
+                                    alreadyMoved = true
+                                  }
                             }
-                        }while( !shouldWait && (count > 0))
-                        logger.debug(`Move ${job.id} to waiting for children (${shouldWait})`)
-                        throw new WaitingChildrenError();
+                        }while( !alreadyMoved && !shouldWait && (count > 0))
+                        if( alreadyMoved){
+                            logger.debug(`Job ${job.id} already moved to wait for children`)
+                        }else{
+                            logger.debug(`Move ${job.id} to waiting for children (${shouldWait})`)
+                            throw new WaitingChildrenError();
+                        }
                     }
                 }
                 const reschedule = result?.reschedule
@@ -238,7 +252,6 @@ async function getQueueObject(type) {
 
     }
     messageHandler['watch'] = async ({queueName})=>{
-        console.log(`WATCH ${queueName}`)
         if( queueWorkers[queueName ]){
             logger.info(`Worker thread already watching ${queueName}`, {  type: workerData.type });
             return        
@@ -259,6 +272,18 @@ async function getQueueObject(type) {
             parentPort.postMessage({ error: error.message, queueName, jobId: job?.id })}
         );
         queueWorkers[queueName ] = worker
+    }
+    messageHandler['invoke_job'] = async ({data, parentJob, requestId, options})=>{
+        logger.info(`Worker thread got invoke request`)
+        if( !options.workspaceId ){
+            logger.error("No workspaceId provided - skipping")
+            return
+        }
+        console.log(parentJob)
+        if( queueObject ){
+            await queueObject.default().addJob( options.workspaceId, data, {...options, parent: parentJob})
+        }
+        parentPort.postMessage({ type: "invoke_job_response", requestId,...data });
     }
     parentPort.postMessage({ type: "ready"});
 

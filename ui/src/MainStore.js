@@ -115,7 +115,23 @@ const actions = {
         return (async () => {
             const steps = receiver.origin.primitives.origin.allUniqueItems.filter(d=>d.type !=="flowinstance")
             const allInstanceSteps = [...receiver.primitives.origin.allItems, ...receiver.primitives.subfi.allItems];
-            const stepsForInstance = steps.map(step=>allInstanceSteps.find(d=>d.configParent?.id === step.id))
+            const stepsForInstance = steps.flatMap(step=>allInstanceSteps.filter(d=>d.configParent?.id === step.id))
+
+            // add interim segments
+            stepsForInstance.forEach(d=>{
+                if( d.type === "flowinstance" ){
+                    const segmentParents = d.primitives.imports.allItems.filter(d=>d.type == "segment")
+                    for(const segmentParent of segmentParents){
+                        const segmentImportIds = segmentParent.primitives.imports.allIds
+                        for( const importId of segmentImportIds){
+                            if( stepsForInstance.find(d=>d.id === importId)){
+                                stepsForInstance.push(segmentParent)
+                            }
+                        }
+                    }
+                }
+            })
+
             const mainstore = MainStore()
         
             const status = await PrimitiveConfig.buildFlowInstanceStatus(

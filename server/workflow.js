@@ -946,32 +946,6 @@ async function flowInstanceStepsStatus( flowInstance ){
         })
     }
     return out
-    const activeInstanceSteps = instanceSteps.filter(d=>!skipStatus[d.id].skip)
-    for(const step of activeInstanceSteps){
-        const status = await stepInstanceStatus(step, flowInstance, importCache)
-        console.assert(status.can === skipStatus[step.id].can )
-        console.assert(status.canReason === skipStatus[step.id].canReason )
-        console.assert(status.needReason === skipStatus[step.id].needReason )
-        console.assert(status.need === skipStatus[step.id].need )
-        stepStatus.push({
-            step,
-            flowStepId: Object.keys(step.parentPrimitives ?? {}).find(d=>step.parentPrimitives[d].includes("primitives.config")),
-            ...status,
-            skip: skipStatus[step.id]?.skip,
-            skipForConfiguration: skipStatus[step.id]?.skipForConfiguration,
-        })
-    }
-    for( const subFlow of subFlows){
-        const status = await stepInstanceStatus(subFlow, flowInstance, importCache)
-        stepStatus.push({
-            step: subFlow,
-            subflow: true,
-            flowStepId: primitiveOrigin(subFlow),
-            ...status
-        })
-
-    }
-    return stepStatus
 }
 async function stepInstanceStatus( step, flowInstance, cache){
     const should = await shouldStepRun( step, flowInstance, cache)
