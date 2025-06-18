@@ -10,7 +10,7 @@ import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleSchola
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
 import { fetchInstagramPostsFromProfile, queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryLinkedInCompanyProfilePostsBrightData, queryLinkedInUserPostsBrightData, queryRedditWithBrightData, queryReviewsIO, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
-import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryQuoraByRapidAPI } from './rapid_helper';
+import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryLinkedInCompanyPostsByRapidAPI, queryQuoraByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
 import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
 import { findTrustPilotURLFromDetails } from './actions/trustpilot_helper';
@@ -24,10 +24,10 @@ export async function processQueue(job, cancelCheck, extendJob){
         try{
 
             const primitive = await Primitive.findOne({_id: job.data.id})
+            let errorMessage
             if( primitive){
                 if( job.data.mode === "query" ){
                     let embeddedTopic
-                    let errorMessage
                     const category = await Category.findOne({id: primitive.referenceId})
                     if( category === undefined){
                         throw `Cant find category ${primitive.referenceId} for ${primitive.id}`
@@ -248,7 +248,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                             })
                     }
 
-                    for( const source of config.sources ){
+                    for( const source of config.sources.filter((d,i,a)=>a.indexOf(d) === i) ){
                         const resultCategory = await Category.findOne({id: source.resultCategoryId})
                         
                         let prefix = source.prefix
@@ -458,7 +458,8 @@ export async function processQueue(job, cancelCheck, extendJob){
                             }else if( source.type === "user_posts" ){
                                 await queryLinkedInUserPostsBrightData( primitive, terms,  callopts) 
                             }else if( source.type === "company_posts" ){
-                                await queryLinkedInCompanyProfilePostsBrightData( primitive, terms,  callopts) 
+                                //await queryLinkedInCompanyProfilePostsBrightData( primitive, terms,  callopts) 
+                                await queryLinkedInCompanyPostsByRapidAPI(primitive, terms, callopts)
                             }
 
                         }
@@ -595,10 +596,6 @@ export async function processQueue(job, cancelCheck, extendJob){
                     let throwError = false
                     if( errorMessage ){
                         status.error = errorMessage
-                        if( job.data.flow && config.fcStopOnError ){
-                            status.status = "error"
-                            throwError = true
-                        }
                     }
 
                     dispatchControlUpdate(primitive.id, job.data.field , status, {track: primitive.id})
@@ -606,6 +603,11 @@ export async function processQueue(job, cancelCheck, extendJob){
                         throw `Error returned from query ${errorMessage}`
                     }
                     console.log(`Finished ${primitive.id} / ${primitive.plainId}`)
+                }
+                if( errorMessage ){
+                    return {
+                        error: errorMessage
+                    }
                 }
             }
         }catch(error){

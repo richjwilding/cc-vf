@@ -787,7 +787,7 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
 
             const axiosOptions = { 
                 method:'get',
-                responseType: options.responseType ?? "arrayBuffer",
+                responseType: options.responseType ?? "arraybuffer",
                 timeout: 30000,
                 proxy:{
                     host: parsedProxy.hostname,

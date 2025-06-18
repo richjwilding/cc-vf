@@ -21,6 +21,7 @@ import SummaryCard from './SummaryCard'
 import UIHelper from './UIHelper'
 import { Table } from './Table'
 import { FlowContent } from './sidebar/FlowContent'
+import AgentChat from './AgentChat'
 
 
 function classNames(...classes) {
@@ -359,6 +360,13 @@ export function Sidebar({primitive, ...props}) {
                 <QueryCard primitive={primitive} showDetails={true}/>
             </div>}
             {!infoPane && !isMulti && showAsSummary && <div className="pb-2 pl-4 pr-4 pt-4">
+                {
+                    primitive.getConfig.chat && <Panel title="Chat about this data" collapsable={true} open={true} major>
+                        <div className='flex flex-col max-h-[80vh] rounded-lg border-2 border-ccgreen-600 p-4 text-sm'>
+                            <AgentChat primitive={primitive} mode="refining"/>
+                        </div>
+                    </Panel>
+                }
                 <SummaryCard primitive={primitive} showDetails={true}/>
             </div>}
             {!infoPane && !isMulti && props.forFlow && <div className="pb-2 pl-4 pr-4 pt-4 " >

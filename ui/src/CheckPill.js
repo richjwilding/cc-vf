@@ -6,8 +6,6 @@ function classNames(...classes) {
 }
 
 export default function CheckPill({enabled, setEnabled, ...props}) {
-
-  console.log(enabled)
   return (
     <button
         type="button"

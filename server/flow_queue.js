@@ -54,6 +54,23 @@ class FlowQueueClass extends BaseQueue {
                     ...primitive.processing?.flow,
                     status: "complete"
                 }
+                let handleError = false
+                if( result.error){
+                    handleError = true
+                    update.error = result.error
+                }else if( Object.values(update.child ?? {}).find(d=>d.error)){
+                    handleError = true
+                    update.error = "child_error"
+                }
+                if( handleError ){
+                    if( primitive.referenceParameters?.fcHandleError === "stop" ){
+                        update.status = "error"
+                    }else if( primitive.referenceParameters?.fcHandleError === "skip" ){
+                        update.status = "error_skip"
+                    }else{
+                        update.status = "error_ignore"
+                    }
+                }
                 await dispatchControlUpdate(primitive.id, "processing.flow", update)
                 
             }else{
@@ -71,6 +88,21 @@ class FlowQueueClass extends BaseQueue {
                     logger.debug("Existing relationship to remove", existingRels)
                     for(const d of existingRels){
                         await removeRelationship(primitive.id, child.id, d)
+                    }
+
+                    const childStatus = primitive.processing?.flow?.child ?? {}
+                    let writeChildStatus = false
+                    if( result.error){
+                        childStatus[child.id] = {error: result.error}
+                        writeChildStatus = true
+                    }else{
+                        if( childStatus[child.id] ){
+                            delete childStatus[child.id]
+                            writeChildStatus = true
+                        }
+                    }
+                    if( writeChildStatus ){
+                        await dispatchControlUpdate(primitive.id, "processing.flow.child", childStatus)
                     }
                     
                     if( result.success === true){

@@ -160,6 +160,12 @@ class QueueManager {
                                         success: message.success
                                     }
                                 )
+                                worker.postMessage({
+                                    type: 'endJobResponse',
+                                    requestId: message.requestId,
+                                    queueType: message.queueType,
+                                    jobId: message.id
+                                });
 
                             }else if (message.type === 'notifyPrimitiveEvent') {
                                 const { workspaceId, message: data } = message.data;
@@ -284,7 +290,7 @@ class QueueManager {
                 data,
                 childJob)
         }else{
-            logger.error(`Got no notify methos for ${this.type}`)
+            logger.error(`Got no notify method for ${this.type}`)
         }
     }
     async getJobFromQueue(job){
@@ -320,6 +326,35 @@ class QueueManager {
         this.requestIdCounter = 0;
         this.pendingRequests = new Map();
 
+        this.endJob = (data) => {
+            const requestId = ++this.requestIdCounter;
+            return new Promise((resolve, reject) => {
+              this.pendingRequests.set(requestId, { resolve, reject });
+              console.log(`--> Sending endJOb with requestId ${requestId} `)
+            
+                parentPort.postMessage({ type: "endJob", requestId,...data });
+          
+              setTimeout(() => {
+                if (this.pendingRequests.has(requestId)) {
+                  reject(new Error('endJob timed out'));
+                  this.pendingRequests.delete(requestId);
+                }
+              }, 15000);
+            });
+          };
+
+        this.endJobResponse = async (message) => {
+            const { requestId, status, jobId, error } = message;
+            console.log(`Handling endJob response ${requestId} for ${this.type} - ${jobId}`)
+            const { resolve, reject } = this.pendingRequests.get(requestId) || {};
+            if (resolve) {
+                resolve(jobId);
+                this.pendingRequests.delete(requestId);
+            }else{
+                logger.error(`Couldnt find job to resolve in endJobResponse handler ${this.type}`)
+            }
+        }
+
         this.addJobResponse = async (message) => {
             const { requestId, status, jobId, error } = message;
             console.log(`Handling addJob response ${requestId} for ${this.type} - ${jobId}`)
@@ -335,7 +370,7 @@ class QueueManager {
                 logger.error(`Couldnt find job to resolve in addJobResponse handler ${this.type}`)
             }
         }
-
+        
 
         this.addJob = async (workspaceId, jobData, options = {}) => {
             const requestId = ++this.requestIdCounter;
@@ -620,6 +655,19 @@ class QueueManager {
                 if( status === "completed"){
                     await existing.remove()
                 }else{
+                    if( jobId.endsWith("run_flow_instance")){
+                        let retry = options.retry ?? 0
+                        console.log(`Got request to re-run flow instance but present in queue - assuming last iteration is in cleanup - trying again (${retry})`)
+                        if( retry < 3){
+                            const queue = this
+                            setTimeout(async ()=>{
+                                console.log(`Scheduled`)
+                                return await queue.addJob( workspaceId, jobData, {...options, retry: retry + 1})
+                            },100)
+                            return 
+                        }
+
+                    }
                     console.log(`Job already present - skipping ${jobId}`)
                     return
                 }

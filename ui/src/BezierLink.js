@@ -17,6 +17,7 @@ export function BezierLink({
     strokeWidth = 2,
     arrowLength = 8,
     arrowWidth = 8,
+    ...props
   }) {
     // 1) Get the eight Bézier numbers
     const [sx, sy, c1x, c1y, c2x, c2y, ex, ey] = points
@@ -52,6 +53,7 @@ export function BezierLink({
       <Group>
         {/* 5a) The curved Bézier line */}
         <Line
+            {...props}
           points={bezierPoints}
           bezier={true}
           stroke={stroke}

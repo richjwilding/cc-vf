@@ -2475,7 +2475,7 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                 }            
 
 
-                const data = await response.data;
+                const data = response.data;
                 return await processPDFDownloadBuffer( data, filename )
             }else if( contentType.startsWith('text/html')){
                 const results = response.data.toString('utf-8')

@@ -729,13 +729,27 @@ const PrimitiveConfig = {
                             {id:"row", title: "by row"}
                         ]
                     },
+                    "legend_size":{
+                        type: "option_list",
+                        title: "Legend size",
+                        default: true,
+                        options: [
+                            {id:8, title: 8},
+                            {id:10, title: 10},
+                            {id:12, title: 12},
+                            {id:14, title: 14},
+                            {id:16, title: 16},
+                            {id:18, title: 18},
+                        ]
+                    },
                     "show_legend":{
                         type: "option_list",
                         title: "Show Legend",
                         default: true,
                         options: [
                             {id:false, title: "No"},
-                            {id:true, title: "Yes"}
+                            {id:true, title: "Below"},
+                            {id:"right", title: "On right"}
                         ]
                     },
                     "show_row_totals":{
@@ -879,6 +893,9 @@ const PrimitiveConfig = {
         }else if( option?.type === "icon"){
             return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
         }else if( option?.type === "segment_filter"){
+            if( Array.isArray(val)){
+                return  {type: "segment_filter", value: val,  pivot: option.access, relationship: option.relationship, invert}
+            }
             return  {type: "segment_filter", value: val.idx, sourcePrimId: val.sourcePrimId, pivot: option.access, relationship: option.relationship, invert}
         }else if( option.type === "parameter"){
             if( val?.bucket_min  !== undefined ){
@@ -939,6 +956,9 @@ const PrimitiveConfig = {
         if( filter.type === "segment_filter"){
             pivot = 1
             relationship = ['auto']
+            if( Array.isArray(filter.value) ){
+                resolvedFilterType = "parent"
+            }
         }
         if( filter.type === "question"){
             pivot = (pivot ?? 0) + (filter.subtype === "question" ? 1 : 1)
@@ -1000,6 +1020,19 @@ const PrimitiveConfig = {
 
         // If all elements are equal, the arrays are equal
         return true;
+    },
+    processingErrors:(receiver, tasks)=>{
+        const processing = receiver.processing ?? {}
+        return Object.entries(processing).reduce((a,[k,v])=>{
+            if( tasks && tasks.includes(k)){
+                return a
+            }
+            if( v.error ){
+                a[k] = v
+            }
+            return a
+        }, {})
+
     },
     checkImports: (receiver, id, filters)=>{
         if( !filters || filters.length === 0){
@@ -1289,6 +1322,8 @@ const PrimitiveConfig = {
                                             sf = "summary"
                                         }else if(d.type === "result"){
                                             sf = "description"
+                                        }else{
+                                            return d.title
                                         }
                                     }
                                     if( sf === "summary"){
@@ -1357,6 +1392,7 @@ const PrimitiveConfig = {
         return out
 
     },async buildFlowInstanceStatus(flowInstance, steps, functions = {}, options = {}){
+        steps = steps.slice().filter(d=>d)
         let flowStarted = flowInstance.processing?.flow?.started
         const map = {}
         const flowId = Object.entries(flowInstance._parentPrimitives ?? flowInstance.parentPrimitives ?? {}).find(d=>d[1].includes("primitives.origin"))?.[0]
@@ -1392,7 +1428,7 @@ const PrimitiveConfig = {
                     return match
                 }else{
                     if( d !== flowId ){
-                        console.log(`>>>> Couldnt find ${d} when checking for skip status of ${step.id}`)
+                        //console.log(`>>>> Couldnt find ${d} when checking for skip status of ${step.id}`)
                     }
                 }
             }).filter(d=>d)
@@ -1449,7 +1485,14 @@ const PrimitiveConfig = {
                     (step.type === "flowinstance" && flowStarted && new Date(step.processing?.flow?.started) >= new Date(flowStarted)) ||
                     (step.type !== "flowinstance" && flowStarted && step.processing?.flow?.started === flowStarted)
                 ){
-                    if(step.processing?.flow?.status === "complete"){
+                    if(step.processing?.flow?.status === "error"){
+                        status.needReason = step.processing?.flow?.status
+                        status.error = step.processing?.flow?.error ?? "Error"
+                    }else if(step.processing?.flow?.status === "error_skip"){
+                        status.needReason = step.processing?.flow?.status
+                        status.error = step.processing?.flow?.error ?? "Error"
+                        status.skip = true
+                    }else if(step.processing?.flow?.status === "error_ignore" || step.processing?.flow?.status === "complete"){
                         status.needReason = "complete"
                     }else{
                         status.need = true
@@ -1524,7 +1567,7 @@ const PrimitiveConfig = {
                     if( imp.type === "segment"){
                         if( step.type === "flowinstance"){
                             console.log(`Got segment import for instance of sub flow`)
-                            const parentStep = (await fetchImports( originId ))[0]
+                            const parentStep = (await fetchImports( [originId] ))[0]
                             if( !parentStep || (parentStep.id !== flowInstance.id && !Object.keys(parentStep._parentPrimitives ?? parentStep.parentPrimitives ?? {}).includes( flowInstance.id ))){
                                 throw `mismatch on segment origin ${parentStep.id} not a child of flowInstance ${flowInstance.id}`                                
                             }
@@ -1535,7 +1578,7 @@ const PrimitiveConfig = {
                     }
                     if( imp.type === "category" ){
                         console.log(`-- Got category ${imp.id} / ${imp.plainId} for ${rel} - checking parent`)
-                        const parent = (await fetchImports( originId ))[0]
+                        const parent = (await fetchImports( [originId] ))[0]
                         if( parent ){
                             console.log(`-- Got parent of catgeory  = ${parent.id} / ${parent.plainId}`)
                             imp = parent
@@ -1730,7 +1773,7 @@ export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings 
                 const h_level = Math.max((3 - headerLevel), 1)
                 out += `${"#".repeat(h_level)} ${nextR.heading}\n`
             }else{
-                out += `- **${nextR.heading}:** `
+                //out += `- **${nextR.heading}:** `
             }
         }
         if( nextR?.content ){

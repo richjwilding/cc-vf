@@ -247,6 +247,10 @@ export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, s
     prompts = [prompts].flat()
     const fragCheck = new Set()
 
+    console.log({
+        searchTerms, scanRatio, prompts: prompts.length
+    })
+
     async function process(prompt){
         let fragments = []
         const emb = await buildEmbeddings( prompt )
@@ -302,9 +306,86 @@ export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, s
     console.log(`BACK`)
     
     allFragments = allFragments.flat()
-    console.log(`have ${allFragments.length} fragments`)
-    allFragments = allFragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i).sort((a,b)=>b.score - a.score)
+    allFragments = allFragments.filter((d,i,a) => 
+        a.findIndex(d2 => d2.id===d.id && d2.part===d.part) === i
+    );
+    console.log(`have ${allFragments.length} deduped fragments`)
+    
+    //allFragments = allFragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i).sort((a,b)=>b.score - a.score)
+    return sortFragments( allFragments )
+}
+export function sortFragments( allFragments ){
+
+    const maxScoreById = allFragments.reduce((map, {id, score}) => {
+    map[id] = Math.max(map[id] || -Infinity, score ?? 0);
+    return map;
+    }, {});
+
+    allFragments.sort((a, b) => {
+        if (a.id !== b.id) {
+            return maxScoreById[b.id] - maxScoreById[a.id];
+        }
+        return a.part - b.part;
+    });
     
     return allFragments
 
+}
+
+export async function expandFragmentsForContext( allFragments, windowSize = 1 ){
+    const existingById = allFragments.reduce((map, { id, part }) => {
+        if (!map[id]) map[id] = new Set();
+        map[id].add(part);
+        return map;
+      }, {});
+      
+      const contextQueries = Object.entries(existingById).map(([id, partsSet]) => {
+        const want = new Set();
+        for (let part of partsSet) {
+            for (let offset = -windowSize; offset <= windowSize; offset++) {
+                if (offset === 0) continue;
+                const ctxPart = part + offset;
+                // only positive parts, and not already present
+                if (ctxPart > 0 && !partsSet.has(ctxPart)) {
+                  want.add(ctxPart);
+                }
+            }
+        }
+        // only build a query clause if there are missing parts
+        if (want.size) {
+          return {
+            foreignId: id,
+            part: { $in: Array.from(want) }
+          };
+        }
+        return null;
+      }).filter(Boolean);
+      if( contextQueries.length === 0 ){
+        return allFragments
+      }
+      
+      // 3) Fire one query to grab all the missing context fragments
+     const missingFragments = await ContentEmbedding.aggregate([
+        { 
+            $match: { $or: contextQueries } 
+        },
+        { 
+            $project: {
+            _id:   0,
+            id:    "$foreignId",           // <-- alias here
+            text:  1,
+            part:  1,
+            }
+        }
+        ]);
+
+      // 4) (Optional) merge them back in and re‐sort if needed
+      const allWithContext = [
+        ...allFragments,
+        ...missingFragments
+      ]
+      console.log(`Pulled ${missingFragments.length} extra parts for context - now ${allWithContext.length}`);
+
+      return sortFragments( allWithContext )
+      
 }

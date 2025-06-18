@@ -31,6 +31,7 @@ import { getLogger } from './logger.js';
 import { queryQuoraByRapidAPI } from './rapid_helper.js';
 import { expandStringLiterals, findFilterMatches } from './actions/SharedTransforms.js';
 import { fetchMoneySavingExpertSearchResults, moneySavingExpertSERP } from './scrapers/moneysavingexpert.js';
+import mongoose, { Types } from 'mongoose';
 
 const logger = getLogger('sharedfn', "info"); // Debug level for moduleA
 
@@ -911,7 +912,176 @@ export async function addRelationshipToMultiple(receiver, targetIds, path, works
                                             }))
     SIO.notifyPrimitiveEvent( workspaceId, removeUpdate)
 }
-export async function addRelationship(receiver, target, path, skipParent = false){
+
+export async function addRelationship(receiver, target, paths, skipParent = false) {
+    paths = [paths].flat()
+    if (paths.length === 0) {
+      throw new Error("paths must be a non-empty array");
+    }
+  
+    // Normalize all paths (ensure 'primitives.' prefix)
+    const normalizedPaths = paths.map(p => p.startsWith("primitives.") ? p : `primitives.${p}`);
+    const receiverId = new Types.ObjectId(receiver);
+    const targetId = new Types.ObjectId(target);
+
+    const updateObject = {
+        $addToSet: {}
+    };
+    for (const path of normalizedPaths) {
+        updateObject.$addToSet[path] = target;
+    }
+
+    if (skipParent ) {
+        try{
+
+            const updatedReceiver = await Primitive.findOneAndUpdate(
+                {
+                    _id: receiverId,
+                    deleted: { $exists: false }
+                },
+                updateObject,
+                {
+                    new: true,
+                    projection: {
+                        _id: 1,
+                        workspaceId: 1,
+                        primitives: 1,
+                        plainId: 1,
+                        flowElement: 1,
+                        type: 1
+                    }
+                }
+            );
+            
+            if (!updatedReceiver) {
+                throw new Error("Receiver not found or is deleted");
+            }
+      
+            // Side effects
+            for (const path of normalizedPaths) {
+                SIO.notifyPrimitiveEvent(updatedReceiver.workspaceId, [{
+                    type: "add_relationship",
+                    id: receiver,
+                    target,
+                    path
+                }]);
+            }
+        }catch(err){
+            logger.error(`addRelationship for ${receiver} -> ${target} ${skipParent}:`, err, paths);
+        }
+      
+        return;
+    }
+
+
+
+    const session = await mongoose.startSession();
+    const maxRetries = 3;
+    let attempt = 0;
+  
+    
+    const parentPath = `parentPrimitives.${receiver}`;
+  
+    let updatedReceiver = null;
+    let targetDoc = null;
+  
+    try {
+      while (attempt < maxRetries) {
+        try {
+          await session.withTransaction(async () => {
+            // 1. Update target with all normalized paths under parentPrimitives
+            if (!skipParent) {
+              targetDoc = await Primitive.findOneAndUpdate(
+                {
+                  _id: targetId,
+                  deleted: { $exists: false }
+                },
+                {
+                  $addToSet: {
+                    [parentPath]: { $each: normalizedPaths }
+                  }
+                },
+                {
+                  session,
+                  new: true,
+                  projection: {
+                    _id: 1,
+                    workspaceId: 1,
+                    primitives: 1,
+                    parentPrimitives: 1,
+                    flowElement: 1,
+                    type: 1,
+                    plainId: 1
+                  }
+                }
+              );
+  
+              if (!targetDoc) {
+                throw new Error("Target not found or is deleted");
+              }
+            }
+  
+            updatedReceiver = await Primitive.findOneAndUpdate(
+              {
+                _id: receiverId,
+                deleted: { $exists: false }
+              },
+              updateObject,
+              {
+                session,
+                new: true,
+                projection: {
+                  _id: 1,
+                  workspaceId: 1,
+                  primitives: 1,
+                  plainId: 1,
+                  flowElement: 1,
+                  type: 1
+                }
+              }
+            );
+  
+            if (!updatedReceiver) {
+              throw new Error("Receiver not found or is deleted");
+            }
+          });
+  
+          break; // success
+        } catch (err) {
+          attempt++;
+          if (attempt >= maxRetries) {
+            throw err;
+          }
+          console.warn(`addRelationship retry ${attempt} failed:`, err);
+        }
+      }
+  
+      session.endSession();
+  
+      // Fire one event per path
+      const workspaceId = targetDoc?.workspaceId ?? updatedReceiver.workspaceId;
+      const events = normalizedPaths.map(p => ({
+        type: "add_relationship",
+        id: receiver,
+        target,
+        path: p
+      }));
+  
+      SIO.notifyPrimitiveEvent(workspaceId, events);
+  
+      if ((targetDoc?.flowElement || updatedReceiver?.flowElement) && targetDoc) {
+        for (const path of normalizedPaths) {
+          await replicateRelationshipUpdateToFlowInstance(updatedReceiver, targetDoc, path, "add");
+        }
+      }
+  
+    } catch (err) {
+      session.endSession();
+      logger.error(`addRelationship for ${receiver} -> ${target} ${skipParent}:`, err, paths);
+    }
+  }
+
+export async function __addRelationship(receiver, target, path, skipParent = false){
     if( !skipParent ){
         try{
             if( path.slice(0, 11 ) != "primitives."){
@@ -1296,6 +1466,9 @@ export async function primitiveDescendents(primitive, types, options={}){
     }
     if( options?.referenceId ){
         out = out.filter((d)=>d.referenceId === options.referenceId)
+    }
+    if( options?.referenceIds){
+        out = out.filter((d)=>options.referenceIds.includes(d.referenceId))
     }
     
     if( unique){
@@ -1964,7 +2137,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         }
 
         logger.verbose(`Doing source ${imp.id} - ${requiresFullDocument ? "Full content required" : "Metadata only"}`)
-        if( Object.keys(imp.primitives).includes("imports")   ){
+        if( Object.keys(imp.primitives ?? {}).includes("imports")   ){
             if( cache.imports[imp.id]){
                 list = cache.imports[imp.id]
                 console.log(`>>> reuse import cache ${imp.id}`)
@@ -1973,7 +2146,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 cache.imports[imp.id] = list
             }
         }else{
-            let node = new Proxy(imp.primitives, parser)
+            let node = new Proxy((imp.primitives ?? {}), parser)
             if( source.referenceParameters?.path ){
                 node = node.fromPath(source.referenceParameters?.path)
             }
@@ -2175,7 +2348,7 @@ export async function primitiveListOrigin( list, pivot, parentTypes = undefined,
     return list
 }
 
-export async function getDataForProcessing(primitive, action, source, options = {}){
+export async function getDataForProcessing(primitive, action = {}, source, options = {}){
     let startList = options.list 
     let list = []
 
@@ -2242,6 +2415,14 @@ export async function getDataForProcessing(primitive, action, source, options = 
     }else if( target === "items"){
         list = await getDataForImport( source, undefined, options.forceImport )
         console.log(`TOTAL IMPORT = ${list.length}`)
+    }else if( target === "items_children"){
+        list = await getDataForImport( source, undefined, true )
+        console.log(`TOTAL IMPORT = ${list.length}`)
+
+        /*let out = []
+        const parentIds = list.map(d=>d.id)
+        list = await fetchDirectChildren({parentIds, referenceId, type, workspaceId: primitive.workspaceId})
+        console.log(`Direct child items = ${list.length}`)*/
     }else if( target === "parents"){
         throw "DEPRECATED"
         list = await primitiveListOrigin( [source], 1)
@@ -2552,6 +2733,7 @@ export async function dispatchControlUpdate(id, controlField, status, flags = {}
         }
         //SIO.getIO().emit("message", [{type: "set_fields", primitiveId: id, fields: {[controlField]: status === undefined ? null :status}}])            
         SIO.notifyPrimitiveEvent(primitive, {data: [{type: "set_fields", primitiveId: id, fields: {[controlField]: status === undefined ? null :status}}], ...flags})            
+        return primitive
     }catch(error){
         console.log(`Error dispatching ${controlField} for ${id}`)
         console.log(error)
@@ -2590,6 +2772,48 @@ export async function getFilterName( scopeNode ){
         return frags.join(", ")
     }
 }
+
+export async function fetchDirectChildren({ parentIds, referenceId, type, workspaceId }) {
+        const query = { workspaceId };
+        if (Array.isArray(parentIds) && parentIds.length) {
+          query.$or = parentIds.map(id => {
+            const path = `parentPrimitives.${id}`;
+            return {
+              [path]: {
+                $elemMatch: {
+                  $or: [
+                    { 'primitives.origin': { $exists: true } },
+                    { 'primitives.ref'   : { $exists: true } },
+                    { 'primitives.auto'  : { $exists: true } }
+                  ]
+                }
+              }
+            };
+          });
+        }else{
+            logger.info("No Parent Ids provided for fetchDirectChildren")
+            return []
+        }
+      
+        if (referenceId !== undefined) {
+          if (Array.isArray(referenceId)) {
+            query.referenceId = { $in: referenceId };
+          } else {
+            query.referenceId = referenceId;
+          }
+        }
+      
+        if (type !== undefined) {
+          if (Array.isArray(type)) {
+            query.type = { $in: type };
+          } else {
+            query.type = type;
+          }
+        }
+        console.log(query)
+      
+        return await fetchPrimitives( undefined, query, DONT_LOAD )
+      }
 
 export async function findParentPrimitivesOfType(primitive, types){
     const candidates = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(d=>d !== "primitives.imports").length > 0)
@@ -5015,9 +5239,10 @@ export async function createPrimitive( data, skipActions, req, options={} ){
         
         const newId = newPrimitive._id.toString()
 
-        for( const path of paths){
+        /*for( const path of paths){
             await addRelationship(parentPrimitive.id, newId, path, true)
-        }
+        }*/
+        await addRelationship(parentPrimitive.id, newId, paths, true)
 
         if( !skipActions && category && category.actions){
             let changed = false

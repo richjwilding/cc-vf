@@ -170,7 +170,7 @@ export async function summarizeMultiple(list, options = {} ){
         return await summarizeMultipleAsList(list, options)
     }    
 
-    let listIntro = list.length === 1 ? "Here is some data to process" : `Here are a list of ${options.types || "items"}: `
+    let listIntro = list.length === 1 ? "Here is some data to process" : `Here are a list of ${options.types || "items"}, each starts with a unique number id which is at the start of the line and terminated with ")": `
     let prompt = options.prompt ? options.prompt.replaceAll("{title}", options.title) : `Produce a single summary covering all ${options.types || "items"} ${options.themes ? `in terms of ${[options.themes].flat().join(", ")}` : ""}.`    
     let finalPrompt = prompt
     if( options.focus ){
@@ -181,13 +181,27 @@ export async function summarizeMultiple(list, options = {} ){
         }
     }
     if( !options.allow_infer){
-        finalPrompt += `\n\nRegardless of any prior instructions, you MUST ONLY use the data I provided to you to write your answer - you MUST NOT use your own knowledge.\nOmit any section where the data i provided is not relevant to task - simply writing  "No relevant data for task" instead`
+        finalPrompt += `\n\nRegardless of any prior instructions, you MUST ONLY use the data I provided to you to write your answer - you MUST NOT use your own knowledge. \nPay special attention to the context of any facts, figures, data-points, observations you make, or insights you find to ensure correct attribution in your response. \nOmit any section where the data i provided is not relevant to task - simply writing  "No relevant data for task" instead`
     }
-    const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **text**\n" :""}indented list item:- text\ndouble indented list item:-- text\ntriple indented list item:--- text\ntable headers: |cell|cell| (ensure you start and finish with a | character - empty cells should be ||)\n               |----|----|\ntable rows: |cell|cell| (ensure you start and finish with a | character - empty cells should be || \n Do not use any other markdown. Ensure you mark the end of paragraphs and list items with a new line character but do not do double newlines as that ruins the formatting. Do not define the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string using any formatting specified above"
+    //const format = options.markdown ? `You can you the following simple markdown in your response (note that the square brackets are delineating placeholders and must not be output in your response):\n${options.heading ? "Header or section titles: **text**\n" :""}indented list item:- text\ndouble indented list item:-- text\ntriple indented list item:--- text\ntable headers: |cell|cell| (ensure you start and finish with a | character - empty cells should be ||)\n               |----|----|\ntable rows: |cell|cell| (ensure you start and finish with a | character - empty cells should be || \n Do not use any other markdown. Ensure you mark the end of paragraphs and list items with a new line character but do not do double newlines as that ruins the formatting. Do not define the markdown format in your response and only include markdown where needed.` : "Format your response as a simple string using any formatting specified above"
+    //- Section headers or titles: start the line with '###' (e.g. '###My Header').  
+    const format = options.markdown ? `Use only these Markdown constructs:
+
+                                        - To create a top-level bullet, start the line with '- ' (dash + space).
+                                        - To create a second-level bullet, start the line with ' - ' (space + dash + space).
+                                        - To create a third-level bullet, start the line with ' . - ' (two spaces + dashes + space).
+                                        - Emphasised / bold text: wrap the text in '** (e.g. '**important point**') NB. Do not emphasis / bold full sentances - just a few key words if and where appropriate.  
+                                        - To build a table, each header or cell row must start and end with '|' and the separator line must be '|----|----|'.
+                                        - End every table row with a single newline character.
+                                        - Never include any other Markdown tokens or literal placeholder text.
+                                        `.replaceAll(/\s+/g," ") : "Format your response as a simple string using any formatting specified above"
     
     let outputFields, wholeResponse = options.wholeResponse
     if( options.output){
         outputFields = options.output
+        if( options.markdown ){
+            outputFields += "\n" + format
+        }
     }else if( options.outputFields) {
         outputFields = `Provide the result as a json object with `
         outputFields += options.outputFields.map(d=>{
@@ -720,6 +734,8 @@ function tokensForModel(model){
         defaultTokens = 80000
     }else if( model === "gpt4o" ){
         defaultTokens = 80000
+    }else if( model === "o3" ){
+        defaultTokens = 120000
     }else if( model === "o3-mini" ){
         defaultTokens = 120000
     }else if( model === "o4-mini" ){
@@ -962,123 +978,6 @@ export async function processInChunk( list, pre, post, options = {} ){
 
 }
 
-async function __executeAI(messages, options = {}){
-    const openai = new OpenAI({apiKey: process.env.OPEN_API_KEY})
-    let response
-    let err
-    let sleepBase = 20000
-    
-    
-    //let model = "gpt-4o"
-    //let output = 4096
-
-    let model = "gpt-4o-2024-08-06"
-    let output = 16384
-    let response_format = options.schema ? { "type": "json_schema", "json_schema": options.schema } : { type: "json_object" }
-
-    if( options.engine === "gpt4o-mini" ){
-        model = "gpt-4o-mini"
-        output = 16384
-    }
-    if( options.engine === "o3-mini" ){
-        model = "o3-mini"
-        output = 80000
-        response_format = { type: "json_object" }
-    }else if( options.engine === "gpt4" ){
-        model = "gpt-4-0613"
-        output = 4096
-    }else if( options.engine === "gpt4t" ){
-        model = "gpt-4-turbo-2024-04-09"
-        output = 4096
-        response_format = { type: "json_object" }
-    }else if( options.engine === "gpt3" || options.engine === "gpt3t"){
-        model = "gpt-3.5-turbo"
-        response_format = undefined
-        output = 1536
-    }else if( options.engine === "o4-mini" ){
-        output = 80000
-        response_format = { type: "json_object" }
-    }else if( options.engine === "gpt-41" ){
-        model = "gpt-4.1"
-        output = 32768
-        response_format = { type: "json_object" }
-    }
-    console.log(`Executing ${model}`)
-    const request = async ()=>{
-        try{
-            response = await openai.chat.completions.create({
-                model: model,
-                response_format,
-                temperature: options.temperature || 0.7,
-                messages: messages,
-                max_tokens: output
-            });
-        }catch(error){
-            console.log(error)
-            console.log(response)
-            throw error
-        }
-    }
-    let maxCount = 3
-    let count = 0
-    let done = false
-    while( count  < maxCount && !done){
-        try{
-            await request();
-            console.log('open_ai_helper: back')
-            done = true
-        }catch(thisErr){
-            err = thisErr
-            count++
-            if( count < maxCount ){
-                console.log(`open_ai_helper: got error - sleep and will retry`)
-                await new Promise(r => setTimeout(r, sleepBase * count ));                    
-            }else{
-                console.log(`++++++ FAILED ++++++`)
-            }
-        }
-    }
-    if( response == undefined){
-        return {success: false, status: err?.response?.status, error: "UNKNOWN", instructions: messages}
-    }
-
-    if( response.status === 200){                
-        recordUsage( {workspace: options.workspaceId, functionName: options.functionName, usageId: options.usageId, api: "open_ai", data: response.data})
-        if( response.data?.choices[0]?.finish_reason === 'length' ){
-           return {error: true, token_limit: true} 
-        }
-        const answers = response.data?.choices[0]?.message?.content
-        try{
-            let unpack
-            const p1 = answers.replace(/,([\s\n\r]*[}\]])/g, '$1')
-            if( p1[0] === "[" && p1[p1.length - 1] === "]"){
-                unpack = p1
-            }else{
-                const regex = /\{[\s\S]*\}/;
-                const match = p1.match(regex);
-                if( match ){
-                    unpack = JSON.parse(match[0])
-                }
-            }
-            if( unpack ){
-                return {response: unpack, success: true, instructions: messages[2], raw: answers}
-
-            }
-            return {success: false, instructions: messages[2], raw: answers}
-
-        }catch(error){
-            console.log(error)
-            console.log(response.data)
-            console.log(answers)
-            return {error: "Couldnt parse JSON", success: false, raw: answers, instructions: messages}
-        }
-    }
-    if( this.response.status === 400 ){
-        return {success: false, status: 400, error: "UNKNOWN", instructions: messages}
-    }
-    return {success: false, status: 400, error: "UNKNOWN", instructions: messages}
-
-}
 async function executeAI(messages, options = {}){
     const openai = new OpenAI({apiKey: process.env.OPEN_API_KEY})
     let response
@@ -1112,7 +1011,7 @@ async function executeAI(messages, options = {}){
         sleepBase = 2000
         response_format = undefined
         output = 1536
-    }else if( options.engine === "o3-mini" || options.engine === "o4-mini"){
+    }else if( options.engine === "o3-mini" || options.engine === "o4-mini" || options.engine === "o3"){
         model = options.engine
         sleepBase = 20000
         output = 80000

@@ -824,7 +824,8 @@ function SharedRenderView(d, primitive, myState) {
                             for(const input of inputs){
                                 if( input.type === "summary"){
                                     contentType = "structured_text"
-                                    let base = input.referenceParameters.structured_summary ?? []
+                                    let base = input.referenceParameters.structured_summary ?? [{content: input.referenceParameters.summary ?? ""}]
+                                    
                                     const sectionconfig = basePrimitive.referenceParameters?.sections
                                     let firstFontSize
                                     const result =  base.map(section=>{
@@ -843,6 +844,7 @@ function SharedRenderView(d, primitive, myState) {
                                             return {
                                                 ...section,
                                                 heading: target?.heading === false ? undefined : section.heading,
+                                                largeSpacing: target?.largeSpacing !== false,
                                                 fontSize: target?.fontSize,
                                                 fontStyle: target?.fontStyle
 
@@ -851,7 +853,9 @@ function SharedRenderView(d, primitive, myState) {
                                     }).filter(d=>d)
                                     const parentSegment = input.parentPrimitives.find(d=>d.type === "segment")
                                     if( parentSegment ){
-                                        result.unshift({content: parentSegment.filterDescription, fontStyle: "bold", fontSize: firstFontSize ? firstFontSize * 1.4 : undefined, sectionStart: true})
+                                        if( sectionconfig?.segment_title?.show){
+                                            result.unshift({content: parentSegment.filterDescription, fontStyle: "bold", fontSize: firstFontSize ? firstFontSize * 1.4 : undefined, sectionStart: true})
+                                        }
                                     }
                                     data.push( result )
                                 }else{
@@ -1019,7 +1023,7 @@ function SharedRenderView(d, primitive, myState) {
         if( !myState.hideWidgets){
 
             if( primitiveToPrepare.type=== "query"){
-                let useQuery = basePrimitive.referenceId === 81 
+                let useQuery = basePrimitive.referenceId === 81  
 
                 widgetConfig.showItems = showItems
                 widgetConfig.title = basePrimitive.title
@@ -1163,9 +1167,14 @@ function SharedRenderView(d, primitive, myState) {
                             dataSource = myState[myState[stateId].axisSource.id];
                         }
                         if( dataSource){
-                            const columns = (dataSource.data ? dataSource.data.defs?.columns : dataSource.axis?.column ) ?? []
-                            const rows = (dataSource.data ? dataSource.data.defs?.rows : dataSource.axis?.row) ?? []
-                            dataTable = CollectionUtils.createDataTable( items, {columns, rows, viewFilters: [], config: undefined, hideNull: false, alreadyFiltered: true})
+                            let columns = (dataSource.data ? dataSource.data.defs?.columns : dataSource.axis?.column ) ?? []
+                            let rows = (dataSource.data ? dataSource.data.defs?.rows : dataSource.axis?.row) ?? []
+                            let viewFilters = (dataSource.data ? dataSource.data.defs?.viewFilters : undefined) ?? []
+                            if( dataSource.inFlow && basePrimitive.workspaceId === "6745a3d4bde696a47c0ca15a"){
+                                viewFilters = [rows]
+                                rows = {}
+                            }
+                            dataTable = CollectionUtils.createDataTable( items, {columns, rows, viewFilters, config: undefined, hideNull: false, alreadyFiltered: true})
                             console.log(`GOT from ${dataSource.id}`)
                         }
 
@@ -1680,6 +1689,7 @@ export default function BoardViewer({primitive,...props}){
                                         needRebuild = true
                                     }
                                 }
+                                let refreshLinks = false
                                 if( event === "relationship_update" || needRebuild){
                                     const framePrimitive = myState[frameId].primitive
                                     let doFrame = true
@@ -1703,6 +1713,10 @@ export default function BoardViewer({primitive,...props}){
                                     }else{
                                         needRebuild = true
                                     }
+                                    if( myState[framePrimitive.id]){
+                                        refreshLinks = true
+                                    }
+
                                     if( doFrame ){
                                         needRefresh = prepareBoard( framePrimitive )
                                         if( changedRenderConfig ){
@@ -1735,6 +1749,10 @@ export default function BoardViewer({primitive,...props}){
                                         for(const frameId of refreshBoards ){
                                             canvas.current.refreshFrame( frameId )
                                         }
+                                    }
+                                }else{
+                                    if( refreshLinks ){
+                                        forceUpdateLinks()
                                     }
                                 }
                             }

@@ -44,6 +44,7 @@ const tabs = [
 const mainTabs = [
     { name: 'Query', referenceId: 81, initial: true},
     { name: 'Summarize', referenceId: 113},
+    { name: 'One-shot', referenceId: 148, initial: true},
     { name: 'Compare', referenceId: 114}
 ]
 
@@ -232,7 +233,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                             <DescriptionDetails inContainer={true}>
                                 <div className="space-y-2 flex flex-col">
                                 <Checkbox size="sm" isSelected={frame.referenceParameters.showInMap !== false} onValueChange={(selected)=>frame.setField('referenceParameters.showInMap', selected)}>Show in map</Checkbox>
-                                 <InputWithSync label="Label" placeholder="Label to show user" variant="bordered" primitive={frame} field="labelFoMap"/>
+                                 <InputWithSync label="Label" placeholder="Label to show user" variant="bordered" primitive={frame} field="labelForMap"/>
                                  </div> 
                             </DescriptionDetails>
                             <DescriptionTerm inContainer={true}>Active Configurations</DescriptionTerm>
@@ -332,8 +333,8 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
 
     }else  if( frame?.type === "search" ){
         const searchCategoryIds = frame.metadata.resultCategoryId ?? frame.metadata.parameters?.sources?.options?.map(d=>d.resultCategoryId ) ?? []
-        const searchResultCategory = mainstore.category( searchCategoryIds[0] )
         const searchResults = primitiveForContent.primitives.strictDescendants.filter(d=>searchCategoryIds.includes(d.referenceId))
+        const searchResultCategory = searchResults[0]?.metadata ?? mainstore.category( searchCategoryIds[0] )
         const nestedSearch = primitiveForContent.primitives.origin.uniqueSearch
         
         const nestedCallback = (id)=>{
@@ -399,13 +400,13 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                         const linkedItem = linkedItemId ? mainstore.primitive(linkedItemId) : undefined
                                         if( target ){
                                             return {
-                                                id: linkedItem ? linkedItem.id : target.id,
-                                                plainId: linkedItem ? linkedItem.plainId : target.plainId,
+                                                id: target.id,
+                                                plainId: target.plainId,
                                                 title: linkedItem ? `Search for ${linkedItem.title}` : target.title,
                                                 count: target.primitives.origin.allUniqueIds.length,
                                                 data:{
                                                     id: target.id,
-                                                    primitive: target
+                                                    primitive: linkedItem ?? target
                                                 }                                            
                                             }
                                         }
@@ -873,9 +874,17 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                             if( sections.length > 0){
                                                 return <div className="px-2 py-1 flex flex-col space-y-2 text-gray-500 @container">
                                                             <DescriptionList inContainer={true}>
+                                                                <DescriptionTerm inContainer={true}>Segement name</DescriptionTerm>
+                                                                <DescriptionDetails inContainer={true}>
+                                                                    <LegacyCheckbox
+                                                                        checked={frame.referenceParameters?.sections?.segment_title?.show} 
+                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.segment_title.show`, !frame.referenceParameters?.sections?.segment_title?.show)}}
+                                                                    />
+                                                                </DescriptionDetails>
                                                                 {sections.map((d,i)=>{
                                                                     const show = frame.referenceParameters?.sections?.[d]?.show !== false
                                                                     const includeHeading = frame.referenceParameters?.sections?.[d]?.heading !== false
+                                                                    const largeSpacing = frame.referenceParameters?.sections?.[d]?.largeSpacing !== false
                                                                     const fontSize = frame.referenceParameters?.sections?.[d]?.fontSize ?? ""
                                                                     const fontStyle = frame.referenceParameters?.sections?.[d]?.fontStyle ?? ""
                                                                     return (
@@ -895,6 +904,13 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                                                                     <LegacyCheckbox 
                                                                                         checked={true} 
                                                                                         onClick={()=>{frame.setField(`referenceParameters.sections.${d}.show`, false)}}
+                                                                                        />
+                                                                                </DescriptionDetails>
+                                                                                <DescriptionTerm inContainer={true}>Large spacing</DescriptionTerm>
+                                                                                <DescriptionDetails inContainer={true}>
+                                                                                    <LegacyCheckbox 
+                                                                                        checked={largeSpacing} 
+                                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.${d}.largeSpacing`, !largeSpacing)}}
                                                                                         />
                                                                                 </DescriptionDetails>
                                                                                 <DescriptionTerm inContainer={true}>Include heading</DescriptionTerm>

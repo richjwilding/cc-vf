@@ -43,7 +43,7 @@ export async function assessContextForPrompt( request, options = {}){
 
 export async function reviseUserRequest( request, options = {} ){
 
-    const prompt = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to define a json structure for the output based on this request honouring any format that is specified in the task.   Focus only on the core outputs requested by the task and factor in any requests for content length and formatting for a specific section or the overall response - for example, if a section needs to have both a summary and a list then your output structure for that section should have 2 subsections defined - one for the summary and one for the list.  
+    /*const prompt = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to define a json structure for the output based on this request honouring any format that is specified in the task.   Focus only on the core outputs requested by the task and factor in any requests for content length and formatting for a specific section or the overall response - for example, if a section needs to have both a summary and a list then your output structure for that section should have 2 subsections defined - one for the summary and one for the list.  
 
 Each section of the of the output should be an element of an array. If a section contain multiple parts then encapsulate these in a nested array. You do not need to decompose the rows or cells of tables into subsections - just use the description.  Use nested subsections where necessary to fulfil the requests
 
@@ -69,7 +69,64 @@ Each section of the of the output should be an element of an array. If a section
                     Do not mention the type of formatting requested in the content fields (ie do not say "Here is the markdown formatted response" or similar)
                    
 
-                    Here is the future task::`.replaceAll(/\s+/g," ")
+                    Here is the future task::`.replaceAll(/\s+/g," ")*/
+
+    const prompt = `
+                    You are *only* to output a JSON schema describing how to structure the answer to the following task. 
+                    Do **not** answer the task itself, and do **not** output any plain text, headings or explanation—your entire response must be valid JSON (a single array).
+                    
+                    #### Schema specification:
+                    
+                    Each element of the top-level array is a Section object with exactly these keys:
+
+                    • "heading": string  
+                    A human-readable title for this section (what will actually be printed).
+
+                    Then **either**:
+
+                    1. **Container section**  
+                    • "subsections": [ Section, Section, … ]  
+                        An array of nested Section objects.
+
+                    2. **Leaf section**  
+                    • "content": string  
+                        Instructions for the AI on what format of markdown string to generate here (include any length or formatting rules).  
+                    • "type": "bullet list as markdown formatted string" | "markdown formatted string" | "table as markdown formatted string" | "number" | "boolean"  
+                    
+                    Do **not** include any other keys.  
+
+                    Favour concise summaries with the minimal number of sections and subsections to deliver on the requested task
+                    Take note of any instructions from the user about what constitutes a single part of your answer and / or what to group , and ensure the structure aligns to it by nesting items where appropriate 
+
+                    Do not mention the type of formatting requested in the content fields (ie do not say "Here is the markdown formatted response" or similar)
+                    
+                    Here is an exmaple
+                    [
+                        {
+                            "heading": "Summarize the report’s main insights",
+                            "subsections": [
+                            {
+                                "heading": "High-Level Summary",
+                                "content": "Write a 2–3 sentence overview of the report’s key findings.",
+                                "type": "string"
+                            },
+                            {
+                                "heading": "Detailed Themes",
+                                "content": "Provide a bullet list in a markdown formatted string of the top recurring themes, each with a 1–2 sentence explanation.",
+                                "type": "markdown formatted bullet_list"
+                            }
+                            ]
+                        },
+                        {
+                            "heading": "Overall Recommendation Score",
+                            "content": "Give a number from 1–10 indicating how strongly you endorse the recommendations.",
+                            "type": "number"
+                        }
+                    ]
+
+                    Here is the user’s task:
+                    `.replaceAll(/\s+/g," ")
+
 
     const prompt2 = `I am preparing a task to send to an ai, i don't want you to answer it - instead i want you to update the task to remove any mention of the output format or sturcture - i will be appending an updated format myself.  
                     The update task should include all aspects of the original task with the output format removed.                
@@ -104,8 +161,15 @@ Each section of the of the output should be an element of an array. If a section
         structure = structureResult.output[0]
     }
     
-    modiftyEntries(structure, "content", (d)=>`${d.content}. Note that fragment IDs must not referenced / included in this field`)
-    augmentEntries(structure, "content", "ids", options.id_limit ? `A json array containing the numbers associated with up to ${options.id_limit} of the fragments of text used for this section - DO NOT INCLUDE MORE THAN ${options.id_limit}.` : "A json array containing the numbers associated with all of the fragments of text used for this section.")
+    modiftyEntries(structure, "content", (d)=>{
+        // Force reorder of schema
+        //const content = d.content
+        //delete d["content"]
+        return `${d.content}. Note that fragment IDs must not referenced / included in this field. If there is no relevant infromation in the data provided simply return "No relevant data" - you MUST NOT use your own knowledge`
+    })
+    augmentEntries(structure, "content", "ids", options.id_limit ? `A json array containing the provided unique id numbers associated with up to ${options.id_limit} of the fragments of text used for this section - DO NOT INCLUDE MORE THAN ${options.id_limit}.` : "A json array containing the provided unique id numbers associated with each and every one of the input fragments which informed your response in the content field of this section (this includes contextual information as well as quotes / phrases / facts you have used). This IS A MUST - the task FAILS if a you miss any ids.")
+    augmentEntries(structure, "content", "quote", "A json array containing verbatim quotes from the source data (aligned to the ids you have selected) which evidences what you have written. Limit this to 20 words per quote and 5 quotes")
+
 
     let task
     if( taskResult?.output?.[0]){
@@ -121,12 +185,14 @@ Each section of the of the output should be an element of an array. If a section
         }
         
     }
-    let output = "Provide your output in a JSON object with this structure:\n" + JSON.stringify(structure) + "\nYou must not include any fragemnt IDs in any of the content fields"
+
+
+    let output = "Provide your output in a JSON object with this structure:\n" + JSON.stringify(structure)
     console.log(`STRUCTURE:\n\n`, structure.structure)
 
     return {task: `### Task\n\n${task}`,
             structure: structure.structure,
-            output:JSON.stringify(output)
+            output
     }
 }
 

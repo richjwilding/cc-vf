@@ -138,6 +138,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
     const baseInstances = items.filter(d=>d.type === "flowinstance")
     const importIds = pp.imports.allIds
     let sources
+    let sourceNotFound = false
     if( importIds.length ){
         sources = await fetchPrimitives( importIds )
         if( isSubFlow ){
@@ -158,7 +159,22 @@ export async function scaffoldWorkflow( flow, options = {} ){
                         logger.debug(`- Found instance step for subflow import ${sourceForInstance.id} / ${sourceForInstance.plainId}`)
                         instanceSources.push( sourceForInstance)
                     }else{
-                        logger.debug(`- Couldnt find instance step for subflow import ${flow.id} / ${flow.plainId} - ${options.subFlowForInstanceId}`)
+                        /*const instance = baseInstances.find(d=>d.id === options.subFlowForInstanceId)
+                        if( instance ){
+                            const importIds = instance.primitives.imports
+                            if( importIds?.length > 0 ){
+                                const instanceSegments = await fetchPrimitives(importIds, {type: "segment"})
+                                if( instanceSegments){
+                                    const sourceViaSegment = instanceSteps.find(d=>Object.keys(d.primitives.origin).includes( options.subFlowForInstanceId ))
+                                }
+                            }
+                        }*/
+                       logger.debug(`- Couldnt find instance step for subflow import ${flow.id} / ${flow.plainId} - ${options.subFlowForInstanceId}`)
+                        sourceNotFound = true
+                        if( instanceSteps.length === 1){
+                            instanceSources.push( instanceSteps[0] )
+                            logger.debug(`--  Attempting recovery`)
+                        }
                     }
                 }
             }
@@ -777,6 +793,7 @@ export async function runFlowInstance( flowInstance, options = {}){
     if( flowInstance.processing?.flow?.started === flowStarted ){
         logger.info(`Flow instance already started for this iteration`)
         newIteration = false
+        await dispatchControlUpdate(flowInstance.id, "processing.flow.status", "running")
     }else{
         await dispatchControlUpdate(flowInstance.id, "processing.flow", {status: "running", started: flowStarted})
         flowInstance = await fetchPrimitive( flowInstance.id )
@@ -1098,7 +1115,8 @@ export async function runStep( step, options = {}){
     let flowStarted = options.flowStarted ?? flowInstance.processing?.flow?.started
     let newIteration = step.processing?.flow?.started !== flowStarted
 
-    dispatchControlUpdate(step.id, "processing.flow", {status: "running", started: flowStarted, singleStep: options.singleStep})
+    let currentState = step.processing.flow ?? {}
+    dispatchControlUpdate(step.id, "processing.flow", {...currentState, status: "running", started: flowStarted, singleStep: options.singleStep})
     //if( newIteration ){
     //}
     if(false){

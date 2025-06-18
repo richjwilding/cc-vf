@@ -7,7 +7,7 @@ import Category from "../model/Category";
 import { categorize, generateImage, processPromptOnText } from "../openai_helper";
 import QueryQueue from "../query_queue";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
-import { aggregateItems, compareItems, iterateItems, lookupEntity, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
+import { aggregateItems, compareItems, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
 import { baseURL, cartesianProduct, cleanURL, markdownToSlate } from "./SharedTransforms";
 const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
 
@@ -228,7 +228,7 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                             logger.error(`Found mutiple searches ${childSearches.length} for run_seach ${primitive.id} <> ${d.id}`)
                         }
                         if( childSearch ){
-                            const status = childSearch.proccessing?.query?.status
+                            const status = childSearch.processing?.query?.status
                             logger.info(` --- Found child search ${childSearch.id} / ${childSearch.plainId} for ${d.id} / ${d.plainId} = ${status}`)
                             if(  status !== "rerun"){
                                 logger.info("--- Skipping")
@@ -254,7 +254,7 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                             }
                         }
                         if( childSearch ){
-                            await QueryQueue().doQuery(childSearch, {flow})
+                            await QueryQueue().doQuery(childSearch, {flow: true})
                             console.log(`do_search dispatched for ${childSearch.id}`)
                         }
                         
@@ -301,6 +301,8 @@ registerAction( "custom_query", undefined, async (primitive, action, options = {
 
     }   else{
         if( thisCategory.type === "aggregator"){
+            await aggregateItems( parentForScope, primitive, options )
+        }else if( thisCategory.type === "one_shot_query"){
             await aggregateItems( parentForScope, primitive, options )
         }else if( thisCategory.type === "comparator"){
             await compareItems( parentForScope, primitive, options )

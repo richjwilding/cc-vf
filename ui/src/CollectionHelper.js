@@ -1019,6 +1019,9 @@ class CollectionUtils{
         if( rows ){
             defs.rows = rows
         }
+        if( viewFilters ){
+            defs.viewFilters = viewFilters
+        }
         
         const allocations = viewFilters.slice(0,1).map(d=>{
             if( d ){
@@ -1547,7 +1550,7 @@ class CollectionUtils{
                 }
                 return pC
             }
-            const connectedPrim = isNaN(axisName) ? primitive.primitives.axis[axisName].allIds[0] : primitive.referenceParameters.explore.filters[axisName].sourcePrimId            
+            const connectedPrim = isNaN(axisName) ? primitive.primitives.axis[axisName].allIds[0] : primitive.getConfig.explore.filters[axisName].sourcePrimId            
             if( connectedPrim ){
                 return {filter: [], ...axis, primitiveId: connectedPrim}
             }

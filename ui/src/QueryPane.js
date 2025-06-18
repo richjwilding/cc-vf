@@ -31,13 +31,13 @@ function QueryPaneInfo({primitive}){
 }
 
 export function QueryPane({primitive, ...props}){
-    useDataEvent("update_field update_parameter", primitive?.id)
+    useDataEvent("set_field set_parameter", primitive?.id)
     const asTitle = !primitive.referenceParameters.useTerms && !primitive.referenceParameters.hasOwnProperty("terms") && primitive.title
 
     const sourceOption = primitive.metadata.parameters.sources
-    const sources = primitive.referenceParameters.sources
+    const sources = primitive.referenceParameters.sources ?? []
     let configParams
-    let activeConfig = primitive.metadata.parameters.sources.options.find(d=>d.id === sources[0])?.config
+    let activeConfig = primitive.metadata.parameters.sources.options.find(d=>d.id === sources?.[0])?.config
     if(  activeConfig ){
         configParams = {
             sources: sourceOption,

@@ -10,7 +10,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 const mainstore = MainStore()
 
 export default function SearchSet({primitive, searchPrimitive, resultSet, filters, toggleFilter, searchCategoryIds, props}){
-    useDataEvent("update_field update_parameter", [primitive?.id, searchPrimitive?.id])
+    useDataEvent("set_field set_parameter", [primitive?.id, searchPrimitive?.id])
 
         const searches = searchPrimitive ? [searchPrimitive] : primitive.primitives.search?.[resultSet] 
         const hasSearches = (searches && searches.length > 0)

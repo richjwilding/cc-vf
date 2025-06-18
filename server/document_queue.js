@@ -867,7 +867,7 @@ async function doDataQuery( options ) {
                         const results = await processPromptOnText( fragmentText,{
                             workspaceId: primitive.workspaceId,
                             functionName: "query-runquery",
-                            opener:  doingExtracts ? "Here is a list of numbered items to process" : `Here is a list of numbered text fragments you can Here is a task i will ask you to perform:<task>${query}</task>\n<fragments>`,
+                            opener:  doingExtracts ? "Here is a list of numbered items to process" : `Here is a list of numbered text fragments to help answer a task. And here is the task i will ask you to perform:<task>${query}</task>\n<fragments>`,
                             prompt: `</fragments>\nInstructions:\n1) Review the provided data and filter out anything that is not relevant to the task\n2) Using only the information explicitly provided in the filtered text fragments answer the complete the task above. Ensuring you use all relevant information i've provided to give a comprehensive answer`,
                             output: outPrompt,
                             no_num: false,

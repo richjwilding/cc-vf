@@ -1,9 +1,16 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect, Text, Arrow, Group } from "react-konva";
+import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Stage, Layer, Rect, Text, Arrow, Group, Image } from "react-konva";
 import { BezierLink } from "./BezierLink";
 import { AutoSizer } from "./AutoSizer";
 import { Checkbox } from "@heroui/react";
 import useDataEvent from "./CustomHook";
+import { convertIconForKonva, renderReactSVGIcon } from "./RenderHelpers";
+import { HeroIcon } from "./HeroIcon";
+import { StaticImage } from "./StaticImage";
+import Konva from "konva";
+
+import dagre from 'dagre';
+import AnimatedKonvaProgressBar from "./AnimatedKonvaProgressBar";
 
 /**
  * DependencyTreeKonva
@@ -25,21 +32,26 @@ import useDataEvent from "./CustomHook";
  */
 
 const NODE_WIDTH = 100;
-const NODE_HEIGHT = 50;
+const NODE_HEIGHT = 60;
 
 const colorMap = {
-  "not_run": "#f2f2f2",
-  "complete": "#ecfdf5",
-  "waiting": "#fae8ff",
-  "running": "#f0f9ff"
+  "not_run": {base: "#f2f2f2", highlight: "#333"},
+  "complete": {base: "#ecfdf5", highlight: "#34d399"},
+  "waiting": {base: "#fef08a", highlight: "#f59e0b"},
+  "running": {base: "#e0f2fe", highlight: "#0ea5e9"},
+  "error": {base: "#ffdddd", highlight: "#333"},
+  "error_skip": {base: "#ff2244", highlight: "#333"}
 }
 
 export default function WorkflowStructurePreview({ statusMap }) {
   // 1) Build `nodes` and `edges` arrays from statusMap
-  const [showHidden, setShowHidden] = useState(true)
-  const [showSkipped, setShowSkipped] = useState(true)
-  const [groupByLabels, setGroupByLabels] = useState(false)
+  const [showHidden, setShowHidden] = useState(false)
+  const [showSkipped, setShowSkipped] = useState(false)
+  const [groupByLabels, setGroupByLabels] = useState(true)
   const stageRef = useRef()
+  const layerRef = useRef()
+  const offsetRef = useRef(0);
+  const [update, setUpdate] = useState({})
 
 
   const { nodes, edges, visibleIds } = useMemo(() => {
@@ -87,9 +99,10 @@ export default function WorkflowStructurePreview({ statusMap }) {
         visibleIds.forEach((id) => {
           // assume “label” is at info.primitive.configParent.label or info.primitive.label
           const {children, ...info} = statusMap[id];
-          const label = (info.primitive.configParent ?? info.primitive).referenceParameters.labelFoMap;
+          const label = (info.primitive.configParent ?? info.primitive).referenceParameters.labelForMap;
+          const icon = info.primitive.configParent?.metadata?.icon
           if (label) {
-            if (!labelGroups[label]) labelGroups[label] = {ids:[], items:[]};
+            if (!labelGroups[label]) labelGroups[label] = {ids:[], items:[], icon};
             labelGroups[label].ids.push(id);
             labelGroups[label].items.push(info);
           }
@@ -140,9 +153,15 @@ export default function WorkflowStructurePreview({ statusMap }) {
           nodeList.push({
             id: rep,
             name: label,
-            status: groupStatus,
+            status: ()=>groupStatus,
+            progress:()=>{
+              const progressList = labelGroup.items.map(d=>d.primitive.percentageProgress)
+              const progress = Math.min(...progressList.filter(d=>d!==undefined))
+              return progress
+            },
             skipped: false,
             candidateForRun: labelGroup.items.some(d=>d.candidateForRun),
+            icon: labelGroup.icon,
             width: NODE_WIDTH,
             height: NODE_HEIGHT,
           });
@@ -152,9 +171,12 @@ export default function WorkflowStructurePreview({ statusMap }) {
           nodeList.push({
             id,
             name: (info.primitive.configParent ?? info.primitive).title,
-            status: info.primitive.processing?.flow?.status ?? "not_run",
+            status: ()=>info.primitive.processing?.flow?.status ?? "not_run",
+            progress: ()=>info.primitive.percentageProgress,
+            //progress: ()=>({percentage: 0.35}),
             candidateForRun: info.candidateForRun,
             skipped: info.skip,
+            icon: info.primitive.configParent?.metadata?.icon,
             width: NODE_WIDTH,
             height: NODE_HEIGHT,
           });
@@ -185,26 +207,43 @@ export default function WorkflowStructurePreview({ statusMap }) {
 
       return { nodes: nodeList, edges: edgeList, visibleIds: [...visibleIds] };
   }, [statusMap, showHidden, showSkipped, groupByLabels]);
+
+  function doUpdate(thisUpdate){
+    setUpdate(prev => {
+      const next = { ...prev };
+      for (const key of Object.keys(thisUpdate)) {
+        next[key] = (next[key] ?? 0) + 1;
+      }
+      return next;
+    });
+  }
   
   useDataEvent(["set_parameter","set_field"], visibleIds, (ids, event, info, remote, items)=>{
     if( info.startsWith("processing.flow")){
+      const newState = {}
       for(const p of items){
         console.log(`>>> ${p.id}`, p.processing.flow.status)
-        if( stageRef.current){
+        /*if( stageRef.current){
           const node = stageRef.current.findOne(`#${p.id}`)?.findOne("Rect")
           if( node ){
             const nodeColor =  colorMap[p.processing.flow.status] ?? "#f2f2f2"
-            node.fill( nodeColor )
+            node.fillLinearGradientColorStops([
+                                0, 'red',   // light blue
+                                //0.9, '#e6f4ff'    // pastel pink
+                                0.9, nodeColor.base    // pastel pink
+                          ])
           }
-        }
+        }*/
+       newState[p.id] = true
       }
+     doUpdate(newState)
     }
   })
 
   // 2) Compute x/y positions for each node using a simple tree layout
   const [positions, maxX, maxY] = useMemo(() => {
     let maxX = 0, maxY = 0
-    const pos = computeTreeLayout(nodes, edges, 200, 100);
+    const pos = computeTreeLayout(nodes, edges, NODE_WIDTH * 1, NODE_HEIGHT * 1);
     for(const p of Object.values(pos)){
       if( p.x > maxX ){maxX = p.x}
       if( p.y > maxY ){maxY = p.y}
@@ -214,6 +253,21 @@ export default function WorkflowStructurePreview({ statusMap }) {
 
 
 
+  useEffect(() => {
+    if( layerRef.current){
+
+      const layer = layerRef.current;
+      const anim = new Konva.Animation(() => {
+        offsetRef.current -= 1.2; // speed
+        // find all running-rects by a custom class name:
+        layer.find('.running').forEach((shape) => {
+          shape.dashOffset(offsetRef.current);
+        });
+      }, layer);
+      anim.start();
+      return () => anim.stop();
+    }
+  }, [layerRef.current]);
 
   return (
     <AutoSizer enableResizeObserver={true}>
@@ -221,17 +275,24 @@ export default function WorkflowStructurePreview({ statusMap }) {
             const scale = Math.min(1, width / maxX * 0.95, height / maxY * 0.95 ) 
             const ox = ((width - (maxX * scale)) / 2) / scale
             const oy = ((height - (maxY * scale)) / 2) / scale
+            let anyRunning = false
             return <>
               <Stage ref={stageRef} width={width} height={height} scaleX={scale} scaleY={scale} offsetX={-ox} offsetY={-oy}>
-                <Layer>
+                <Layer ref={layerRef}>
                   {/* 4a) Draw edges as arrows */}
                   {/* Draw edges using getLinkPoints */}
                   {edges.map(({ from, to }, idx) => {
+                    let running = nodes.find(d=>d.id === to)?.status() === "running"
+                    anyRunning ||= running
                     return (
                       <BezierLink
                       key={`arrow-${idx}`}
                       points={getLinkPoints(from, to, positions)}
-                      stroke="#777"
+                      stroke="#76a3ff"
+                      dashEnabled={running}
+                      dash={[6,4]}
+                      dashOffset={0}
+                      name={running ? "running" : ""}
                       strokeWidth={1}
                       pointerLength={6}
                       pointerWidth={6}
@@ -239,14 +300,25 @@ export default function WorkflowStructurePreview({ statusMap }) {
                     );
                   })}
                   {/* 4b) Draw nodes as groups of Rect + Text */}
-                  {nodes.map(({ id, name, width: nodeW, height: nodeH, skipped, status, candidateForRun }) => {
+                  {nodes.map(({ id, name, width: nodeW, height: nodeH, skipped, status, progress, icon, candidateForRun }) => {
+                    status = status()
+                    progress = progress()
                     const { x, y } = positions[id];
-                    const nodeColor = candidateForRun ? "yellow" : (colorMap[status] ?? "#f2f2f2")
+                    const padding = [NODE_HEIGHT * 0.1, NODE_WIDTH * 0.05]
+                    const isRunning = status === 'running';
+                    let renderedIcon = <></>
+                    let hasIcon = false
+                    if( icon ){
+                      renderedIcon = convertIconForKonva( <HeroIcon icon={icon} className="w-5 h-5"/>, {width: 28, height: 28}).icon
+                      hasIcon = true
+                    }
+                    const nodeColor = (!anyRunning && candidateForRun) ? {base: "#f3e8ff", highlight: "#c084fc"} : (colorMap[status] ?? {base: "#f2f2f2", highlight:"#333"})
                     return (
                       <Group
                         key={id}
                         x={x}
                         y={y}
+                        update={update[id] ?? 0}
                         id={id}
                         opacity={skipped ? 0.5 : undefined}
                         onClick={() => console.log("Clicked node", id)}
@@ -259,25 +331,56 @@ export default function WorkflowStructurePreview({ statusMap }) {
                           container.style.cursor = "default";
                         }}
                       >
+                        {isRunning && <>
+                                      <Rect 
+                                        width={nodeW + 30}
+                                        height={nodeH + (progress ? 46 : 30)}
+                                        x={-15}
+                                        y={-15}
+                                        cornerRadius={20}
+                                        dashEnabled={true}
+                                        name="running"
+                                        dash={[6, 4]}
+                                        dashOffset={0}
+                                        strokeWidth={1.5}
+                                        stroke={nodeColor.highlight}
+                                        />
+                                        {progress && <AnimatedKonvaProgressBar x={0} y={nodeH+10} progress={progress} width={nodeW} height={12} stripeColor={nodeColor.highlight} backgroundColor={nodeColor.base}/>}
+                        </>}
                         <Rect
                           width={nodeW}
                           height={nodeH}
-                          fill={nodeColor}
-                          stroke="#999"
+                          //fill={nodeColor}
                           dashEnabled={skipped}
                           dash={skipped ? [5,4] : undefined}
-                          strokeWidth={0.5}
                           strokeScaleEnabled={false}
                           cornerRadius={4}
+                          fillLinearGradientStartPoint={{ x: NODE_WIDTH / 3, y: 0 }}
+                          fillLinearGradientEndPoint={{ x: NODE_WIDTH / 2, y: NODE_HEIGHT }}
+                          fillLinearGradientColorStops={[
+                                0, 'white',   // light blue
+                                //0.5, '#d1c4e9', // soft lavender
+                                0.9, nodeColor.base,
+                          ]}
+                          // Outline
+                          //stroke='#b7d8ff'
+                          stroke={nodeColor.highlight}
+                          strokeWidth= {1}
+                          shadowColor = '#000000'
+                          shadowBlur = {6}
+                          shadowOffset ={{ x: 2, y: 2 }}
+                          shadowOpacity = {0.08}
                         />
+                        {renderedIcon && <StaticImage x={(nodeW - 28) / 2} y={padding[0] / 2} color={nodeColor.highlight} svgString={renderedIcon} width={28} height={28}/>}
                         <Text
                           text={name}
-                          fontSize={14}
+                          fontSize={10}
                           fill="#24292e"
-                          width={nodeW}
-                          height={nodeH}
+                          x={padding[1]}
+                          y={padding[0] + (hasIcon ? 28 : 0)}
+                          width={nodeW - (padding[1] * 2)}
+                          height={nodeH - (padding[0] * 2)}
                           align="center"
-                          verticalAlign="middle"
                         />
                       </Group>
                     );
@@ -294,302 +397,352 @@ export default function WorkflowStructurePreview({ statusMap }) {
       </AutoSizer>
   );
 }
-
 function computeTreeLayout(nodes, edges, hSpacing = 200, vSpacing = 100) {
+  // 1) Build a new directed graph
+  const g = new dagre.graphlib.Graph({ directed: true });
+  g.setGraph({ rankdir: 'LR', edgesep: vSpacing, ranksep: hSpacing, ranker: "network-simplex" });
+  g.setDefaultEdgeLabel(() => ({}));
+
+  // 2) Add nodes (you can give them fixed width/height if you know it)
+  nodes.forEach(n => g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
+
+  // 3) Add edges
+  edges.forEach(e => g.setEdge(e.from, e.to));
+
+  // 4) Compute Sugiyama layout
+  dagre.layout(g);
+
+  // 5) Extract positions
+  const positions = {};
+  nodes.forEach(n => {
+    const { x, y } = g.node(n.id);
+    positions[n.id] = { x, y };
+  });
+  return positions;
+}
+
+function int_computeTreeLayout(nodes, edges, hSpacing = 200, vSpacing = 100) {
   // ─────────────────────────────────────────────────────────────────────────
-  // Step 1: Build depthMap via BFS, and parent→children adjacency
+  // STEP 1: Build adjacency + find “longest” depths via BFS + relaxation
   // ─────────────────────────────────────────────────────────────────────────
-  const depthMap = {};
+  const originalIds = nodes.map(n => n.id);
   const parentToChildren = {};
-  const allIds = nodes.map(d=>d.id)
   const childIds = new Set();
 
-  if( allIds.length === 0){
-    return {}
-  }
-  // Build parent→children and collect every child ID
-  allIds.forEach((id) => {
-    const kids = edges.filter(d=>d.from === id).map(d=>d.to)
+  originalIds.forEach(id => {
+    const kids = edges.filter(e => e.from === id).map(e => e.to);
     parentToChildren[id] = kids;
-    kids.forEach((c) => childIds.add(c));
+    kids.forEach(c => childIds.add(c));
   });
 
-  // Identify “roots” (nodes never appearing as a child)
-  let roots = allIds.filter((id) => !childIds.has(id));
-  if (roots.length === 0) {
-    // If there are no clear roots (disconnected/cyclical), treat all nodes as roots
-    roots = [...allIds];
-  }
+  // roots = nodes never seen as a child
+  let roots = originalIds.filter(id => !childIds.has(id));
+  if (!roots.length) roots = originalIds.slice();
 
-  // BFS to assign depths
+  // BFS to get some initial depths (we'll flip to longest-path below)
+  const originalDepth = {};
   const queue = [];
-  roots.forEach((r) => {
-    depthMap[r] = 0;
+  roots.forEach(r => {
+    originalDepth[r] = 0;
     queue.push(r);
   });
   while (queue.length) {
     const cur = queue.shift();
-    const d = depthMap[cur];
-    (parentToChildren[cur] || []).forEach((kid) => {
-      const nextDepth = d + 1;
-      if (depthMap[kid] === undefined || nextDepth < depthMap[kid]) {
-        depthMap[kid] = nextDepth;
+    const d   = originalDepth[cur];
+    (parentToChildren[cur] || []).forEach(kid => {
+      const nd = d + 1;
+      // <— choose the deeper assignment
+      if (originalDepth[kid] === undefined || nd > originalDepth[kid]) {
+        originalDepth[kid] = nd;
         queue.push(kid);
       }
     });
   }
 
-  // Compute maxDepth
-  const maxDepth = Math.max(...Object.values(depthMap));
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 2: Bucket node IDs by depth
-  // ─────────────────────────────────────────────────────────────────────────
-  const byDepth = Array.from({ length: maxDepth + 1 }, () => []);
-  allIds.forEach((id) => {
-    const d = depthMap[id] === undefined ? 0 : depthMap[id];
-    byDepth[d].push(id);
-  });
-
-  // This will hold the final { x, y } for each node
-  const positions = {};
-
-  // colMeta[d] will be an array of group‐objects for column d:
-  //   colMeta[d] = [
-  //     { groupIds: [ … ], topY: <number>, bottomY: <number> },
-  //     …
-  //   ]
-  const colMeta = [];
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 3: Process column 0 (depth = 0) – each node stands alone
-  // ─────────────────────────────────────────────────────────────────────────
-  {
-    const depth0 = byDepth[0].slice().sort(); // stable sort by ID
-    const thisCol = [];
-
-    depth0.forEach((id, idx) => {
-      const y = idx * vSpacing;
-      positions[id] = { x: 0 * hSpacing, y };
-      thisCol.push({
-        groupIds: [id],
-        topY: y,
-        bottomY: y,
-      });
+  // STEP 1.5: enforce “deepest-parent + 1” until stable
+  const depthMap = { ...originalDepth };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    originalIds.forEach(id => {
+      const pars = originalIds.filter(p => (parentToChildren[p]||[]).includes(id));
+      if (pars.length) {
+        const target = Math.max(...pars.map(p => depthMap[p])) + 1;
+        if ((depthMap[id]||0) < target) {
+          depthMap[id] = target;
+          changed = true;
+        }
+      }
     });
-
-    colMeta[0] = thisCol;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 4: Process each subsequent column d = 1 … maxDepth
-  // ─────────────────────────────────────────────────────────────────────────
-  for (let d = 1; d <= maxDepth; d++) {
-    const idsAtDepth = byDepth[d];
-    if (!idsAtDepth || idsAtDepth.length === 0) {
-      colMeta[d] = [];
-      continue;
+  // STEP 1.6: inject phantoms under any shallow parent (and remove direct link)
+  let phantomCount = 0;
+  function ensureEntry(x) { if (!parentToChildren[x]) parentToChildren[x] = []; }
+
+  originalIds.forEach(child => {
+    let pars = originalIds.filter(p => (parentToChildren[p]||[]).includes(child));
+    pars.forEach(parent => {
+      let pd = depthMap[parent], cd = depthMap[child];
+      while (pd + 1 < cd) {
+        const ph = `_phantom_${phantomCount++}`;
+        depthMap[ph] = pd + 1;
+        // remove direct parent→child
+        parentToChildren[parent] = parentToChildren[parent].filter(x => x !== child);
+        // insert parent→phantom→child
+        parentToChildren[parent].push(ph);
+        parentToChildren[ph] = [child];
+        // chain
+        parent = ph;
+        pd++;
+      }
+    });
+  });
+
+  // collect all IDs (real + phantom)
+  const layoutIds = Object.keys(depthMap);
+  const maxDepth = Math.max(...layoutIds.map(id => depthMap[id]));
+
+  // STEP 2: bucket by depth
+  const byDepth = Array.from({ length: maxDepth + 1 }, () => []);
+  layoutIds.forEach(id => byDepth[depthMap[id]].push(id));
+
+  // helpers for Step 4.4.5
+  function countCrossings(col, nextCol, parentToChildren) {
+    let c = 0, edges = [];
+    col.forEach((src, i) => {
+      (parentToChildren[src]||[]).forEach(dst => {
+        const j = nextCol.indexOf(dst);
+        if (j >= 0) edges.push([i, j]);
+      });
+    });
+    for (let a = 0; a < edges.length; a++) {
+      for (let b = a + 1; b < edges.length; b++) {
+        const [i1, j1] = edges[a], [i2, j2] = edges[b];
+        if ((i1 < i2 && j1 > j2) || (i1 > i2 && j1 < j2)) c++;
+      }
     }
+    return c;
+  }
+  
+  // modified to consider both sides
+  function minimizeCrossingsBothSides(prevCol, thisCol, nextCol, parentToChildren) {
+    // we’ll do a few bubble‐passes L→R then R→L
+    for (let pass = 0; pass < 4; pass++) {
+      const leftToRight = pass % 2 === 0;
+      let improved = true;
+  
+      while (improved) {
+        improved = false;
+        const start = leftToRight ? 0 : thisCol.length - 2;
+        const end   = leftToRight ? thisCol.length - 1 : -1;
+        const step  = leftToRight ? +1 : -1;
+  
+        for (let i = start; i !== end; i += step) {
+          // total crossings before
+          const before =
+            countCrossings(prevCol, thisCol, parentToChildren) +
+            countCrossings(thisCol, nextCol, parentToChildren);
+  
+          // try the adjacent swap
+          [thisCol[i], thisCol[i+1]] = [thisCol[i+1], thisCol[i]];
+  
+          // total crossings after
+          const after =
+            countCrossings(prevCol, thisCol, parentToChildren) +
+            countCrossings(thisCol, nextCol, parentToChildren);
+  
+          if (after < before) {
+            improved = true;  // keep it
+          } else {
+            // revert
+            [thisCol[i], thisCol[i+1]] = [thisCol[i+1], thisCol[i]];
+          }
+        }
+      }
+    }
+  }
 
-    // 4.1) Build “share‐parents” groups for nodes in column d
-    const nodes = idsAtDepth.slice();
+  if( !byDepth[0] ){
+    return {}
+  }
 
-    // childToParents[nid] = Set of parent IDs (at depth d–1) for node nid
+  // STEP 3…5 containers
+  const positions = {}, colMeta = [];
+
+  // STEP 3: depth 0
+  {
+    const col0 = byDepth[0].slice().sort();
+    const meta = [];
+    col0.forEach((id,i) => {
+      const y = i * vSpacing;
+      positions[id] = { x:0, y };
+      meta.push({ groupIds:[id], topY:y, bottomY:y });
+    });
+    colMeta[0] = meta;
+  }
+
+  // STEP 4: depths 1…maxDepth
+  for (let d=1; d<=maxDepth; d++){
+    const ids = byDepth[d]||[];
+    if (!ids.length) { colMeta[d]=[]; continue; }
+
+    // 4.1: map child→parents at d-1
     const childToParents = {};
-    nodes.forEach((nid) => {
-      const parents = allIds.filter(
-        (pid) => depthMap[pid] === d - 1 && parentToChildren[pid].includes(nid)
+    ids.forEach(id=>{
+      childToParents[id] = new Set(
+        byDepth[d-1].filter(p=>(parentToChildren[p]||[]).includes(id))
       );
-      childToParents[nid] = new Set(parents);
     });
 
-    // Build adjacency list: a ↔ b if childToParents[a] ∩ childToParents[b] ≠ ∅
-    const adj = {};
-    nodes.forEach((nid) => (adj[nid] = []));
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i],
-          b = nodes[j];
-        const parentsA = childToParents[a];
-        const parentsB = childToParents[b];
-        let shareParent = false;
-        for (let p of parentsA) {
-          if (parentsB.has(p)) {
-            shareParent = true;
+    // 4.2: build share-parent adjacency & components
+    const adj = {}; ids.forEach(id=>adj[id]=[]);
+    for(let i=0;i<ids.length;i++){
+      for(let j=i+1;j<ids.length;j++){
+        const [a,b]=[ids[i],ids[j]];
+        for(const p of childToParents[a]){
+          if(childToParents[b].has(p)){
+            adj[a].push(b); adj[b].push(a);
             break;
           }
         }
-        if (shareParent) {
-          adj[a].push(b);
-          adj[b].push(a);
-        }
       }
     }
-
-    // Find connected components (DFS) in this adjacency graph
-    const visited = new Set();
-    const groups = [];
-    function dfs(u, comp) {
-      visited.add(u);
-      comp.push(u);
-      adj[u].forEach((nbr) => {
-        if (!visited.has(nbr)) dfs(nbr, comp);
-      });
+    const visited=new Set(), groups=[];
+    function dfs(u,comp){
+      visited.add(u); comp.push(u);
+      adj[u].forEach(n=>{ if(!visited.has(n)) dfs(n,comp); });
     }
-    nodes.forEach((nid) => {
-      if (!visited.has(nid)) {
-        const comp = [];
-        dfs(nid, comp);
-        groups.push(comp);
-      }
-    });
+    ids.forEach(id=>{ if(!visited.has(id)){ const c=[]; dfs(id,c); groups.push(c);} });
 
-    // 4.2) Within each group, separate “extra‐parent” nodes first (optional)
-    const orderedGroups = groups.map((comp) => {
-      // Intersection I of all parent sets in this component
-      const parentSets = comp.map((nid) => childToParents[nid]);
-      const I = new Set(parentSets[0]);
-      parentSets.slice(1).forEach((s) => {
-        for (let x of Array.from(I)) {
-          if (!s.has(x)) I.delete(x);
-        }
+    // 4.3: within-group extra-first
+    const ordered = groups.map(comp=>{
+      const sets = comp.map(id=>childToParents[id]);
+      const I = new Set(sets[0]);
+      sets.slice(1).forEach(s=>{ for(let x of I) if(!s.has(x)) I.delete(x); });
+      const extra=[], core=[];
+      comp.forEach(id=>{
+        const ps=childToParents[id];
+        const isExtra = ps.size> I.size || [...ps].some(x=>!I.has(x));
+        (isExtra?extra:core).push(id);
       });
-
-      // Partition comp into extra‐parent vs. core
-      const extra = [];
-      const core = [];
-      comp.forEach((nid) => {
-        const ps = childToParents[nid];
-        let isExtra = false;
-        if (ps.size > I.size) {
-          isExtra = true;
-        } else {
-          for (let x of ps) {
-            if (!I.has(x)) {
-              isExtra = true;
-              break;
-            }
-          }
-        }
-        if (isExtra) extra.push(nid);
-        else core.push(nid);
-      });
-
-      extra.sort();
-      core.sort();
+      extra.sort(); core.sort();
       return extra.concat(core);
     });
 
-    // 4.3) Determine group ordering by parents’ positions in column (d–1)
-    const parentMeta = colMeta[d - 1] || [];
-    function findMinParentTop(nid) {
-      // All parents of nid at depth d–1
-      const parents = allIds.filter(
-        (pid) => depthMap[pid] === d - 1 && parentToChildren[pid].includes(nid)
-      );
-      if (parents.length === 0) {
-        return parentMeta.length
-          ? parentMeta[parentMeta.length - 1].bottomY + vSpacing
+    // 4.4: sort groups by parents’ topY
+    const prevMeta = colMeta[d-1]||[];
+    function minTop(id){
+      const ps=[...childToParents[id]];
+      if(!ps.length){
+        return prevMeta.length
+          ? prevMeta[prevMeta.length-1].bottomY + vSpacing
           : 0;
       }
-      // Map each parent to its group’s topY in parentMeta
-      const parentYs = parents.map((p) => {
-        for (let g of parentMeta) {
-          if (g.groupIds.includes(p)) {
-            return g.topY;
-          }
-        }
-        return parentMeta.length
-          ? parentMeta[parentMeta.length - 1].bottomY + vSpacing
-          : 0;
-      });
-      return Math.min(...parentYs);
+      return Math.min(...ps.map(p=>{
+        const g = prevMeta.find(m=>m.groupIds.includes(p));
+        return g? g.topY : 0;
+      }));
     }
+    const groupObjs = ordered
+      .map(grp=>({ grp, key: Math.min(...grp.map(minTop)) }))
+      .sort((a,b)=>a.key - b.key);
 
-    // Build an array of { groupNodes, sortKey }
-    const groupObjects = orderedGroups.map((grp) => {
-      const parentYs = grp.map((nid) => findMinParentTop(nid));
-      return { groupNodes: grp, sortKey: Math.min(...parentYs) };
+    // 4.4.5: untangle crossing vs prev column
+    const flat = groupObjs.flatMap(o=>o.grp);
+    const prev = byDepth[d - 1];
+    const next = byDepth[d + 1] || [];
+    minimizeCrossingsBothSides(prev, flat, next, parentToChildren);
+
+    // re-chunk into untangled groups
+    const untangled = [], sizes = groupObjs.map(o=>o.grp.length);
+    let idx = 0;
+    sizes.forEach(len=>{
+      untangled.push(flat.slice(idx, idx+len));
+      idx += len;
     });
-    groupObjects.sort((a, b) => a.sortKey - b.sortKey);
 
-    // 4.4) Place each group, centering under parents when possible:
-    const thisCol = [];
-    groupObjects.forEach(({ groupNodes }, idx) => {
-      // (1) Compute “ideal center Y” = avg of parent‐group centers
-      const parentCenters = [];
-      groupNodes.forEach((nid) => {
-        const parents = allIds.filter(
-          (pid) =>
-            depthMap[pid] === d - 1 && parentToChildren[pid].includes(nid)
-        );
-        parents.forEach((p) => {
-          const parentEntry = parentMeta.find((g) =>
-            g.groupIds.includes(p)
-          );
-          if (parentEntry) {
-            const centerY =
-              (parentEntry.topY + parentEntry.bottomY) / 2;
-            parentCenters.push(centerY);
-          }
-        });
-      });
-      const idealCenterY =
-        parentCenters.length > 0
-          ? parentCenters.reduce((a, b) => a + b, 0) /
-            parentCenters.length
-          : 0;
 
-      // (2) Compute groupHeight = (N - 1) * vSpacing
-      const groupHeight = (groupNodes.length - 1) * vSpacing;
+    
+    // 4.5: assign x,y and build this column’s meta
+    const thisColMeta = [];
 
-      // (3) Desired topY = idealCenterY - (groupHeight / 2)
-      let topY = idealCenterY - groupHeight / 2;
-      let bottomY = topY + groupHeight;
+    untangled.forEach((grp, gi) => {
+      // If this is a single-node group with exactly one parent, pin it there:
+      if (grp.length === 1) {
+        const id = grp[0];
+        const parents = Array.from(childToParents[id] || []);
+        if (parents.length === 1) {
+          const pid = parents[0];
+          const px = d * hSpacing;
+          const py = positions[pid].y;
+          const y  = py //+ vSpacing;
 
-      // (4) Avoid overlapping the previous group in this column
-      if (idx > 0) {
-        const prevGroup = thisCol[idx - 1];
-        const prevBottom = prevGroup.bottomY;
-        if (topY < prevBottom + vSpacing) {
-          topY = prevBottom + vSpacing;
-          bottomY = topY + groupHeight;
+          positions[id] = { x: px, y };
+          thisColMeta.push({
+            groupIds: [id],
+            topY:    y,
+            bottomY: y,
+          });
+          return;  // done with this group
         }
       }
 
-      // (5) Place each node in groupNodes at y = topY + (i * vSpacing)
-      groupNodes.forEach((nid, i) => {
-        positions[nid] = {
+      // …otherwise use your normal “ideal center” logic:
+      // 1) Compute idealCenterY under deepest parent
+      const allPars = grp.flatMap(id => [...childToParents[id]]);
+      const maxPd   = Math.max(...allPars.map(p => depthMap[p] || 0));
+      const anchors = allPars.filter(p => depthMap[p] === maxPd);
+      const parentCenters = anchors.map(p => {
+        const m = colMeta[d - 1].find(m => m.groupIds.includes(p));
+        return m ? (m.topY + m.bottomY) / 2 : 0;
+      });
+      const idealCenterY = parentCenters.length
+        ? parentCenters.reduce((a, b) => a + b, 0) / parentCenters.length
+        : 0;
+
+      // 2) Compute height and topY
+      const groupHeight = (grp.length - 1) * vSpacing;
+      let topY = idealCenterY - groupHeight / 2;
+      if (gi > 0) {
+        const prev = thisColMeta[gi - 1];
+        if (topY < prev.bottomY + vSpacing) {
+          topY = prev.bottomY + vSpacing;
+        }
+      }
+      const bottomY = topY + groupHeight;
+
+      // 3) Assign positions for every node in grp
+      grp.forEach((id, i) => {
+        positions[id] = {
           x: d * hSpacing,
-          y: topY + i * vSpacing,
+          y: topY + i * vSpacing
         };
       });
 
-      // (6) Record this group’s vertical interval
-      thisCol.push({
-        groupIds: groupNodes,
-        topY,
-        bottomY,
-      });
+      // 4) Record this group’s vertical span
+      thisColMeta.push({ groupIds: grp, topY, bottomY });
     });
 
-    colMeta[d] = thisCol;
+    colMeta[d] = thisColMeta;
+
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 5: Final shift if any Y < 0
-  // ─────────────────────────────────────────────────────────────────────────
-  const allYs = Object.values(positions).map((p) => p.y);
-  const minY = Math.min(...allYs);
-  if (minY < 0) {
-    const shiftAmt = -minY;
-    Object.values(positions).forEach((p) => {
-      p.y += shiftAmt;
-    });
-  }
+  // STEP 5: shift up if any y < 0
+  const allYs = Object.values(positions).map(p=>p.y);
+  const mY = Math.min(...allYs);
+  if(mY < 0) Object.values(positions).forEach(p=> p.y += -mY);
+
+  // strip phantoms
+  Object.keys(positions).forEach(id=>{
+    if(id.startsWith('_phantom_')) delete positions[id];
+  });
 
   return positions;
 }
+
+
+
 function getLinkPoints(fromId, toId, positions) {
   const { x: px, y: py } = positions[fromId];
   const { x: cx, y: cy } = positions[toId];

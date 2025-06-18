@@ -8,6 +8,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { unpack, pack } from 'msgpackr';
 import CollectionUtils from "./CollectionHelper";
 import { findFilterMatches } from "./SharedTransforms";
+import { progress } from "framer-motion";
 
 export function _uniquePrimitives(list) {
     if (!Array.isArray(list) || list.length === 0) {
@@ -58,6 +59,30 @@ const actions = {
     },
     _primitives(d, receiver, obj){
         return d.primitives
+    },
+    processingErrors(d, receiver, obj){
+        return PrimitiveConfig.processingErrors( d )
+    },
+    percentageProgress(d, receiver, obj){
+        const progress = receiver.progress
+        if( progress?.percentage ){
+            return progress?.percentage
+        }
+        if( progress ){
+            if( !isNaN(progress)){
+                return progress
+            }
+        }
+    },
+    progress(d, receiver, obj){
+        switch(d.type){
+            case "query":
+                return d.processing?.query?.progress
+            case "category":
+                return d.processing?.mark_categories?.progress
+            case "categorizer":
+                return receiver.primitives.origin.allCategory[0]?.processing?.mark_categories?.progress
+        }
     },
     plainId(d, receiver, obj){
         return d.plainId
@@ -2427,6 +2452,7 @@ function MainStore (prims){
                         if(!skip){
                             obj.controller.updateField( receiver, fieldName, value, callbackName || `set_field`  )
                         }
+                        obj.triggerCallback("set_field", [receiver], fieldName, false )
                         return true
                     }
                 }

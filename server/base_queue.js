@@ -28,10 +28,16 @@ export class BaseQueue {
     async getJob(...args) {
         return await this._queue.getJob(...args);
     }
+    async endJob(data) {
+        return await this._queue.endJob(data);
+    }
 
     async addJob(workspace, data, jobOptions) {
         dispatchControlUpdate(data.id, data.field, { status: "pending", pending: new Date().toISOString(), track: data.id });
         return await this._queue.addJob(workspace, data, jobOptions);
+    }
+    async endJobResponse(...args) {
+        return await this._queue.endJobResponse(...args);
     }
 
     async addJobResponse(...args) {
@@ -75,7 +81,7 @@ export class BaseQueue {
                 [status]: new Date().toISOString(), 
                 track: job.id
             }
-            dispatchControlUpdate(job.id, `processing.${job.mode}`, update);
+            await dispatchControlUpdate(job.id, `processing.${job.mode}`, update);
 
             if( childJob ){
                 if( this.notifyTracker["_child_" + job.mode]){

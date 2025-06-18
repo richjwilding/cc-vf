@@ -217,6 +217,9 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             liveTable = undefined
                         }
                     }
+                    if( d.text === "" ){
+                        continue
+                    }
                     if( agg.length === 0){
                         startSegment = d
                     }
@@ -228,7 +231,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             lastBullet = true
                             //markEndList = true
                         }
-                        bulletNeedsFlushing = true
+                        //bulletNeedsFlushing = true
                         hasIndents = true
                         if( indentTracker ){
                             if( d.indent > indentTracker ){
@@ -285,6 +288,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                                 //options.bullet = {indent: (fontScale * konvaNode.fontSize() * 0.4).toFixed(3)}
                                 options.bullet = {indent: (useFontSize * 0.4).toFixed(3)}
                                 options.indentLevel = lastIndent 
+                                bulletNeedsFlushing = false
                             }
                             stack.push({
                                 text: agg.join(" ").trim() + (tIdx && d.bold !== lastBold ? " " : ""),
@@ -296,8 +300,11 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             startSegment = d
                             latchSegment = undefined
                             console.log(stack.slice(-1)[0].text, stack.slice(-1)[0].options)
-                            bulletNeedsFlushing = d.bullet
+                            //bulletNeedsFlushing = d.bullet
                         }
+                    }
+                    if( d.bullet ){
+                        bulletNeedsFlushing = true
                     }
                     if( !latchSegment && lastSegment){
                         latchSegment = lastSegment

@@ -114,6 +114,19 @@ export function Table(props) {
                                 startSize: d.width,
                                 minSize:d.minWidth ?? d.width
                             })
+                    case "react":
+                        return columnHelper.accessor(d.title,
+                            {
+                                cell: info => {
+                                    const data = info.row.original?.[d.field] 
+                                    return data
+                                },
+                                header: () => d.title,
+                                accessorFn: (info)=>info[d.field]?.text,
+                                //export:(info)=>info.row.original?.[d.field]?.text,
+                                startSize: d.width,
+                                minSize: d.minWidth ?? d.width
+                            })
                     case "pill":
                         return columnHelper.accessor(d.title,
                             {
@@ -498,7 +511,7 @@ export function Table(props) {
                 </>
             ))}
             {table.getRowModel().rows.map((row,idx) => {
-                const id = row.original.primitive?.id ?? row.original.id
+                const id = row.original.primitive?.id ?? row.original.data?.primitive?.id ?? row.original.id
                 const primitive = row.original.primitive
                 return (
                     <>

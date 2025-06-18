@@ -10,9 +10,9 @@ import { Badge } from './@components/badge';
 import { deepEqualIgnoreOrder, isObjectId } from './SharedTransforms';
 
 export default function AgentChat({primitive, ...props}) {
-    const [messages, setMessages] = useState([]);
-        const inputBox = useRef({})
-        const editorRef = useRef()
+      const [messages, setMessages] = useState([]);
+      const inputBox = useRef({})
+      const editorRef = useRef()
       const [autoSend, setAutoSend] = useState('');
       const [pending, setPending] = useState(false);
       const [context, setContext] = useState(false);
@@ -183,9 +183,9 @@ export default function AgentChat({primitive, ...props}) {
               }
             }else if(payload.context){
               let contextText = ""
-              if( payload.context.context.canCreate ){
+              if( payload.context.context?.canCreate ){
                 const action = "create"
-                const text = "Add query to canvas"
+                const text = payload.context.context?.action_title ?? "Add query to canvas"
                 const itemId = actionData.current.length 
                 actionData.current.push({
                   id: itemId,
@@ -194,7 +194,7 @@ export default function AgentChat({primitive, ...props}) {
                 })
                 contextText = `[[action_item:${itemId}:${text}]]`
               }
-              updateAssistantUI(contextText, payload.context.context.canCreate ? false :true, {context: payload.context.context});
+              updateAssistantUI(contextText, payload.context.context?.canCreate ? false :true, {context: payload.context.context});
                 displayContent = ""
             }else if(payload.preview){
               updateAssistantUI(payload.preview, false, {preview: true});

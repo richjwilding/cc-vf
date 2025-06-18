@@ -127,6 +127,7 @@ export function markdownToSlate(markdownContent = "") {
 
   // For tables:
   let currentTable = null;
+  let postTableText 
   let isInTable    = false;
 
   const flushLists = () => {
@@ -185,7 +186,7 @@ export function markdownToSlate(markdownContent = "") {
       }
     }
     const line    = raw.replace(/\r$/, "");
-    const trimmed = line.trim();
+    let trimmed = line.trim();
 
     // 1) Continuation of last <li>?
     const cont = raw.match(/^(\s+)(\S.*)/);
@@ -205,11 +206,16 @@ export function markdownToSlate(markdownContent = "") {
       // break out of any open lists
       flushLists();
 
+      if( isInTable ){
+        if( trimmed.at(-1) !== "|" && rowPipeCount === currentTable.expectedPipeCount){
+          const pos = trimmed.lastIndexOf("|")
+          postTableText = trimmed.slice(pos + 1)
+          trimmed = trimmed.slice(0, pos + 1)
+        }
+      }
+
       // split out the cells
-      const cols = trimmed
-        .split("|")
-        .map(c => c.trim())
-        .slice(1, -1);
+      let cols = trimmed.split("|").map(c => c.trim()).slice(1, -1);
 
       // header-separator row?
       const isHeaderSep = cols.every(c => /^-+$/.test(c));
@@ -225,10 +231,13 @@ export function markdownToSlate(markdownContent = "") {
       // build the row
       const row = {
         type: "table-row",
-        children: cols.map(c => ({
-          type: "table-cell",
-          children: parseInlineWithBadges(c),
-        })),
+        children: cols.map(c => {
+          
+          return {
+            type: "table-cell",
+            children: [{type: "paragraph", children:parseInlineWithBadges(c)}],
+          }
+        }),
       };
 
       if (isInTable) {
@@ -246,6 +255,13 @@ export function markdownToSlate(markdownContent = "") {
       continue;
     } else {
       isInTable = false;
+      if( postTableText ){
+        slateNodes.push({
+          type: "paragraph",
+          children: parseInlineWithBadges(postTableText),
+        });
+        postTableText = undefined
+      }
     }
 
     // 3) Headings
@@ -347,6 +363,13 @@ export function markdownToSlate(markdownContent = "") {
       });
     }
   }
+
+      if( postTableText ){
+        slateNodes.push({
+          type: "paragraph",
+          children: parseInlineWithBadges(postTableText),
+        });
+      }
 
   // ensure at least one node
   return slateNodes.length
@@ -796,5 +819,8 @@ export function deepEqualIgnoreOrder(a, b) {
   }
   
   function findMatches(arr, target) {
+    if( !arr ){
+      return []
+    }
     return arr.find(item => deepEqualIgnoreOrder(item, target));
   }

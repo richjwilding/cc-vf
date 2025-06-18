@@ -1,7 +1,7 @@
-import { combineGroupsToChunks, extractSentencesAndKeywords, fetchFragmentsForTerm, groupNeighboringSentences } from "./DocumentSearch";
+import { combineGroupsToChunks, expandFragmentsForContext, extractSentencesAndKeywords, fetchFragmentsForTerm, groupNeighboringSentences } from "./DocumentSearch";
 import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
-import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, getConfig, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
+import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { findFilterMatches } from "./actions/SharedTransforms";
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
@@ -57,18 +57,15 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
     }
     console.log(`Got ${axis.length} axis`)
     
+    let items = await getItemsForQuery(primitive)
     
     if( axis.length === 0){
         return [{
             filters: [],
-            id: primitive.id
+            id: primitive.id,
+            items
         }]
     }
-    for(const d of axis){
-        console.log(d)
-    }
-
-    let items = await getItemsForQuery(primitive)
     
     console.log(`Got ${items.length} items`)
 
@@ -344,7 +341,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                         type: "segment",
                         title: "New segement",
                         referenceParameters:{
-                            target:"items",
+                            //target:"items",
                             importConfig:[importConfig]
                         }
                     }
@@ -404,7 +401,7 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
                     type: aggregatorCategory.primitiveType,
                     title: `Instance of ${primitive.plainId}`,
                     referenceParameters:{
-                        target:"items"
+                        //target:"items"
                     }
                 }
             }, true, undefined, {category: aggregatorCategory})
@@ -910,7 +907,7 @@ export async function iterateItems( parent, primitive, options = {}){
                     type: aggregatorCategory.primitiveType,
                     title: `Instance of ${primitive.plainId}`,
                     referenceParameters:{
-                        target:"items"
+                        //target:"items"
                     }
                 }
             }, true, undefined, {category: aggregatorCategory})
@@ -1663,14 +1660,223 @@ export async function validateResponse(task, response, nodeStruct, inputs, confi
         response: out
     }
 }
+export async function oneShotQuery( primitive, primitiveConfig, options = {}){
+    function progressCallback(message){
+        if( options.notify ){
+            options.notify( message?.text ?? message )
+        }
+        if( primitive ){
+            const field ="processing.rebuild_summary.progress"
+            dispatchControlUpdate(primitive.id, field, message , {track: primitive.id})
+        }
+    }
 
+    progressCallback( "Looking up sources")
+
+    const queryData = await getRevisedQueryWithLocalMods( primitive, primitiveConfig, options)
+    const parentForScope = (await findParentPrimitivesOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
+    console.log(queryData)
+
+    const importIds = parentForScope.primitives?.imports
+
+
+    const fragments = await getFragmentsForQuery(
+                                primitive, 
+                                queryData.task, {
+                                    fromPrimitive: true
+                                }, {
+                                    lookupCount: primitiveConfig.lookupCount,
+                                    searchTerms: primitiveConfig.candidateCount,
+                                    scanRatio: primitiveConfig.scanRatio
+                                })
+    if( fragments ){
+
+        progressCallback( `Preparing ${fragments.length} data fragments`)
+
+        const result = await buildStructuredSummary( primitive, queryData, fragments, fragments.map(d=>d.text), primitiveConfig, true, progressCallback)
+        console.log(result)
+        return result
+    }
+}
+
+
+export async function substitutePlaceholders( prompt, primitive, segmentName, mergedInputs){
+    if(prompt.indexOf("{") == -1){
+        return prompt
+    }        
+    if( !mergedInputs){
+        let parentInputs = {}
+        const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
+        if( configParentId ){
+            const configParentForInputs = await fetchPrimitive( configParentId )
+            parentInputs = await getPrimitiveInputs( configParentForInputs )
+        }
+        
+        const primitiveInputs = await getPrimitiveInputs( primitive )
+        mergedInputs = {
+            ...parentInputs,
+            ...primitiveInputs
+        }
+    }
+
+    if( Object.keys(mergedInputs ?? {}).length > 0 ){
+        for(const inp of Object.keys(mergedInputs)){
+            if( segmentName !== undefined && mergedInputs[inp].dataBySegment){
+                if( mergedInputs[inp].dataBySegment[segmentName]){
+                    console.log(`---- WILL USE SEGMENT ${segmentName} portion of input ${inp}`)
+                    prompt = prompt.replaceAll(`{${inp}}`, mergedInputs[inp].dataBySegment[segmentName])
+                }
+            }else if( mergedInputs[inp].data){
+                prompt = prompt.replaceAll(`{${inp}}`, mergedInputs[inp].data)
+            }
+        }
+    }
+    return prompt
+}
+
+export async function getRevisedQueryWithLocalMods(primitive, primitiveConfig, options = {}){
+    const doUpdate = !options.overridePrompt
+    let revised
+
+    let prompt = options.overridePrompt ?? primitiveConfig.prompt ?? primitiveConfig.query
+
+    let segmentName
+    if( prompt.includes("{focus}") || prompt.includes("{segment}")){
+        const segmentSource = primitive.primitives?.imports?.[0]
+        if( segmentSource ){
+            console.log(`getting ${segmentSource}`)
+            const segment = primitive.type === "segment" ? primitive : (await fetchPrimitive( segmentSource ))
+            if( segment ){
+                segmentName = (await getFilterName(segment)) ?? segment.title
+            }
+        }
+    }
+    if(options.overridePrompt ){
+        console.log(`---> Overriding prompt`)
+        revised = await reviseUserRequest(options.overridePrompt)
+    }else{
+        if( !primitiveConfig ){
+            primitiveConfig = await getConfig(primitive)
+        }
+        if( !prompt ){
+            logger.info(`No prompt to process for ${primitive.id} / ${primitive.plainId}`)
+        }
+        revised = primitiveConfig.revised_query?.structure
+
+
+        prompt = await substitutePlaceholders(prompt, primitive, segmentName)
+
+        if( !revised || primitiveConfig.revised_query.cache !== prompt){
+            revised = await reviseUserRequest(prompt, primitiveConfig)
+            if( !revised ){
+                logger.warn(`Could not create revised query`)
+                return
+            }
+            if( doUpdate ){
+                const configParent = await getConfigParentForTerm(primitive, "prompt")
+                if( configParent ){
+                    logger.info(`Revised query built for top level query - storing`)
+                    await dispatchControlUpdate( primitive.id, "referenceParameters.revised_query", {structure: revised, cache: prompt})
+                }
+            }
+        }
+    }
+
+    if( segmentName ){
+        revised.task = revised.task.replaceAll(/\{focus\}/gi, segmentName);
+        revised.task = revised.task.replaceAll(/\{segment\}/gi, segmentName);
+        
+        revised.output = revised.output.replaceAll(/\{focus\}/gi, segmentName);
+        revised.output = revised.output.replaceAll(/\{segment\}/gi, segmentName);
+        logger.info(`Applied local mod {segment} -> ${segmentName}`)
+    }
+
+    
+    return revised
+}
+
+export async function getFragmentsForQuery( primitive, query,  {sourceIds = [], fromPrimitive, types, referenceIds} = {}, {lookupCount = 10, thresholdSeek = 0.005, thresholdMin = 0.85,searchTerms = 1000, scanRatio = 0.15} = {}){
+    const _prompts = await processPromptOnText( query,{
+        workspaceId: primitive.workspaceId,
+        functionName: "fragment-fetch-for-query",
+        opener: `You are an agent helping a user answer questions about the data that have stored in a database of many thousands of text fragments. You must answer questions or complete tasks using information in the database only.  Fragments have been encoded with embeddings and can be retrieved with appropriate keywords or phrases.`,
+        prompt: `Build a list of ${lookupCount} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
+        output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
+        engine: "o4-mini",
+        debug: true,
+        debug_content: true,
+        field: "result"
+    })
+    if( !_prompts?.success ){
+        throw "Prompt generation failed"   
+    }
+    const prompts = _prompts.output?.[0]?.prompts
+
+    const serachScope = [{workspaceId: primitive.workspaceId}]
+
+    if( sourceIds?.length > 0 || fromPrimitive){
+        let inScopeIds = []
+        if( fromPrimitive ){
+            const [items, _] = await getDataForProcessing( primitive )
+            if( items?.length ){
+                inScopeIds = items.map(d=>d.id)
+            }
+        }else{
+            console.log(`Restricting to items from ${sourceIds.length} sources`)
+            const sources = await fetchPrimitives( sourceIds)
+            let inScopeSources = sources
+            let baseScopes = inScopeSources.filter(d=>d.type === "result" || d.type === "summary")
+            const searchScopes = inScopeSources.filter(d=>d.type === "search")
+            const otherScopes = inScopeSources.filter(d=>d.type === "query" || d.type === "view" || d.type === "working" || d.type === "segment")
+
+            if( types?.length > 0 ){
+                baseScopes = baseScopes.filter(d=>types.includes(d.type))
+            }
+            if(referenceIds?.length > 0){
+                baseScopes = baseScopes.filter(d=>referenceIds.includes(d.referenceId))
+            }
+            
+            if( baseScopes.length > 0){
+                inScopeIds.push(...baseScopes.flatMap(d=>d.id))
+            }
+            if( searchScopes.length > 0){
+                console.log(`-- Got search sources`)
+                inScopeIds.push(...(await primitiveDescendents( sources, types, {referenceIds} )).flatMap(d=>d.id))
+            }
+            for(const scope of otherScopes){
+                console.log(`-- Got other sources`)
+                const items = await getDataForImport(scope, undefined, true)
+                console.log(`Got ${items.length} from ${scope.plainId}`)
+                inScopeIds.push(...items.map(d=>d.id))
+            }
+        }
+        if( inScopeIds.length === 0 ){
+            logger.info("No suitable data to use")
+            return []
+        }
+        serachScope.push(  {foreignId: {$in: inScopeIds}})
+        logger.info(`>>>>> Restricting search scope`)
+    }
+
+    let fragments = await fetchFragmentsForTerm(prompts, {searchTerms, scanRatio, thresholdSeek, thresholdMin, serachScope})
+    if( fragments.length === 0 ){
+        return {result: "No relevant data found"}
+    }
+    let fragmentList = Object.values(fragments).filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i)
+    fragmentList = fragmentList.sort((a,b)=>{
+        if( a.id === b.id ){
+            return a.part - b.part
+        }
+        return a.id.localeCompare(b.id)
+    })
+    return fragmentList
+}
 export async function summarizeWithQuery( primitive ){
-    try{
-
         const primitiveConfig = await getConfig(primitive)
         const [items, toSummarize] = await getDataForProcessing(primitive, {...primitiveConfig}, undefined, {forceImport: true})
         if( items.length > 0){
-            
+            //const queryData = await getRevisedQueryWithLocalMods( primitive, primitiveConfig)
+            logger.warn(`-------------------\nUse DRY functions here\n----------------------`)
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
             let config = evidenceCategory?.ai?.summarize?.[ config?.summary_type ?? "summary"] ?? {}
             let segmentName
@@ -1689,7 +1895,6 @@ export async function summarizeWithQuery( primitive ){
                 }
             }
             
-            const toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
             
             let revised
             if( primitiveConfig.revised_query ){
@@ -1736,10 +1941,15 @@ export async function summarizeWithQuery( primitive ){
                     }
                 }
             }
+            return await buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig)
+        }
+}
 
+export async function buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig, refetchFragments = false, progressCallback ){
+    try{
+            let toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
             
             const results = await summarizeMultiple( toProcess,{
-                ...config, 
                 workspaceId: primitive.workspaceId,
                 usageId: primitive.id,
                 functionName: "queryWithStructure",
@@ -1748,7 +1958,7 @@ export async function summarizeWithQuery( primitive ){
                 types: "fragments",
                 focus: primitiveConfig.focus, 
                 markPass: true,
-                batch: toProcess.length > 1000 ? 100 : undefined,
+                batch: toProcess.length > 1000 ? 50 : undefined,
                 temperature: primitiveConfig.temperature,
                 //allow_infer: true,
                 markdown: primitiveConfig.markdown, 
@@ -1756,6 +1966,11 @@ export async function summarizeWithQuery( primitive ){
                 wholeResponse: true,
                 scored: primitiveConfig.scored,
                 engine: primitiveConfig.engine ?? "gpt-4o",
+                progressCallback: (status)=>{
+                    const percentage = status.completed / status.total
+                    const message = {text: `Analyzing ${(percentage * 100).toFixed(0)}%`, percentage}
+                    progressCallback( message )
+                },
                 merge: false,
                 debug: true, 
                 debug_content:true
@@ -1763,14 +1978,87 @@ export async function summarizeWithQuery( primitive ){
 
 
             if( results.shouldMerge){
-                console.log(`Need to merge multiple responses to structured output`)
                 if( primitiveConfig.split  ){
-                    console.log(`MERGE FOR SPLIT - NO NEED`)
+                    console.log(`Split into multiple responses`)
                 }else{
-                    const flatten = results.summary.flatMap(d=>d.structure)
+                    let flatten = results.summary.flatMap(d=>d.structure)
+                    console.log(`Need to merge multiple responses to structured output -  have ${flatten.length}`)
+                    progressCallback( "Finalizing..." )
+                    
+                    const activeIds = extractFlatNodes(flatten).flatMap(entry=>{
+                        const mapped = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)).filter(d=>!isNaN(d)) : entry.ids
+                        console.log(mapped)
+                        return mapped
+                    }).filter((d,i,a)=>d && a.indexOf(d)===i)
+                    console.log(`-- Got ${activeIds.length} active fragments, collecting and regenerating`)
+
+                    if( refetchFragments ){
+                        const activeFragments = activeIds.map(d=>items[d])
+                        items = await expandFragmentsForContext( activeFragments )
+                        toSummarize = items.map(d=>d.text);
+                        toProcess = toSummarize
+                    }else{
+
+                        
+                        let combined = activeIds.map(idx => ({
+                            item:      items[idx],
+                            summary:   toSummarize[idx]
+                        }));
+                        
+                        combined.sort((a, b) => {
+                            if (a.item.id === b.item.id) {
+                                return a.item.part - b.item.part;
+                            }
+                            return a.item.id.localeCompare(b.item.id);
+                        });
+                        
+                        items       = combined.map(pair => pair.item);
+                        toSummarize = combined.map(pair => pair.summary);
+                        toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
+                    }
+                        
+                    console.log(`- rebuilt to ${items.length} / ${toSummarize.length} / ${toProcess.length}`)
+
+                    const reworked = await summarizeMultiple( toProcess,{
+                        workspaceId: primitive.workspaceId,
+                        usageId: primitive.id,
+                        functionName: "queryWithStructureCombine",
+                        prompt: revised.task,
+                        output: revised.output,
+                        types: "fragments",
+                        focus: primitiveConfig.focus, 
+                        batch: false,
+                        temperature: primitiveConfig.temperature,
+                        //allow_infer: true,
+                        markdown: primitiveConfig.markdown, 
+                        heading: primitiveConfig.heading,
+                        wholeResponse: true,
+                        scored: primitiveConfig.scored,
+                        engine: primitiveConfig.engine ?? "gpt-4o",
+                        merge: false,
+                        debug: true, 
+                        debug_content:true
+                    })
+                    if( reworked ){
+                        console.log(`Got revised back`)
+                        if( reworked?.summary?.structure){
+                            results.summary.structure = reworked.summary.structure
+                        }
+                    }
+                    
+                    
+
+                    /*
+                    flatten = flatten.filter(d=>{
+                        const idsForSection = extractFlatNodes([d]).flatMap(d=>d.ids)
+                        return idsForSection.length > 0
+                    })
+                    console.log(`-- Filtered to ${flatten.length} with actual results (based on ids)`)
+                    if( flatten.length === 0){
+                        return ""
+                    }
                     const idsList = {}
                     let idGroup = 1
-
                     modiftyEntries( flatten, "ids", entry=>{
                         const ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)) : entry.ids
                         const idKey = `g${idGroup}`
@@ -1779,6 +2067,7 @@ export async function summarizeWithQuery( primitive ){
                         return idKey
                     } )
 
+
                     const outputFormat = revised.output.replaceAll("List the numbers associated with all of the fragments of text used for this section", "List each and every item in the 'ids' field of each of the source summaries which you have rationalized into this new item - you MUST include ALL items from the relevant source summaries")
 
                     const consolidated = await processInChunk( flatten, 
@@ -1786,7 +2075,7 @@ export async function summarizeWithQuery( primitive ){
                             {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                             {"role": "user", "content": `Here is a list of summaries:`}],
                             [
-                                {"role": "user", "content":  `Rationalize these summaries into a single response to address this original prompt. Be careful to note which summaries you are merging together. If asked to include quotes use a selection of the quotes stated in the interim results.  ${revised.task}`
+                                {"role": "user", "content":  `Rationalize these summaries into a single response to address this original prompt. Be careful to note which summaries you are merging together. Be incredibly careful to maintain the integrity and validaity of what you are writing - dont conflate or confuse items. You MUST ONLY use the data I provided to compelte this task - DO NOT use your own knowledge. If asked to include quotes use a selection of the quotes stated in the interim results.  ${revised.task}`
                             },
                             {"role": "user", "content": outputFormat},
                         ],
@@ -1798,7 +2087,7 @@ export async function summarizeWithQuery( primitive ){
                             wholeResponse: true,
                             field: undefined,
                             debug: true,
-                            debug_content: false
+                            debug_content: true
                         })
                     
                     if( Object.hasOwn(consolidated, "success")){
@@ -1824,6 +2113,7 @@ export async function summarizeWithQuery( primitive ){
                         })
                         results.summary.structure = refined                
                     }
+                        */
                 }
             }
 
@@ -1833,7 +2123,7 @@ export async function summarizeWithQuery( primitive ){
                 let nodeResult = results?.summary?.structure
 
                 if( primitiveConfig.verify ){
-                    const validated = await validateResponse( revised.task, results?.summary?.structure, nodeStruct, toProcess, config, revised.output)
+                    const validated = await validateResponse( revised.task, results?.summary?.structure, nodeStruct, toProcess, {}, revised.output)
                     
                     if( validated ){
                         nodeResult = validated.response
@@ -1899,8 +2189,9 @@ export async function summarizeWithQuery( primitive ){
                 for( const {heading, nodeResult} of asList){
 
                     let out = flattenStructuredResponse( nodeResult, nodeStruct, primitiveConfig.heading !== false)
+                    const allIds = inlineMapResponseIdsToInputs( nodeResult, items)
                     
-                    modiftyEntries( nodeResult, "ids", entry=>{
+/*                    modiftyEntries( nodeResult, "ids", entry=>{
                         const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>parseInt(d)) : entry.ids
                         const remapped = ids.map(d=>{
                             const primitive = items[d]
@@ -1914,7 +2205,7 @@ export async function summarizeWithQuery( primitive ){
                         return remapped
                     } )
                     const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
-                    const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
+                    const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)*/
                     
                     
                     outputList.push({plain:out, heading: heading, structured: nodeResult, sourceIds: allIds})
@@ -1922,11 +2213,28 @@ export async function summarizeWithQuery( primitive ){
                 return outputList
             }
             
-        }
     }catch(error){
         logger.error(error)
+        throw error
     }
     return ""
+}
+export function inlineMapResponseIdsToInputs( nodeResult, mapList){
+    modiftyEntries( nodeResult, "ids", entry=>{
+        let ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)).filter(d=>!isNaN(d)) : entry.ids
+        const remapped = ids.map(d=>{
+            const source = mapList[d]
+            if( source){
+                return source.id
+            }else{
+                logger.warn(`Cant find referenced fragment ${d} in `, ids, entry.ids)
+            }
+        }).filter((d,i,a)=>d && a.indexOf(d) === i )
+        return remapped
+    } )
+    const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
+    const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
+    return allIds
 }
 function removeOmittedItemsFromStructure(nodeResult){
     let out = []

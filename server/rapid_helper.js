@@ -154,6 +154,136 @@ export async function queryInstagramPostsByRapidAPI( primitive, terms, callopts)
     }
     
 }
+export async function queryLinkedInCompanyPostsByRapidAPI( primitive, terms, callopts){
+
+    const individualTerms = terms.split(",").map(d=>{
+        let out = d.trim()
+        if( out.length === 0){return undefined}
+        return out
+    }).filter(d=>d)
+
+    if( individualTerms.length === 0){
+        return
+    }
+
+    console.log(`-- ${individualTerms.join(", ")}`)
+
+    const doQuery = async (term, nextPage, retries = 5 )=>{
+        let t = term.trim()
+
+        console.log(term, nextPage)
+
+        const options = {
+            method: 'GET',
+            url: 'https://linkedin-bulk-data-scraper.p.rapidapi.com/company_updates',
+            headers: {
+              'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+              'x-rapidapi-host': 'linkedin-bulk-data-scraper.p.rapidapi.com',
+              'Content-Type': 'application/json'
+            },
+            params: {
+                company_url: t,
+              page: nextPage,
+            }
+          };
+
+        console.log(options)
+        
+        try {
+            const response = await axios.request(options);
+            console.log("back")
+            return response.data
+        } catch (error) {
+            if (error.response) {
+                if (error.response.status === 429) {
+                    console.error("----------------------------\n----------------------------\nError 429: Too Many Requests - hit rate limit.");
+                    if(retries > 0){
+                        console.log(`Will retry`)
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        return await doQuery(term, nextPage, retries - 1)
+                    }
+                } else {
+                    console.error(`Error ${error.response.status}: ${error.response.statusText}`);
+                }
+            } else if (error.request) {
+                console.error("No response received:", error.request);
+            } else {
+                console.error("Error setting up request:", error.message);
+            }
+        }
+        return
+    }
+
+    const targetCount = callopts.count
+    const maxPage = 50
+    let total = 0
+    
+
+    for( const term of individualTerms){
+        if( callopts.countPerTerm ){
+            total = 0
+        }
+        let nextPage = 1
+        let exit = false
+        do{
+            const result = await doQuery(term, nextPage)
+            if( result?.success && result?.posts?.length > 0){
+                const processItem = async (d)=>{
+                    let title = (d.postText.match(/^(.*?[.!?])(?=\s|$)/)?.[1] ?? d.postText)
+                    if( title.length > 100 ){
+                        const words = title.split(/\s+/)
+                        title = ""
+                        for(const word of words){
+                            title += word + " "
+                            if( title.length > 100){
+                                break
+                            }
+                        }
+                        if( title === ""){
+                            title = words.join(" ").slice(0,100) + "..."
+                        }
+                    }
+                    const data = {
+                        title,
+                        referenceId: 123,
+                        type: "result",
+                        referenceParameters:{
+                            url: d.postLink,
+                            api_source: "rapid_linkedin_post",
+                            username: d.actor?.actorName,
+                            userProfile: d.actor?.actorLink,
+                            imageUrl: d.imageComponent?.[0] ?? d.linkedInVideoComponent?.thumbnail,
+                            likes: d.numLikes,
+                            source: "LinkedIn",
+                            date_posted: d.postedAt,
+                            description: d.postText,
+                            hashtags: d.postText?.match(/#[A-Za-z0-9_]+/g) ,
+                            account_type: "company"
+                        }
+                    }
+                    const newPrim = callopts.createResult( data, true )
+                    total++
+                }
+                await executeConcurrently( result.posts, processItem)
+                
+                nextPage++
+            }else{
+                exit = true
+            }
+            if( total === result.pagination?.total){
+                exit = true
+            }
+            
+            if(callopts.extendJob){
+                callopts.extendJob()
+            }
+            if( nextPage >= maxPage ){
+                exit = true
+            }
+        }while( (total < targetCount) && !exit)
+    }
+    
+}
 export async function queryLinkedInCompaniesByRapidAPI( primitive, terms, callopts){
 
     const individualTerms = terms.split(",").map(d=>{

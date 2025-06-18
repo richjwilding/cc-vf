@@ -246,6 +246,9 @@ _setTextData() {
   if( p.children.length === 1 && p.type === "paragraph" && p.children[0].text.length === 0 ){
     formattedList.pop()
   }
+  if( this.tableDecoration ){
+    delete this["tableDecoration"]
+  }
   
   var fontSize = +this.fontSize(),
       baseLineHeightPx = this.lineHeight() * fontSize, 
@@ -390,12 +393,12 @@ _setTextData() {
 
   let indentWidths = []
 
-  const processSection = ( section, lastSection, tableInfo )=>{
+  const processSection = ( section, lastSection, tableInfo, partOfListItem )=>{
     if( clipped ){
       return
     }
     const isHeading = section.type === "heading"
-    const isListItem = section.type === "list-item"
+    const isListItem = section.type === "list-item" || partOfListItem
     const large = isHeading
 
 
@@ -412,6 +415,7 @@ _setTextData() {
       startIndent += indentWidths[px]
       
       if( section.children ){
+          currentHeightPx += (lineHeightPx * 0.35);
         for(const sub of section.children ){
           processSection( sub, false, false )
         }
@@ -441,10 +445,10 @@ _setTextData() {
         const colSpacing = baseLineHeightPx * 0.1
         const columnSize = new Array(columnCount).fill( width / columnCount )
         let maxForRow = 0
-        let startRow = currentHeightPx
+        let startRow = currentHeightPx 
         let rIdx = 0
         for( const row of rows){
-          startRow = startRow + rowSpacing + maxForRow
+          startRow += maxForRow
           currentHeightPx = startRow
           maxForRow = 0
           let cIdx = 0
@@ -452,7 +456,7 @@ _setTextData() {
           let fills = []
           for(const col of row.children){
             placeTextWidth = startIndent + columnSize[cIdx] -  colSpacing - colSpacing
-            currentHeightPx = startRow
+            currentHeightPx = startRow + rowSpacing
             let firstOfCell = true
             if( rIdx === 0){
                 fills[cIdx] = "#999999"
@@ -460,7 +464,7 @@ _setTextData() {
 
               //const m = col.children[0].children?.[0]?.text?.match(heatRegex)
               const m = col.children[0]?.text?.match(heatOrSentimentRegex)
-              if (m) {
+              if (false && m) {
                 let v;
               
                 if (m[1]) {
@@ -496,17 +500,18 @@ _setTextData() {
             cIdx++
           }
           let sx = startX
+          maxForRow += rowSpacing * 2 
           for( let cIdx = 0; cIdx < columnCount; cIdx++){
             const fill = fills[cIdx]
             
             this.tableDecoration.push({
               type: "rect",
               x: sx,
-              y: startRow - rowSpacing,
+              y: startRow,
               width: columnSize[cIdx],
-              height: maxForRow + rowSpacing,
+              height: maxForRow ,
               fill,
-              stroke:"#999999"
+              stroke: "#999999",
             })
             sx += columnSize[cIdx]
           }
@@ -523,16 +528,18 @@ _setTextData() {
       needAdvance  = true
       if( !tableInfo || !tableInfo.first ){
         if(isHeading && (lastWasHeading === false)){
+          //currentHeightPx += (lineHeightPx * 0.6);
           currentHeightPx += (lineHeightPx * 0.6);
         }else if(!isHeading && lastWasHeading){
           currentHeightPx -= (lineHeightPx * 0.3);
         }else if( isListItem){
-          currentHeightPx += (lineHeightPx * 0.2);
+          currentHeightPx += (lineHeightPx * 0.1);
         }else if( !isListItem && lastWasListItem){
           currentHeightPx += (lastLineHeight * 0.2);
         }
       }
       const children = section.children ?? [section]
+      let markAsLastParagraph = false
       if( children ){
         let indent = startIndent
         let fragmentIdx = 0
@@ -546,13 +553,15 @@ _setTextData() {
             let preIndent = startIndent
             startIndent += indentWidths[px]
             
-            currentHeightPx += (lineHeightPx * (isListItem ? 1.1 : 1.4));
-            didAdvance = true
+            //currentHeightPx += (lineHeightPx * (isListItem ? 1.1 : 1.4));
+            currentHeightPx += (lineHeightPx * 0.2);
+            //didAdvance = true
             if( frag.children ){
               for(const sub of frag.children ){
                 processSection( sub, false, false )
               }
             }
+            markAsLastParagraph = true
             startIndent = preIndent
           }else{
 
@@ -562,13 +571,8 @@ _setTextData() {
             const color = tableInfo?.row === 0 ? "white" : undefined
             let text = frag.text
             let fragChildren = frag.children
-            if( !text && fragChildren?.length > 0){
-              if( frag.type === "paragraph"){
-                const first = fragChildren.pop()
-                text = first.text
-              }
-            }
-            if( text ){
+            if( text !== undefined){
+              text = text.replace(/^\s+/," ")
 
               const result = placeText( text, large, bold, bullet, startIndent, indent, color, lastLine, tableInfo)
               indent = result.indent
@@ -582,13 +586,15 @@ _setTextData() {
               }
             }
             if( fragChildren ){
-                for(const sub of fragChildren ){
-                  processSection( sub, false, false )
-                }
+                    processSection( frag, false, false, isListItem )
+                    didAdvance = true
             }
             fragmentIdx++
+            if( !isListItem ){
+              markAsLastParagraph = true
+            }
           }
-          if (this.textArr[this.textArr.length - 1]) {
+          if(markAsLastParagraph && this.textArr[this.textArr.length - 1]) {
             this.textArr[this.textArr.length - 1].lastInParagraph = true;
           }
         }
@@ -897,8 +903,8 @@ checkCanvasCleared() {
       if( DISABLE_CANVAS ){
         if( this.tableDecoration ){
           for(const decoration of this.tableDecoration){
-            if( decoration.x > this.attrs.width || decoration.x + decoration.width > this.attrs.width){continue}
-            if( decoration.y > this.attrs.height || decoration.y + decoration.height > this.attrs.height){continue}
+            if( decoration.x > this.attrs.width || (decoration.x + decoration.width - this.attrs.width) > 1){continue}
+            if( decoration.y > this.attrs.height || (decoration.y + decoration.height - this.attrs.height) > 1){continue}
             if( decoration.type === "rect" ){
               if( decoration.fill){
                 context.fillStyle = decoration.fill 
@@ -912,6 +918,11 @@ checkCanvasCleared() {
             }              
           }
         }
+        /*
+      context.strokeStyle ="#ff0000"
+        context.lineWidth = 0.5
+      context.strokeRect(0,0, this.attrs.width, this.height())*/
+
         this.renderText( context )
       }else{
 

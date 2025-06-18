@@ -8,7 +8,7 @@ import PrimitiveParser from "./PrimitivesParser";
 import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 import agglo from "agglo";
 import { BaseQueue } from './base_queue';
-import { comapreToPeers, getItemsForQuery, summarizeWithQuery } from "./task_processor";
+import { comapreToPeers, getItemsForQuery, oneShotQuery, summarizeWithQuery } from "./task_processor";
 import { reviseUserRequest } from "./prompt_helper";
 import { getLogger } from './logger.js';
 
@@ -1277,6 +1277,31 @@ export async function processQueue(job){
                                 }
                             }else{
                                 console.log(`Couldnt get parent segment for ${primitive.id} / ${primitive.plainId} in compare_to_peers`)
+                            }
+                        }
+                    }else if( thisCategory?.type === "one_shot_query"){
+                        let result = await oneShotQuery( primitive, config)
+                        console.log(result)
+                        if( result ){
+                            if( result.length > 1){
+                                console.log(`GOT MULTIPLE - NOT HANDLED, DEFUALTING TO FIRST`)
+                            }
+                            result = result[0]
+                            if( result){
+                                dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
+                                const linkIds = result.sourceIds ?? []
+                                const existingLinks = primitive.primitives.source ?? []
+                                const toRemove = existingLinks.filter(d=>!linkIds.includes(d))
+                                const toAdd = linkIds.filter(d=>!existingLinks.includes(d))
+                                
+                                if( toRemove.length > 0 ){
+                                    await removeRelationshipFromMultiple( primitive.id, toRemove, "source", primitive.workspaceId)
+                                }
+                                if( toAdd.length > 0 ){
+                                    await addRelationshipToMultiple( primitive.id, toAdd, "source", primitive.workspaceId)
+                                }
+                                dispatchControlUpdate( primitive.id, "referenceParameters.summary", result.plain)
+                                return
                             }
                         }
                     }else{

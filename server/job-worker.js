@@ -40,6 +40,15 @@ parentPort.on('message', ({type, ...data}) => {
     }
 })
 
+messageHandler['endJobResponse'] = async (message)=>{
+    if( queueObject ){
+        console.log(`Forwarding endJob response to ${message.queueType} from ${workerData.type}`)
+        const q = (workerData.type === message.queueType) ? queueObject : await getQueueObject(message.queueType)
+        if( q.default().endJobResponse ){
+            q.default().endJobResponse(message)
+        }
+    }
+}
 messageHandler['addJobResponse'] = async (message)=>{
     if( queueObject ){
         console.log(`Forwarding addJob response to ${message.queueType} from ${workerData.type}`)
@@ -130,7 +139,9 @@ async function getQueueObject(type) {
             logger.info(`\n\nThread running for ${workerData.queueName}`, {  type: workerData.type, attemptsMade: job.attemptsMade, token });
             if( job.attemptsMade > 1 ){
                 logger.info(`===> Sending endJob message ${job.id}`, { type: workerData.type });
-                parentPort.postMessage({ result: true, success: true, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
+                //parentPort.postMessage({ result: true, success: true, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
+                await queueObject.default().endJob({ success: true, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token })
+                logger.info(`---- back`)
                 return
             }
             parentPort.postMessage({ type: "startJob", queueName, jobId: job.id, token: token });
@@ -169,7 +180,9 @@ async function getQueueObject(type) {
                 } catch (e) {
                     logger.debug(`Error in ${workerData.type} queue during job processing: ${e.stack}`, { type: workerData.type });
                     logger.debug(e.stack)
-                    parentPort.postMessage({ result, success: false, error: e, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
+                    //parentPort.postMessage({ result, success: false, error: e, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
+                    await queueObject.default().endJob({ result, success: false, error: e, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token })
+                logger.info(`---- back`)
                     throw e;
                 } finally {
                     clearInterval(lockExtension);
@@ -207,7 +220,10 @@ async function getQueueObject(type) {
                     result = "Reschedule requested"
                 }
                 logger.info(`===> Sending endJob message ${job.id}`, { type: workerData.type });
-                parentPort.postMessage({ /*result,*/ success: true, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
+                await queueObject.default().endJob({ success: true, error: result?.error, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token })
+                logger.info(`---- back`)
+
+//                parentPort.postMessage({ /*result,*/ success: true, error: result?.error, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
             });
             
         } catch (error) {

@@ -38,7 +38,6 @@ export function KonvaPrimitive({primitive, ...props}){
                         perfectDrawEnabled={false}
                         listening={false}
                         >
-                            <Text text="hello"/>
                     </Layer>
                 </Stage>
 

@@ -73,16 +73,18 @@ function registerRenderer( mappings, callback){
         if( d.type === "categoryId" ){
             obj = categoryMaps
         }
-        const id = d.id ?? "default"
-        const configs = d.configs ?? ["default"]
-        if( !obj[id]){
-            obj[id] = {}
-        }
-        for( const c of [configs].flat()){
-            if( obj[ id ]?.[c] ){
-                console.log(`Overwriting renderer for ${id} / ${c}`)
+        const ids = [d.id ?? "default"].flat()
+        for( const id of ids){
+            if( !obj[id]){
+                obj[id] = {}
             }
-            obj[ id ][c] = callback
+            const configs = d.configs ?? ["default"]
+            for( const c of [configs].flat()){
+                if( obj[ id ]?.[c] ){
+                    console.log(`Overwriting renderer for ${id} / ${c}`)
+                }
+                obj[ id ][c] = callback
+            }
         }
     }
 
@@ -1123,7 +1125,7 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
     return g
 })
 registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = {})=>{
-    const config = {itemSize: 256, columns: 5, spacing: [8,12], itemPadding: [10,12,10,8], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    const config = {itemSize: 256, columns: 5, spacing: [8,12], itemPadding: [10,12,10,8], padding: [5,5,5,5], ...(options.renderConfig ?? {}), ...(options.renderOptions ?? {})}
     if( config.minWidth ){
         config.itemSize = config.minWidth
     }
@@ -1182,48 +1184,50 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
         let y = ypos[col]
         let node
         let lastNode
-
-        if( d ){
-            if( options.cachedNodes ){
-                node = options.cachedNodes.children.find(d2=>d2.attrs.id === d.id)
-                if( node ){
-                    node.remove()
-                    node.attrs.placeholder = options.placeholder !== false
-                    if(node.children){
-                        node.children.forEach(d=>{
-                            if(d.className === "CustomImage"|| d.className === "CustomText"){
-                                d.attrs.refreshCallback = options.imageCallback
-                            }
-                            
-                        })
+        
+        if( !options.renderOptions.height || y < options.renderOptions.height ){
+            if( d ){
+                if( options.cachedNodes ){
+                    node = options.cachedNodes.children.find(d2=>d2.attrs.id === d.id)
+                    if( node ){
+                        node.remove()
+                        node.attrs.placeholder = options.placeholder !== false
+                        if(node.children){
+                            node.children.forEach(d=>{
+                                if(d.className === "CustomImage"|| d.className === "CustomText"){
+                                    d.attrs.refreshCallback = options.imageCallback
+                                }
+                                
+                            })
+                        }
                     }
                 }
+                if( !node ){
+                    node = RenderPrimitiveAsKonva( d, {
+                        config: "default", 
+                        x: x, 
+                        y: y, 
+                        onClick: options.primitiveClick,
+                        maxHeight: 400,
+                        width: fullWidth, 
+                        padding: config.itemPadding, 
+                        placeholder: options.placeholder !== false,
+                        toggles: options.toggles,
+                        imageCallback: options.imageCallback
+                    })
+                }
+            }else{
+                col = config.columns - 1
+                x = (config.padding[3] + config.spacing[1]) + ((fullWidth + config.spacing[1]) * col)
+                y = ypos[col]
+                
+                node = addExtraNode( config, options, x, y, fullWidth)
             }
-            if( !node ){
-                node = RenderPrimitiveAsKonva( d, {
-                    config: "default", 
-                    x: x, 
-                    y: y, 
-                    onClick: options.primitiveClick,
-                    maxHeight: 400,
-                    width: fullWidth, 
-                    padding: config.itemPadding, 
-                    placeholder: options.placeholder !== false,
-                    toggles: options.toggles,
-                    imageCallback: options.imageCallback
-                })
+            
+            if( node ){
+                g.add(node)
+                ypos[col] += config.spacing[0] + (node.attrs.height ?? 0)
             }
-        }else{
-            col = config.columns - 1
-            x = (config.padding[3] + config.spacing[1]) + ((fullWidth + config.spacing[1]) * col)
-            y = ypos[col]
-
-            node = addExtraNode( config, options, x, y, fullWidth)
-        }
-
-        if( node ){
-            g.add(node)
-            ypos[col] += config.spacing[0] + (node.attrs.height ?? 0)
         }
         
 
@@ -2339,7 +2343,7 @@ registerRenderer( {type: "default",  configs: "overview"}, (primitive, options =
 
 
 })
-registerRenderer( {type: "categoryId", id: 34, configs: "overview"}, (primitive, options = {})=>{
+registerRenderer( {type: "categoryId", id: [34, 78], configs: "overview"}, (primitive, options = {})=>{
     const config = {width: 600, height: 40, padding: [2,2,2,2], fontSize: 12, ...options}
     if( options.getConfig){
         return config
@@ -2846,14 +2850,14 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             title = {content: data[0].heading}
             summary = data[0]
         }
-        const details = findSection( ["recurring topics", "themes"])
+        const details = findSection( ["recurring topics", "themes", "topics"])
         const quotes = findSection( ["quotes", "verbatim quotes", "examples", "evidence quotes"])
         const orgs = findSection( ["companies","organizations"])
         const sentiment = findSection( ["overall sentiment","sentiment"])
         let y = config.padding[0]
         let spaceY = config.fontSize * 1
 
-        if( title ){
+        if( title  && title !== summary){
             const titleText = title.content?.replace(/^title\s*[-:]\s*/i,"")
             const t = new CustomText({
                 x: config.padding[3],
@@ -2889,12 +2893,26 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             y += t.height() + spaceY
         }
         if( details ){
-            let content = details.content ? details.content.split(/\n/) : details.subsections?.map(d=>d.content)
+            let content
+            if(typeof(details.content) == "string"){
+                content = details.content.split(/\n/) 
+            }else if(Array.isArray( quotes.content)){
+                content = details.content
+            }else{
+                content = details.subsections?.map(d=>d.content)
+            }
             
-            content = content.map(d => d.replace(/^(\s*-?\s*)([^:]+):/, (match, p1, p2) => {
+            content = content.filter(d=>typeof(d)=="string").map(d => d.replace(/^(\s*-?\s*)([^:]+)[:\]]/, (match, p1, p2) => {
                 if( p2.startsWith("[")){p2 = p2.slice(1)}
                 if( p2.endsWith("]")){p2 = p2.slice(0,-1)}
-                return `**${p2.trim()}**:`
+                p2 = p2.trim()
+                if( !p2.startsWith('**')){
+                    p2 = "**" + p2
+                }
+                if( !p2.endsWith('**')){
+                    p2 = p2 + "**"
+                }
+                return p2
             })).join("\n")
             const t = new CustomText({
                 x: config.padding[3],
@@ -2913,7 +2931,14 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             y += t.height() + spaceY
         }
         if( quotes ){
-            let content = (quotes.content ? quotes.content.split(/\n/) : quotes.subsections?.map(d=>d.content)).join("\n")
+            let content
+            if(typeof(quotes.content) == "string"){
+                content = quotes.content//.split(/\n/) 
+            }else if(Array.isArray( quotes.content)){
+                content = quotes.content.join("\n")
+            }else{
+                content = quotes.subsections?.map(d=>d.content).join("\n")
+            }
             const regex = /\(?[Ff]ragments?:? ?(?:\d+(?:, ?\d+)*|\d+(?: and \d+)*|\d+)\)?/g;
             
             content = content.replace(regex, '').replace(/[ \t]{2,}/g, ' ').trim()    
@@ -3117,7 +3142,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
 })
 registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function renderFunc(primitive, options = {}){
 
-    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, maxHeight: 3000, padding: [10,10,10,10], ...options}
+    const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, padding: [10,10,10,10], ...options}
     let toggleWidth = 0
     if( options.toggles){
         toggleWidth = 26
@@ -3486,8 +3511,10 @@ export function renderPlainObject(renderOptions = {}){
                 const lineHeight = options.lineHeight ?? 1.2
                 const fontSize = section.fontSize ?? options.fontSize ?? 16
                 const fontStyle = section.fontStyle ?? options.fontStyle
-                if( section.sectionStart && idx > 0){
-                    y += fontSize * lineHeight * 0.5
+                if( idx > 0 ){
+                    //y += (section.sectionStart ? fontSize * lineHeight * 0.25 : (fontSize * lineHeight * 0.5))
+                    const incr = fontSize * lineHeight * (section.sectionStart ? 0.5 : 1) * (section.largeSpacing ? 1.5 : 0.5)
+                    y += incr
                 }
                 const t = new CustomText({
                     x: padding[3],
@@ -3503,9 +3530,14 @@ export function renderPlainObject(renderOptions = {}){
                     refreshCallback: options.imageCallback
                 })
                 g.add(t)
-                y += t.height() + (section.sectionStart ? fontSize * lineHeight * 0.25 : (fontSize * lineHeight))
+                y += t.height() 
+                if( y > height ){
+                    const delta = height - t.y()
+                    t.height(delta)
+                    break
+                }
+                idx++
             }
-            idx++
         }
     }
     return g
@@ -3514,6 +3546,12 @@ export function renderPlainObject(renderOptions = {}){
 
 registerRenderer( {type: "categoryId", id: 138, configs: "default"}, function renderFunc(primitive, options = {}){
     return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.summary})
+})
+registerRenderer( {type: "categoryId", id: 123, configs: "default"}, function renderFunc(primitive, options = {}){
+    return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.description, width: 320, padding: [20,20,20,20], imageUrl: primitive.referenceParameters?.imageUrl})
+})
+registerRenderer( {type: "categoryId", id: 122, configs: "default"}, function renderFunc(primitive, options = {}){
+    return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.overview, imageUrl: primitive.referenceParameters?.imageUrl})
 })
 registerRenderer( {type: "categoryId", id: 63, configs: "default"}, function renderFunc(primitive, options = {}){
     return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.snippet ?? primitive.text})
@@ -3578,9 +3616,25 @@ function baseImageWithText(primitive, options){
                 
             })
             g.add( img )
+        }else if( options.imageUrl ){
+                imageHeight = (config.width / 16 * 9) + 10
+                g.add( imageHelper( "/api/remoteImage?url=" + encodeURIComponent(options.imageUrl), {
+                    x: 0,
+                    y: 0,
+                    padding: config.padding,
+                    width: config.width,
+                    height: imageHeight,
+                    center: true,
+                    maxScale: 1,
+                    scaleRatio: 2,
+                    fit:"cover",
+                    imageCallback: options.imageCallback,
+                    placeholder: options.placeholder !== false
+                }) )
+
         }
 
-        const textToShow = options.allText ? options.textField :options.textField.slice(0,150)
+        const textToShow = options.allText ? options.textField :options.textField?.slice(0,150) ?? ""
 
         const t = new CustomText({
             x: config.padding[3],
@@ -4478,10 +4532,7 @@ function renderDefaultActionPrimitive(primitive, options){
         return g
 }
 
-function renderReactSVGIcon( icon, options = {} ){
-    const finalProps = {
-        ...options.props,
-    }
+export function convertIconForKonva( icon, options ){
     if( typeof(icon) === "string"){
     }else if( typeof(icon) === "function"){
         icon = renderToString( icon(options.props))
@@ -4508,6 +4559,12 @@ function renderReactSVGIcon( icon, options = {} ){
         width = nWidth
         height = nHeight
     }
+    return {icon, ox, oy, width, height}
+}
+
+
+function renderReactSVGIcon( _icon, options = {} ){
+    const {icon, ox, oy, width, height} = convertIconForKonva( _icon, options)
     const o = imageHelper( 'svg:' + icon, {
         x: (options.x ?? 0) + ox,
         y: (options.y ?? 0) + oy,
@@ -5789,14 +5846,21 @@ function renderSubCategoryChart( title, data, options = {}){
     if( showLegend){
         const legend = renderLegend( data,{
                             ...options,
-                            fontSize: config.fontSize * 0.8,
-                            x: innerPadding[3],
-                            y: ly,
+                            fontSize: options.legendSize ?? (config.fontSize * 0.8),
+                            x: options.legendOnRight ? itemSize : innerPadding[3],
+                            y: options.legendOnRight ? 0 : ly,
                             itemSize,
                             colors
         })
         sg.add( legend)
-        ly += legend.height()
+        if( options.legendOnRight ){
+            r.width( legend.x() + legend.width())
+            sg.width( legend.x() + legend.width())
+            legend.y( pieY + pieMid - (legend.height() / 2))
+
+        }else{
+            ly += legend.height()
+        }
     }
     ly += innerPadding[2]
     sg.height( ly )
@@ -5816,7 +5880,7 @@ function renderLegend( data, {colors, itemSize, ...options} ){
     const sg = new Konva.Group({
         x: options.x,
         y: options.y,
-        width: options.itemSize,
+        width: itemSize,
         height: 0
     })
     
@@ -6033,6 +6097,7 @@ registerRenderer( {type: "default", configs: "chart"}, (primitive, options = {})
     })
     g.add(sg)
     
+    g.width(sg.width())
     g.height(sg.height())
     return g
 })
@@ -6171,7 +6236,7 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         height: config.itemSize
     })
     const sg = renderSubCategoryChart("", Object.values(values), {
-        x: config.itemSize * (renderOptions.show_legend ? 0.1 : 0), 
+        x: 0,//config.itemSize,// * (renderOptions.show_legend ? 0.1 : 0), 
         y: 0, 
         itemSize: config.itemSize * (renderOptions.show_legend ? 0.8 : 1), 
         innerPadding: config.padding, 
@@ -6182,12 +6247,16 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         max,
         min,
         count,
-        horizontalLegend: true,
+        legendSize: renderOptions.legend_size,
+        legendOnRight: renderOptions.show_legend === "right",
+        horizontalLegend: renderOptions.show_legend !== "right",
         reversePalette: renderOptions.reverse_palette,
         hideLegend: !renderOptions.show_legend,
         sort: "none"
     })
     g.add(sg)
+    g.width(sg.width())
+    g.height(sg.height())
     if( options.getConfig){
         return {
             width: sg.width(),
@@ -7584,7 +7653,7 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     const rowY = rowHeights.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + rowHeights[i - 1] + spacing : 0), acc), []);
 
 
-    const headers = prepareHeaders({columns: columns, rows: rows, columnWidths, rowHeights, columnX, rowY, spacing, renderOptions, refreshCallback: imageCallback})
+    const headers = prepareHeaders({columns: columns, rows: showRowheaders ? rows : [], columnWidths, rowHeights, columnX, rowY, spacing, renderOptions, refreshCallback: imageCallback})
     let footers
     if( (data.totals.columns && renderOptions.show_column_totals) || (data.totals.rows  && renderOptions.show_row_totals)){
         footers = prepareHeaders({
@@ -7705,6 +7774,8 @@ function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY,
     let columnLabelAsText = true
     let rowLabelAsText = true
 
+    if( columns.length === 0 || (columns.length === 1 && !columns[0].label)  ){includeColumns = false}
+    if( rows.length === 0 || (rows.length === 1 && !rows[0].label)){includeRows = false}
     const renderedColumns = includeColumns && new Konva.Group({x: 0, y: 0})
     const renderedRows = includeRows && new Konva.Group({x: 0, y: 0})
 
