@@ -419,6 +419,9 @@ _setTextData() {
         for(const sub of section.children ){
           processSection( sub, false, false )
         }
+        if(this.textArr[this.textArr.length - 1]) {
+          this.textArr[this.textArr.length - 1].lastInParagraph = true;
+        }
       }
 
       startIndent = preIndent
@@ -545,6 +548,7 @@ _setTextData() {
         let fragmentIdx = 0
         for(const frag of children ){
           if( frag.type === "unordered-list" || section.type === "ordered-list"){
+            console.error("THIS IS BEING CALLED")
             const px = "" + lineHeightPx
             if( !indentWidths[px] ){
               getDummyContext().font = (large ? this.headlineFont : this.standardFont)
@@ -594,9 +598,9 @@ _setTextData() {
               markAsLastParagraph = true
             }
           }
-          if(markAsLastParagraph && this.textArr[this.textArr.length - 1]) {
-            this.textArr[this.textArr.length - 1].lastInParagraph = true;
-          }
+        }
+        if(markAsLastParagraph && this.textArr[this.textArr.length - 1]) {
+          this.textArr[this.textArr.length - 1].lastInParagraph = true;
         }
       }
     }

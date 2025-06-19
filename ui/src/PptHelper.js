@@ -226,9 +226,9 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     let flush = false
                     let markEndList = d.lastInParagraph
                     if( d.bullet ){
-                        if( bulletNeedsFlushing ){
+                        if( !lastBullet ){
                             flush = true
-                            lastBullet = true
+                            //lastBullet = true
                             //markEndList = true
                         }
                         //bulletNeedsFlushing = true
@@ -241,9 +241,9 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                                 indentLevel--
                                 flush = true
                             }else{
-                                if( lastWasLastInPara ){
+                                //if( lastWasLastInPara ){
                                     flush = true
-                                }
+                                //}
                             }
                             indentTracker = d.indent
                         }else{

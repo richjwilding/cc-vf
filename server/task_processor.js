@@ -1824,7 +1824,7 @@ export async function getFragmentsForQuery( primitive, query,  {sourceIds = [], 
     if( sourceIds?.length > 0 || fromPrimitive){
         let inScopeIds = []
         if( fromPrimitive ){
-            const [items, _] = await getDataForProcessing( primitive )
+            const [items, _] = await getDataForProcessing( primitive, {}, undefined, {forceImport: true} )
             if( items?.length ){
                 inScopeIds = items.map(d=>d.id)
             }
@@ -2050,6 +2050,10 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                         console.log(`Got revised back`)
                         if( reworked?.summary?.structure){
                             results.summary.structure = reworked.summary.structure
+                        }else if( reworked?.structure){
+                            results.summary.structure = reworked.structure
+                        }else{
+                            logger.error(`Cant find result `, reworked)
                         }
                     }
                     

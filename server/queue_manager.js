@@ -125,7 +125,7 @@ class QueueManager {
                                 }
                             }else if (message.type === 'endJob') {
                                 
-                                logger.debug(`Job has ended in worker ${message.queueName} - ${message.jobId} ${this.type}`)
+                                logger.debug(`Job has ended in worker ${message.queueName} - ${message.jobId} ${this.type} (${message.requestId})`)
                                 workerState.running.delete(`${message.queueName}/${message.jobId}/${message.token}`)
                                 
                                 await this.resetChildWaiting(message.queueName, message.jobId)
@@ -148,7 +148,7 @@ class QueueManager {
                                         }
                                     
                                 }
-                                logger.debug(`Sending notification from ${this.type} ${message.jobId}`)
+                                logger.debug(`Sending notification from ${this.type} ${message.jobId} (${message.requestId})`)
                                 const childResponse = await this.sendNotification(
                                     message.jobId,{
                                         result: message.result,
@@ -168,7 +168,7 @@ class QueueManager {
                                         const [qId, qType] = parentJob.queueName.split("-")
                                         const qo = this.getQueueObject(qType)
                                         
-                                        logger.info(`Sending notification for child ${qType} from ${this.type} ${parentJob.id} ${message.jobId}`)
+                                        logger.info(`Sending notification for child ${qType} from ${this.type} ${parentJob.id} ${message.jobId} (${message.requestId})`)
                                         await qo.sendNotification(
                                             parentJob.id,
                                             {
@@ -339,8 +339,11 @@ class QueueManager {
                     throw "Cant find worker"
                 }
             }else{
-                logger.debug(`No parent job - running from main thread`)
-                this.addJob( options.workspaceId, data, options)
+                logger.debug(`No parent job - running from main thread`);
+                (async () => {
+                    await this.addJob( options.workspaceId, data, options)
+                })();
+                resolve()
             }
         
         });
@@ -386,7 +389,7 @@ class QueueManager {
           
               setTimeout(() => {
                 if (this.pendingRequests.has(requestId)) {
-                  reject(new Error('endJob timed out'));
+                  reject(new Error(`endJob timed out ${requestId}`));
                   this.pendingRequests.delete(requestId);
                 }
               }, 15000);
@@ -395,7 +398,7 @@ class QueueManager {
 
         this.endJobResponse = async (message) => {
             const { requestId, status, jobId, error } = message;
-            logger.verbose(`Handling endJob response ${requestId} for ${this.type} - ${jobId}`)
+            logger.debug(`Handling endJob response ${requestId} for ${this.type} - ${jobId}`)
             const { resolve, reject } = this.pendingRequests.get(requestId) || {};
             if (resolve) {
                 resolve(jobId);

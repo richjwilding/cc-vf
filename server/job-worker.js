@@ -6,7 +6,7 @@ import { getLogger } from './logger';
 import "./action_register"
 const asyncLocalStorage = require('./asyncLocalStorage');
 
-const logger = getLogger('job-worker', 'debug'); // Debug level for moduleA
+const logger = getLogger('job-worker', 'info'); // Debug level for moduleA
 
 let queueObject
 let isTerminating = false;
@@ -42,7 +42,7 @@ parentPort.on('message', ({type, ...data}) => {
 
 messageHandler['endJobResponse'] = async (message)=>{
     if( queueObject ){
-        console.log(`Forwarding endJob response to ${message.queueType} from ${workerData.type}`)
+        logger.debug(`Forwarding endJob response ${message.requestId} to ${message.queueType} from ${workerData.type}`)
         const q = (workerData.type === message.queueType) ? queueObject : await getQueueObject(message.queueType)
         if( q.default().endJobResponse ){
             q.default().endJobResponse(message)
@@ -138,10 +138,8 @@ async function getQueueObject(type) {
         try {
             logger.info(`\n\nThread running for ${workerData.queueName}`, {  type: workerData.type, attemptsMade: job.attemptsMade, token });
             if( job.attemptsMade > 1 ){
-                logger.info(`===> Sending endJob message ${job.id}`, { type: workerData.type });
-                //parentPort.postMessage({ result: true, success: true, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
+                logger.debug(`===> Sending endJob message B ${job.id}`, { type: workerData.type });
                 await queueObject.default().endJob({ success: true, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token })
-                logger.info(`---- back`)
                 return
             }
             parentPort.postMessage({ type: "startJob", queueName, jobId: job.id, token: token });
@@ -170,7 +168,7 @@ async function getQueueObject(type) {
                 }
                 const store = asyncLocalStorage.getStore();
                 store.set('parentJob', job);
-                logger.info(`---- ${queueName} set parentJob to ${job.id}`)
+                logger.debug(`---- ${queueName} set parentJob to ${job.id}`)
     
                 let result, success
                 try {
@@ -182,7 +180,6 @@ async function getQueueObject(type) {
                     logger.debug(e.stack)
                     //parentPort.postMessage({ result, success: false, error: e, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
                     await queueObject.default().endJob({ result, success: false, error: e, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token })
-                logger.info(`---- back`)
                     throw e;
                 } finally {
                     clearInterval(lockExtension);
@@ -233,9 +230,8 @@ async function getQueueObject(type) {
                     }
                     result = "Reschedule requested"
                 }
-                logger.info(`===> Sending endJob message ${job.id}`, { type: workerData.type });
+                logger.debug(`===> Sending endJob message A ${job.id}`, { type: workerData.type });
                 await queueObject.default().endJob({ success: true, error: result?.error, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token })
-                logger.info(`---- back`)
 
 //                parentPort.postMessage({ /*result,*/ success: true, error: result?.error, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
             });
