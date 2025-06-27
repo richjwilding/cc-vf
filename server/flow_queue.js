@@ -1,6 +1,7 @@
+import { child } from 'winston';
 import { BaseQueue } from './base_queue';
 import { getLogger } from './logger';
-import { addRelationship, dispatchControlUpdate, fetchPrimitive, primitiveParentsOfType, removeRelationship } from './SharedFunctions';
+import { addRelationship, dispatchControlUpdate, fetchPrimitive, getConfig, primitiveParentsOfType, removeRelationship } from './SharedFunctions';
 import { runFlow, runFlowInstance, scaffoldWorkflow, runStep } from './workflow';
 
 const logger = getLogger('case-queue'); // Debug level for moduleA
@@ -69,12 +70,30 @@ class FlowQueueClass extends BaseQueue {
                     update.error = "child_error"
                 }
                 if( handleError ){
-                    if( primitive.referenceParameters?.fcHandleError === "stop" ){
+                    const primitiveConfig = await getConfig( primitive )
+                    if( primitiveConfig?.fcHandleError === "stop" ){
                         update.status = "error"
-                    }else if( primitive.referenceParameters?.fcHandleError === "skip" ){
+                    }else if( primitiveConfig?.fcHandleError === "skip" ){
                         update.status = "error_skip"
                     }else{
-                        update.status = "error_ignore"
+                        const isNested = primitive.type === "search"
+                        if( isNested && (primitiveConfig?.fcHandleError?.startsWith("stop_") || primitiveConfig?.fcHandleError?.startsWith("skip_"))){
+                            const targetPercentage = parseInt(primitiveConfig.fcHandleError.split("_")[1]) / 100
+                            const children = (primitive.primitives.origin ?? []).length
+                            const targetChildrenCount = Math.floor( children * targetPercentage )
+                            const actualChildErrors = Object.values(update.child ?? {}).filter(d=>d.error).length
+                            logger.info(`Inspecting child error rate ${actualChildErrors} (${children} total / target ${targetChildrenCount} - ${targetPercentage * 100}%)`)
+                            if( actualChildErrors >= targetChildrenCount ){
+                                if( primitiveConfig?.fcHandleError?.startsWith("stop_" )){
+                                    update.status = "error"
+                                }else{
+                                    update.status = "error_skip"
+                                }
+                                logger.info(` - Over threshold for error setting to ${update.status}`)
+                            }
+                        }else{
+                            update.status = "error_ignore"
+                        }
                     }
                 }
                 await dispatchControlUpdate(primitive.id, "processing.flow", update)

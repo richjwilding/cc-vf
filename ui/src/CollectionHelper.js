@@ -4,6 +4,7 @@ import Panel from "./Panel"
 import PrimitiveConfig from "./PrimitiveConfig"
 import UIHelper from "./UIHelper"
 import { roundCurrency } from "./SharedTransforms"
+import { Temporal } from "@js-temporal/polyfill"
 
 
 class CollectionUtils{
@@ -979,7 +980,7 @@ class CollectionUtils{
         }
         return out
     }
-    static createDataTableForPrimitive(primitive, config, items ){
+    static createDataTableForPrimitive(primitive, config, items){
         const primitiveConfig = primitive.getConfig
         items = items ?? primitive.itemsForProcessing
         const columns = this.primitiveAxis(primitive, "column", items)
@@ -994,7 +995,7 @@ class CollectionUtils{
         return this.createDataTable( items, {columns, rows, viewFilters, config, hideNull, alreadyFiltered: true})
 
     }
-    static createDataTable(items, {columns, rows, viewFilters, alreadyFiltered, hideNull, config}){
+    static createDataTable(items, {columns, rows, viewFilters, alreadyFiltered, hideNull, config= {}}){
         const mainstore = MainStore()
         let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columns, rows, viewFilters, [], undefined )
 
@@ -1012,7 +1013,7 @@ class CollectionUtils{
             }
         })
         const {column: columnExtents, row: rowExtents, ...otherExtents} = extents
-        const defs = {}
+        const defs = {hideNull}
         if( columns ){
             defs.columns = columns
         }
@@ -1028,11 +1029,13 @@ class CollectionUtils{
                 defs.allocations = [d]
                 const field = "filterGroup0"
                 if( otherExtents[field] && d.filter){
+                    const filterToCheck = typeof( d.filter[0] ) === "object" ? d.filter.map(d=>d ? d.idx : d) : d.filter
+
                     otherExtents[field]= otherExtents[field].filter(f=>{
                         if( f.idx === "_N_" && (d.filter.includes(undefined) || d.filter.includes(null))){
                             return false
                         }
-                        return !d.filter.includes(f.idx)
+                        return !filterToCheck.includes(f.idx)
                     })
                 }
                 return {...d, field}
@@ -1051,6 +1054,13 @@ class CollectionUtils{
             cells: [],
             ids: Array.from(new Set(filtered.map(d=>d.primitive.id) ))
         }
+        if( config.timeseries ){
+            table.ranges.timeseries = {
+                time: {rows: {idx: {}, order: []}, columns: {idx: {}, order: []}, table: {min: Infinity, max: -Infinity}, table: {min: Infinity, max: -Infinity}},
+                values: {rows: {order: [], idx: {}}, columns: {order: [], idx: {}}}
+            }
+            table.totals.timeseries = {table: 0, rows: {idx: {}, order: []}, columns: {idx: {}, order: []}}
+        }                   
         if( allocations?.length > 0 ){
             table.allocations = {}
             allocations.forEach((d)=>{
@@ -1110,11 +1120,145 @@ class CollectionUtils{
                             cell.allocations[d.field] = otherExtents[d.field].map((c)=>({idx: c.idx, label: c.label, count: 0, items: []}))
                             const pos = Object.fromEntries(cell.allocations[d.field].map((d,i)=>[d.idx, i]))
                             for(const item of subList){
-                                cell.allocations[d.field][pos[item[d.field]]].count++
-                                cell.allocations[d.field][pos[item[d.field]]].items.push( item.primitive)
+                                if( cell.allocations[d.field][pos[item[d.field]]] ){
+                                    cell.allocations[d.field][pos[item[d.field]]].count++
+                                    cell.allocations[d.field][pos[item[d.field]]].items.push( item.primitive)
+                                }else{
+                                    console.warn(`Couldnt find ${item[d.field]}`)
+                                }
                             }
                         }
                     })
+                }
+                if( config.timeseries ){
+                    const resScale = {
+                        "second": 1000,
+                        "minute": 1000 * 60,
+                        "hour": 1000 * 60 * 60,
+                        "day": 1000 * 60 * 60 * 24,
+                        "week": 1000 * 60 * 60 * 24 * 7,
+                        "month": 1000 * 60 * 60 * 24 * 365 / 12,
+                        "year": 1000 * 60 * 60 * 24 * 365 ,
+                    }
+                    //const series = config.timeseries.series
+                    const series = [{name: "Total", type: "count", cumulative: true}]
+                    const timeOriginField = config.timeseries.timeOrigin ?? "posted"
+                    const objectField = config.timeseries.timeField ?? "comment_data"
+                    const timeField = config.timeseries.timeField ?? "created_at"
+                    const resolution = config.timeseries.resolution ?? "day"
+                    let startDate = 0, endDate
+                    if( config.timeseries.delta){
+                        if( config.timeseries.limitTicks){
+                            endDate = resScale[resolution ?? "day"] * config.timeseries.limitTicks
+                        }
+                    }else{
+                        startDate = config.timeseries.startDate ? Date.parse(config.timeseries.startDate) : undefined
+                        endDate = config.timeseries.endData ? Date.parse(config.timeseries.endData) : undefined
+                    }
+                    
+                    table.ranges.timeseries.time.rows.idx[row.idx] ||= {min: Infinity, max: -Infinity}
+                    table.ranges.timeseries.time.columns.idx[column.idx] ||= {min: Infinity, max: -Infinity}
+
+                    let interpolate 
+                    cell.timeseries ||= []
+                    for(const item of cell.items){
+                        const startTime = PrimitiveConfig.decodeParameter(item.referenceParameters, timeOriginField) ?? []
+                        const sourceObjects = PrimitiveConfig.decodeParameter(item.referenceParameters, objectField) ?? []
+                        const incValue = config.timeseries.delta ? (cell.count === 0 ? 0 : 1 / cell.count) : 1
+
+
+                        for( const sourceObject of [sourceObjects].flat()){
+                            let itemDate = PrimitiveConfig.decodeParameter(sourceObject, timeField) 
+                            if( typeof(itemDate) === "string"){
+                                try{
+                                    itemDate = Date.parse(itemDate)
+                                }catch(e){
+                                    itemDate = undefined
+                                }
+                            }
+                            if( !itemDate ){continue}
+
+                            if(config.timeseries.delta){
+                                const diff = moment(itemDate).diff(startTime, resolution)
+                                itemDate =  diff.valueOf() * resScale[resolution]
+                            }else{
+                                itemDate = moment(itemDate).startOf(resolution).valueOf()
+                            }
+                            
+                            if( itemDate < table.ranges.timeseries.time.table.min){
+                                table.ranges.timeseries.time.table.min = itemDate
+                            }
+                            if( itemDate > table.ranges.timeseries.time.table.max){
+                                table.ranges.timeseries.time.table.max = itemDate
+                            }
+
+                            if( startDate && (itemDate < startDate)){continue}
+                            if( endDate && (itemDate > endDate)){
+                                if( interpolate === undefined || interpolate?.date > itemDate ){
+                                    interpolate = {
+                                        date: itemDate,
+                                        value: incValue
+                                    }
+                                }else if( interpolate?.date === itemDate ){
+                                    interpolate.value += incValue
+                                }
+                                continue
+                            }
+
+                            if( itemDate < table.ranges.timeseries.time.table.min){
+                                table.ranges.timeseries.time.table.min = itemDate
+                            }
+                            if( itemDate > table.ranges.timeseries.time.table.max){
+                                table.ranges.timeseries.time.table.max = itemDate
+                            }
+
+                            if( itemDate < table.ranges.timeseries.time.columns.idx[column.idx].min){
+                                table.ranges.timeseries.time.columns.idx[column.idx].min = itemDate
+                            }
+                            if( itemDate > table.ranges.timeseries.time.columns.idx[column.idx].max){
+                                table.ranges.timeseries.time.columns.idx[column.idx].max = itemDate
+                            }
+
+                            if( itemDate < table.ranges.timeseries.time.rows.idx[row.idx].min){
+                                table.ranges.timeseries.time.rows.idx[row.idx].min = itemDate
+                            }
+                            if( itemDate > table.ranges.timeseries.time.rows.idx[row.idx].max){
+                                table.ranges.timeseries.time.rows.idx[row.idx].max = itemDate
+                            }
+
+                            series.forEach((d,i)=>{
+                                cell.timeseries[i] ||= {}
+                                if( d.type === "count"){
+
+                                    table.totals.timeseries.rows.idx[row.idx] ||= []
+                                    table.totals.timeseries.rows.idx[row.idx][i] ||= 0
+                                    table.totals.timeseries.rows.idx[row.idx][i] += incValue
+
+                                    table.totals.timeseries.columns.idx[column.idx] ||= []
+                                    table.totals.timeseries.columns.idx[column.idx][i] ||= 0
+                                    table.totals.timeseries.columns.idx[column.idx][i] += incValue
+
+                                    cell.timeseries[i][itemDate] ||= {count: 0, items: []}
+                                    cell.timeseries[i][itemDate].count += incValue
+                                    cell.timeseries[i][itemDate].items.push( sourceObject )
+                                }
+                            })
+                        }
+                    }
+                    if( interpolate && config.timeseries.cumulative){
+                        if( series.length > 1){console.warn("INTERPOLATION NOT IMPLLEMENETED FOR MULTIPLE SERIES")}
+                        const tx = endDate
+                        if( cell.timeseries[0][ tx ] == undefined){
+                            const [iT,iData] = Object.entries(cell.timeseries[0] ?? {}).sort((a,b)=>a[0] - b[0])[0]
+                            const x1 = parseInt(iT)
+                            const y1 = iData.count
+                            const x2 = interpolate.date
+                            const y2 = interpolate.value
+                            const ty = y1 + ((y2 - y1) / (x2 - x1) * (tx - x1))
+                            cell.timeseries[0][ tx ] = {count: ty, interpolated: true, items: []}
+                        }
+                    }
+
                 }
                 table.cells.push(cell)
                 cellMap[idxId] = cell
@@ -1125,7 +1269,9 @@ class CollectionUtils{
         function orderAxis( axis, order, name){
 
             let orderMap
-            if( Array.isArray(order) ){
+            if( order === undefined){
+                orderMap = new Map(axis.sort((a,b)=>(a.label ?? "").localeCompare(b.label ?? {})).map((d,i)=>[d,i]))
+            }else if( Array.isArray(order) ){
                 orderMap = new Map(
                     order.map((idx, position) => [idx, position])
                 )
@@ -1182,28 +1328,78 @@ class CollectionUtils{
             }
         }
 
-        if( columns.order ){
-            orderAxis( finalColumns, columns.order, "columns")
-        }
-        if( rows.order ){
-            orderAxis( finalRows, rows.order, "rows")
-        }
+        orderAxis( finalColumns, columns.order, "columns")
+        orderAxis( finalRows, rows.order, "rows")
         finalRows.forEach((row,rIdx)=>{
-            const rowList = filtered.filter((item=>Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx))
             finalColumns.forEach((column,cIdx)=>{
                 const id = `${cIdx}-${rIdx}`
                 const idxId = `${column.idx}-${row.idx}`
+                const cell = cellMap[idxId]
+                cell.id = id
+                cell.cIdx = cIdx
+                cell.rIdx= rIdx
                 
                 table.totals.rows.order[rIdx] = table.totals.rows.idx[row.idx]
                 table.totals.columns.order[cIdx] = table.totals.columns.idx[column.idx]
                 
                 table.ranges.rows.order[rIdx] ||= table.ranges.rows.idx[row.idx]
                 table.ranges.columns.order[cIdx] ||= table.ranges.columns.idx[column.idx]
+                if( config.timeseries ){
+                    if( config.timeseries.cumulative ){
+                        cell.timeseries_base = cell.timeseries.slice()
+                        cell.timeseries = cell.timeseries.map(series=>{
+                            const entries = Object.entries(series ?? {}).sort((a,b)=>parseInt(a[0]) - parseInt(b[0]))
+                            const cumulative = {};
+                            let total = 0;
+                            for (const [key, { count, ...rest }] of entries) {
+                                total += count 
+                                cumulative[key] = { count: total, ...rest };
+                            }
+                            return cumulative
+                        })
+                        
+                    }
+
+                    table.ranges.timeseries.values.rows.order[rIdx] ||= []
+                    table.ranges.timeseries.values.rows.idx[row.idx] ||= []
+                    table.ranges.timeseries.values.columns.order[cIdx] ||= []
+                    table.ranges.timeseries.values.columns.idx[column.idx] ||= []
+                    cell.timeseries.map((series, sIdx)=>{
+                        const values = Object.values(series ?? {}).map(d=>d.count)
+                        const maxValue = values.reduce((a,c)=> c > a ? c : a, -Infinity)
+                        const minValue = values.reduce((a,c)=> c < a ? c : a, Infinity)
+
+
+                        table.ranges.timeseries.values.rows.order[rIdx][sIdx] ||= {min: Infinity, max: -Infinity}
+                        table.ranges.timeseries.values.rows.idx[row.idx][sIdx] ||= {min: Infinity, max: -Infinity}
+                        table.ranges.timeseries.values.columns.order[cIdx][sIdx] ||= {min: Infinity, max: -Infinity}
+                        table.ranges.timeseries.values.columns.idx[column.idx][sIdx] ||= {min: Infinity, max: -Infinity}
+
+                        if( minValue < table.ranges.timeseries.values.rows.order[rIdx][sIdx].min ){
+                            table.ranges.timeseries.values.rows.order[rIdx][sIdx].min = minValue
+                            table.ranges.timeseries.values.rows.idx[row.idx][sIdx].min = minValue
+                        }
+                        if( maxValue > table.ranges.timeseries.values.rows.order[rIdx][sIdx].max ){
+                            table.ranges.timeseries.values.rows.order[rIdx][sIdx].max = maxValue
+                            table.ranges.timeseries.values.rows.idx[row.idx][sIdx].max = maxValue
+                        }
+                        if( minValue < table.ranges.timeseries.values.columns.order[cIdx][sIdx].min ){
+                            table.ranges.timeseries.values.columns.order[cIdx][sIdx].min = minValue
+                            table.ranges.timeseries.values.columns.idx[column.idx][sIdx].min = minValue
+                        }
+                        if( maxValue > table.ranges.timeseries.values.columns.order[cIdx][sIdx].max ){
+                            table.ranges.timeseries.values.columns.order[cIdx][sIdx].max = maxValue
+                            table.ranges.timeseries.values.columns.idx[column.idx][sIdx].max = maxValue
+                        }
+                    })
+
+                    table.ranges.timeseries.time.rows.order[rIdx] ||= table.ranges.timeseries.time.rows.idx[row.idx]
+                    table.ranges.timeseries.time.columns.order[cIdx] ||= table.ranges.timeseries.time.columns.idx[column.idx]
+
+                    table.totals.timeseries.columns.order[cIdx] = table.totals.timeseries.columns.idx[column.idx]
+                    table.totals.timeseries.rows.order[rIdx] = table.totals.timeseries.rows.idx[row.idx]
+                }
                 
-                const cell = cellMap[idxId]
-                cell.id = id
-                cell.cIdx = cIdx
-                cell.rIdx= rIdx
             })
         })
         return table
@@ -1404,7 +1600,7 @@ class CollectionUtils{
 
         if( options.columns  ){
             outColumns = options.columns.filter(d=>{
-                if( d.idx === "_N_" && (colFilter.includes(undefined) || colFilter.includes(null))){
+                if( (d.idx === "_N_" || d.idx === undefined) && (colFilter.includes(undefined) || colFilter.includes(null))){
                     return false
                 }
                 return !colFilter.includes(d.idx)
@@ -1412,7 +1608,7 @@ class CollectionUtils{
         }
         if( options.rows  ){
             outRows = options.rows.filter(d=>{
-                if( d.idx === "_N_" && (rowFilter.includes(undefined) || rowFilter.includes(null))){
+                if( (d.idx === "_N_" || d.idx === undefined) && (rowFilter.includes(undefined) || rowFilter.includes(null))){
                     return false
                 }
                 return !rowFilter.includes(d.idx)

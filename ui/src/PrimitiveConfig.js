@@ -174,6 +174,7 @@ const PrimitiveConfig = {
         EVAL_CATEGORIZER: 144,
         SCORE: 120,
         SHAPE_ELEMENT: 145,
+        TWITTER_POST: 149
 
     },
     "metadata":{
@@ -493,6 +494,24 @@ const PrimitiveConfig = {
                             {id:true, title: "Yes"}
                         ]
                     },
+                    "show_row_headers":{
+                        type: "option_list",
+                        title: "Row heaaders",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_column_headers":{
+                        type: "option_list",
+                        title: "Column heaaders",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
                     "show_row_totals":{
                         type: "option_list",
                         title: "Row totals",
@@ -718,6 +737,16 @@ const PrimitiveConfig = {
                             {id:true, title: "Yes"}
                         ]
                     },
+                    "order":{
+                        type: "option_list",
+                        title: "Order by",
+                        default: false,
+                        options: [
+                            {id:false, title: "None"},
+                            {id:"high_to_low", title: "Count (High to low)"},
+                            {id:"low_to_high", title: "Count (Low to high)"}
+                        ]
+                    },
                     "calcRange":{
                         type: "option_list",
                         title: "Relative scale",
@@ -750,6 +779,24 @@ const PrimitiveConfig = {
                             {id:false, title: "No"},
                             {id:true, title: "Below"},
                             {id:"right", title: "On right"}
+                        ]
+                    },
+                    "show_row_headers":{
+                        type: "option_list",
+                        title: "Row heaaders",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_column_headers":{
+                        type: "option_list",
+                        title: "Column heaaders",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
                         ]
                     },
                     "show_row_totals":{
@@ -896,7 +943,7 @@ const PrimitiveConfig = {
             if( Array.isArray(val)){
                 return  {type: "segment_filter", value: val,  pivot: option.access, relationship: option.relationship, invert}
             }
-            return  {type: "segment_filter", value: val.idx, sourcePrimId: val.sourcePrimId, pivot: option.access, relationship: option.relationship, invert}
+            return  {type: "segment_filter", value: val.idx ?? val, sourcePrimId: val.sourcePrimId, pivot: option.access, relationship: option.relationship, invert}
         }else if( option.type === "parameter"){
             if( val?.bucket_min  !== undefined ){
                 return  {type: "parameter", param: option.parameter, value: {idx: val.idx, min_value: val.bucket_min, max_value: val.bucket_max}, pivot: option.access, relationship: option.relationship, invert}

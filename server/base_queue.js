@@ -63,24 +63,30 @@ export class BaseQueue {
     }
 
     async notify(job, result, {childJob, parentJob}) {
-        let status 
+        let status , error
         let notifyResponse
         if( result.started){
             status = "running"
+        }else if(result.error ){
+            status = "error"
+            error = result.error
+
         }else if(result.success === true){
             status = "completed"
-        }else if(result.success === false){
-            status = "failed"
         }
-        this.logger.info("Got notification", { id:job.id, status, childJob, mode: job.mode });
+        this.logger.info("Got notification", { id:job.id, status, error, childJob, mode: job.mode });
 
         const prim = await fetchPrimitive( job.id )
         if( prim ){
             const update = {
                 ...(prim.processing?.[job.mode] ?? {}),
                 status, 
+                error,
                 [status]: new Date().toISOString(), 
                 track: job.id
+            }
+            if( result.error){
+
             }
             await dispatchControlUpdate(job.id, `processing.${job.mode}`, update);
 

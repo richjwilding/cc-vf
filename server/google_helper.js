@@ -25,6 +25,7 @@ import { HttpsProxyAgent } from "https-proxy-agent";
 import { fetchRedditThreadAsText } from "./reddit_helper.js";
 import { fetchSERPViaBrightData, fetchViaBrightDataProxy } from "./brightdata.js";
 import parse from "node-html-parser";
+import { env } from "process";
 
 const TurndownService = require('turndown');
 let turndownService = new TurndownService();
@@ -40,16 +41,16 @@ function extractSemantic(html, selectors = ['main','article']) {
 
 
 turndownService.addRule('skipJunk', {
-    filter: ['input', 'img', 'button','script', 'style', 'noscript', 'iframe', 'header'],
+    filter: ['input', 'img', 'button','script', 'style', 'iframe', 'header'],
     replacement: () => ""
   });
-function extractMarkdown(html) {
+function extractMarkdown(html, fullHTML = false) {
     function extractTitle(html) {
         const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
         return match ? match[1].trim() : '';
       }
     
-    const semanticHtml = extractSemantic(html);
+    const semanticHtml = fullHTML ? html  : extractSemantic(html) 
     let fullText = turndownService.turndown( semanticHtml );
 
     if (fullText) {
@@ -290,7 +291,7 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF, fo
             }else if( url && (matches = url.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/))){
                 text = (await extractPlainTextFromPdf( id, req ))?.plain
             }else{
-                const data = await fetchURLPlainText(url, false, true )
+                const data = await fetchURLPlainText(url, false, true, primitive.referenceParameters?.full_html )
                 if( data?.fullText ){
                     text = data?.fullText
                 }
@@ -2302,31 +2303,109 @@ async function tryFetchAsTextViaProxy(url, options = {}) {
   }
 }
 
+export async function extractURLsFromPageUsingScrapingBrowser(pageUrl, options) {
+  const SBR_WS_ENDPOINT = process.env.BRIGHTDATA_SCRAPER_PUPPETEER//`wss://brd-customer-${username}-zone-${zone}:${password}@brd.superproxy.io:9222`;
+  // Connect to Bright Data’s Scraping Browser via Puppeteer
+  const browser = await puppeteer.connect({ browserWSEndpoint: SBR_WS_ENDPOINT });
+  try {
+    const page = await browser.newPage();
+
+    // Go to target URL (wait until network is idle to ensure JS-rendered links are loaded)
+    await page.goto(pageUrl, {
+      waitUntil: 'networkidle2',
+      timeout: 90000, 
+    });
+    const mainLinks = await page.$$eval('a', anchors =>
+        anchors
+          .map(a => ({ url: a.href, text: a.textContent.trim() }))
+          .filter(l => l.url)  // drop any empty hrefs
+        );
+    console.log(mainLinks)
+    if (mainLinks.length === 0) {
+          // 2) No links on the base page → scrape all child frames
+          for (const frame of page.frames()) {
+            console.log(`Cheking ${frame.url()}`)
+              if (frame === page.mainFrame()) continue;  // skip the main frame
+              try {
+                await frame.waitForFunction(
+                  () => document.readyState === 'complete',
+                  { timeout: 10000 }
+                );
+              } catch (err) {
+                console.warn(`Frame ${frame.url()} did not fully load in time, continuing…`);
+              }
+
+              const links = await frame.$$eval('a', anchors =>anchors.map(a => ({ url: a.href, text: a.textContent.trim() })).filter(l => l.url));
+            console.log(links)
+            console.log( await frame.$$eval('a', anchors =>anchors) )
+            if (links.length > 0) {
+                links.forEach(l => l.frameUrl = frame.url());
+                mainLinks.push(...links);
+            }
+        }
+    }
+    
+    console.log(mainLinks)
+    const finalLinks = cleanupExtractedURLs( mainLinks, pageUrl, options )
+  
+    return finalLinks;
+  } finally {
+    await browser.close();
+  }
+}
+function cleanupExtractedURLs( links, baseUrl, options){
+    const fwd = baseUrl?.slice(-1) === "/" ? "" : "/"
+    let domain
+    try{
+        domain = new URL(baseUrl).host
+        let parts = domain.split('.');
+        if (parts.length > 2) {
+            parts.shift();  // Remove the first part (like 'www' or other subdomains)
+        }
+        domain = parts.join('.');
+    }catch(error)
+    {
+        domain = baseUrl
+    }
+    links = links.map(d=>{
+        let url = d.url
+        if( !url ){
+            return undefined
+        }
+        url = url.trim()
+        if( url.length === 0){
+            return undefined 
+        }
+        if( url.startsWith("javascript")){
+            return undefined 
+
+        }
+        if( isRelativeUrl(url)){
+            if( (options.markers === false)){
+                url = url.replace(/#.*$/, "")
+            }
+            if( url[0] === "/"){
+                url = url?.slice(1)
+            }
+            url = baseUrl + fwd + url
+        }
+        if(url === baseUrl || (url + "/") === baseUrl){
+            return undefined 
+        }
+        if( url && options.otherDomains === false){
+            if( url.indexOf(domain) === -1){
+                return undefined 
+            }
+        }
+        return {text: d.text?.trim()?.replaceAll(/[\n|\r|\t]+/g,". "), url: url}
+    }).filter(d=>d && d.url)
+    return links
+}
 
 export async function extractURLsFromPageAlternative( baseUrl, options = {}, fetch_options = {},  ){
-
-        /*const params = 
-            {
-                'url': baseUrl,
-                'apikey': process.env.ZENROWS_KEY,
-                ...fetch_options
-            }
-
-        const cUrl = `https://api.zenrows.com/v1/?${new URLSearchParams(params).toString() }`
-        const response = await fetch(cUrl,{
-            method: 'GET'
-        })*/
         const finalUrl = baseUrl.match(/:\/\//) ? baseUrl : "https://" + baseUrl
         try{
             const response = await fetchAsTextViaProxy(finalUrl);
-            /*if(response.status !== 200){
-                return undefined
-            }
-            const html = await response.text();
-            if(!html || html.length === 0){
-                return undefined
-            }*/
-
             const $ = cheerio.load(response);
             let links = []
 
@@ -2338,51 +2417,8 @@ export async function extractURLsFromPageAlternative( baseUrl, options = {}, fet
                 links.push( {text: text, url: href})
             });
             
-            const fwd = baseUrl?.slice(-1) === "/" ? "" : "/"
-            let domain
-            try{
-                domain = new URL(baseUrl).host
-                let parts = domain.split('.');
-                if (parts.length > 2) {
-                    parts.shift();  // Remove the first part (like 'www' or other subdomains)
-                }
-                domain = parts.join('.');
-            }catch(error)
-            {
-                domain = baseUrl
-            }
-            links = links.map(d=>{
-                let url = d.url
-                if( !url ){
-                    return undefined
-                }
-                url = url.trim()
-                if( url.length === 0){
-                    return undefined 
-                }
-                if( url.startsWith("javascript")){
-                    return undefined 
-
-                }
-                if( isRelativeUrl(url)){
-                    if( (options.markers === false)){
-                        url = url.replace(/#.*$/, "")
-                    }
-                    if( url[0] === "/"){
-                        url = url?.slice(1)
-                    }
-                    url = baseUrl + fwd + url
-                }
-                if(url === baseUrl || (url + "/") === baseUrl){
-                    return undefined 
-                }
-                if( url && options.otherDomains === false){
-                    if( url.indexOf(domain) === -1){
-                        return undefined 
-                    }
-                }
-                return {text: d.text?.trim()?.replaceAll(/[\n|\r|\t]+/g,". "), url: url}
-            }).filter(d=>d && d.url)
+            links = cleanupExtractedURLs( links, baseUrl, options )
+            
             return links?.length > 0 ? links : undefined
 
         }catch(error){
@@ -2440,7 +2476,7 @@ export async function processPDFDownloadBuffer( data, filename ){
     }
 }
 export async function fetchURLAsTextAlternative( url, full_options = {} ){
-    const {preferEmbeddedPdf, asArticle, ...options} = full_options
+    const {preferEmbeddedPdf, asArticle, fullHTML, ...options} = full_options
 /*
         const params = 
             {
@@ -2517,11 +2553,11 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                             }
                         }
                         if( embeddedPdfs.length === 0){
-                            const spanElementRegex = /<[^>]*data=["']([^"']*)["']/gi;
+                           /* const spanElementRegex = /<[^>]*data=["']([^"']*)["']/gi;
                             while ((match = spanElementRegex.exec(results)) !== null) {
                                 const pdfUrl = match[1];
                                 embeddedPdfs.push(pdfUrl);
-                            }
+                            }*/
                         }
                         if( embeddedPdfs.length === 0){
                             const spanElementRegex = /<(?!link\b)[^>]*href=["']([^"']*\.pdf[^"']*)["']/gi;
@@ -2551,8 +2587,23 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                         }
                     }
 
-                    const details = extractMarkdown(results)
-                    console.log(details)
+                    const details = extractMarkdown(results, fullHTML)
+                    if( !details ){
+                        const pattern = /<iframe\b[^>]*\ballowfullscreen\b[^>]*\bsrc=(["'])(.*?)\1/gi;
+                        const urls = [];
+                        let match;
+                        while ((match = pattern.exec(results)) !== null) {
+                            const url = match[2]
+                            if( url ){
+                                console.log(`No content - checking iframe ${url}`)
+                                const iframeDetails = await fetchURLAsTextAlternative( url, full_options)
+                                if( iframeDetails ){
+                                    return iframeDetails
+                                }
+                            }
+                        }
+                    }
+
                     return details
                     /*const extractOptions = {
                         baseElements:{
@@ -2631,7 +2682,7 @@ export async function extractTextFromGoogleDriveFile( driveId ){
 
 
 }
-export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedPdf = false ){
+export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedPdf = false, fullHTML = false ){
     try{
 
         let matches
@@ -2681,6 +2732,7 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
                     return
                 }
                 return await fetchURLAsTextAlternative( url,{
+                    fullHTML,
                     asArticle,
                     preferEmbeddedPdf,
                     proxy: process.env.BRIGHTDATA_DC_PROXY
@@ -2691,6 +2743,7 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
                     return
                 }
                 return await fetchURLAsTextAlternative( url,{
+                    fullHTML,
                     asArticle,
                     preferEmbeddedPdf,
                     proxy: process.env.BRIGHTDATA_UNLOCK_PROXY
@@ -2701,6 +2754,7 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
                     return
                 }
                 const out = await fetchURLAsTextAlternative( url,{
+                    fullHTML,
                     asArticle,
                     preferEmbeddedPdf,
                     proxy: process.env.BRIGHTDATA_RES_PROXY

@@ -397,29 +397,6 @@ export async function simplifyHierarchy(pathList, list, options = {} ){
 
     return {success: true, summaries: interim}
 }
-export async function OLDsimplifyHierarchy(top, list, options = {} ){
-    const types = options.types || 'problem statement'
-    const subTypes = options.subTypes || "sub-problems"
-    let interim = await processInChunk( list, 
-            [
-                {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
-                {"role": "user", "content": `Here is a ${types} '${top}'`},
-                {"role": "user", "content": `And here is a list of numbered ${subTypes} related to the ${types}:`}],
-            [
-                {"role": "user", "content": `Replace each numbered ${subTypes} with a single shorter summary of no more than 15 words which makes clear the difference between the other numbered ${subTypes}`},
-                {"role": "user", "content": `Provide the response in a json object with an array called "output" with each entry having a field called 'summary' set to the new summary, and a field called 'id' set to the original numbered ${subTypes}. Do not put anything other than the raw json object in the response`},
-            ],
-            {field: "output", engine: options.engine, debug: true, debug_content: true})
-    if( Object.hasOwn(interim, "success")){
-        console.log(interim)
-        return interim
-    }
-    if( interim.length !== list.length){
-        return {success: false, summaries: interim, list: list}
-    }
-
-    return {success: true, summaries: interim}
-}
 export async function buildKeywordsFromList(list, options = {} ){
     let purpose = options.purpose || `Built a list of ${options.count || 10} domain and market related search terms that can be used with an online database to find similar ${options.types || "items"}. The search only works with direct lookups (single or multi words).`
     let interim = await processInChunk( list, 
@@ -476,14 +453,20 @@ export async function buildCategories(list, options = {} ){
 
     let final = interim
     const passes = interim.map(d=>d._pass).filter((d,i,a)=>a.indexOf(d)===i).length
-    if( passes > 1 && !options.literal){
+    if( passes > 1 ){
+
+
+        let rationalize = `Rationalize this list into no more than ${count} categories being careful to not lose any nuance or detail, and ensuring the new categories do not overlap . Each category should be no more than 3 words and should have a clear defintion.`
+        if( options.literal){
+            rationalize = `Rationalize this list into a unique set of titles (correcting for formatting / abbreviations are allowed).`
+        }
 
         const result = await processInChunk( interim.map(d=>`${d.t}: ${d.d}`), 
             [
                 {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
                 {"role": "user", "content": `Here is a list of categories: `}],
             [
-                {"role": "user", "content": `Rationalize this list into no more than ${count} categories being careful to not lose any nuance or detail, and ensuring the new categories do not overlap . Each category should be no more than 3 words and should have a clear defintion.`},
+                {"role": "user", "content": rationalize},
                 {"role": "user", "content": `Provide the result as a json object  with an array of categories with each entry being an object with a 't' field containing the title and a 'd' field containing the definition in no more than 20 words.. Do not put anything other than the raw json object in the response.`},
             ],
             {field: "categories", engine: options.engine})
@@ -979,7 +962,11 @@ export async function processInChunk( list, pre, post, options = {} ){
 }
 
 async function executeAI(messages, options = {}){
-    const openai = new OpenAI({apiKey: process.env.OPEN_API_KEY})
+    const openai = new OpenAI({
+        apiKey: process.env.OPEN_API_KEY,
+        //timeout: 600 * 1000, // 10 minutes
+        //maxRetries: 5        
+    })
     let response
     let err
     let sleepBase = 20000

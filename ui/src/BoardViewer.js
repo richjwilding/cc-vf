@@ -1156,8 +1156,21 @@ function SharedRenderView(d, primitive, myState) {
                     mappedCategories
                 }
             }else{
-                if( viewConfig.matrixType === "checktable" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts){
+                if( viewConfig.matrixType === "timeseries" || viewConfig.matrixType === "checktable" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts){
                     let dataTable 
+
+                    function setupDataConfig( viewConfig ){
+                        let config = viewConfig.dataConfig
+                        if( config?.timeseries ){
+                            config.timeseries = {
+                                delta: primitiveToPrepare.renderConfig?.timeRange === "delta_row" || primitiveToPrepare.renderConfig?.timeRange === "delta_column",
+                                limitTicks: primitiveToPrepare.renderConfig?.cap,
+                                cumulative: primitiveToPrepare.renderConfig?.cumulative,
+                                resolution: primitiveToPrepare.renderConfig?.resolution
+                            }
+                        }
+                        return config
+                    }
                     
                     if(myState[stateId].axisSource){
                         let dataSource
@@ -1170,17 +1183,18 @@ function SharedRenderView(d, primitive, myState) {
                             let columns = (dataSource.data ? dataSource.data.defs?.columns : dataSource.axis?.column ) ?? []
                             let rows = (dataSource.data ? dataSource.data.defs?.rows : dataSource.axis?.row) ?? []
                             let viewFilters = (dataSource.data ? dataSource.data.defs?.viewFilters : undefined) ?? []
+                            let hideNull = dataSource.data ? dataSource.data.defs?.hideNull : dataSource.hideNull
                             if( dataSource.inFlow && basePrimitive.workspaceId === "6745a3d4bde696a47c0ca15a"){
                                 viewFilters = [rows]
                                 rows = {}
                             }
-                            dataTable = CollectionUtils.createDataTable( items, {columns, rows, viewFilters, config: undefined, hideNull: false, alreadyFiltered: true})
+                            dataTable = CollectionUtils.createDataTable( items, {columns, rows, viewFilters, config: setupDataConfig(dataSource.viewConfig), hideNull, alreadyFiltered: true})
                             console.log(`GOT from ${dataSource.id}`)
                         }
 
                     }
                     if( !dataTable ){
-                        dataTable = CollectionUtils.createDataTableForPrimitive( primitiveToPrepare, undefined, items )
+                        dataTable = CollectionUtils.createDataTableForPrimitive( primitiveToPrepare, setupDataConfig(viewConfig), items )
                     }
 
                     myState[stateId].primitive = basePrimitive
@@ -1294,6 +1308,7 @@ function SharedRenderView(d, primitive, myState) {
                 myState[stateId].columns = filtered.columns
                 myState[stateId].viewConfig = viewConfig
                 myState[stateId].rows = filtered.rows
+                myState[stateId].hideNull = hideNull
                 myState[stateId].extents = extents
                 myState[stateId].filteredAllocations = filteredAllocations
                 myState[stateId].toggles = Object.keys(extents).reduce((a,c)=>{
@@ -2099,9 +2114,18 @@ export default function BoardViewer({primitive,...props}){
 
     let boardUpdateTimer
 
-    function resizeFrame(fId, {x,y,width, height}){
+    function resizeFrame(fId, {x,y,width, height}, resizeInfo){
         let target = myState[fId].parentRender ? myState[myState[fId].parentRender].primitive : primitive
         const board = myState[fId]
+
+        if( resizeInfo ){
+            if( resizeInfo.columns ){
+                width = (width - ((resizeInfo.columns - 1) * (resizeInfo.padding[0] ?? 0))) / resizeInfo.columns
+            }
+            if( resizeInfo.rows ){
+                height = (height - ((resizeInfo.rows - 1) * (resizeInfo.padding[0] ?? 0))) / resizeInfo.rows
+            }
+        }
 
         const updateData = {
             ...(target.frames?.[fId] ?? {}),
@@ -3229,15 +3253,7 @@ export default function BoardViewer({primitive,...props}){
 
                                             let cIdx, rIdx, infoPane
 
-                                            if(myState[frameId].axis){
-                                                [cIdx,rIdx] = cell.split("-")
-                                                infoPane = {
-                                                    filters: [
-                                                        PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
-                                                        PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
-                                                    ].filter(d=>d)
-                                                }
-                                            }else{
+                                            if(myState[frameId].data){
                                                 const data = myState[frameId].data
                                                 const cellData = data.cells.find(d=>d.id === cell)
                                                 infoPane = {
@@ -3246,6 +3262,15 @@ export default function BoardViewer({primitive,...props}){
                                                         PrimitiveConfig.encodeExploreFilter( data.defs?.rows, cellData.rowIdx ),
                                                     ].filter(d=>d)
                                                 }
+                                            }else if(myState[frameId].axis){
+                                                [cIdx,rIdx] = cell.split("-")
+                                                infoPane = {
+                                                    filters: [
+                                                        PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
+                                                        PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
+                                                    ].filter(d=>d)
+                                                }
+                                                
                                             }
 
                                             console.log(infoPane.filters[0])
@@ -3254,6 +3279,8 @@ export default function BoardViewer({primitive,...props}){
                                                 setActiveBoard(frameId)
                                                 canvas.current.selectFrame( frameId )
                                             }
+                                        }else{
+                                            return false
                                         }
                                     },
                                     widget:{

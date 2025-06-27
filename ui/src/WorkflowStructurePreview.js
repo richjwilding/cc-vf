@@ -12,6 +12,10 @@ import Konva from "konva";
 import dagre from 'dagre';
 import AnimatedKonvaProgressBar from "./AnimatedKonvaProgressBar";
 
+
+import { instance } from "@viz-js/viz";
+
+
 /**
  * DependencyTreeKonva
  *
@@ -39,8 +43,8 @@ const colorMap = {
   "complete": {base: "#ecfdf5", highlight: "#34d399"},
   "waiting": {base: "#fef08a", highlight: "#f59e0b"},
   "running": {base: "#e0f2fe", highlight: "#0ea5e9"},
-  "error": {base: "#ffdddd", highlight: "#333"},
-  "error_skip": {base: "#ff2244", highlight: "#333"}
+  "error": {base: "#ffdddd", highlight: "#dc2626"},
+  "error_skip": {base: "#ff2244", highlight: "#dc2626"}
 }
 
 export default function WorkflowStructurePreview({ statusMap }) {
@@ -143,7 +147,11 @@ export default function WorkflowStructurePreview({ statusMap }) {
           const itemStatus = labelGroup.items.map(d=>d.primitive.processing?.flow?.status ?? "not_run").filter((d,i,a)=>a.indexOf(d)===i)
           console.log(labelGroup.items.map(d=>d.candidateForRun))
           let groupStatus = "not_run"
-          if( itemStatus.includes("running")){
+          if( itemStatus.includes("error")){
+            groupStatus = "error"
+          }else if( itemStatus.includes("error_skip")){
+            groupStatus = "error_skip"
+          }else if( itemStatus.includes("running")){
             groupStatus = "running"
           }else if( itemStatus.includes("waiting")){
             groupStatus = "waiting"
@@ -400,7 +408,8 @@ export default function WorkflowStructurePreview({ statusMap }) {
 function computeTreeLayout(nodes, edges, hSpacing = 200, vSpacing = 100) {
   // 1) Build a new directed graph
   const g = new dagre.graphlib.Graph({ directed: true });
-  g.setGraph({ rankdir: 'LR', edgesep: vSpacing, ranksep: hSpacing, ranker: "network-simplex" });
+  //g.setGraph({ rankdir: 'LR', edgesep: vSpacing, ranksep: hSpacing, ranker: "tight-tree" });
+  g.setGraph({ rankdir: 'LR', edgesep: vSpacing, ranksep: hSpacing, ranker: "longest-path" });
   g.setDefaultEdgeLabel(() => ({}));
 
   // 2) Add nodes (you can give them fixed width/height if you know it)
@@ -408,6 +417,20 @@ function computeTreeLayout(nodes, edges, hSpacing = 200, vSpacing = 100) {
 
   // 3) Add edges
   edges.forEach(e => g.setEdge(e.from, e.to));
+  g.setNode("__right__", { width: 0, height: 0 });
+
+g.nodes().forEach(v => {
+  if (!g.outEdges(v)?.length) {
+    g.setEdge(v, "__right__", {
+      // high weight forces them to share rank
+      weight: 1000,
+      // minlen=1 so they sit in adjacent ranks
+      minlen: 1,
+      // style invisible so it doesn’t draw
+      style: "invis"
+    });
+  }
+});
 
   // 4) Compute Sugiyama layout
   dagre.layout(g);
@@ -418,7 +441,63 @@ function computeTreeLayout(nodes, edges, hSpacing = 200, vSpacing = 100) {
     const { x, y } = g.node(n.id);
     positions[n.id] = { x, y };
   });
+
+
+  //return positions;
+
+  (async () => {
+    // 1. Instantiate the Viz.js engine
+    const viz = await instance();
+
+    function graphToDot({ nodes, edges }) {
+      const midNodes = []
+      const maxNodes = []
+      for( const d of nodes ){
+        if( !edges.find(e=>e.from === d.id) ){
+          maxNodes.push(d)
+        }else{
+          midNodes.push(d)
+        }
+      }
+      const nodeLines = nodes.map(n => `${JSON.stringify(n.id)} [width=${NODE_WIDTH / 72}, height=${NODE_HEIGHT / 72} fixedsize=1 ]`).join(";\n");
+      const edgeLines = edges
+        .map(e => `${JSON.stringify(e.from)} -> ${JSON.stringify(e.to)}`)
+        .join(";\n");
+      return `digraph G {
+      rankdir=LR;
+      ranksep=1;
+      nodesep=1;
+      ${nodeLines}
+      ${edgeLines}
+      {
+        rank = max
+        ${maxNodes.map(d=>JSON.stringify(d.id)).join("\n")}
+      }
+      }`;
+    }
+  
+    // 2. Define your DOT graph
+    const dotSource = graphToDot({nodes, edges})
+  
+    try {
+      if( nodes.length > 0){
+
+        const layout = viz.renderJSON(dotSource);
+        
+        for(const node of layout.objects){
+          if(node.pos){
+            const [x,y]= node.pos.split(",")
+            positions[node.name] = {x: parseFloat(x), y: parseFloat(y)}
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Graphviz layout error:", err);
+    }
+  })();
+
   return positions;
+
 }
 
 function int_computeTreeLayout(nodes, edges, hSpacing = 200, vSpacing = 100) {

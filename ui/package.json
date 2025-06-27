@@ -28,6 +28,7 @@
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
     "@use-gesture/react": "^10.2.27",
+    "@viz-js/viz": "^3.14.0",
     "clsx": "^2.1.1",
     "consola": "^3.4.2",
     "dagre": "^0.8.5",

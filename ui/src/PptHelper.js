@@ -430,7 +430,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 slide.addText(text, {
                     x: rx,
                     y: ry,
-                    w: rw,
+                    w: rw * 1.01,
                     h: rh,
                     bold: konvaNode.fontStyle() === "bold",
                     lineSpacingMultiple,
@@ -444,17 +444,35 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 });
             }
         } else if (konvaNode instanceof Konva.Circle ) {
-                slide.addShape(pptx.shapes.OVAL, {
-                    x: rx - (rw/2),
-                    y: ry - (rh/2),
-                    w: rw,
-                    h: rh,
-                    fill: toHex(konvaNode.fill()),
-                    line: konvaNode.stroke() ? {
-                        color:toHex(konvaNode.stroke()),
-                        width: konvaNode.strokeWidth() /2
-                    } : undefined,
-                });
+            
+            const options = {
+                x: rx - (rw/2),
+                y: ry - (rh/2),
+                w: rw,
+                h: rh,
+                fill: toHex(konvaNode.fill()),
+                line: konvaNode.stroke() ? {
+                    color:toHex(konvaNode.stroke()),
+                    width: konvaNode.strokeWidth() /2
+                } : undefined,
+            }
+            if( konvaNode.shadowEnabled() && (konvaNode.shadowOffsetY() !== 0 || konvaNode.shadowOffsetX() !== 0 || konvaNode.shadowBlur() !== 0)){
+                const dx = konvaNode.shadowOffset().x;
+                const dy = konvaNode.shadowOffset().y;
+                const distPx = Math.hypot(dx, dy);
+                let angle = Math.atan2(dy, dx) * (180/Math.PI);
+                if (angle < 0) angle += 360;
+
+                options.shadow = {
+                    type: "outer",
+                    opacity: konvaNode.shadowOpacity(),
+                    blur: (konvaNode.shadowBlur() *  thisScale * scale * 72 ).toFixed(3),
+                    offset: (distPx * (72/96) *  thisScale * scale * 72).toFixed(3),
+                    angle: angle.toFixed(3),
+                    color: toHex( konvaNode.shadowColor())?.slice(1)
+                }
+            }
+            slide.addShape(pptx.shapes.OVAL, options);
         }else if (ObjClassName === "Wedge") {
             const wedgeWidth = 2 * rr;
             const wedgeHeight = 2 * rr;
@@ -577,13 +595,6 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
 
             let gradientFill = undefined
 
-            if( konvaNode.fillLinearGradientStartPoint && konvaNode.fillLinearGradientEndPoint){
-                const stops = konvaNode.fillLinearGradientColorStops()
-                if(stops ){
-                    gradientFill = {type:'gradient', stops: [{ pos: 0, color:'C1F15E' }, { pos: 62, color:'90BA3F' }, { pos: 100, color:'7FA03E'}],
-                            linearAngle: 90, linearScaled: false}
-                }
-            }
 
             let points = [...konvaNode.points()];
             if(konvaNode.rotation()){
@@ -591,7 +602,6 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             }
             const nodes = []
             let l, r, t, b
-            console.log(points)
             while(points.length > 0){
                 const x = points.shift()
                 const y = points.shift()
@@ -611,15 +621,32 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             //console.log(outNodes)
 
 
-            slide.addShape(pptx.shapes.CUSTOM_GEOMETRY, {
-                x: rx + (l * scale * thisScale),
-                y: ry + (t * scale * thisScale),
-                w: sx * scale * thisScale,
-                h: sy * scale * thisScale,
-                fill: gradientFill ?? konvaNode.closed() ? toHex(konvaNode.fill()) :  undefined,
-                line: konvaNode.strokeEnabled() ? { color: toHex(konvaNode.stroke()), width: konvaNode.strokeWidth() } : undefined,
-                points: outNodes
-            });
+            if( konvaNode.fillLinearGradientStartPoint() && konvaNode.fillLinearGradientEndPoint() && konvaNode.fillLinearGradientColorStops()) {
+                const dataURL = konvaNode.toDataURL({
+                    mimeType: "image/png",
+                    quality: 1,
+                    pixelRatio: 4,
+                  });
+                  slide.addImage({
+                    data: dataURL,
+                    x: rx + (l * scale * thisScale),
+                    y: ry + (t * scale * thisScale),
+                    w: rw,
+                    h: rh,
+                    sizing: { type: "contain", w: rw, h: rh },
+                  });
+            }else{
+
+                slide.addShape(pptx.shapes.CUSTOM_GEOMETRY, {
+                    x: rx + (l * scale * thisScale),
+                    y: ry + (t * scale * thisScale),
+                    w: sx * scale * thisScale,
+                    h: sy * scale * thisScale,
+                    fill: gradientFill ?? konvaNode.closed() ? toHex(konvaNode.fill()) :  undefined,
+                    line: konvaNode.strokeEnabled() ? { color: toHex(konvaNode.stroke()), width: konvaNode.strokeWidth() } : undefined,
+                    points: outNodes
+                });
+            }
         } else if (konvaNode instanceof Konva.Group) {
             for(const child of konvaNode.children){
                 processNode(child, x, y, thisScale  )

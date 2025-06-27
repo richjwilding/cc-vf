@@ -139,7 +139,7 @@ function resolveIcon({icon, small}){
 
 function IconButton({options, name, title, type, tooltip, icon, small, action, ...props}){
     const isComponent = typeof icon === 'function'
-    const defaultSizeClass = small ? 'w-3 h-3' : 'w-4 h-4'
+    const defaultSizeClass = small ? 'w-3 h-3' : 'w-5 h-5'
 
 
     return (<div

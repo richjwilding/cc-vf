@@ -10,7 +10,7 @@ import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleSchola
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
 import { fetchInstagramPostsFromProfile, queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryLinkedInCompanyProfilePostsBrightData, queryLinkedInUserPostsBrightData, queryRedditWithBrightData, queryReviewsIO, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
-import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryLinkedInCompanyPostsByRapidAPI, queryQuoraByRapidAPI } from './rapid_helper';
+import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryLinkedInCompanyPostsByRapidAPI, queryQuoraByRapidAPI, queryTwitterProfilePostsByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
 import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
 import { findTrustPilotURLFromDetails } from './actions/trustpilot_helper';
@@ -519,6 +519,9 @@ export async function processQueue(job, cancelCheck, extendJob){
                         if( source.platform === "linkedin_rapid" ){
                             await queryLinkedInCompaniesByRapidAPI( primitive, terms, callopts)
                         }
+                        if( source.platform === "twitter_profile_posts" ){
+                            await queryTwitterProfilePostsByRapidAPI( primitive, terms, callopts)
+                        }
                         if( source.platform === "youtube" ){
                             await queryYoutube( terms, callopts) 
                         }
@@ -587,7 +590,8 @@ export async function processQueue(job, cancelCheck, extendJob){
                         }
                     }
 
-                    const totalCount = Object.values(primitive.primitives?.origin ?? []).length
+                    const updatedPrimitive = await fetchPrimitive( primitive.id )
+                    const totalCount = Object.values(updatedPrimitive.primitives?.origin ?? []).length
 
                     const status = {
                         status: "complete",
@@ -596,17 +600,20 @@ export async function processQueue(job, cancelCheck, extendJob){
                     let throwError = false
                     if( errorMessage ){
                         status.error = errorMessage
+                        throwError = true
+                    }else if( totalCount === 0 && config.zeroAsError){
+                       status.error ="no results" 
                     }
 
-                    dispatchControlUpdate(primitive.id, job.data.field , status, {track: primitive.id})
+                    await dispatchControlUpdate(primitive.id, job.data.field , status, {track: primitive.id})
                     if( throwError ){
                         throw `Error returned from query ${errorMessage}`
                     }
                     console.log(`Finished ${primitive.id} / ${primitive.plainId}`)
-                }
-                if( errorMessage ){
-                    return {
-                        error: errorMessage
+                    if( status.error ){
+                        return {
+                            error: status.error
+                        }
                     }
                 }
             }

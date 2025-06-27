@@ -1,7 +1,36 @@
 import axios from 'axios';
 import moment from 'moment';
 import { fetchInstagramPosts } from './brightdata';
-import { executeConcurrently } from './SharedFunctions';
+import { dispatchControlUpdate, executeConcurrently } from './SharedFunctions';
+import PrimitiveConfig from './PrimitiveConfig';
+import { registerAction } from './action_helper';
+
+export async function getAhrefsTrafficReportFromRapidAPI( url ){
+    try{
+        const urlCheck = new URL(url)
+    }catch(e){
+       throw `Error validating url ${url}` 
+    }
+
+    const options = {
+    method: 'GET',
+    url: 'https://ahrefs-dr-rank-checker.p.rapidapi.com/url-metrics',
+    params: {
+      url
+    },
+    headers: {
+        'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+      'x-rapidapi-host': 'ahrefs-dr-rank-checker.p.rapidapi.com'
+    }
+  };
+  
+  try {
+      const response = await wrapRequest(options);
+      return response.data
+  } catch (error) {
+      console.error(error);
+  }
+}
 
 export async function queryInstagramPostsByRapidAPI( primitive, terms, callopts){
     const individualTerms = terms.split(",").map(d=>{
@@ -475,7 +504,7 @@ export async function queryLinkedInCompaniesByRapidAPI( primitive, terms, callop
     if(urls.length > 0){
         await fetchItems(urls)
     }
-    
+
 }
 
 export async function queryQuoraByRapidAPI(terms, callopts){
@@ -687,3 +716,230 @@ async function wrapRequest( options, retryCount = 3 ){
     }
     return await doRequest()
 }
+
+
+export async function queryTwitterProfilePostsByRapidAPI( primitive, terms, callopts){
+
+    const targetCount = callopts.count ?? 10
+    const maxPage = 250
+    let total = 0
+    const individualTerms = terms.split(",").map(d=>{
+        let out = d.trim()
+        if( out.length === 0){return undefined}
+        return out
+    }).filter(d=>d)
+
+    if( individualTerms.length === 0){
+        return
+    }
+
+    console.log(`-- ${individualTerms.join(", ")}`)
+
+    const doProfileQuery = async (term, nextPage, retries = 5 )=>{
+        let t = term.trim()
+
+        console.log(term, nextPage)
+
+        const userOptions = {
+            method: 'GET',
+            url: 'https://twitter241.p.rapidapi.com/user',
+            params: {
+              username: t
+            },
+            headers: {
+              'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+              'x-rapidapi-host': 'twitter241.p.rapidapi.com'
+            }
+          }
+          console.log(userOptions)
+        const userLookup = await wrapRequest(userOptions)
+
+        const userId = userLookup?.result?.data?.user?.result?.rest_id
+        console.log(`User Id: ${userId}`)
+        if( userId ){
+            let exit = true
+            let cursor
+            let page = 1
+
+            do{
+                exit = true
+                const options =  {
+                    method: 'GET',
+                    url: 'https://twitter241.p.rapidapi.com/user-tweets',
+                    params: {
+                      user: userId,
+                      count: '20'
+                    },
+                    headers: {
+                      'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+                      'x-rapidapi-host': 'twitter241.p.rapidapi.com'
+                    }
+                  }
+                if( cursor){
+                    options.params.cursor = cursor
+                }
+                
+                const userTweets = await wrapRequest(options)
+                console.log(userTweets)
+
+                const list = userTweets?.result?.timeline?.instructions?.flatMap(d=>d.entries).filter(Boolean) ?? []
+
+                const tweetData = [
+                    ...list.filter(d=>d.entryId.startsWith("tweet-")).map(d=>d.content?.itemContent?.tweet_results?.result),
+                    ...list.filter(d=>d.entryId.startsWith("homeConversation-")).flatMap(d=>d?.content?.items).map(d=>d.item?.itemContent?.tweet_results?.result)
+                ].filter(Boolean)
+
+                console.log(`Have ${tweetData.length} to parse`)
+                
+                if( tweetData.length > 0){
+                    const processItem = async (d)=>{
+                        const u = d.core.user_results.result
+                        const t = d.legacy
+                        
+                        const data = {
+                            title: `Post by ${u.legacy.screen_name} on ${t.created_at}`,
+                            referenceId: PrimitiveConfig.Constants.TWITTER_POST,
+                            type: "result",
+                            referenceParameters:{
+                                api_source: "rapid_twitter_post",
+                                source: "Twiiter/X",
+                                user_id: u.id, 
+                                user_rest_id: u.rest_id, 
+                                professional_type: u.professional?.professional_type, 
+                                user_created_at: u.legacy.created_at, 
+                                followers: u.legacy.followers_count, 
+                                friends: u.legacy.friends_count, 
+                                username: u.legacy.name, 
+                                profile_image_url:u.legacy.profile_image_url_https, 
+                                screen_name: u.legacy.screen_name, 
+                                userProfile: u.legacy.url, 
+                                posts: u.legacy.statuses_count, 
+                                id: t.id_str, 
+                                posted: t.created_at, 
+                                overview: t.full_text, 
+                                likes: t.favorite_count,
+                                quotes: t.quote_count, 
+                                replies: t.reply_count, 
+                                retweet_count: t.retweet_count, 
+                                tagged_users: t.entities.user_mentions?.map(d=>({id: d.id_str, name: d.name, screen_name: d.screen_name})) , 
+                                imageUrl: t.entities.media?.[0]?.media_url_https, 
+                                url: `https://x.com/${u.legacy.name}/status/${t.id_str}` 
+                            }
+                        }
+                        
+                        const newPrim = await callopts.createResult( data, true )
+                        total++
+                     }
+                    await executeConcurrently( tweetData, processItem)
+                }
+                console.log(`Total so far = ${total}`)
+                const nextCursor = userTweets?.cursor?.bottom
+                if( nextCursor ){
+                    cursor = nextCursor
+                    page++
+                    if( page >= maxPage){
+                        console.log(`===> Reached hardcoded max page ${page}`)
+                    }else{
+                        console.log(`===> Advancing to next page ${page}`)
+                        exit = false
+                    }
+                }else{
+                    console.log(`No cursor for next page - exiting`)                        
+                }
+            }while(!exit && total < targetCount)
+        
+
+        }
+    }
+
+    
+
+    for( const term of individualTerms){
+        if( callopts.countPerTerm ){
+            total = 0
+        }
+        if( total >= targetCount ){
+            break
+        }
+        console.log(`Doing ${term}`)
+        await doProfileQuery(term )
+    }
+    
+}
+export async function analyzeTwitterPostCommentsByRapidAPI( primitive, callopts){
+
+    const targetCount = callopts.count ?? 500
+    const maxPage = 250
+    let total = 0
+
+    const output = []
+
+    const doQuery = async (postId, cursor, retries = 5 )=>{
+        let page = 1
+        let exit = true
+
+        do{
+            const options = {
+                method: 'GET',
+                url: 'https://twitter241.p.rapidapi.com/comments',
+                params: {
+                    pid: postId,
+                    count: '40'
+                },
+                headers: {
+                'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+                'x-rapidapi-host': 'twitter241.p.rapidapi.com'
+                }
+            }
+            if( cursor){
+                options.params.cursor = cursor
+            }
+
+            exit = true
+            const comments = await wrapRequest(options)
+            console.log(comments)
+
+            const list = comments?.result?.instructions.find(d=>d?.type==="TimelineAddEntries")?.entries.filter(d=>d?.entryId.startsWith("conversation")).flatMap(d=>d?.content?.items).map(d=>d?.item?.itemContent?.tweet_results?.result).filter(Boolean) ?? []
+
+            console.log(`Have ${list.length} to parse`)
+            
+            if( list.length > 0){
+                for(const comment of list){
+                    total++
+                    output.push({
+                        username: comment.core?.user_results?.result?.legacy?.name,
+                        comment: comment.legacy?.full_text,
+                        favorite_count: comment.legacy?.favorite_count,
+                        created_at: comment.legacy?.created_at
+                    })
+                }
+            }
+            console.log(`Total so far = ${total}`)
+            const nextCursor = comments?.cursor?.bottom
+            if( nextCursor ){
+                cursor = nextCursor
+                page++
+                if( page >= maxPage){
+                    console.log(`===> Reached hardcoded max page ${page}`)
+                }else{
+                    console.log(`===> Advancing to next page ${page}`)
+                    exit = false
+                }
+            }else{
+                console.log(`No cursor for next page - exiting`)                        
+            }
+        }while(!exit && total < targetCount)
+        
+
+    }
+
+    await doQuery(primitive.referenceParameters.id )
+    if( output.length > 0){
+        console.log(` Got ${output.length} for analysis`)
+        await dispatchControlUpdate( primitive.id, "referenceParameters.comment_data", output)
+    }
+    
+}
+
+
+registerAction("analyze_comment", {categoryId: 149}, (...args)=>analyzeTwitterPostCommentsByRapidAPI(...args))

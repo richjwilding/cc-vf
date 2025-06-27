@@ -10,7 +10,7 @@ import { useReactTable,
         usePagination,
         getPaginationRowModel} from '@tanstack/react-table'
 import MainStore from "./MainStore";
-import { ChevronDoubleLeftIcon, ChevronDoubleRightIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardDocumentIcon} from "@heroicons/react/24/outline";
+import { ChevronDoubleLeftIcon, ChevronDoubleRightIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardDocumentIcon, ExclamationTriangleIcon} from "@heroicons/react/24/outline";
 import useDataEvent from "./CustomHook";
 import { ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/solid";
 import { min } from "date-fns";
@@ -99,6 +99,21 @@ export function Table(props) {
                 }
             if(d.renderType){
                 switch(d.renderType){
+                    case "title_with_error":
+                        return columnHelper.accessor(d.title,
+                            {
+                                cell: info => <div className="flex space-x-1 place-items-center">
+                                        {info.row.original.error && <ExclamationTriangleIcon className="text-red-600 size-4"/>}
+                                        <p>{info.row.original.title}</p>
+                                    </div>,
+                                header: () => d.name || d.title,
+                                sortingFn: "alphanumeric",
+                                filterFn: 'includesString',
+                                accessorFn: d.accessorFn,
+                                fromStructure: d.fromStructure,
+                                startSize: d.width ?? (d.field === "id" ? 100 : undefined),
+                                minSize: d.minWidth ?? d.width
+                            })
                     case "numbered_title":
                         return columnHelper.accessor(d.title,
                             {
@@ -167,7 +182,16 @@ export function Table(props) {
                                 cell: info => {
                                     const data = d.field ? info.row.original?.[d.field] : info.row.original
                                     return <div className="flex space-x-2">{
-                                        d.actions.map(d=><UIHelper.IconButton  icon={d.icon} action={()=>d.action(data)}/>)
+                                        d.actions.map(d=>{
+                                            if( typeof(d) === "function" ){
+                                                const res = d( data )                                        
+                                                if( !res ){
+                                                    return <></>
+                                                }
+                                                d = res
+                                            }
+                                            return <UIHelper.IconButton  icon={d.icon} action={()=>d.action(data)}/>
+                                        })
                                     }</div>
                                 },
                                 accessorFn: (info)=>"",

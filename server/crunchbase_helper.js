@@ -21,7 +21,7 @@ async function filterEntitiesByTopics( list, topics){
     console.log(`Now: ${list.length}`)
 
         if( list && list.length > 0){
-            const result = await analyzeListAgainstTopics(list.map((d)=>d.properties.description.replaceAll("\n",". ")), topics, {prefix: "Organization", type: "organization", maxTokens: 60000, engine: "gpt4p"})
+            const result = await analyzeListAgainstTopics(list.map((d)=>d.properties.description.replaceAll("\n",". ")), topics, {prefix: "Organization", type: "organization", engine: "o3-mini"})
             if( !result.success){
                 return undefined
             }

@@ -17,6 +17,14 @@ registerAction("lookup_entity", {type: "action"}, async (primitive, action, opti
     const inputs = await getPrimitiveInputs( primitive )
     if( inputs?.items ){
         let lookupList = inputs.items.data ?? []
+        if( typeof(lookupList) === "string"){
+            if( lookupList.indexOf("\n") > -1){
+                lookupList = lookupList.split("\n")
+            }else{
+                lookupList = lookupList.split(",")
+            }
+            lookupList = lookupList.map(d=>d.trim())
+        }
         const existing = await primitiveDescendents(primitive, "entity", {fields:"referenceParameters", first: true})
 
 

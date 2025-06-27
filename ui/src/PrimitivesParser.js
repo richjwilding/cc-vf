@@ -202,51 +202,6 @@ const storeActions = {
     descendantIds(receiver, target,obj){
         return receiver._buildDescendantIds( {}, true )
     },
-    __buildDescendantIds(receiver, target,obj){
-        return function(temp , first = true, origin_only, direct_only){
-            if( first ){
-                temp = new Set()
-            }
-            let childrenIds 
-            if( origin_only ){
-                childrenIds = []
-                if (target.link) {
-                    for (let i = 0, len = target.link.length; i < len; i++) {
-                        childrenIds.push(target.link[i]);
-                    }
-                }
-                if (target.origin) {
-                    for (let i = 0, len = target.origin.length; i < len; i++) {
-                        childrenIds.push(target.origin[i]);
-                    }
-                }
-                if (target.auto) {
-                    for (let i = 0, len = target.auto.length; i < len; i++) {
-                        childrenIds.push(target.auto[i]);
-                    }
-                }
-            }else if(direct_only){
-                const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "ref" && d!== "config" && d !=="inputs" && d !=="link")
-                childrenIds = [...new Set(keys.map(d => receiver[d].uniqueAllIds).flat())];
-            }else{
-                //childrenIds = receiver.uniqueAllIds
-                const keys = Object.keys(target).filter(d=>d !== "imports" && d!== "config" && d !=="inputs")
-                childrenIds = [...new Set(keys.map(d => receiver[d].uniqueAllIds).flat())];
-            }
-            for(const id of childrenIds){
-                if( id && !temp.has(id) ){
-                    temp.add(id)
-                    const p = obj.primitive(id)
-                    if (p && Object.keys(p._primitives).length > 0) {
-                        p.primitives._buildDescendantIds(temp, false, origin_only);
-                    }
-                }
-            }
-            if( first ){
-                return [...temp]
-            }
-        }
-    },
     _buildDescendantIds(receiver, target, obj) {
         return function _recurse(temp, first = true, origin_only = false, direct_only = false) {
           // initialize once

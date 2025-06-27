@@ -1352,6 +1352,30 @@ export async function fetchPrimitive(...args){
     return (await fetchPrimitives(...args))?.[0]
 }
 
+export async function multiPrimitives(list, {paths, types, referenceIds, fields}){
+    paths = [paths].flat()
+    const ids = new Set()
+    for(const d of list){
+        const pp = new Proxy(d.primitives ?? {}, parser)
+        for(const path of paths){
+            for(const id of pp.fromPath(path).allIds){
+                ids.add(id)
+            }
+        }
+    }
+
+    const query = {}
+    if( types ){
+        query.types = {$in: [types.flat()]}
+    }
+    if( referenceIds ){
+        query.referenceId = {$in: [referenceIds].flat()}
+    }
+    console.log(query)
+    const result = await fetchPrimitives( [...ids.values()], query, fields ?? DONT_LOAD )
+    return result
+}
+
 export async function primitivePrimitives(primitive, path, types, deleted = false, fields){
     if( path.slice(0, 11 ) != "primitives."){
         path = "primitives." + path
@@ -1519,7 +1543,7 @@ export function allPrimitivesWithRelationship(primitive, relationship){
         return []
     }
     if( relationship.indexOf("_") > -1 ){
-        const multi = relationship.split("_").map(d=>`primitives.${d}`)
+        const multi = relationship === "origin_link_result" ? ["primitives.origin", "primitives.link", "primitives.result", "primitives.source"] : relationship.split("_").map(d=>`primitives.${d}`)
         return Object.keys(primitive.parentPrimitives ?? {}).filter((parentId)=>{
             return multi.filter(d=>{
                 if( d === "primitives.result"){
@@ -2162,7 +2186,11 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             }
         }
         if( params.descend ){
-            list = uniquePrimitives([list, await primitiveDescendents( list, undefined, {fullDocument:requiresFullDocument, deferFullDocument: true, fields: "parentPrimitives"} )].flat())
+            if( params.descendRel ){
+                list = await multiPrimitives( list, {path: params.descendRel, types: params.type, referenceIds: params.referenceId})
+            }else{
+                list = uniquePrimitives([list, await primitiveDescendents( list, undefined, {fullDocument:requiresFullDocument, deferFullDocument: true, fields: "parentPrimitives"} )].flat())
+            }
         }
         if( params.referenceId ){
             if( Array.isArray(params.referenceId)){
@@ -3361,7 +3389,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                                             markdown: options.markdown, 
                                                             engine: primitiveConfig.engine,
                                                             heading: options.heading,
-                                                            scored: options.scored ?? primitive.referenceParameters.scored,
+                                                            scored: options.scored ?? primitive.referenceParameters?.scored,
                                                             outputFields: isCustomPrompt ? undefined : [
                                                                 {field:"headline", prompt:"a short overview", header: true},
                                                                 {field:"summary", prompt: "the main summary", formatted: true},
@@ -4285,7 +4313,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                 }
             }
             if( command === "embed_content"){
-                await indexDocument( primitive, {force:options?.force}, req )
+                await indexDocument( primitive, options, req )
             }
             if( command === "evidence_from_query"){
                 //await QueueDocument().extractEvidenceFromFragmentSearch( primitive, {...action, ...options})
@@ -5677,6 +5705,10 @@ export async function doPurge(count ){
 export async function runQueryOnPrimitive(receiver, steps, cache){
     let scope = [receiver]
     if( receiver.type === "categorizer"){
+        if( !receiver.primitives.origin ){
+            console.log(`Couldnt find category for categorizer`)
+            return []
+        }
         scope = [{id: receiver.primitives.origin[0]}]
     }
     let out = [receiver]

@@ -334,6 +334,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                 logger.debug(`++ Got segments for ${JSON.stringify(importConfig)} = ${existing.plainId}`)
             }
             if( !existing ){
+                const {items, ...pc} = importConfig
                 existing = await createPrimitive({
                     workspaceId: primitive.workspaceId,
                     parent: parent.id,
@@ -342,7 +343,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                         title: "New segement",
                         referenceParameters:{
                             //target:"items",
-                            importConfig:[importConfig]
+                            importConfig:[pc]
                         }
                     }
                 })
@@ -1955,6 +1956,9 @@ export async function summarizeWithQuery( primitive ){
 export async function buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig, refetchFragments = false, progressCallback ){
     try{
             let toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
+            if( typeof(progressCallback) !== "function"){
+                progressCallback = ()=>{}
+            }
             
             const results = await summarizeMultiple( toProcess,{
                 workspaceId: primitive.workspaceId,
@@ -2050,81 +2054,82 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                         console.log(`Got revised back`)
                         if( reworked?.summary?.structure){
                             results.summary.structure = reworked.summary.structure
-                        }else if( reworked?.structure){
-                            results.summary.structure = reworked.structure
+                        }else if( Array.isArray(reworked?.summary)){
+                            let flatten = reworked.summary.flatMap(d=>d.structure)
+                            console.log(`Need to merge multiple responses to structured output -  have ${flatten.length}`)
+                            progressCallback( "Finalizing..." )
+
+                            flatten = flatten.filter(d=>{
+                                const idsForSection = extractFlatNodes([d]).flatMap(d=>d.ids)
+                                return idsForSection.length > 0
+                            })
+                            console.log(`-- Filtered to ${flatten.length} with actual results (based on ids)`)
+                            if( flatten.length === 0){
+                                return ""
+                            }
+                            const idsList = {}
+                            let idGroup = 1
+                            modiftyEntries( flatten, "ids", entry=>{
+                                const ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)) : entry.ids
+                                const idKey = `g${idGroup}`
+                                idsList[idKey] = ids
+                                idGroup++
+                                return idKey
+                            } )
+
+
+                            const outputFormat = revised.output.replaceAll("List the numbers associated with all of the fragments of text used for this section", "List each and every item in the 'ids' field of each of the source summaries which you have rationalized into this new item - you MUST include ALL items from the relevant source summaries")
+
+                            const consolidated = await processInChunk( flatten, 
+                                [
+                                    {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                                    {"role": "user", "content": `Here is a list of summaries:`}],
+                                    [
+                                        {"role": "user", "content":  `Rationalize these summaries into a single response to address this original prompt. Be careful to note which summaries you are merging together. Be incredibly careful to maintain the integrity and validaity of what you are writing - dont conflate or confuse items. You MUST ONLY use the data I provided to compelte this task - DO NOT use your own knowledge. If asked to include quotes use a selection of the quotes stated in the interim results.  ${revised.task}`
+                                    },
+                                    {"role": "user", "content": outputFormat},
+                                ],
+                                {
+                                    engine: primitiveConfig.engine ?? "gpt-4o",
+                                    workspaceId: primitive.workspaceId,
+                                    usageId: primitive.id,
+                                    functionName: "queryWithStructure_merge",
+                                    wholeResponse: true,
+                                    field: undefined,
+                                    debug: true,
+                                    debug_content: true
+                                })
+                            
+                            if( Object.hasOwn(consolidated, "success")){
+                                logger.error(`Error in merging responses for summarizeWithQuery`, consolidated)
+                                throw "Error in merging responses for summarizeWithQuery"
+                            }
+                            if( consolidated.length > 1){
+                                logger.error(`Merged responses has multiple passes - unexpected`)
+                            }
+                            const refined = consolidated[0]?.structure
+                            if( refined ){
+                                modiftyEntries( refined, "ids", entry=>{
+                                    const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>d.trim()) : entry.ids
+                                    const remapped = ids.flatMap(d=>{
+                                        const mapped = idsList[d]
+                                        if( !mapped ){
+                                            logger.error(`Couldnt find ${d} in mapped Ids`)
+                                            return undefined
+                                        }
+                                        return mapped
+                                    }).filter((d,i,a)=>d !== undefined && a.indexOf(d)===i)
+                                    return remapped
+                                })
+                                results.summary.structure = refined                
+                            }
+
                         }else{
                             logger.error(`Cant find result `, reworked)
                         }
                     }
                     
                     
-
-                    /*
-                    flatten = flatten.filter(d=>{
-                        const idsForSection = extractFlatNodes([d]).flatMap(d=>d.ids)
-                        return idsForSection.length > 0
-                    })
-                    console.log(`-- Filtered to ${flatten.length} with actual results (based on ids)`)
-                    if( flatten.length === 0){
-                        return ""
-                    }
-                    const idsList = {}
-                    let idGroup = 1
-                    modiftyEntries( flatten, "ids", entry=>{
-                        const ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)) : entry.ids
-                        const idKey = `g${idGroup}`
-                        idsList[idKey] = ids
-                        idGroup++
-                        return idKey
-                    } )
-
-
-                    const outputFormat = revised.output.replaceAll("List the numbers associated with all of the fragments of text used for this section", "List each and every item in the 'ids' field of each of the source summaries which you have rationalized into this new item - you MUST include ALL items from the relevant source summaries")
-
-                    const consolidated = await processInChunk( flatten, 
-                        [
-                            {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
-                            {"role": "user", "content": `Here is a list of summaries:`}],
-                            [
-                                {"role": "user", "content":  `Rationalize these summaries into a single response to address this original prompt. Be careful to note which summaries you are merging together. Be incredibly careful to maintain the integrity and validaity of what you are writing - dont conflate or confuse items. You MUST ONLY use the data I provided to compelte this task - DO NOT use your own knowledge. If asked to include quotes use a selection of the quotes stated in the interim results.  ${revised.task}`
-                            },
-                            {"role": "user", "content": outputFormat},
-                        ],
-                        {
-                            engine: primitiveConfig.engine ?? "gpt-4o",
-                            workspaceId: primitive.workspaceId,
-                            usageId: primitive.id,
-                            functionName: "queryWithStructure_merge",
-                            wholeResponse: true,
-                            field: undefined,
-                            debug: true,
-                            debug_content: true
-                        })
-                    
-                    if( Object.hasOwn(consolidated, "success")){
-                        logger.error(`Error in merging responses for summarizeWithQuery`, consolidated)
-                        throw "Error in merging responses for summarizeWithQuery"
-                    }
-                    if( consolidated.length > 1){
-                        logger.error(`Merged responses has multiple passes - unexpected`)
-                    }
-                    const refined = consolidated[0]?.structure
-                    if( refined ){
-                        modiftyEntries( refined, "ids", entry=>{
-                            const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>d.trim()) : entry.ids
-                            const remapped = ids.flatMap(d=>{
-                                const mapped = idsList[d]
-                                if( !mapped ){
-                                    logger.error(`Couldnt find ${d} in mapped Ids`)
-                                    return undefined
-                                }
-                                return mapped
-                            }).filter((d,i,a)=>d !== undefined && a.indexOf(d)===i)
-                            return remapped
-                        })
-                        results.summary.structure = refined                
-                    }
-                        */
                 }
             }
 

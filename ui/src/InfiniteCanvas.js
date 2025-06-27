@@ -183,7 +183,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if(!d){return}
         myState.current.renderList.push(d)
         refreshFrame(d.id)
-        refreshLinks()
     }
     function removeFrame(frameId){
 
@@ -2865,7 +2864,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             if( classes ){
                 classes = [classes].flat()
             }
-            const found = []
+            let found = []
             let hasFound = false
             const checked = new Set()
             for(const frame of myState.current.frames){
@@ -2905,8 +2904,19 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             }
                         }
                     }
-                    if( !hasFound && props.board && (classes.includes("frame"))){
-                        found.push(frame.node)
+                    if( props.board && (classes.includes("frame"))){
+                        if( hasFound ){
+                            if( frame.parentRender ){
+                                const parentClicked = found.find(d=>d.attrs.id === frame.parentRender)
+                                if( parentClicked ){
+                                    found = found.filter(d=>d.attrs.id !== frame.parentRender)
+                                    found.push( frame.node )
+                                }
+                            }
+
+                        }else{
+                            found.push(frame.node)
+                        }
                     }
                 }else{
                     if( (forClick || includeFrame) && frame.label){
@@ -2954,8 +2964,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         x: 1,
                         y: 1,
                         cornerRadius: 2,
-                        width: node.attrs.width - 2,
-                        height: node.attrs.height - 2,
+                        width: Math.max(node.attrs.width - 2, 1),
+                        height: Math.max(node.attrs.height - 2, 1),
                         stroke: colors[operation]?.stroke,
                         fill: colors[operation]?.fill,
                        // strokeScaleEnabled: false,
@@ -3182,7 +3192,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 return
             }
             let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
-            const clickable_names = ["widget", "frame_label",...Object.keys(props.selectable), Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
+            const clickable_names = ["widget", "frame_label",...Object.keys(props.selectable), ...Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
             if( clickable_names.length === 0 ){
                 return
             }
@@ -3285,7 +3295,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const ids = [d,myState.current.selected?.[cls]].flatMap(d=>d?.attrs?.id).filter((d,i,a)=>d && a.indexOf(d) === i) 
 
                             const result = props.callbacks?.onClick?.[cls]( ids.length > 1 ? ids : ids, frameId, d.attrs.data, d)
-                            doneClick = true
+                            if(result !== false){
+                                doneClick = true
+                            }
                         }
                     }
                 }
@@ -3607,7 +3619,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             const newWidth = (thisTransformer.width() / myState.current.viewport.scale) / frame.scale
                             const innerWidth = newWidth - (frame.canvasMargin[1] + frame.canvasMargin[3])
                             if( props.callbacks.resizeFrame ){
-                                props.callbacks.resizeFrame( frame.id, {width: innerWidth})
+                                const resizeInfo = frame.node.children.find(d=>d.attrs.resizeInfo)?.attrs.resizeInfo
+                                props.callbacks.resizeFrame( frame.id, {width: innerWidth}, resizeInfo)
                             }
                             return
                         }else if( thisTransformer._movingAnchorName === "bottom-center"){

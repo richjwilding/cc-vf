@@ -9,7 +9,7 @@ import Category from "./model/Category";
 //import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import Parser from "@postlight/parser";
-import { extractURLsFromPage, extractURLsFromPageAlternative, fetchURLPlainText, getMetaDescriptionFromURL } from "./google_helper";
+import { extractURLsFromPage, extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
 import { findCompanyURLByName } from "./task_processor";
@@ -646,6 +646,9 @@ async function site_discovery(primitive, options){
                     let urlList //= await extractURLsFromPage( url, {otherDomains: false, markers: false} )
                     urlList = urlList ?? (await extractURLsFromPageAlternative( url, {otherDomains: false, markers: false} ))
                     urlList = urlList ?? (await extractURLsFromPageAlternative( url, {otherDomains: true, markers: false} ))
+                    if( !urlList || urlList.length === 0){
+                        urlList = await extractURLsFromPageUsingScrapingBrowser(url, {otherDomains: false, markers: false} )
+                    }
                     
                     if( categories && urlList && urlList.length > 0){
                         console.log(`Got url list of ${urlList.length}`)

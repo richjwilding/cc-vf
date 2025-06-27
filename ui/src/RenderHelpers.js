@@ -23,6 +23,29 @@ const defaultWidthByCategory = {
 
 export const heatMapPalette = PrimitiveConfig.heatMapPalette
 
+export const categoryColors = [ "#8dd3c7",
+                                "#ffffb3",
+                                "#bebada",
+                                "#fb8072",
+                                "#80b1d3",
+                                "#fdb462",
+                                "#b3de69",
+                                "#fccde5",
+                                "#d9d9d9",
+                                "#bc80bd",
+                                "#ccebc5",
+                                "#ffed6f"]
+export const categoryColors_pastel = [ "#66c5cc", 
+    "#f6cf71",
+    "#f89c74",
+    "#dcb0f2",
+    "#87c55f",
+    "#9eb9f3",
+    "#fe88b1",
+    "#c9db74",
+    "#8be0a4",
+    "#b3b3b3"
+]
 export const categoryColors2 = [ "#4e79a7",
                                 "#f28e2c",
                                 "#e15759",
@@ -35,7 +58,7 @@ export const categoryColors2 = [ "#4e79a7",
                                 "#bab0ab"]
 
 
-export const categoryColors = [
+export const categoryColors_old = [
                                     '#1F77B4', '#FF7F0E', '#2CA02C', '#D62728', '#9467BD',
                                     '#8C564B', '#E377C2', '#7F7F7F', '#BCBD22', '#17BECF',
                                     '#AEC7E8', '#FFBB78', '#98DF8A', '#FF9896', '#C5B0D5'
@@ -1051,14 +1074,16 @@ registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options
             name: "background"
         })
         g.add(b)
-        const maxR = Math.min((config.width - config.padding[3] - config.padding[1]) / 2,(config.height - config.padding[2] - config.padding[0]) / 2)
+        const midX = (config.width - config.padding[3] - config.padding[1]) / 2
+        const midY = (config.height - config.padding[2] - config.padding[0]) / 2
+        const maxR = Math.min(midX, midY)
         const s = items.length
         let r = s ===0 ? (!renderOptions.counts ? 1 : 0) : maxR / spread * (1+(s- range[0]))
         let color = s === 0 && !renderOptions.counts ? "#555" : s === 0 ? "white" : colors[idx]
         if( r > 0){
             const r2 = new Konva.Circle({
-                x: config.padding[3] + maxR,
-                y: config.padding[0] + maxR,
+                x: config.padding[3] + midX,
+                y: config.padding[0] + midY,
                 radius: r,
                 fill: color
             })
@@ -1143,7 +1168,7 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
 
     const calcWidth = ((Math.max(1, config.columns)  + 1) * config.spacing[1]) + (Math.max(1, config.columns) * fullWidth) + config.padding[1] + config.padding[3]
 
-    if( calcWidth > config.width ){
+    if( calcWidth > config.width && !config.columns){
         config.columns = Math.ceil(Math.max(1, ((config.width - config.padding[1] + config.padding[3]) - config.spacing[1]) / (config.itemSize + config.spacing[1])))
     }else{
         config.width = calcWidth
@@ -1921,7 +1946,7 @@ registerRenderer( {type: "categoryId", id: 100, configs: "set_grid"}, (primitive
     return baseGridRender(options, config)
 })
 registerRenderer( {type: "categoryId", id: 29, configs: "set_grid"}, (primitive, options = {})=>{
-    const config = {itemSize: 60, columns: 3, minColumns: 3, spacing: [8,8], itemPadding: [2,2,2,2], padding: [2,2,2,2], ...(options.renderConfig ?? {})}
+    const config = {itemSize: 60, columns: 3, minColumns: options.renderOptions?.int_columns ?? 3, spacing: [8,8], itemPadding: [2,2,2,2], padding: [2,2,2,2], ...(options.renderConfig ?? {})}
     return baseGridRender(options, config)
 })
 registerRenderer( {type: "categoryId", id: 101, configs: "set_grid"}, (primitive, options = {})=>{
@@ -1942,7 +1967,7 @@ function baseGridRender( options, config){
     const heightDefined = config.itemHeight || config.itemSize
     
     const fullHeight =  heightDefined ? (config.itemHeight ?? config.itemSize) + config.itemPadding[0] + config.itemPadding[2] : undefined
-    const fullWidth = ((config.columns === 1 ? Math.max(config.itemWidth ?? 0, config.minWidth ?? 0 ) : config.itemWidth ?? config.itemSize)) + config.itemPadding[1] + config.itemPadding[3]
+    const fullWidth = ((config.columns === 1 ? config.minWidth ?? config.itemWidth  : config.itemWidth ?? config.itemSize)) + config.itemPadding[1] + config.itemPadding[3]
 
     let minColumns = config.minColumns
 
@@ -2857,8 +2882,8 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             title = {content: data[0].heading}
             summary = data[0]
         }
-        const details = findSection( ["recurring topics", "themes", "topics"])
-        const quotes = findSection( ["quotes", "verbatim quotes", "examples", "evidence quotes"])
+        const details = findSection( ["recurring topics", "themes", "topics", "capabilities"])
+        const quotes = findSection( ["quotes", "verbatim quotes", "examples", "evidence quotes", "customers"])
         const orgs = findSection( ["companies","organizations"])
         const sentiment = findSection( ["overall sentiment","sentiment"])
         let y = config.padding[0]
@@ -3410,7 +3435,7 @@ function baseSocialMedia(primitive, options){
 }
 
 export function renderPlainObject(renderOptions = {}){
-    const { 
+    let { 
         id, 
         x = 0, 
         y = 0, 
@@ -3423,6 +3448,10 @@ export function renderPlainObject(renderOptions = {}){
     } = { 
         ...renderOptions 
     };
+
+    width = Math.abs(width)
+    height = Math.abs(height)
+    
 
     const g = new Konva.Group({
         id: id,
@@ -3553,6 +3582,9 @@ export function renderPlainObject(renderOptions = {}){
 
 registerRenderer( {type: "categoryId", id: 138, configs: "default"}, function renderFunc(primitive, options = {}){
     return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.summary})
+})
+registerRenderer( {type: "categoryId", id: 149, configs: "default"}, function renderFunc(primitive, options = {}){
+    return baseImageWithText(primitive, {itemSize: options?.width ?? 280, ...options, textField: primitive.referenceParameters?.overview, padding: [10,10,10,10], imageUrl: primitive.referenceParameters?.imageUrl})
 })
 registerRenderer( {type: "categoryId", id: 123, configs: "default"}, function renderFunc(primitive, options = {}){
     return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.description, width: 320, padding: [20,20,20,20], imageUrl: primitive.referenceParameters?.imageUrl})
@@ -4975,12 +5007,15 @@ export function renderMatrix( primitive, list, options ){
 
             
             const content = renderMatrix(primitive, list, {...options, widgetConfig: undefined})
-            const contentScale = Math.min(1, w / content.width() )
-            content.scale({x:contentScale, y:contentScale})
-            content.y(h)
-            g.add(content)
-            
-            h = h + (content.height() * contentScale)
+            if( content ){
+
+                const contentScale = Math.min(1, w / content.width() )
+                content.scale({x:contentScale, y:contentScale})
+                content.y(h)
+                g.add(content)
+                
+                h = h + (content.height() * contentScale)
+            }
         }
 
         g.width( w )
@@ -5678,6 +5713,20 @@ function renderPieChart( segments, options = {}){
     let idx = 0
     let colors = options.colors ?? categoryColors
 
+    g.add(new Konva.Circle({
+        x: r,
+        y: r,
+        radius: r,
+        fill: "white",
+        //stroke:"#a2a2a2",
+        //strokeWidth:1,
+        shadowEnabled: true,
+        shadowBlur: 6,
+        shadowColor: "#999",
+        shadowOpacity: 0.6,
+        shadowOffsetX: r * 0.015,
+        shadowOffsetY: r * 0.02
+    }))
 
     for( const s of  segments){
 
@@ -5792,7 +5841,7 @@ function renderSubCategoryChart( title, data, options = {}){
         sg.add(t)
         pieY = (config.fontSize * 2.5) + innerSpacing
     }
-    if( data.at(-1).label === "Unknown"){
+    if( data.at(-1)?.label === "Unknown"){
         colors[data.length - 1] = "#d2d2d2"
     }
     let fullPieSize = (itemSize - innerPadding[3] - innerPadding[1]) * 0.95
@@ -5849,8 +5898,9 @@ function renderSubCategoryChart( title, data, options = {}){
         sg.add( renderPieChart(data, {size: pieSize, x: (itemSize - pieSize) / 2, y: pieY + pieMid - (pieSize/ 2), colors: colors}))
     }
 
-    let ly = pieY + fullPieSize + (innerSpacing * 1.5) 
+    let ly = pieY + fullPieSize 
     if( showLegend){
+        ly += (innerSpacing * 1.5) 
         const legend = renderLegend( data,{
                             ...options,
                             fontSize: options.legendSize ?? (config.fontSize * 0.8),
@@ -5872,10 +5922,16 @@ function renderSubCategoryChart( title, data, options = {}){
     ly += innerPadding[2]
     sg.height( ly )
     r.height( ly )
+    sg.attrs.legendInfo = {colors, data}
     return sg
 }
-function renderLegend( data, {colors, itemSize, ...options} ){
-    const total = data.reduce((a,d)=>a+(d.count ?? 0), 0)
+function renderLegend( data, {colors, itemSize, height, width,...options} ){
+    if( !width ){
+        width = itemSize
+    }
+    if(!height){
+        height = itemSize
+    }
 
     const legendFontSize = options.fontSize ?? 12
     const slx = (legendFontSize * 1.2)
@@ -5887,24 +5943,28 @@ function renderLegend( data, {colors, itemSize, ...options} ){
     const sg = new Konva.Group({
         x: options.x,
         y: options.y,
-        width: itemSize,
+        width: 0,
         height: 0
     })
+
+    let maxX = 0, maxY = 0
     
     for( const d of (data ?? []) ){
+        if( ly >= height){
+            break
+        }
         const r = new Konva.Rect({
             //x: innerPadding[3] + (legendFontSize * 0.05),
             x: lx - rxDelta,
             y: ly - (legendFontSize * 0.05),
             width: legendFontSize * 0.9,
             height: legendFontSize * 0.9,
-            fill: d.color ?? colors[ lIdx % colors.length],
+            fill: d?.color ?? colors[ lIdx % colors.length],
             strokeScaleEnabled: false,
             strokeWidth:1,
             stroke: '#555'
         })
         sg.add(r)
-        
         
         const t = new CustomText({
             x: lx,
@@ -5913,10 +5973,10 @@ function renderLegend( data, {colors, itemSize, ...options} ){
             text: d.label, //`${d.label} ${(d.count / total * 100).toFixed(2)}%`,
             fill: '#334155',
             ellipsis: true,
-            width: options.horizontalLegend ? "auto" : itemSize - lx
+            width: options.horizontalLegend ? "auto" : width - lx
         })
         if( options.horizontalLegend ){
-            if( lx + t.width() > itemSize){
+            if( lx + t.width() > width){
                 lx = slx
                 ly += legendFontSize * 1.5
                 t.x(slx)
@@ -5929,9 +5989,14 @@ function renderLegend( data, {colors, itemSize, ...options} ){
             ly += legendFontSize * 1.5
         }
         sg.add(t)
+        const ex = t.x() + t.width()
+        if( ex > maxX){maxX = ex}
+        const ey = t.y() + t.height()
+        if( ey > maxY){maxY = ey}
         lIdx++
     }            
-    sg.height(ly)
+    sg.width(maxX)
+    sg.height(maxY)
     return sg
 
 }
@@ -6232,6 +6297,13 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         }
         scale = ((count / max) * 0.8) + 0.2
     }
+
+    
+    if( renderOptions.order === "high_to_low"){
+        values = values.sort((a,b)=>b.count - a.count)
+    }else if( renderOptions.order === "low_to_high"){
+        values = values.sort((a,b)=>a.count - b.count)
+    }
     
 
     let g = new Konva.Group({
@@ -6274,9 +6346,16 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
 })
 registerRenderer( {type: "default", configs: "datatable_heatmap"}, ({table, cell, renderOptions, ...options})=>{
     const config = {width: 128, height: 128, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
+    if( renderOptions.width ){
+        config.width = renderOptions.width
+    }
+    if( renderOptions.height ){
+        config.height = renderOptions.height
+    }
     let range = table.ranges.table
     let totals = table.totals.table
     let title = ""
+    let fontSize = 16 / 128 * config.width
 
     if( renderOptions?.group_by === "row"){
         totals = table.totals.rows?.order?.[cell.rIdx]
@@ -6301,7 +6380,7 @@ registerRenderer( {type: "default", configs: "datatable_heatmap"}, ({table, cell
         x: (options.x ?? 0),
         y: (options.y ?? 0),
         width: config.width,
-        height: config.height
+        height: config.height,
     })
 
     const idx = Math.floor((cell.count- range.min) / spread * colors.length) 
@@ -6316,14 +6395,16 @@ registerRenderer( {type: "default", configs: "datatable_heatmap"}, ({table, cell
             name: "background"
         })
         g.add(b)
-        const maxR = Math.min((config.width - config.padding[3] - config.padding[1]) / 2,(config.height - config.padding[2] - config.padding[0]) / 2)
+        const midX = (config.width - config.padding[3] - config.padding[1]) / 2
+        const midY = (config.height - config.padding[2] - config.padding[0]) / 2
+        const maxR = Math.min(midX, midY)
         const s = cell.count
         let r = s ===0 ? (!renderOptions.counts ? 1 : 0) : maxR / spread * (1+(s- range.min))
         let color = s === 0 && !renderOptions.counts ? "#555" : s === 0 ? "white" : colors[idx]
         if( r > 0){
             const r2 = new Konva.Circle({
-                x: config.padding[3] + maxR,
-                y: config.padding[0] + maxR,
+                x: config.padding[3] + midX,
+                y: config.padding[0] + midY,
                 radius: r,
                 fill: color
             })
@@ -6344,7 +6425,7 @@ registerRenderer( {type: "default", configs: "datatable_heatmap"}, ({table, cell
             x: config.padding[3],
             y: (config.height) / 2,
             text: renderOptions?.counts === "percentage" ? `${(cell.count / totals * 100).toFixed(0)}% ` : cell.count,
-            fontSize: renderOptions.bubble ? 10 : 16,
+            fontSize: fontSize * (renderOptions.bubble ? 0.5  : 1),
             fontStyle: renderOptions.bubble ? "bold" : undefined,
             fill: textColors[idx],
             width: config.width - config.padding[3] - config.padding[1],
@@ -6470,13 +6551,161 @@ registerRenderer( {type: "default", configs: "set_distribution_chart"}, function
     g.add(sg)
     return g
 })
+registerRenderer( {type: "default", configs: "datatable_timeseries"}, function renderFunc({table, cell, renderOptions, ...options}){
+    const config = {width: 280, height: 140, padding: [10,10,10,10], ...options}
+    if( renderOptions.width ){
+        config.width = renderOptions.width
+    }
+    if( renderOptions.height ){
+        config.height = renderOptions.height
+    }
+ 
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height
+    })
+    const sg = new Konva.Rect({
+        width: config.width,
+        height: config.height,
+        fill: "green"
+    })
+    const timeseries = cell.timeseries
+    let seriesIdx = -1
+
+    const showingDeltas = renderOptions.timeRange?.startsWith("delta_")
+
+    function minMaxTimeForCell( series ){
+        const msList = Object.keys(series ?? {}).map(d=>parseInt(d)).sort().sort((a,b)=>a-b)
+        let min = parseInt(msList.at(0))
+        let max = parseInt(msList.at(-1))
+
+        if( renderOptions.timeRange === "row" || renderOptions.timeRange === "delta_row"){
+            ({min, max} = table.ranges.timeseries.time.rows.order[cell.rIdx])
+        }else if( renderOptions.timeRange === "column" || renderOptions.timeRange === "delta_column"){
+            ({min, max} = table.ranges.timeseries.time.columns.order[cell.cIdx])
+        }
+        
+        return {msList, min, max}
+    }
+
+    for( const series of timeseries ?? [] ){
+        seriesIdx += 1
+        const {msList, min, max} = minMaxTimeForCell( series )
+        const dx = config.width / (max - min)        
+
+        let minValue = 0
+        let maxValue = Object.values(series ?? {}).reduce((a,d)=>(d.count ?? 0) > a ? (d.count ?? 0) : a, -Infinity)
+
+
+        if( renderOptions.calcRange){
+            let values
+            const totalData = table.ranges.timeseries.values
+            if( renderOptions.calcRange === "row"){
+                values = totalData.rows.order[cell.rIdx][seriesIdx]
+            }else if( renderOptions.calcRange === "column"){
+                values = totalData.columns.order[cell.cIdx][seriesIdx]
+            }
+            maxValue = values?.max ?? 0
+        }
+
+        const dy = config.height / (maxValue - minValue)
+
+        const inFrame = msList.filter(d=>d <= max)
+
+        function calcPoint(d){
+            return [(d - min) * dx, config.height - ((series[d].count - minValue) * dy) ]
+        }
+        
+        const points = inFrame.map(d=>{
+            return calcPoint(d)
+        }).flat()
+
+        const color = "#0ea5e9"
+        const ys = points.filter((_, i) => i % 2 === 1);
+        const minY = ys.reduce((a,c)=>c < a ? c :a, Infinity)
+        const maxY = ys.reduce((a,c)=>c > a ? c :a, -Infinity)
+        
+        g.add(new Konva.Rect({
+            width: config.width,
+            height: config.height,
+            fill: "white"
+        }))
+        
+        let fadeColor = mixHexWithWhite(color, 0.65)
+        const fade = new Konva.Line({
+            points: [...points, points.at(-2), config.height, 0, config.height],
+            closed: true,
+            fillLinearGradientStartPoint: { x: config.width/2 / 2, y: minY },
+            fillLinearGradientEndPoint: { x: config.width/2 / 2, y: maxY },
+            fillLinearGradientColorStops: [0, fadeColor, 0.8, 'white'],
+        })
+        g.add(fade)
+
+        const lastPointInterpolated = series[msList.at(-1)].interpolated
+        const mainPoints = lastPointInterpolated ? points.slice(0,-2) : points
+
+        const li = new Konva.Line({
+            points: mainPoints,
+            stroke: color,
+            strokeWidth: 1,
+        })
+        g.add(li)
+        if( lastPointInterpolated ){
+            const li = new Konva.Line({
+                points: points.slice(-4),
+                stroke: color,
+                strokeWidth: 1,
+                dashEnabled: true,
+                dash: [6, 5]
+            })
+            g.add(li)
+        }
+
+
+        mainPoints.forEach((_, i) => {
+            if (i % 2 === 0) {
+              const x = points[i];
+              const y = points[i + 1];
+              const dot = new Konva.Circle({
+                x,
+                y,
+                radius: 2,
+                fill: color,
+              });
+              g.add(dot);
+            }
+        })
+        const maxLabel = new Konva.Text({
+            x: 0,
+            y: 5,
+            color: "#888",
+            align: "right",
+            text: (showingDeltas ? "Avg " : "") + Math.ceil( series[ inFrame.at(-1) ].count )
+        })
+        maxLabel.x( config.width - maxLabel.width() - 5 )
+
+        g.add(maxLabel)
+        
+    }
+    if( options.getConfig){
+        return {
+            width: g.width(),
+            height: g.height()
+        }
+    }
+    return g
+})
 registerRenderer( {type: "default", configs: "set_overunder"}, function renderFunc(primitive, options = {}){
     const config = {itemSize: 350, padding: [2,2,2,2], ...options}
     const fontSize = 12
     const barHeight = 20
     const list = options.list ?? []
     const scores = (options.allocations?.filterGroup0 ?? []).filter(d=>d.idx !== undefined && d.idx !== null && d.idx !== "_N_")
-    const groups = options.allocations?.filterGroup1 ?? [undefined]
+    const groups = options.allocations?.filterGroup1 ?? []
     let groupColors = categoryColors
 
     let g = new Konva.Group({
@@ -7622,8 +7851,8 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
         name:"view"
     })
 
-    let showColumnheaders =  (renderOptions.hideColumnHeaders !== true ) && (data.columns.length > 1)
-    let showRowheaders =  (renderOptions.hideRowHeaders !== true ) && (data.rows.length > 1)
+    let showColumnheaders =  (renderOptions.show_column_headers !== false ) && (data.columns.length > 1)
+    let showRowheaders =  (renderOptions.show_row_headers !== false ) && (data.rows.length > 1)
 
     const columns = data.columns.slice(0, renderOptions.max_cols ?? 200)
     const rows = data.rows.slice(0, renderOptions.max_rows ?? 200)
@@ -7638,12 +7867,19 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     const maxColIdx = columns.length - 1
     const maxRowIdx = rows.length - 1
 
+    let showSingleLegend = true
+
+    let {show_legend, legend_size,...relayConfig} = renderOptions
+    if(data.cells.length === 1 ){
+        relayConfig = renderOptions
+        showSingleLegend = false
+    }
 
     let configForCells = data.cells.reduce((a,cell)=>{
         if( cell.cIdx > maxColIdx || cell.rId > maxRowIdx){
             return a
         }
-        const cellConfig = renderer({table:data, getConfig: true, renderOptions, config, cell})
+        const cellConfig = renderer({id: cell.id, table:data, getConfig: true, renderOptions: relayConfig, config, cell})
         a[cell.id] = cellConfig
         if( cellConfig.height > rowHeights[cell.rIdx]){
             rowHeights[cell.rIdx] = cellConfig.height
@@ -7660,7 +7896,7 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     const rowY = rowHeights.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + rowHeights[i - 1] + spacing : 0), acc), []);
 
 
-    const headers = prepareHeaders({columns: columns, rows: showRowheaders ? rows : [], columnWidths, rowHeights, columnX, rowY, spacing, renderOptions, refreshCallback: imageCallback})
+    const headers = prepareHeaders({columns: showColumnheaders ? columns : [], rows: showRowheaders ? rows : [], columnWidths, rowHeights, columnX, rowY, spacing, renderOptions, refreshCallback: imageCallback})
     let footers
     if( (data.totals.columns && renderOptions.show_column_totals) || (data.totals.rows  && renderOptions.show_row_totals)){
         footers = prepareHeaders({
@@ -7690,13 +7926,29 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
         ox += headers.rows.width() + spacing
     }
 
+    let legendInfo
+
+
     for(const cell of data.cells){
         const x = ox + columnX[cell.cIdx]
         const y =  oy + rowY[cell.rIdx]
         const width = columnWidths[cell.cIdx]
         const height = rowHeights[cell.rIdx]
-        const rendered = renderer({x, y, table:data, renderOptions, config, cell})
-        rendered.id(cell.id)
+        const rendered = renderer({
+            id: cell.id,
+            x, 
+            y, 
+            table: data, 
+            renderOptions: relayConfig,
+            config, 
+            cell})
+
+        if( !legendInfo){
+            const thisLegend = rendered.find(d=>d.attrs.legendInfo)?.[0]?.attrs?.legendInfo
+            if( thisLegend ){
+                legendInfo = thisLegend
+            }
+        }
         if( x + width > maxX){ maxX = x + width}
         if( y + height > maxY){ maxY = y + height}
         g.add(rendered)
@@ -7718,6 +7970,31 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
         maxX += footers?.rows.width()
         g.add( footers.rows)
     }
+    if( showSingleLegend && legendInfo?.data){
+        const showOnRight = show_legend === "right"
+        const legendFontSize = legend_size ? legend_size : 12
+        const legend = renderLegend( legendInfo.data,{
+                            ...options,
+                            fontSize: legendFontSize,
+                            x: showOnRight ? (maxX + (legendFontSize * 1.5)) : 0,
+                            y: showOnRight ? 0 : maxY,
+                            horizontalLegend: !showOnRight,
+                            width: showOnRight ? 200 : maxX,
+                            height: showOnRight ? maxY : 300,
+                            colors: legendInfo.colors
+        })
+        legend.name("inf_track row_header")
+        g.add( legend)
+        if( showOnRight ){
+            maxX = legend.x() + legend.width()
+           legend.y( (maxY - legend.height()) / 2)
+        }else{
+            legend.x( (maxX - legend.width()) /2 )
+            legend.y( maxY + legendFontSize * 1.5)
+            maxY = legend.y() + legend.height()
+        }
+
+    }
     g.width(maxX)
     g.height(maxY)
     if( options.getConfig ){
@@ -7726,6 +8003,13 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
             height: maxY
         }
     }
+
+    g.attrs.resizeInfo = {
+        padding: [spacing, spacing],
+        columns: columns.length,
+        rows: rows.length
+    }
+
     return g
 }
 function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, refreshCallback, longestPair}){

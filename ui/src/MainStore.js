@@ -450,7 +450,13 @@ const actions = {
                             const newList = [];
                             for (const d of list) {
                                 if( !matchSet.has(d.referenceId) ){
-                                    for(const v of d.primitives.strictDescendantIds){
+                                    let depIds
+                                    if( params.descendRel){
+                                        depIds = params.descendRel.flatMap(rel=>d.primitives[rel].allIds)
+                                    }else{
+                                        depIds = d.primitives.strictDescendantIds
+                                    }
+                                    for(const v of depIds){
                                         expanded.add( v )
                                     }
                                 }else{
@@ -721,7 +727,7 @@ const actions = {
                 console.log(`do redorder`)
                 if( receiver.inFlow ){
                     const cp = receiver.configParent
-                    const outputs = cp.primitives.outputs;
+                    const outputs = cp ? cp.primitives.outputs : receiver.primitives.output;
                     const sectionMap = new Map();
                     Object.entries(outputs).forEach(([sectionKey, sectionValue], sIdx) => {
                         const posMap = new Map();
@@ -969,7 +975,7 @@ const actions = {
                       
                         for (let j = 0, len = arr.length; j < len; j++) {
                           const s = arr[j];
-                          if (s.endsWith('.origin') || s.endsWith('.link') || s.startsWith('primitives.results.')) {
+                          if (s.endsWith('.origin') || s.endsWith('.source')|| s.endsWith('.link') || s.startsWith('primitives.results.')) {
                             ids.push(k);
                             break
                           }
@@ -2961,6 +2967,11 @@ function MainStore (prims){
                         if( receiver.primitives.imports.allIds.includes(target)){
                             out.push(receiver)
                         }else{
+                            const segments = receiver.primitives.imports.allUniqueSegment
+                            for(const d of segments){
+                                d.findImportRoute( target, out)
+                            }                        
+
                             const workings = receiver.parentPrimitives.filter(d=>d.type === "working")
                             for(const d of workings){
                                 d.findImportRoute( target, out)

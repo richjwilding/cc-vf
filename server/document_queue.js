@@ -11,10 +11,15 @@ import { BaseQueue } from './base_queue';
 import { assessContextForPrompt } from './prompt_helper';
 import { getLogger } from './logger.js';
 import { compareTwoStrings } from './actions/SharedTransforms.js';
+import { registerAction } from './action_helper.js';
+import { getAhrefsTrafficReportFromRapidAPI } from './rapid_helper.js';
 
 const logger = getLogger('document_queue', "debug"); // Debug level for moduleA
 
 const parser = PrimitiveParser()
+
+
+
 
 function unpackParams(params, limitSet, type){
     Object.keys(params).forEach((p)=>{
@@ -32,6 +37,29 @@ function unpackParams(params, limitSet, type){
 }
 
 export async function processQueue(job, cancelCheck){
+        if( job.data.mode === "traffic_report" ){
+            const primitiveId = job.data.id
+            console.log(`!!!TRAFFIC REPORT for ${primitiveId}`)
+            try{
+                const primitive = await Primitive.findOne({_id:  primitiveId})
+                if( primitive.referenceParameters.url ){
+                    const result = await getAhrefsTrafficReportFromRapidAPI( primitive.referenceParameters.url )
+                    if( result ){
+                        const update = {
+                            ...primitive.referenceParameters,
+                            traffic: result.page.traffic,
+                            domain_traffic: result.domain.traffic,
+                            domain_rank: result.domain.ahrefsRank
+                            
+                        }
+                        await dispatchControlUpdate( primitive.id, "referenceParameters", update)
+                    }
+                    return result
+                }
+            }catch(e){
+                logger.error("Error in traffic_report" ,e)
+            }
+        }
         if( job.data.mode === "data_query" ){
             try{
                 await doDataQuery(job.data)
@@ -501,13 +529,19 @@ async function doDataQuery( options ) {
                                     console.log(`++ Doing for ${d.plainId} / ${d.title}`)
                                     await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: true})
                             }*/
+                            if( config.onlyNew ){
+                                const existing = await primitiveChildren(primitive)
+                                const linked = existing.flatMap(d=>[d.primitives?.link, d.primitives?.source]).flat().filter((d,i,a)=>d && a.indexOf(d)===i)
+                                interim = interim.filter(d=>!linked.includes(d.id) )
+                            }
 
-                            await executeConcurrently(interim, async (d, idx)=>{
-
-                                console.log(`++ Doing iter ${idx} for ${d.plainId} / ${d.title}`)
-                                await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: false})
-                                return
-                            }, undefined, undefined, 10)
+                            if( interim.length > 0){
+                                await executeConcurrently(interim, async (d, idx)=>{
+                                    console.log(`++ Doing iter ${idx} for ${d.plainId} / ${d.title}`)
+                                    await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: false, doingIter: true})
+                                    return
+                                }, undefined, undefined, 10)
+                            }
                             console.log(`Groups all done - leaving`)
                             return
                         }
@@ -675,17 +709,28 @@ async function doDataQuery( options ) {
                         let fragmentList
 
                         const quote = config?.quote ?? true
-                        const targetWords = doingExtracts ? "no more than 30 words" : config?.words ?? "3 paragraphs each of 100-200 words and in a plain string format with appropriately escaped linebreaks"
+                        //const targetWords = doingExtracts ? "no more than 30 words" : config?.words ?? "3 paragraphs each of 100-200 words and in a plain string format with appropriately escaped linebreaks"
                         
                         const includeBasicFields = !doingExtracts
 
-                        const outPrompt = [
-                            `Return the result in a json object called "answer" which is an array containing every part of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found`,
-                            includeBasicFields ? `, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in ${targetWords}` : undefined,
-                            quote ? `, a 'quote' field containing text used from the fragments (verbatim and in full so i have the complete context)` : undefined,
-                            `, a 'ids' field containing the id numbers of every text fragment(s) (as given to you) used to produce this specific part of the answer.`,
-                            (extraFields ?? "").length > 0 ? extraFields : undefined
-                        ].filter(d=>d).join("") + "."
+                        let outPrompt
+                        if(config.single_response){
+                            outPrompt = [
+                                `Return the result in a json object called "answer" which is an array containing a single entry with your full response.  The response must have a boolean 'answered' field indicating if it contains an answer or if no answer was found`,
+                                includeBasicFields ? `, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer as a raw markdown formatted string **without** any triple-backtick fences` : undefined,
+                                quote ? `, a 'quote' field containing text used from the fragments (verbatim and in full so i have the complete context)` : undefined,
+                                `, a 'ids' field containing the id numbers of every text fragment(s) (as given to you) used to produce this specific part of the answer.`,
+                                (extraFields ?? "").length > 0 ? extraFields : undefined
+                            ].filter(d=>d).join("") + "."
+                        }else{
+                            outPrompt = [
+                                `Return the result in a json object called "answer" which is an array containing every part of your answer.  Each part must have a boolean 'answered' field indicating if this part contains an answer or if no answer was found`,
+                                includeBasicFields ? `, an 'overview' field containing a summary of the part in no more than 20 words, an 'answer' field containing the full part of the answer in a raw markdown formatted string **without** any triple-backtick fences` : undefined,
+                                quote ? `, a 'quote' field containing text used from the fragments (verbatim and in full so i have the complete context)` : undefined,
+                                `, a 'ids' field containing the id numbers of every text fragment(s) (as given to you) used to produce this specific part of the answer.`,
+                                (extraFields ?? "").length > 0 ? extraFields : undefined
+                            ].filter(d=>d).join("") + "."
+                        }
 
                         if( prompts ){
                             const threshold_min = config?.thresholdMin ?? 0.85
@@ -1174,6 +1219,19 @@ class DocumentQueueClass extends BaseQueue{
         dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date()}, {track: primitive.id, text:"Parsing document"})
         await this.addJob(workspaceId, {id: primitive.id, ...data, field})
     }
+    async trafficReport( primitive, options ){
+        const workspaceId = primitive.workspaceId
+        const field = `processing.ai.traffic_report`
+
+        if(primitive.processing?.ai?.traffic_report && (new Date() - new Date(primitive.processing.ai.traffic_report.started)) < (5 * 60 *1000) ){
+            console.log(`Already active on ${primitive.id} / ${primitive.plainId} - exiting`)
+            return false
+        }
+        
+        const data = {id: primitive.id, mode: "traffic_report", field: field, ...options}
+        dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date()}, {track: primitive.id, text:"Looking up traffic report"})
+        await this.addJob(workspaceId, {id: primitive.id, ...data, field})
+    }
     
     async documentDiscovery( primitive, req ){
         if( primitive.type === "result"){
@@ -1384,3 +1442,5 @@ export function findQuoteLocation(originalText, quote) {
     return undefined
   
   }
+
+registerAction("traffic_report", {categoryId: 34}, async (...args)=>{await QueueDocument().trafficReport(...args)})

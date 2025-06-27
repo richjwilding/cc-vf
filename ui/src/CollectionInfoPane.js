@@ -20,7 +20,7 @@ import SearchSet from "./SearchSet"
 import { QueryPane } from "./QueryPane"
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list"
 import { CheckboxField, Checkbox as LegacyCheckbox } from "./@components/checkbox"
-import { AdjustmentsVerticalIcon, CloudArrowDownIcon, PlayCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { AdjustmentsVerticalIcon, BackwardIcon, CloudArrowDownIcon, PlayCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
 import { Label } from "./@components/fieldset"
 import { Input, Select, SelectItem } from "@heroui/react"
@@ -221,20 +221,46 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
     const flowElementControl = ()=>{
         if( frame.flowElement ){
             function setConfigValue(k,v){
-                frame.setField(`referenceParameters.fc_${k}`,v) 
+                if( k.at(0)==="!"){
+                    frame.setField(`referenceParameters.${k.slice(1)}`,v) 
+                }else{
+                    frame.setField(`referenceParameters.fc_${k}`,v) 
+                }
             }
-            function debounceInput(target, value){
-
-            }
+            const errorOptions = [
+                {id: "ignore", title: "Ignore"},
+                {id: "stop", title: "Stop flow"},
+                frame.type === "search" ?  [ 
+                    {id: "stop_25", title: "Stop flow at >= 25% child errors"},
+                    {id: "stop_50", title: "Stop flow at >= 50% child errors"},
+                    {id: "stop_75", title: "Stop flow at >= 75% child errors"}
+                ] : undefined,
+                {id: "skip", title: "Skip downstream"},
+                frame.type === "search" ?  [ 
+                    {id: "skip_25", title: "Skip downstream at >= 25% child errors"},
+                    {id: "skip_50", title: "Skip downstream at >= 50% child errors"},
+                    {id: "skip_75", title: "Skip downstream at >= 75% child errors"},
+                ] : undefined,
+            ].flat().filter(Boolean)
             return <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2 @container">
                     <UIHelper.Panel title="Control" icon={<AdjustmentsVerticalIcon className="w-5 h-5"/>}>
                         <DescriptionList inContainer={true} className="my-2 space-y-2">
                             <DescriptionTerm inContainer={true}>Map view</DescriptionTerm>
                             <DescriptionDetails inContainer={true}>
                                 <div className="space-y-2 flex flex-col">
-                                <Checkbox size="sm" isSelected={frame.referenceParameters.showInMap !== false} onValueChange={(selected)=>frame.setField('referenceParameters.showInMap', selected)}>Show in map</Checkbox>
-                                 <InputWithSync label="Label" placeholder="Label to show user" variant="bordered" primitive={frame} field="labelForMap"/>
-                                 </div> 
+                                    <Checkbox size="sm" isSelected={frame.referenceParameters.showInMap !== false} onValueChange={(selected)=>frame.setField('referenceParameters.showInMap', selected)}>Show in map</Checkbox>
+                                    <InputWithSync label="Label" placeholder="Label to show user" variant="bordered" primitive={frame} field="labelForMap"/>
+                                </div> 
+                            </DescriptionDetails>
+                            <DescriptionTerm inContainer={true}>Error handling</DescriptionTerm>
+                            <DescriptionDetails inContainer={true}>
+                                <div className="space-y-2 flex flex-col">
+                                    <Select className="w-full" label="Error options" variant="bordered" selectedKeys={[frame.referenceParameters?.[`fcHandleError`]].flat() ?? []} onChange={(e)=>setConfigValue("!fcHandleError", e.target.value)}>
+                                        {errorOptions.map((d) => (
+                                            <SelectItem key={d.id}>{d.title}</SelectItem>
+                                        ))}
+                                    </Select>
+                                </div> 
                             </DescriptionDetails>
                             <DescriptionTerm inContainer={true}>Active Configurations</DescriptionTerm>
                             <DescriptionDetails inContainer={true}>
@@ -264,7 +290,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     let flowinstance = underlying.findParentPrimitives({type:"flowinstance"})?.[0]
                     let title = flowinstance.primitives.imports.allItems[0]?.filterDescription
                     return <>
-                        <div className="text-sm text-ccgreen-800">Items for flow instance {title} (#{flowinstance?.plainId}) </div>
+                        <div className="text-sm text-ccgreen-800">Items for flow instance {title} (#{underlying.plainId} @ #{flowinstance?.plainId}) </div>
                         <button
                         type="button"
                         className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 mt-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -388,11 +414,12 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                     onExpand={(d)=>mainstore.sidebarSelect(d)}
                                     columns={[
                                         {field: 'plainId', title: "ID", width: 50},
-                                        {field: 'title', title: "Title", width:200},
+                                        {renderType: 'title_with_error', title: "Title", width:200},
                                         {field: 'count', title: "Results"},
                                         {renderType: "actions", title: "Actions", width: 70, actions: [
                                             {title: "Run", icon: PlayCircleIcon, action: (d)=>nestedCallback(d.id)},
                                             {title: "Refetch", icon: CloudArrowDownIcon, action: (d)=>fetchResults(d.id)},
+                                            (d)=>d.error ? {title: "Reset", icon: BackwardIcon, action: (d)=>mainstore.primitive(d.id)?.setField("processing.query.status", "rerun")} : undefined,
                                         ]},
                                     ]}
                                     data={nestedSearch.map(target=>{
@@ -402,6 +429,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                             return {
                                                 id: target.id,
                                                 plainId: target.plainId,
+                                                error: target.processing?.query?.error,
                                                 title: linkedItem ? `Search for ${linkedItem.title}` : target.title,
                                                 count: target.primitives.origin.allUniqueIds.length,
                                                 data:{
@@ -490,8 +518,8 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 sourceList = origins.flat()
             }*/
             const axisOptions = CollectionUtils.axisFromCollection( sourceList, frame )
-            const axisForPivot = axisOptions.filter(d=>["result","entity"].includes(d.category?.primitiveType) ).filter((d,i,a)=>a.findIndex(d2=>d2.category.id === d.category.id)===i).map(d=>({category: d.category, relationship: d.relationship}))
-            let parents = mainstore.uniquePrimitives(sourceList.map(d=>d.findParentPrimitives({type: ["entity", "result"]})).flat(Infinity))
+            const axisForPivot = axisOptions.filter(d=>["result","entity", "evidence"].includes(d.category?.primitiveType) ).filter((d,i,a)=>a.findIndex(d2=>d2.category.id === d.category.id)===i).map(d=>({category: d.category, relationship: d.relationship}))
+            let parents = mainstore.uniquePrimitives(sourceList.map(d=>d.findParentPrimitives({type: ["entity", "result"], first: true})).flat(Infinity))
             return [axisForPivot, parents]
         }
 
