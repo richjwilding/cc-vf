@@ -485,6 +485,10 @@ async function doDataQuery( options ) {
         const primitive = await Primitive.findOne({_id: options.id})
         const thisCategory = await Category.findOne({id: primitive.referenceId})
 
+        const progress = async (progress)=>{
+            await dispatchControlUpdate(primitive.id, options.field , progress)
+        }
+
                 const parentForScope = options.parentForScope //(await primitiveParentsOfType(primitive, "working"))?.[0]
 
                 const config = await getConfig( primitive )
@@ -523,12 +527,7 @@ async function doDataQuery( options ) {
                         
 
                         if( config.group || thisCategory.type === "iterator" ){
-                        //if(  thisCategory.type === "iterator" ){
                             console.log(`Will go via groups - have ${interim.length} to do`)
-                            /*for(const d of interim){
-                                    console.log(`++ Doing for ${d.plainId} / ${d.title}`)
-                                    await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: true})
-                            }*/
                             if( config.onlyNew ){
                                 const existing = await primitiveChildren(primitive)
                                 const linked = existing.flatMap(d=>[d.primitives?.link, d.primitives?.source]).flat().filter((d,i,a)=>d && a.indexOf(d)===i)
@@ -547,7 +546,6 @@ async function doDataQuery( options ) {
                         }
 
                         console.log(`Got ${interim.length} for view `)
-                        //items = await primitiveDescendents( interim, "result")
                         items = [interim.filter(d=>validTypes.includes(d.type)), await primitiveDescendents( interim, validTypes, {fields: "referenceId"})].flat()
                         console.log(`BACK FROM DESCEND`)
                     }else{
@@ -671,6 +669,7 @@ async function doDataQuery( options ) {
                         results = {success: true, allItems: true }
 
                     }else{
+                        progress(`Building lookup terms...`)
                         results = await processPromptOnText( query,{
                             workspaceId: primitive.workspaceId,
                             functionName: "query-terms",
@@ -678,10 +677,11 @@ async function doDataQuery( options ) {
                             prompt: `Build a list of ${config?.lookupCount ?? ""} keywords and phrases that will retrieve information from the database which can answer this task or question.`,
                             output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
                             engine: config.engine ?? "gpt-4o",
-                            debug: true,
-                            debug_content: true,
+                            debug: false,
+                            debug_content: false,
                             field: "result"
                         })
+                        progress(`Got ${results.length} terms...`)
                     }
                 }else{
                     if( doingExtracts ){
@@ -737,7 +737,7 @@ async function doDataQuery( options ) {
                             const threshold_seek = config?.thresholdSeek ?? 0.005
                             const searchTerms = config?.candidateCount ?? 1000
                             const scanRatio = config?.scanRatio ?? 0.15
-                            let fragments = await fetchFragmentsForTerm(prompts, {searchTerms, scanRatio, threshold_seek, threshold_min, serachScope})
+                            let fragments = await fetchFragmentsForTerm(prompts, {searchTerms, scanRatio, threshold_seek, threshold_min, serachScope}, progress)
                             const oldCount = fragments.length
                             fragments = fragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i)
                             console.log(`have ${oldCount} -> ${Object.keys(fragments).length} fragments`)
@@ -814,8 +814,8 @@ async function doDataQuery( options ) {
                                             rationale:[a 30 word summary of your assessment]
                                         }`.replaceAll(/\s+/g," "),
                                     engine: "gpt4o-mini",
-                                    debug: true,
-                                    debug_content: true,
+                                    debug: false,
+                                    debug_content: false,
                                     field: "assessment"
                                 })
                                 if( config.fullText ){
@@ -922,8 +922,8 @@ async function doDataQuery( options ) {
                             batch: batchSize,
                             engine: config.engine ?? "gpt-4o",
                             idField: "ids",
-                            debug: true,
-                           debug_content: true,
+                            debug: false,
+                           debug_content: false,
                             field: "answer"
                         })
                         console.log(`For ${options.inheritValue} for ${results.output?.length} for ${fragmentList.length}`)

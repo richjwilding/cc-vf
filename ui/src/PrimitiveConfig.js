@@ -1083,7 +1083,7 @@ const PrimitiveConfig = {
     },
     checkImports: (receiver, id, filters)=>{
         if( !filters || filters.length === 0){
-            const imp = receiver.primitives.imports
+            const imp = receiver.primitives?.imports
             if( imp ){
 
                 const ids = imp.allIds ?? imp
@@ -1442,7 +1442,16 @@ const PrimitiveConfig = {
         steps = steps.slice().filter(d=>d)
         let flowStarted = flowInstance.processing?.flow?.started
         const map = {}
-        const flowId = Object.entries(flowInstance._parentPrimitives ?? flowInstance.parentPrimitives ?? {}).find(d=>d[1].includes("primitives.origin"))?.[0]
+
+        function getOrigin( item ){
+            return Object.entries(item._parentPrimitives ?? item.parentPrimitives ?? {}).find(d=>d[1].includes("primitives.origin"))?.[0]
+        }
+        function getConfigId( item ){
+            return Object.entries(item._parentPrimitives ?? item.parentPrimitives ?? {}).find(d=>d[1].includes("primitives.config"))?.[0]
+        }
+
+        //const flowId = Object.entries(flowInstance._parentPrimitives ?? flowInstance.parentPrimitives ?? {}).find(d=>d[1].includes("primitives.origin"))?.[0]
+        const flowId = getOrigin(flowInstance)
         
         const fcValues = Object.entries(flowInstance.referenceParameters ?? {}).reduce((a,[k,v])=>{
             if( k.startsWith("fc_")){
@@ -1482,7 +1491,8 @@ const PrimitiveConfig = {
 
             let config = {}
             if( options.configPrimitives){
-                const stepConfigId = Object.entries(step.parentPrimitives).filter(d=>d[1].includes("primitives.config"))[0]?.[0]
+                //const stepConfigId = Object.entries(step.parentPrimitives).filter(d=>d[1].includes("primitives.config"))[0]?.[0]
+                const stepConfigId = getConfigId(step)
                 if( stepConfigId ){
                     const configPrimitve = options.configPrimitives.find(d=>d.id === stepConfigId)
                     config = configPrimitve?.referenceParameters ?? {}
@@ -1564,6 +1574,38 @@ const PrimitiveConfig = {
             status.candidateForRun = status.can && status.need
             map[step.id] = status
         }
+
+        if( options.subFlowsToScaffold ){
+            for(const subFlow of options.subFlowsToScaffold ){
+                const status = {
+                    id: subFlow.id,
+                    need: true,
+                    need_reason: "scaffold_flow",
+                    can: undefined,
+                    children: []
+                }
+                if( options.withPrimitives){
+                    status.primitive = subFlow
+                }
+                map[status.id] = status
+                
+                const pp = functions.getPrimitives ? functions.getPrimitives(subFlow) : subFlow.primitives
+                const checkListIds = [
+                    ...pp.imports.allIds, 
+                    ...pp.inputs.allIds,
+                ]
+                console.log(`Missing subflow origin is ${checkListIds.join(", ")}`)
+                for(const id of checkListIds ){
+                    const resolved = steps.find(d=>getConfigId(d) === id)
+                    console.log(`Resolved ${id} to ${resolved?.id} / ${resolved?.plainId} / ${resolved?.title}`)
+                    if( resolved ){
+                        await setupStep( resolved, status)
+                    }
+                }
+
+            }
+        }
+
         
         for( const step of steps){
             await setupStep(step)

@@ -1,3 +1,4 @@
+import { modiftyEntries } from "./actions/SharedTransforms"
 import { processPromptOnText } from "./openai_helper"
 
 export function fieldListToPromptOutput( list ){
@@ -271,33 +272,4 @@ export function augmentEntries(obj, entry, newEntry, neewValue) {
         }
         }
     }
- }
-export function modiftyEntries(obj, entry, callback) {
-
-    if( !callback || !obj){
-        return obj
-    }
-    // Check if the object has a 'heading' key and delete it
-    if (obj.hasOwnProperty(entry)) {
-        const result = callback( obj )
-        obj[entry] = result
-    }
-    
-    // Loop through each key-value pair in the object
-    for (let key in obj) {
-        if (obj.hasOwnProperty(key)) {
-            if (Array.isArray(obj[key])) {
-                // If the value is an array, loop through its items
-                obj[key].forEach(item => {
-                if (typeof item === 'object') {
-                    modiftyEntries(item, entry, callback)
-                }
-                });
-            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-                // If the value is an object, recurse into it
-                modiftyEntries(obj[key], entry, callback)
-            }
-        }
-    }
-    return obj
  }

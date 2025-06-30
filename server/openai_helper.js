@@ -718,11 +718,11 @@ function tokensForModel(model){
     }else if( model === "gpt4o" ){
         defaultTokens = 80000
     }else if( model === "o3" ){
-        defaultTokens = 120000
+        defaultTokens = 115000
     }else if( model === "o3-mini" ){
-        defaultTokens = 120000
+        defaultTokens = 115000
     }else if( model === "o4-mini" ){
-        defaultTokens = 120000
+        defaultTokens = 115000
     }else if( model === "gpt-41" ){
         defaultTokens = 800000
     }else if( model === "gpt3" || model === "gpt3t"){

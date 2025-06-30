@@ -4,14 +4,14 @@ import Category from "../model/Category";
 import Primitive from "../model/Primitive";
 import { buildCategories, categorize, processAsSingleChunk, processPromptOnText, summarizeMultiple } from "../openai_helper";
 import { fetchFragmentsForTerm } from "../DocumentSearch";
-import { modiftyEntries, reviseUserRequest } from "../prompt_helper";
+import { reviseUserRequest } from "../prompt_helper";
 import PrimitiveConfig, { flattenStructuredResponse } from "../PrimitiveConfig";
 import { parser } from "stream-json/Parser";
 import { PassThrough } from "stream";
 import Assembler from "stream-json/Assembler";
 import { get, set } from "lodash";
 import { extractFlatNodes, findCompanyURLByNameLogoDev, getFragmentsForQuery, oneShotQuery } from "../task_processor";
-import { pickAtRandom } from "./SharedTransforms";
+import { modiftyEntries, pickAtRandom } from "./SharedTransforms";
 import { registerAction, runAction } from "../action_helper";
 import { getLogger } from '../logger.js';
 const logger = getLogger('agent', "debug"); // Debug level for moduleA

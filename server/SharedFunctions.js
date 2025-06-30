@@ -34,7 +34,7 @@ import { fetchMoneySavingExpertSearchResults, moneySavingExpertSERP } from './sc
 import mongoose, { Types } from 'mongoose';
 import { reviseUserRequest } from './prompt_helper.js';
 
-const logger = getLogger('sharedfn', "info"); // Debug level for moduleA
+const logger = getLogger('sharedfn', "debug"); // Debug level for moduleA
 
 Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -1189,14 +1189,16 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
         const instanceFlowInstances = instancesOfElement.map(d=>d.type === "flowinstance" ? d.id : primitiveOrigin(d))
         let relevantTargetInstanceForElementInstance
         
-        let idx = 0
+        let idx = -1
         for(const ie of instancesOfElement){
+            idx++
             let useTarget
             if( relationship === "primitives.imports" && tObject.type === "flow"){
                 //useTarget = tObject.id
-                const fis = instancesOfTarget.filter(d=>Object.keys(d.parentPrimitives ?? {}).includes(instanceFlowInstances[idx]))
+                const fis = instancesOfTarget.filter(d=>(d.id === instanceFlowInstances[idx]) || Object.keys(d.parentPrimitives ?? {}).includes(instanceFlowInstances[idx]))
                 console.log(`--- got ${fis.length} flowinstances to ${mode} as import`)
                 for(const d of fis){
+                    logger.debug(`--- linking ${ie.id} => ${d.id} ${relationship}`)
                     if( mode == "add"){
                         await addRelationship( ie.id, d.id, relationship)
                     }else if( mode == "remove"){
@@ -1236,7 +1238,7 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
                 if( !relevantTargetInstanceForElementInstance ){
                     relevantTargetInstanceForElementInstance = await relevantInstanceForFlowChain( instancesOfTarget, instanceFlowInstances)
                     console.log(`Done flow instance matching`)
-                    console.log(relevantTargetInstanceForElementInstance)
+                    //console.log(relevantTargetInstanceForElementInstance)
                 }
                 const it = relevantTargetInstanceForElementInstance[idx]
                 if( it ){
@@ -1256,7 +1258,6 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
                     await removeRelationship( ie.id, useTarget, relationship)
                 }
             }
-            idx++
         }
     }
 

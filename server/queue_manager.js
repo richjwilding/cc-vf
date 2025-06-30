@@ -17,7 +17,7 @@ import BrightDataQueue from './brightdata_queue';*/
 
 const asyncLocalStorage = require('./asyncLocalStorage');
 
-const logger = getLogger('queue-manager', "debug"); // Debug level for moduleA
+const logger = getLogger('queue-manager', "info"); // Debug level for moduleA
 
 
 class QueueManager {
@@ -691,7 +691,8 @@ class QueueManager {
     async getJobStatus(workspaceId, jobData) {
         const jobId = jobData.id + "-" + jobData.mode 
         const queue = await this.getQueue(workspaceId);
-        const jobs = await queue.getJobs(['waiting', 'waiting-children', 'active', 'delayed', 'completed', 'failed']);
+        const jobs = (await queue.getJobs(['waiting', 'waiting-children', 'active', 'delayed', 'completed', 'failed'])).filter(Boolean);
+
         const filteredJobs = jobs.filter(job => job.id.startsWith(jobId));
         return filteredJobs
     }

@@ -64,15 +64,18 @@ export class BaseQueue {
 
     async notify(job, result, {childJob, parentJob}) {
         let status , error
-        let notifyResponse
+        let notifyResponse, timeField
         if( result.started){
             status = "running"
+            timeField = "running"
         }else if(result.error ){
             status = "error"
             error = result.error
+            timeField = "completed"
 
         }else if(result.success === true){
             status = "completed"
+            timeField = "completed"
         }
         this.logger.info("Got notification", { id:job.id, status, error, childJob, mode: job.mode });
 
@@ -82,7 +85,7 @@ export class BaseQueue {
                 ...(prim.processing?.[job.mode] ?? {}),
                 status, 
                 error,
-                [status]: new Date().toISOString(), 
+                [timeField]: new Date().toISOString(), 
                 track: job.id
             }
             if( result.error){

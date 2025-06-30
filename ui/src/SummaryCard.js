@@ -7,6 +7,8 @@ import MainStore from "./MainStore";
 import useDataEvent from "./CustomHook";
 import SmallButton from "./SmallButton";
 import MarkdownEditor from "./MarkdownEditor";
+import { flattenStructuredResponse } from "./PrimitiveConfig";
+import { modiftyEntries } from "./SharedTransforms";
 
 
 
@@ -108,18 +110,27 @@ export default function SummaryCard({primitive, ...props}){
     let summary = <></>
 
     if(primitive.referenceParameters?.summary){
-      /*  let [list, isLong] = processText( primitive.referenceParameters?.summary )
-        if( isLong != longSummary){
-            setLongSummary( isLong)
-        }
-        
-        summary = <div 
-            ref={summaryRef} 
-            className={`mx-1 my-3 py-2 px-4 rounded-lg bg-gray-50 text-gray-600 text-sm space-y-2 ${longSummary && preview ? "max-h-32 overflow-hidden" : ""}`}>
-                {list}
-            </div>*/
+        //summary = <MarkdownEditor ref={summaryRef} initialMarkdown={primitive.referenceParameters?.summary }/>
 
-        summary = <MarkdownEditor ref={summaryRef} initialMarkdown={primitive.referenceParameters?.summary }/>
+        if( primitive.referenceParameters?.structured_summary ){
+            const data = primitive.referenceParameters.structured_summary.slice()
+            modiftyEntries( data, "content", entry=>{
+                let content = entry.content
+                entry._content = content
+                if( entry.ids.length > 0){
+                    content = content += ` [[id:${entry.ids.join(", ")}]]`
+                }
+                return content
+            } )
+            const out = flattenStructuredResponse( data, data)
+            modiftyEntries( data, "content", entry=>{
+                return entry._content
+            })
+
+            summary = <MarkdownEditor ref={summaryRef} initialMarkdown={out}/>
+        }else{
+            summary = <MarkdownEditor ref={summaryRef} initialMarkdown={primitive.referenceParameters?.summary }/>
+        }
     }
 
     return  <div className="w-full bg-white flex flex-col p-2">

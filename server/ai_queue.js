@@ -1254,7 +1254,6 @@ export async function processQueue(job){
                 }
             }
             if( job.data.mode === "rebuild_summary"){
-                console.log(`--> Rebuilding sumamry in queue`)
                     const config = await getConfig(primitive)
 
                     const parent = await fetchPrimitive( primitiveOrigin( primitive ) )
@@ -1309,9 +1308,8 @@ export async function processQueue(job){
                             try{
 
                                 if( config.revised_query && config.revised_query.cache === config.prompt){
-                                    console.log(`--- Using structure cache`)
+                                    logger.debug(`Using structure cache for rebuild_summary of ${primitive.id}`)
                                 }else{
-                                    console.log(`--- Finding config parent`)
                                     const configParent = await getConfigParentForTerm(primitive, "prompt")
                                     if( configParent ){
                                         const revised = await reviseUserRequest(config.prompt, config)
@@ -1320,14 +1318,16 @@ export async function processQueue(job){
                                             cache: config.prompt
                                         }
                                         await dispatchControlUpdate( configParent.id, "referenceParameters.revised_query", toStore)
-                                        console.log(`--- Revised structure cached for reuse`)
+                                        logger.debug(`Rebuilt structure cache for rebuild_summary of ${primitive.id}`)
                                     }
                                 }
 
                                 result = await summarizeWithQuery(primitive)
-                                if( result ){
+                                if( !result || result.error ){
+                                    console.log(`========= RESTURNING ERROR ${result.error}`)
+                                    return result
+                                }else{
                                     if( result.length > 1){
-                                        console.log(`GOT MULTIPLE - NEED TO CREATE`)
                                         const primitiveParentId = primitiveOrigin(primitive)
                                         const segments = await findParentPrimitivesOfType(primitive, ["segment"])
                                         const segment = segments[0]

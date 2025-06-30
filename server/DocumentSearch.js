@@ -5,7 +5,9 @@ import ContentEmbedding from "./model/ContentEmbedding";
 import { buildEmbeddings } from "./openai_helper";
 import nlp from "compromise/three";
 import { PorterStemmer } from "natural";
-import { executeConcurrently } from "./SharedFunctions";
+import { dispatchControlUpdate, executeConcurrently, fetchPrimitives } from "./SharedFunctions";
+import { getLogger } from "./logger";
+const logger = getLogger('document_search', "info"); // Debug level for moduleA
 
 
 export async function retrieveDocumentFromSearchCache( primitiveId){
@@ -24,14 +26,17 @@ export async function indexDocument( primitive, {force, fetch} = {}, req){
                 foreignId: primitive.id,
                 workspaceId: primitive.workspaceId
             })
-            
         }else{
+            if( primitive.processing?.indexed ){
+                logger.debug(`Marked as indexed - skipping`)
+                return
+            }
             const existing = await ContentEmbedding.findOne({
                 foreignId: primitive.id,
                 workspaceId: primitive.workspaceId
             }, {foreignId: 1})
             if( existing ){
-                console.log("Already exists - skipping")
+                logger.debug(`Embedding already exists for ${primitive.id} - skipping`)
                 return
             }
         }
@@ -47,14 +52,17 @@ export async function indexDocument( primitive, {force, fetch} = {}, req){
             //text = (await getDocumentAsPlainText( primitive.id, req ))?.plain
         }
         if( !text || text.length === 0){
-            console.log(`Nothing to process`)
+            logger.debug(`No text to embed for ${primitive.id} - skipping`)
         }
 
         const embedded = await buildDocumentTextEmbeddings( text )
         await storeDocumentEmbeddings( primitive, embedded )
+        await dispatchControlUpdate(primitive.id, "processing.indexed", true)
     }catch(error){
-        console.log("Error in indexDocument")
-        console.log(error)
+        logger.error(`Error in indexDocument for ${primitive.id}`, error)
+        await dispatchControlUpdate(primitive.id, "processing.indexed", "error")
+
+        
     }
 }
 
@@ -68,24 +76,24 @@ export async function buildDocumentTextEmbeddings( text, limit ){
     let truncating = false
 
     if( limit && limit < final.length){
-        console.log(`Will limit embeddings to first ${limit} of ${final.length}`)
+        logger.debug(`Will limit embeddings to first ${limit} of ${final.length}`)
         final = final.slice(0, limit)
         truncating = true
     }
     if( final.length > 900){
-        console.log(`WARNING: limit embeddings to first 1500 sections of document`)
+        logger.warn(`WARNING: limit embeddings to first 1500 sections of document`)
         final = final.slice(0, 900)
     }
     
 
-    console.log(`Processing as ${final.length} (from ${groupedSentences.length})`)
+    logger.debug(`Processing as ${final.length} (from ${groupedSentences.length})`)
     
     let part = 0
     async function encode(segment, part){
         segment = segment.trim()
         if( segment.length > 0 ){
             const response = await buildEmbeddings( segment)
-            console.log(`-- part ${part} back`)
+            logger.verbose(`-- part ${part} back`)
             if( response?.success){
                 return { part: part, segment: segment, embeddings: response.embeddings}
             }  
@@ -95,7 +103,7 @@ export async function buildDocumentTextEmbeddings( text, limit ){
     let {results, _} = await executeConcurrently( final, encode, undefined, undefined, 10)
     results = results.filter(d=>d)
 
-    console.log(`< Embeddings done`)
+    logger.debug(`Embeddings done`)
     if( limit !== undefined ){
         return {truncated: truncating, results: results}        
     }
@@ -227,7 +235,7 @@ export function groupNeighboringSentences(keywords) {
 export async function storeDocumentEmbeddings( primitive, embedded ){
     async function store({part, segment, embeddings}){
         try{
-                console.log(`Storing ${part} for ${primitive.id}`)
+                logger.verbose(`Storing ${part} for ${primitive.id}`)
                 await ContentEmbedding.findOneAndUpdate({
                     part: part,
                     foreignId: primitive.id,
@@ -237,19 +245,82 @@ export async function storeDocumentEmbeddings( primitive, embedded ){
                     embeddings: embeddings
                 },{upsert: true, new: true})
         }catch(error){
-            console.log("Error in storeDocumentEmbeddings")
-            console.log(error)
+            logger.error(`Error in storeDocumentEmbeddings  for ${primitive.id}`, error )
         }
     }
     await executeConcurrently( embedded, store, undefined, undefined, 10)
 }
-export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, searchTerms = 1000, scanRatio = 0.15, threshold_seek = 0.005, threshold_min = 0.85}){
+
+function extractFieldFromMongoQuery(obj, field) {
+    let result = [];
+  
+    // If this is an array (e.g. $or: [ {...}, {...} ]), dive into each element
+    if (Array.isArray(obj)) {
+      for (const el of obj) {
+        if (el && typeof el === 'object') {
+          result.push(...extractFieldFromMongoQuery(el, field));
+        }
+      }
+      return result;
+    }
+  
+    // Otherwise obj is an object
+    for (const [key, val] of Object.entries(obj)) {
+      if (key === field) {
+        // 1) {$in: [...]}
+        if (val && typeof val === 'object' && Array.isArray(val.$in)) {
+          result.push(...val.$in);
+  
+        // 2) direct array (unlikely in Mongo, but just in case)
+        } else if (Array.isArray(val)) {
+          result.push(...val);
+  
+        // 3) single value (equality match)
+        } else {
+          result.push(val);
+        }
+  
+      } else if (val && typeof val === 'object') {
+        // dive into nested objects ($and, $or, $elemMatch, etc.)
+        result.push(...extractFieldFromMongoQuery(val, field));
+      }
+      // primitives other than foreignId are ignored
+    }
+  
+    return result;
+  }
+
+export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, searchTerms = 1000, scanRatio = 0.15, threshold_seek = 0.005, threshold_min = 0.85}, progress = ()=>{}){
     prompts = [prompts].flat()
     const fragCheck = new Set()
 
     console.log({
         searchTerms, scanRatio, prompts: prompts.length
     })
+    const ids = extractFieldFromMongoQuery( serachScope, "foreignId" )
+
+    const workspaceId = extractFieldFromMongoQuery( serachScope, "workspaceId" )?.[0]
+    logger.debug(`Detected ${ids.length} id constraints on workspace ${workspaceId} - check if need to run embeddings`)
+    if( ids?.length > 0 && workspaceId){
+        const existing = await ContentEmbedding.distinct('foreignId', { workspaceId, foreignId: { $in: ids } });
+        const missing = ids.filter(id => !existing.includes(id))
+        logger.info(`Missing ids = ${missing.length}`)
+        if( missing.length > 0){
+            let primitives = await fetchPrimitives( missing, {workspaceId: workspaceId})
+            primitives = primitives.filter(d=>!d.processing?.indexed)
+
+            const totalCount = primitives.length
+            let processCount = 0
+            await executeConcurrently( primitives, async (d)=>{
+                processCount++
+                if( typeof(progress) === "function" ){
+                    progress(`Indexing ${processCount} of ${totalCount}`)
+                }
+                await indexDocument(d, {fetch: true})
+            })
+        }
+    }
+
 
     async function process(prompt){
         let fragments = []
@@ -301,6 +372,7 @@ export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, s
         }
         return fragments
     }
+
     console.log(`DOING LOOKUP`)
     let {results: allFragments, _} = await executeConcurrently( prompts, process )
     console.log(`BACK`)
@@ -310,6 +382,7 @@ export async function fetchFragmentsForTerm(prompts, {serachScope = undefined, s
         a.findIndex(d2 => d2.id===d.id && d2.part===d.part) === i
     );
     console.log(`have ${allFragments.length} deduped fragments`)
+    progress(`Fetched ${allFragments.length} fragments`)
     
     //allFragments = allFragments.filter((d,i,a)=>a.findIndex(d2=>d2.id === d.id && d2.part === d.part)===i).sort((a,b)=>b.score - a.score)
     return sortFragments( allFragments )

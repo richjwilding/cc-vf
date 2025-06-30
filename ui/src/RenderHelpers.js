@@ -8,7 +8,7 @@ import moment from "moment";
 import MainStore from "./MainStore";
 import { renderToString } from "react-dom/server";
 import { MagnifyingGlassIcon } from "@heroicons/react/20/solid";
-import { compareTwoStrings, convertOrganizationFinancialData, formatNumber, roundCurrency } from "./SharedTransforms";
+import { compareTwoStrings, convertOrganizationFinancialData, formatNumber, getBaseDomain, getRegisteredDomain, roundCurrency } from "./SharedTransforms";
 import { HeroIcon } from "./HeroIcon";
 import { cloneElement } from "react";
 import WedgeRing from "./WedgeRing";
@@ -1900,6 +1900,7 @@ registerRenderer( {type: "type", id: "page", configs: "set_grid"}, (primitive, o
                 placeholder: options.placeholder !== false,
                 toggles: options.toggles,
                 imageCallback: options.imageCallback,
+                itemIdx: dIdx,
                 utils: options.utils,
                 ...options.extras
             })
@@ -2646,7 +2647,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
 
 
 })
-registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primitive, options = {})=>{
+registerRenderer( {type: "categoryId", id: [29,78], configs: "set_ranking"}, (primitive, options = {})=>{
     const config = {width: 200, height: 200, itemSize: 30, itemPadding: [2,2,2,2], padding: [10,10,10,10], ...(options.renderConfig ?? {})}
     if( options.getConfig){
         return config
@@ -2669,17 +2670,17 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primiti
 
     let items = options.list
     
-    let rankBy = primitive.renderConfig.rank 
+    let rankBy = options.renderOptions?.rank ?? "title" 
+    const rankKey = rankBy === "raised" ? "funding" : rankBy
     if( rankBy){
         if( rankBy === "title"){
             items = items.sort((a,b)=>(a.title ?? "").localeCompare(b.title ?? ""))
         }else{
-            const rankKey = rankBy === "raised" ? "funding" : rankBy
             items = items.filter(d=>d.referenceParameters?.[rankKey]).sort((a,b)=>b.referenceParameters[rankKey] - a.referenceParameters[rankKey])
         }
 
     }
-    const maxScale = items.map(d=>d.referenceParameters.funding).reduce((a,c)=>c > a ? c : a, 0)
+    const maxScale = items.map(d=>d.referenceParameters?.[rankKey]).reduce((a,c)=>c > a ? c : a, 0)
 
     
 
@@ -2692,6 +2693,8 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primiti
             height: fullHeight, 
             width: width - config.itemPadding[1] - config.itemPadding[3], 
             placeholder: options.placeholder !== false,
+            parameter: rankKey,
+            currency: rankKey === "funding" ? "$" : false,
             padding: config.itemPadding, imageCallback: options.imageCallback})
         if( node ){
             g.add(node)
@@ -2705,7 +2708,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "set_ranking"}, (primiti
     return g
 })
 
-registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, options = {})=>{
+registerRenderer( {type: "categoryId", id: [29,78], configs: "ranking"}, (primitive, options = {})=>{
     const config = {width: 300, height: 30, itemSize: 25, padding: [10,10,10,10], fontSize: 12, leftSize: 150, maxScale: 100, parameter: "funding", ...options}
     if( options.getConfig){
         return config
@@ -2728,21 +2731,36 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
     })
     if( g ){
 
+        let url
+        if( primitive.referenceParameters?.hasImg ){
+            url = `/api/image/${primitive.id}`
+        }else{
+            if( primitive.referenceParameters?.url ){
+                let domain = getRegisteredDomain( primitive.referenceParameters?.url) 
+                if(domain){
+                    url = `/api/companyLogo?name=${primitive.title}&domain=${domain}` 
+                }else{
+                    url = `/api/companyLogo?name=${primitive.title}` 
+                }
 
-        const logo = imageHelper( `/api/image/${primitive.id}`, {
-            x: ox,
-            y: oy,
-            size: config.itemSize,
-            center: true,
-            name: 'primitive',
-            imageCallback: options.imageCallback,
-            placeholder: options.placeholder !== false
-        })
-        g.add( logo )
+            }
+        }
+
+        if( url ){
+            const logo = imageHelper( url, {
+                x: ox,
+                y: oy,
+                size: config.itemSize,
+                center: true,
+                name: 'primitive',
+                imageCallback: options.imageCallback,
+                placeholder: options.placeholder !== false
+            })
+            g.add( logo )
+        }
 
 
-
-        let tx = ox + config.itemSize + (config.itemSize / 5)
+        let tx = url ? ox + config.itemSize + (config.itemSize / 5) : ox
         const title = new Konva.Text({
             fontSize: config.fontSize,
             text: primitive.title,
@@ -2771,9 +2789,10 @@ registerRenderer( {type: "categoryId", id: 29, configs: "ranking"}, (primitive, 
             fill: "#00bc7d"            
         })
         g.add(bar);
+        const value = primitive?.referenceParameters[config.parameter] ?? 0
         const amount = new Konva.Text({
             fontSize: config.fontSize * 0.8,
-            text: roundCurrency(primitive?.referenceParameters[config.parameter] ?? 0),
+            text: config.currency ? roundCurrency(value) : formatNumber(value),
             y: oy + config.padding[0] + (config.itemSize - config.fontSize) / 2,
             x: rhs + thisBar + 5,
             width: amountSize - 10,
@@ -4241,7 +4260,7 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
     let startY = 0
     let pageCol = 0
     let maxX = config.width, maxY = config.height
-    let pageIdx= 0
+    let pageIdx = options.itemIdx ?? 0
     if( options.utils?.prepareBoards){
         const subpages = options.utils.prepareBoards( primitive )
         for(const subboards of subpages){

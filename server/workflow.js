@@ -65,7 +65,7 @@ registerAction("run_subflow", {id: "flowinstance"}, async (p,a,o)=>{
     FlowQueue().runFlowInstance(p,{...o, force: true, fromStepIds: theseSubFlows.map(d=>d.id)})
 })
 registerAction("workflow_info", {id: "flow"}, async (p,a,o)=>getScaffoldWorkflow(p,{...(o ?? {}), create: false}))
-registerAction("instance_scaffold", {id: "flow"}, async (p,a,o)=>{
+registerAction("instance_scaffold", {id: "flowinstance"}, async (p,a,o)=>{
     const flow = (await primitiveParentsOfType(p, "flow"))?.[0]
     const result = await scaffoldWorkflowInstance( p, flow, undefined, undefined, {create: true} )
 })
@@ -128,7 +128,6 @@ export async function scaffoldWorkflow( flow, options = {} ){
     const parser = PrimitiveParser()
     const pp = new Proxy(flow.primitives, parser)
     let customAxis 
-
 
 
     const {instanceSteps: items, importPrimitives: flowImports} = await getInstanceStepsWithImports( flow )
@@ -263,14 +262,20 @@ export async function scaffoldWorkflow( flow, options = {} ){
     }
 }
 
-export async function getInstanceStepsWithImports( flowInstance){
+export async function getInstanceStepsWithImports( flowInstance, {withParentFlow = false, lean = false} = {}){
     console.time("getInstanceStepsWithImports")
-    const flowId     = flowInstance._id;
-    const parentKey  = `parentPrimitives.${flowId}`;
+    const flowInstanceId     = flowInstance._id;
+    const parentKey  = `parentPrimitives.${flowInstanceId}`;
+    
+    const flowId = primitiveOrigin( flowInstance )
+    const flowParentKey  = `parentPrimitives.${flowId}`;
 
     const matchStage = { 
     $match: { 
-        [parentKey]: {$in: ["primitives.origin","primitives.subfi"]},
+        $or:[
+            withParentFlow ? {[flowParentKey]: {$in: ["primitives.origin","primitives.subfi"]}} : undefined,
+            {[parentKey]: {$in: ["primitives.origin","primitives.subfi"]}},
+        ].filter(Boolean),
         workspaceId: flowInstance.workspaceId,
         deleted: {$exists: false}
     } 
@@ -430,7 +435,6 @@ export async function getInstanceStepsWithImports( flowInstance){
 }
 
 export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowImports, options = {} ){
-    console.time("time_STEPS")
     const parser = PrimitiveParser()
     const pp = new Proxy(flow.primitives, parser)
 
@@ -438,7 +442,6 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
     const flowPrimitiveParser = new Proxy(flow.primitives ?? {}, PrimitiveParser())
     
     if(!steps || !flowImports){
-        //const items = await primitiveChildren( flow )
         const {instanceSteps, importPrimitives} = await getInstanceStepsWithImports( flow )
         steps = instanceSteps.filter(d=>d.type !== "flowinstance")
         flowImports = importPrimitives
@@ -448,25 +451,8 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
     logger.info( "Flow instance ", {id: flowInstance.id})
     const instanceStepsForFlow = await primitiveChildren( flowInstance )
 
-    /*
-    const importPrimitiveIds = steps.flatMap(step=>{
-        let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
-        if( stepInstance ){
-
-            const pp = (new Proxy(stepInstance.primitives ?? {}, PrimitiveParser()))
-            return [pp.imports.uniqueAllIds, pp.inputs.uniqueAllIds,]
-        }
-        return
-    }).flat().filter((d,i,a)=>d && a.indexOf(d) === i)
-    console.log(`Pre cached ids = ${importPrimitiveIds.length}`)
-    const importPrimitives = await fetchPrimitives( importPrimitiveIds )
-*/
-
     const subFlows = []
 
-    console.timeEnd("time_STEPS")
-//    const {instanceSteps:instanceStepsForFlow, importPrimitives} = await getInstanceStepsWithImports( flowInstance )
-  //  console.log(`${instanceStepsForFlow.length} / ${importPrimitives.length}`)
 
     const importCache = flowImports.reduce((a,d)=>{
         if( a[d.id]){
@@ -477,9 +463,7 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
     }, {})
 
 
-    //for(const step of steps){
     async function checkStep(step){
-        //let stepInstance = instanceStepsForFlow.find(d2=>Object.keys(d2.parentPrimitives).includes(step.id))
         let stepInstance = instanceStepsForFlow.find(d2=>d2.parentPrimitives?.[step.id]?.includes("primitives.config"))
         if( stepInstance ){
             logger.debug(` - Step instance ${stepInstance.id} for ${step.id}`)
@@ -492,7 +476,8 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
             if( options.create !== false ){
                 try{
                     if( step.type === "flow"){
-                        logger.info("--- NEED TO SCAFFOLD SUB FLOW")
+                        //logger.info(`--- SCAFFOLDING SUB FLOW ${step.id} / ${step.plainId}`)
+                        //await scaffoldWorkflow(  step, {subFlowForInstanceId: flowInstance.id} )
                         subFlows.push( step )
                         return
                     }else{
@@ -522,7 +507,7 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
             //...(await stepInstanceStatus(stepInstance, flowInstance, importCache))
         } )
     }
-    await executeConcurrently( steps , checkStep)
+    await executeConcurrently( steps, checkStep)
     console.timeEnd("time_STEPS")
     logger.info(`Check outputs`)
     console.time("time_OUTPUT")
@@ -776,10 +761,6 @@ export async function runFlow( flow ){
     }
 }
 export async function runFlowInstance( flowInstance, options = {}){
-    let flow = options.flow ?? (await primitiveParentsOfType(flowInstance, "flow"))?.[0]
-    if( !flow ){
-        logger.error(`Cant find parent flow for instance`, {flowInstance})
-    }
     let newIteration = true
     if( !flowInstance.processing?.flow?.last_run && options.continue){
         logger.info(`Cant continue flow - no progress data`)
@@ -796,7 +777,7 @@ export async function runFlowInstance( flowInstance, options = {}){
         await dispatchControlUpdate(flowInstance.id, "processing.flow.status", "running")
     }else{
         await dispatchControlUpdate(flowInstance.id, "processing.flow", {status: "running", started: flowStarted})
-        flowInstance = await fetchPrimitive( flowInstance.id )
+        flowInstance = await fetchPrimitive( flowInstance.id, {workspaceId: flowInstance.workspaceId} )
         const instanceSteps = await getFlowInstanceSteps(flowInstance)
         const subFlows = await primitivePrimitives(flowInstance, "primitives.subfi")
         
@@ -820,6 +801,22 @@ export async function runFlowInstance( flowInstance, options = {}){
             for(const stepId of options.fromStepIds){
                 const fromStep = stepsAndFlows.find(d=>d.id === stepId)
                 if( !fromStep ){
+                    const subFlows = stepsAndFlows.filter(d=>d.type === "flowinstance" && primitiveOrigin(d) === stepId)
+                    logger.debug(`-- Found ${subFlows.length} to continue from`)
+                    if( subFlows.length > 0){
+                        for(const subflow of subFlows){
+                            followStep( subflow )
+                        }
+                        continue
+                    }
+                    const checkFlow = await fetchPrimitive( stepId, {workspaceId: flowInstance.workspaceId})
+                    if( checkFlow?.type === "flow"){
+                        if( primitiveOrigin(checkFlow) === primitiveOrigin( flowInstance)){
+                            logger.debug(`Requested start from flow - need to scaffold`)
+                            await scaffoldWorkflow(  checkFlow, {subFlowForInstanceId: flowInstance.id} )
+                            return await runFlowInstance( flowInstance, options)
+                        }
+                    }
                     throw `Couldnt find step ${stepId} to continue from`
                 }
                 followStep( fromStep )
@@ -906,24 +903,31 @@ export async function runFlowInstance( flowInstance, options = {}){
         await dispatchControlUpdate(flowInstance.id, "processing.flow.last_run", {steps: thisRun, iteration, started: flowStarted})
         
         for(const step of stepsToRun ){
+            if( step.need_reason === "scaffold_flow"){
+                logger.info(`Scaffolding flow prior to run`)
+                await scaffoldWorkflow(  step, {subFlowForInstanceId: flowInstance.id} )
+
+            }
             await FlowQueue().runStep(step.step, {flowStarted})
         }
     }
 
 }
 async function flowInstanceStepsStatus( flowInstance ){
-    const {instanceSteps: children, importPrimitives, configPrimitives} = await getInstanceStepsWithImports( flowInstance )
-    const instanceSteps = children.filter(d=>!d.parentPrimitives[flowInstance.id].includes("primitives.subfi"))
-    const subFlows = children.filter(d=>d.parentPrimitives[flowInstance.id].includes("primitives.subfi"))
+    const flowId = primitiveOrigin( flowInstance )
+    const {instanceSteps: children, importPrimitives, configPrimitives} = await getInstanceStepsWithImports( flowInstance, {withParentFlow: true} )
+    const flowSteps = children.filter(d=>d.parentPrimitives[flowId] && d.parentPrimitives[flowId].includes("primitives.origin"))
+    const instanceSteps = children.filter(d=>d.parentPrimitives[flowInstance.id] && d.parentPrimitives[flowInstance.id].includes("primitives.origin"))
+    const subFlowInstances = children.filter(d=>d.parentPrimitives[flowInstance.id] && d.parentPrimitives[flowInstance.id].includes("primitives.subfi"))
 
-    const stepStatus = []
+    const subFlowsToScaffold = flowSteps.filter(d=>d.type === "flow" && !subFlowInstances.find(d2=>primitiveOrigin(d2) === d.id))
     
     const importCache = importPrimitives.reduce((a,d)=>{
         a[d.id] = d
         return a
     }, {})
 
-    const skipStatus = await PrimitiveConfig.buildFlowInstanceStatus( flowInstance, [...instanceSteps, ...subFlows], {
+    const skipStatus = await PrimitiveConfig.buildFlowInstanceStatus( flowInstance, [...instanceSteps, ...subFlowInstances], {
         getPrimitives: (p)=>(new Proxy(p.primitives ?? {}, PrimitiveParser())),
         fetchPrimitives: async (p)=>await fetchPrimitives( p ),
         getConfig: async (p)=>await getConfig(p),
@@ -931,7 +935,8 @@ async function flowInstanceStepsStatus( flowInstance ){
     },{
         configPrimitives,
         withPrimitives: true,
-        cache: importCache
+        cache: importCache,
+        subFlowsToScaffold
     })
     const out = []
     for(const d of Object.values(skipStatus)){

@@ -117,6 +117,7 @@ const actions = {
             const allInstanceSteps = [...receiver.primitives.origin.allItems, ...receiver.primitives.subfi.allItems];
             const stepsForInstance = steps.flatMap(step=>allInstanceSteps.filter(d=>d.configParent?.id === step.id))
 
+
             // add interim segments
             stepsForInstance.forEach(d=>{
                 if( d.type === "flowinstance" ){
@@ -132,6 +133,9 @@ const actions = {
                 }
             })
 
+            const subFlows = receiver.origin.primitives.origin.allFlow
+            const subFlowsToScaffold = subFlows.filter(d=>stepsForInstance.find(d2=>d2.originId === d.id) === undefined)
+
             const mainstore = MainStore()
         
             const status = await PrimitiveConfig.buildFlowInstanceStatus(
@@ -142,9 +146,11 @@ const actions = {
                 getPrimitives: (p)=>p.primitives
               },
               {
-                withPrimitives: true
+                withPrimitives: true,
+                subFlowsToScaffold
               }
             );
+
         
             return status;
           })();
@@ -551,7 +557,9 @@ const actions = {
                         }
                     }
                 }
-                if( receiver.type === "query" || receiver.type  === "segment" || receiver.type === "search"){
+                if( receiver.type === "actionrunner" || receiver.type === "action"){
+                    list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
+                }else if( receiver.type === "query" || receiver.type  === "segment" || receiver.type === "search"){
                     if( receiver.type === "query" && !options.ignoreFinalViewFilter){
                         const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
                         list = receiver.filterItems(list, viewFilters)

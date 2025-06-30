@@ -1532,8 +1532,50 @@ export async function grabUrlAsPdf(url, id, text_only = false, prioritize_embedd
             await createAndUploadPDF( text, file)
         }else{
             console.log(`Awaiting  page`)
-            let response
-            if( false && url.slice(-4) === ".pdf"){
+            //let response
+            let response = await fetchViaProxy( url, {proxy: process.env.BRIGHTDATA_DC_PROXY, useAxios: true } )
+            const contentType = response.headers.get('zr-content-type') ?? response.headers.get('content-type')
+
+            console.log(`Got content type ${contentType}`)
+
+            if( !contentType.startsWith('application/pdf')){
+            }
+
+            const contentDisposition = response.headers.get('zr-content-disposition')
+            let filename
+            if (contentDisposition && contentDisposition.includes('filename=')) {
+                filename = contentDisposition.split('filename=')[1].split(';')[0].replace(/"/g, '');
+                } else {
+                filename = `Download from ${url}`
+            }            
+
+
+            const data = response.data;
+            const pdfSignature = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2D]); // %PDF-
+            const isPdf = data.subarray(0, pdfSignature.length).equals(pdfSignature);
+            if(isPdf){
+                console.log(`DIDNT GET PDF for ${url}`)
+            }
+
+            // Decode the Base64 string back to a buffer
+            const pdfBuffer = Buffer.from(data);
+    
+            if( text_only ){
+                const output = await extractPlainTextFromPdf(undefined,undefined, pdfBuffer)
+                return output
+            }
+            
+            // Use Promisify to convert callback to Promise
+            const savePromise = promisify(file.save).bind(file);
+            
+            await savePromise(pdfBuffer, {
+                contentType: 'application/pdf',
+                resumable: false, // Adjust as needed
+            });
+            
+            await waitForFileToExit(id, bucket)
+            console.log('PDF saved to Google Cloud Storage.');
+            /*if( false && url.slice(-4) === ".pdf"){
                 await replicateURLtoStorage(url, id, bucketName)
                 return 
             }else{
@@ -1671,7 +1713,7 @@ export async function grabUrlAsPdf(url, id, text_only = false, prioritize_embedd
                 console.log('PDF saved to Google Cloud Storage.');
             }else{
                 console.log( await response.text())
-            }
+            }*/
         }
     }catch(error){
         console.log(`Error on processing URL to PDF ${url}`)
@@ -2583,7 +2625,8 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                             console.log( `Found embedded ${thisUrl} - fetching`)
 
                             //return await fetchURLAsTextAlternative( thisUrl, options)
-                            return downloadURLContentViaProxy( thisUrl)
+                            //return downloadURLContentViaProxy( thisUrl)
+                            return grabUrlAsPdf(thisUrl, undefined, true)
                         }
                     }
 

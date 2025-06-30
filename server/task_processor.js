@@ -2,14 +2,14 @@ import { combineGroupsToChunks, expandFragmentsForContext, extractSentencesAndKe
 import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
 import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
-import { findFilterMatches } from "./actions/SharedTransforms";
+import { findFilterMatches, modiftyEntries } from "./actions/SharedTransforms";
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
 import { getLogger } from "./logger";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
 import { analyzeListAgainstTopics, buildEmbeddings, processInChunk, processPromptOnText, summarizeMultiple } from "./openai_helper";
-import { findEntries, modiftyEntries, removeEntries, reviseUserRequest } from "./prompt_helper";
+import { findEntries, removeEntries, reviseUserRequest } from "./prompt_helper";
 import axios from 'axios';
 
 const parser = PrimitiveParser()
@@ -1237,7 +1237,7 @@ export async function findCompanyURLByNameLogoDev( name, context = {}){
                     return  withDescriptions.results
                 }
         }
-        return data.filter(d=>d)
+        return data.filter(d=>d).map(d=>({...d, url: `https://${d.domain}`}))
     }catch(e){
         logger.error(`Error in findCompanyURLByNameLogoDev`, name, context, e)
         return []
@@ -1689,7 +1689,7 @@ export async function oneShotQuery( primitive, primitiveConfig, options = {}){
                                     lookupCount: primitiveConfig.lookupCount,
                                     searchTerms: primitiveConfig.candidateCount,
                                     scanRatio: primitiveConfig.scanRatio
-                                })
+                                }, progressCallback)
     if( fragments ){
 
         progressCallback( `Preparing ${fragments.length} data fragments`)
@@ -1797,7 +1797,7 @@ export async function getRevisedQueryWithLocalMods(primitive, primitiveConfig, o
     return revised
 }
 
-export async function getFragmentsForQuery( primitive, query,  {sourceIds = [], fromPrimitive, types, referenceIds} = {}, {lookupCount = 10, thresholdSeek = 0.005, thresholdMin = 0.85,searchTerms = 1000, scanRatio = 0.15} = {}){
+export async function getFragmentsForQuery( primitive, query,  {sourceIds = [], fromPrimitive, types, referenceIds} = {}, {lookupCount = 10, thresholdSeek = 0.005, thresholdMin = 0.85,searchTerms = 1000, scanRatio = 0.15} = {}, progress){
     const placeholders = query.match(/\{[^}]+\}/g) 
 
     const buildPrompt = `Build a list of ${lookupCount} keywords and phrases that will retrieve information from the database which can answer this task or question.
@@ -1866,7 +1866,7 @@ export async function getFragmentsForQuery( primitive, query,  {sourceIds = [], 
         logger.info(`>>>>> Restricting search scope`)
     }
 
-    let fragments = await fetchFragmentsForTerm(prompts, {searchTerms, scanRatio, thresholdSeek, thresholdMin, serachScope})
+    let fragments = await fetchFragmentsForTerm(prompts, {searchTerms, scanRatio, thresholdSeek, thresholdMin, serachScope}, progress)
     if( fragments.length === 0 ){
         return {result: "No relevant data found"}
     }
@@ -1950,6 +1950,8 @@ export async function summarizeWithQuery( primitive ){
                 }
             }
             return await buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig)
+        }else{
+            return {error: "no input data"}
         }
 }
 

@@ -90,12 +90,13 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
 
 
     const renderedSet = Object.keys(outputs ?? {}).map(pin=>(outputs[pin]?.items ?? []).map(d=>{
+        if( !d ){return}
         myState[d.id] = {id: d.id, renderSubPages: true}
         const renderConfig = BoardViewer.prepareBoard(d, myState)
         const inputPin = pin.split("_")[1]
         myState[d.id].title = flow.referenceParameters?.outputPins?.[inputPin]?.name ??  `Output for ${pin}`
         return BoardViewer.renderBoardView(d, primitive, myState)
-    })).flat()
+    })).flat().filter(Boolean)
 
 
     //return  <div className="flex h-full w-full relative border rounded-lg border-gray-200 overflow-hidden mb-2 bg-white">

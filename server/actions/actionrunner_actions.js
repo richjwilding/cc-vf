@@ -7,7 +7,7 @@ import Category from "../model/Category";
 import { categorize, generateImage, processPromptOnText } from "../openai_helper";
 import QueryQueue from "../query_queue";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
-import { aggregateItems, compareItems, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
+import { aggregateItems, compareItems, findCompanyURLByNameLogoDev, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
 import { baseURL, cartesianProduct, cleanURL, markdownToSlate } from "./SharedTransforms";
 const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
 
@@ -31,7 +31,6 @@ registerAction("lookup_entity", {type: "action"}, async (primitive, action, opti
         for(const toLookup of lookupList ){
             if( config.entity_type === "Organization"){
                 if( config.source_type === "URL"){
-
                     const cleaned = baseURL( toLookup )
 
                     if( existing.find(d=>baseURL(d.referenceParameters?.url) === cleaned)){
@@ -54,7 +53,44 @@ registerAction("lookup_entity", {type: "action"}, async (primitive, action, opti
                         }
                     }
                     const newPrim = await createPrimitive( newData )
+                }else if( config.source_type === "Name"){
+                    let data = await findCompanyURLByNameLogoDev(toLookup, {withDescriptions: false})
+                    if( data.length > 0){
+                        const item = data[0]
+                        console.log(`Got ${item.name} ${item.domain}`)
+                    }
                 }
+            }else if( config.entity_type === "Web Resource"){
+                let resultCategoryId = 78
+                let cleaned, name
+                if( config.source_type === "URL"){
+                    cleaned = toLookup.trim()
+                }else if( config.source_type === "Name"){
+                    let data = await findCompanyURLByNameLogoDev(toLookup, {withDescriptions: false})
+                    if( data.length > 0){
+                        const item = data[0]
+                        name = item.name
+                        cleaned = item.url
+
+                    }
+                }
+                if( cleaned ){
+                    const newData = {
+                        workspaceId: primitive.workspaceId,
+                        parent: primitive.id,
+                        paths: ['origin'],
+                        data:{
+                            title: name ?? cleaned,
+                            referenceParameters:{
+                                url: cleaned
+                            },
+                            type: "result",
+                            referenceId: resultCategoryId
+                        }
+                    }
+                    const newPrim = await createPrimitive( newData )
+                }
+
             }
         }
     }

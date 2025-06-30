@@ -51,7 +51,7 @@ messageHandler['endJobResponse'] = async (message)=>{
 }
 messageHandler['addJobResponse'] = async (message)=>{
     if( queueObject ){
-        console.log(`Forwarding addJob response to ${message.queueType} from ${workerData.type}`)
+        logger.debug(`Forwarding addJob response to ${message.queueType} from ${workerData.type}`)
         const q = (workerData.type === message.queueType) ? queueObject : await getQueueObject(message.queueType)
         if( q.default().addJobResponse ){
             q.default().addJobResponse(message)

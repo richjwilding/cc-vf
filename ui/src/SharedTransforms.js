@@ -1,4 +1,24 @@
 
+export function getRegisteredDomain(url) {
+  const hostname = new URL(url).hostname;
+  const parts = hostname.split('.');
+  const len = parts.length;
+
+  // Common second-level labels under country TLDs:
+  const SLD = new Set(['co','com','net','org','gov','edu','ac','mil','sch']);
+
+  // If it ends in e.g. “.co.uk” (2-letter country + known SLD), grab last 3 parts:
+  if (len >= 3 
+      && parts[len-1].length === 2 
+      && SLD.has(parts[len-2].toLowerCase())
+  ) {
+    return parts.slice(-3).join('.');
+  }
+
+  // Otherwise just take last 2 parts:
+  return parts.slice(-2).join('.');
+}
+
 export function pickAtRandom(input, count) {
   const out = [];
   const used = new Set();
@@ -825,3 +845,32 @@ export function deepEqualIgnoreOrder(a, b) {
     }
     return arr.find(item => deepEqualIgnoreOrder(item, target));
   }
+export function modiftyEntries(obj, entry, callback) {
+
+    if( !callback || !obj){
+        return obj
+    }
+    // Check if the object has a 'heading' key and delete it
+    if (obj.hasOwnProperty(entry)) {
+        const result = callback( obj )
+        obj[entry] = result
+    }
+    
+    // Loop through each key-value pair in the object
+    for (let key in obj) {
+        if (obj.hasOwnProperty(key)) {
+            if (Array.isArray(obj[key])) {
+                // If the value is an array, loop through its items
+                obj[key].forEach(item => {
+                if (typeof item === 'object') {
+                    modiftyEntries(item, entry, callback)
+                }
+                });
+            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+                // If the value is an object, recurse into it
+                modiftyEntries(obj[key], entry, callback)
+            }
+        }
+    }
+    return obj
+ }

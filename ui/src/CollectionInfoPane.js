@@ -859,18 +859,19 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                 </div>
             </div>
             {!filters && (frame.type === "flow" && !frame.flowElement) && <UIHelper.Button outline title="New Instance" onClick={()=>mainstore.doPrimitiveAction(frame,"create_flowinstance")}/>}
+            {!filters && (frame.type === "flow" && frame.flowElement && props.inFlowInstance.id) && <UIHelper.Button outline title="Run flow as step" onClick={()=>mainstore.doPrimitiveAction( props.inFlowInstance, "run_flowinstance_from_step", {from: frame.id, force: true})}/>}
             {!filters && (frame.type === "flow" && frame.flowElement && flowInstanceToShow) && <UIHelper.Button outline title="Run subflow" onClick={()=>mainstore.doPrimitiveAction(flowInstanceToShow,"run_subflow", {subFlowId: frame.id})}/>}
-
+            {!filters && (frame.type === "flow") && flowInstanceToShow &&
+                <UIHelper.Button outline title="Scaffold instance" onClick={()=>{
+                        mainstore.doPrimitiveAction(flowInstanceToShow,"instance_scaffold")
+                }}
+                />}
             {!filters && (frame.type === "flow") && 
-                <UIHelper.Button outline title="Scaffold" onClick={()=>{
-                    if( flowInstanceToShow ){
-                        mainstore.doPrimitiveAction(frame,"workflow_scaffold", {subFlowForInstanceId: flowInstanceToShow.id})
+                <UIHelper.Button outline title="Scaffold flow" onClick={()=>{
+                    if( props.inFlowInstance ){
+                        mainstore.doPrimitiveAction(frame,"workflow_scaffold", {subFlowForInstanceId: props.inFlowInstance.id})
                     }else{
-                        if( props.inFlowInstance ){
-                            mainstore.doPrimitiveAction(frame,"workflow_scaffold", {subFlowForInstanceId: props.inFlowInstance.id})
-                        }else{
-                            mainstore.doPrimitiveAction(frame,"workflow_scaffold")
-                        }
+                        mainstore.doPrimitiveAction(frame,"workflow_scaffold")
                     }
                 }}
                 />}

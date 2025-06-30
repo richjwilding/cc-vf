@@ -49,28 +49,33 @@ router.get('/', async function(req, res, next) {
 
 router.get('/companyLogo', async (req, res) => {
     const name = req.query.name;
+    let domain = req.query.domain;
+    let key = process.env.LOGODEV_KEY_PK
 
-    if (!name) {
-      return res.status(400).send('Missing name');
+    if(!domain && !name) {
+      return res.status(400).send('Missing name and domain');
     }
   
     try {
-        const { data } = await axios.get('https://api.logo.dev/search', {
-            params: { q: name },
-            headers: {
-              'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
+        if( !domain ){
+
+            const { data } = await axios.get('https://api.logo.dev/search', {
+                params: { q: name },
+                headers: {
+                    'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
+                }
+            });
+            if( data?.[0]?.domain  ){
+                domain = data[0].domain
+                key = process.env.LOGODEV_KEY
+            }else{
+                return res.status(400).send('Couldnt find a match');
             }
-        });
-        let domain
-        if( data?.[0]?.domain  ){
-            domain = data[0].domain
-        }else{
-            return res.status(400).send('Couldnt find a match');
         }
         
         const response = await axios({
             method: 'get',
-            url: `https://img.logo.dev/${domain}?token=${process.env.LOGODEV_KEY}`,
+            url: `https://img.logo.dev/${domain}?token=${key}`,
             responseType: 'stream'
           });
 
