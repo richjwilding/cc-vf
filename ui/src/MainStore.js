@@ -74,6 +74,25 @@ const actions = {
             }
         }
     },
+    updateSourceDataForPin(d, receiver, obj){
+        return (pinName, data)=>{
+            const pinInfo = receiver.metadata?.pins?.output?.[pinName]
+            if( pinInfo){
+                if( pinInfo.source.startsWith("param.")){
+                    const param = pinInfo.source.replace(/^param\./, "referenceParameters.")
+                    receiver.setField(param, data)
+                }
+
+            }
+        }
+    },
+    searchFor(d, receiver, obj){
+      if( d.type !== "search"){
+        return undefined
+      }
+        const linkedItemId = Object.entries(receiver._parentPrimitives ?? {}).find(d=>d[1].find(d=>d.startsWith("primitives.search.")))?.[0]
+        return obj.primitive(linkedItemId) 
+    },
     progress(d, receiver, obj){
         switch(d.type){
             case "query":
@@ -83,6 +102,68 @@ const actions = {
             case "categorizer":
                 return receiver.primitives.origin.allCategory[0]?.processing?.mark_categories?.progress
         }
+    },
+    flowStatus(d, receiver, obj){
+        const root = d.processing?.flow
+        return {
+            status: root ? (root.error === "child_error" ? "child_error" : root.status) : "not_executed",
+            ...(receiver.flowErrors ?? {})
+        }
+    },
+    setFlow(d, receiver, obj){
+        return (status)=>{
+            if( receiver.type === "search" ){
+                const parent = receiver.configParent
+                if( parent && parent.inFlow && !parent.flowElement && parent.configParent.flowElement){
+                    // In a nested search object - need to re-run parent too
+                    receiver.setField("processing.query.status", status)
+                    if(status === "error" || status === "rerun"){
+                        parent.setField("processing.flow.status", status)
+                    }else if( status === "complete"){
+                        const allNested = parent.primitives.origin.allItems
+                        if( allNested.every(d=>d.processing?.query?.status === "complete")){
+                            console.log(`All children now complete - setting parent`)
+                            parent.setField("processing.flow.status", status)
+                        }
+                    }else{
+                        console.warn(`Unhandled setFlow ${status} on search`)
+                    }
+                }else{
+                    receiver.setField("processing.flow.status", status)
+                    receiver.setField("processing.query.status", status)
+                }
+                return
+            }
+            receiver.setField("processing.flow.status",status)
+        }
+    },
+    flowErrors(d, receiver, obj){
+        const root = d.processing?.flow
+        if( !root){
+            return undefined
+        }
+        const error = {error: false}
+        if( root.error ){
+            error.error = root.error
+            error.severity = root.status
+            error.errorMessage = root.error
+        }
+        const childEntries = Object.entries(root.child ?? {}).filter(Boolean)
+
+        if(  childEntries.length === 0){
+            if( !error.error){
+                return undefined
+            }
+        }
+
+        error.childErrors = childEntries.map(([k,v])=>{
+            return {
+                primitive: obj.primitive(k),
+                error: v.error
+            }
+        })
+        
+        return error
     },
     plainId(d, receiver, obj){
         return d.plainId
@@ -566,7 +647,7 @@ const actions = {
                     }
                     if( receiver.type === "search"){
                         const nestedSearch = [receiver, ...receiver.primitives.origin.allSearch].filter(d=>d)
-                        list = nestedSearch.flatMap(d=>d.primitives.uniqueAllItems)
+                        list = nestedSearch.flatMap(d=>d.primitives.allUniqueResult)
                     }
                     let params = options.params ?? receiver.getConfig
                     if( params.extract ){
@@ -732,7 +813,6 @@ const actions = {
         return (sourceId, mode = "inputs", pinMode = "input")=>{
             let inputMap = PrimitiveConfig.getInputMap(receiver, mode)
             if( mode === "outputs"){
-                console.log(`do redorder`)
                 if( receiver.inFlow ){
                     const cp = receiver.configParent
                     const outputs = cp ? cp.primitives.outputs : receiver.primitives.output;
@@ -3258,44 +3338,6 @@ function MainStore (prims){
                         }
                         return out
                     }
-                }
-                if( prop === "stepOrder" && receiver.type === "flow"){
-                    const steps = receiver.primitives.origin.allUniqueItems.filter(d=>d.type !== "flowinstance")
-                    console.log(`Got ${steps.length} steps`)
-                    let out = {}
-                    const toProcess = steps
-                    let stage = 0
-                    
-                    let addedThisLoop = 0
-                    do{
-                        const willPlace = {}
-                        addedThisLoop = 0
-                        for(const step of toProcess){
-                            if( out[step.id] !== undefined){
-                                continue
-                            }
-                            const inputsToCheck = [...step.primitives.imports.allUniqueItems, ...step.primitives.inputs.allUniqueItems].filter(d=>d.inFlow || d.type === "flowinstance")
-                            const canPlace = inputsToCheck.reduce((a,check)=>{
-                                let r = false
-                                if( check.type === "flowinstance"){
-                                    r = true
-                                }else if( out[ check.id ] !== undefined){
-                                    r = true
-                                }
-                                return a &&  r
-                            }, true)
-                            if( canPlace ){
-                                willPlace[step.id] = stage
-                                addedThisLoop++
-                            }
-                        }
-                        out = {
-                            ...out,
-                            ...willPlace
-                        }
-                        stage++
-                    }while( addedThisLoop > 0 )
-                    return out
                 }
                 if( prop in d){
                     return d[prop]

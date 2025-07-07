@@ -18,12 +18,8 @@ import AgentChat from "./AgentChat";
 import { Logo } from "./logo";
 import WorkflowStructurePreview from "./WorkflowStructurePreview";
 import PrimitiveConfig from "./PrimitiveConfig";
+import { Icon } from "@iconify/react/dist/iconify.js";
 
-const tabs = [
-  { title: 'Assistant', id: "ai" },
-  { title: 'Inputs', id: "input" },
-  { title: 'Progress', id: "progress"},
-]
 
 export default function FlowInstancePage({primitive, ...props}){
     const { id } = useParams();
@@ -32,10 +28,17 @@ export default function FlowInstancePage({primitive, ...props}){
     const flowInfoRef = useRef({})
     const [agentStatus, setAgentStatus] = useState({activeChat: false})
 
-    const [activeTab, setActiveTab ] = useState( tabs[0].id )
     const [chatState, setChatState] = useState(undefined);
     const [animateState, setAnimateState] = useState(true);
     const isEmbedded = query.get("embed")
+    
+    const tabs = [
+        primitive?.processing?.run_flow_instance ? undefined :{ title: 'Assistant', id: "ai" },
+        { title: 'Inputs', id: "input" },
+        { title: 'Progress', id: "progress"},
+ //       primitive?.processing?.run_flow_instance ? { title: 'Results', id: "results" } : undefined
+    ].filter(d=>d)
+    const [activeTab, setActiveTab ] = useState( tabs[0].id )
 
     if (!primitive && id) {
         primitive = MainStore().primitive(id)
@@ -53,8 +56,11 @@ export default function FlowInstancePage({primitive, ...props}){
     const [errors, setErrors ]= useState({})
     const [missing, setMissing ]= useState({})
     const [statusMap, setStatusMap ]= useState({})
+    const [stepsToProcess, setStepsToProcess ]= useState([])
 
-    useDataEvent('relationship_update set_field set_parameter',primitive?.id, ()=>{
+    const ids = [primitive?.id, ...primitive?.primitives.origin.allIds]
+
+    useDataEvent('relationship_update set_field set_parameter',ids, (...args)=>{
         forceUpdate()
     })
     function updateChatState(state){
@@ -112,21 +118,36 @@ export default function FlowInstancePage({primitive, ...props}){
     })
     useEffect(()=>{
         if( primitive && activeTab === "progress"){
-            primitive.instanceStatus.then(d=>setStatusMap(d))
+            primitive.instanceStatus.then(d=>{
+                
+                const {nodes, edges, visibleIds} = PrimitiveConfig.flowInstanceStatusToMap( d, {showHidden: false, showSkipped: false, groupByLabels: true})
+                
+                const depth = PrimitiveConfig.convertEdgesToDepth( edges )
+               
+
+                nodes.forEach(d=>{
+                    d.depth = depth.get(d.id)
+                })
+                
+
+                const steps = nodes.sort((a,b)=>a.depth - b.depth).map(d=>{
+                    return {
+                        title: d.name,
+                        status: d.status,
+                        ids: d.itemIds,
+                        details: d
+                    }
+                })
+
+                setStepsToProcess(steps)
+                setStatusMap(d)
+            })
         }
     },[primitive?.id, activeTab])
     if( !primitive){
         return <></>
     }
 
-    
-    const stepOrder = targetFlow?.stepOrder ?? []
-    steps = steps.sort((a,b)=>{
-        if(stepOrder[a.id] === stepOrder[b.id]){
-            return (a.title ?? "").localeCompare(b.title ?? "")
-        }
-        return stepOrder[a.id] - stepOrder[b.id]
-    })
     
     if(!targetFlow){
         return <></>
@@ -206,13 +227,13 @@ export default function FlowInstancePage({primitive, ...props}){
                 ])}>
                     <div className={clsx([
                         "flex relative mb-4",                    
-                        showOutput ? "min-h-32 -mx-6 -mt-6 mb-0 overflow-hidden rounded-t-2xl" : "min-h-64 -mx-9 -mt-6 shadow-md ",
+                        showOutput ? "min-h-32 -mx-6 -mt-6 mb-0 overflow-hidden rounded-t-2xl" : "min-h-32 [@media(min-height:1024px)]:min-h-64 -mx-9 -mt-6 shadow-md ",
                         ])}>
                         {showImage && <VFImage 
                                             src={`/api/image/${targetFlow.id}`} 
                                             className={clsx([
                                                 'w-full object-cover',
-                                                showOutput ? "max-h-32" : "max-h-64"
+                                                showOutput ? "max-h-32" : "min-h-32 [@media(min-height:1024px)]:min-h-64"
                                             ])}
                                         />}
                         {!showImage && <div className={clsx([
@@ -233,9 +254,9 @@ export default function FlowInstancePage({primitive, ...props}){
                             <Tabs variant="solid" selectedKey={activeTab} onSelectionChange={((id)=>setActiveTab(id))}>
                                 {tabs.map(d=><Tab key={d.id} title={d.title}/>)}
                             </Tabs>
-                            <div className="absolute right-0">
-                                {!showOutput && !isForNewInstance && <Button variant="flat" className="bg-ccgreen-700 text-ccgreen-50" onClick={()=>setShowOutput(true)} endContent={<ChevronRightIcon className="w-5 h-4"/>}>Results</Button>}
-                                {<Button variant="flat" className="bg-ccgreen-700 text-ccgreen-50" onClick={()=>MainStore().doPrimitiveAction( primitive, "continue_flow_instance")} endContent={<ChevronRightIcon className="w-5 h-4"/>}>Run...</Button>}
+                            <div className="absolute right-0 space-x-2 place-items-center flex">
+                                {!showOutput && !isForNewInstance && <Button isIconOnly variant="flat" onClick={()=>setShowOutput(true)}><Icon icon="fluent:slide-text-sparkle-20-regular" className='w-6 h-6'/></Button>}
+                                {<Button isIconOnly variant="flat" color="primary" onClick={()=>MainStore().doPrimitiveAction( primitive, "continue_flow_instance")}><Icon icon="solar:play-circle-linear" className='w-6 h-6'/></Button>}
                                 
                             </div>
                         </div>
@@ -315,7 +336,24 @@ export default function FlowInstancePage({primitive, ...props}){
                             </div>}
                         </div>
                         {activeTab === "progress" && <div className="flex w-full h-full">
-                            <WorkflowStructurePreview statusMap={statusMap}/>
+                            <FeedList 
+                                className="w-96 shrink-0 grow-0 overflow-y-scroll"
+                                showLabels={true} 
+                                update={update}
+                                items={stepsToProcess.map(d=>({
+                                    ...d, 
+                                    content: d.title, 
+                                    secondary: d.progress, 
+                                    onClick:()=>{
+                                        if( d.ids?.length > 0 ){
+                                            MainStore().sidebarSelect(d.ids, {forFlow: true})
+                                        }
+                                    }
+                                }))}
+                            />
+                            {!showOutput && <div className="relative grow">
+                                {statusMap && <WorkflowStructurePreview statusMap={statusMap} onClick={(id)=>MainStore().sidebarSelect(id, {forFlow: true})}/>}
+                            </div>}
                         </div>}
                     </div>
                 </div>

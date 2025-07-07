@@ -1095,7 +1095,7 @@ export async function runStep( step, options = {}){
     let newIteration = step.processing?.flow?.started !== flowStarted
 
     let currentState = step.processing.flow ?? {}
-    dispatchControlUpdate(step.id, "processing.flow", {...currentState, status: "running", started: flowStarted, singleStep: options.singleStep})
+    dispatchControlUpdate(step.id, "processing.flow", {...currentState, status: "running", error: undefined, started: flowStarted, singleStep: options.singleStep})
     //if( newIteration ){
     //}
     if(false){

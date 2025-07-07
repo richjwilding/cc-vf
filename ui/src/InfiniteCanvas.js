@@ -876,11 +876,24 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             const moveList = []
             g.find('.inf_track').forEach(d=>{
                 let x = d.x(), y = d.y(), s = d.scaleX()
+                let cl, ct, cw, ch
                 for(const p of d.findAncestors('Group')){
                     const ps = p.scaleX()
                     x = (x * ps) + p.x()
                     y = (y * ps) + p.y()
                     s *= ps
+                    const pClip = p.clip()
+                    if( pClip.x !== undefined ){
+                        if( 
+                            ((x + (d.attrs.width * s))> (p.x() + pClip.x + pClip.width)) || 
+                            ((y + (d.attrs.height * s))> (p.y() + pClip.y + pClip.height))
+                        ){
+                            cl = 0
+                            ct = 0
+                            cw = ((p.x()+ pClip.x + pClip.width)  - x) / ps
+                            ch = ((p.y() + pClip.y + pClip.height) - y) / ps
+                        }
+                    }
                 }
                 d.original = {
                     parent: d.parent,
@@ -893,6 +906,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 d.x(x )
                 d.y(y )
                 d.scale({x: s, y: s})
+                if( cl !== undefined){
+                    d.clip({
+                        x: cl,
+                        y: ct,
+                        width: cw,
+                        height: ch
+                    })                    
+                }
                 moveList.push(d)
 
             })                    
@@ -2574,7 +2595,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
                     return memo
                 }
-               if( myState.current.dragging.snaps ){
+               if( myState.current.dragging.snaps && !state.event.shiftKey){
                     const snaps = myState.current.dragging.snaps
                     let [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
                     const sx = snapTo( fx, snaps.v )
@@ -2658,7 +2679,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             px -= memo.x
                             py -= memo.y
                             
-                            if( myState.current.dragging.snaps ){
+                            if( myState.current.dragging.snaps && !state.event.shiftKey){
                                 removeAnchorLines()
                                 const snaps = myState.current.dragging.snaps
                                 let [fx, fy] = convertStageCoordToScene(px - myState.current.dragging.ox, py - myState.current.dragging.oy)
@@ -2874,6 +2895,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     for(const d of frame.lastNodes){
                         if( !inFrame && !d.attrs.expandedClick){
                             continue
+                        }
+                        if( props.enableShapeSelection === false){
+                            if( d.attrs.name?.includes("shape_element")){
+                                continue
+                            }
                         }
                         let x = px - frame.node.attrs.x
                         let y = py - frame.node.attrs.y
@@ -3095,15 +3121,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             if( doDraw ){
                 let updates = []
-                /*if( props.highlights?.[type] === "border" ){
-                    if( cleared ){
-                        updates.push(cleared)
-                    }
-                    if( found ){
-                        updates.push(found)
-                    }
-                }else{*/
-
                     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
                     
                     for(const d of [cleared, found]){
@@ -3118,21 +3135,27 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         
                     }
                     let count = 0, changed = false
+                    const seen = new Set();
                     for(const frame of myState.current.frames){
                         do{
                             changed = false
                             for(const d of frame.lastNodes){
+                                if( seen.has(d._id) ){
+                                    continue
+                                }
+
+                                const clip = d.clip ? d.clip() : false
+                                let width = clip.width !== undefined ? Math.min(clip.width, d.attrs.width) : d.attrs.width
+                                let height = clip.height !== undefined ? Math.min(clip.height,d.attrs.height) : d.attrs.height
+
                                 let x1 = d.attrs.x + frame.x, y1 = d.attrs.y + frame.y
-                                let x2 = x1 + d.attrs.width, y2 = y1 + d.attrs.height  
+                                let x2 = x1 + width, y2 = y1 + height  
                                 if(x2 >= minX &&  x1 <= maxX && y2 >= minY && y1 <= maxY){
-                                    if(d.attrs.name === "frame"  || d.attrs.name === "view"){
+                                    if(d.attrs.name === "frame"  || d.attrs.name === "view" ){
                                         continue
                                     }
-                                    if( d.attrs.flagged ){
-                                        continue
-                                    }
-                                    updates.push(d)
-                                    d.attrs.flagged = true
+                                    insertByZIndex(updates, d);
+                                    seen.add(d._id)
                                     changed = true
                                     count++
                                     if( x1 < minX){minX = x1}
@@ -3143,25 +3166,33 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             }
                         }while(changed)
                     }
-               // }
                 requestAnimationFrame(()=>{
                     let canvas = layerRef.current.getCanvas()
                     for(const d of updates){
-                        delete d.attrs["flagged"] 
                         d.drawScene(canvas)
                     }
                 })
             }            
         }
+        function insertByZIndex(arr, node) {
+            const z = node.zIndex();
+            // binary-search the right spot
+            let lo = 0, hi = arr.length;
+            while (lo < hi) {
+                const mid = (lo + hi) >>> 1;
+                if (arr[mid].zIndex() < z) lo = mid + 1;
+                else hi = mid;
+            }
+            arr.splice(lo, 0, node);
+        }
         function processHighlights(x,y, dropCandidate){
             if( !dropCandidate && myState.current.dragging){
-                return
+                return 
             }
 
             myState.current.hover ||= {}
             let anythingFound = false
             for(const type of Object.keys(props.highlights ?? {})){
-                //let found = findTrackedNodesAtPosition( x, y, type)?.[0]
                 let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, type))?.[0]
                 anythingFound ||= found
                 doHighlight( found, type)

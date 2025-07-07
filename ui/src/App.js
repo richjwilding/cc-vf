@@ -27,6 +27,7 @@ import FlowInstancePage from './FlowInstancePage.js';
 import WorkflowDashboard from './WorkflowDashboard.js';
 import { HeroUIProvider } from '@heroui/system';
 import SignupPage from './SignUp.js';
+import { PrimitivePopup } from './PrimitivePopup.js';
 
 library.add(faTags, faRobot, faTrash, faChevronDown, faLinkedin, faFilter, faCircleInfo, faSpinner, faTriangleExclamation)
 
@@ -56,6 +57,7 @@ function App() {
   const [showCategoryPicker, setShowCategoryPicker] = React.useState()
   const [update, forceUpdate] = useReducer((x)=>x + 1,0)
   const [showEditCategory, setShowEditCategory] = React.useState()
+  const [showPrimitivePopup, setShowPrimitivePopup] = React.useState()
 
 
   const checkPrimIsLoaded = ()=>{
@@ -125,6 +127,12 @@ function App() {
   mainstore.globalNewPrimitive = setShowNew
   mainstore.globalCategoryPicker = setShowCategoryPicker
   mainstore.globalCategoryEditor = setShowEditCategory
+  mainstore.primitivePopup = (d)=>{
+    const primitive = (typeof(d) === "string" || typeof(d) === "number") ? mainstore.primitive(d) : d
+    if( d ){
+      setShowPrimitivePopup(primitive)
+    }
+  }
     
   const { id } = useParams();
   const pagePrimitive = mainstore.primitive(id)
@@ -180,6 +188,7 @@ function App() {
           {showNew && <NewPrimitive {...showNew} done={showNew.callback ? (data)=>showNew.callback(data) : undefined} cancel={()=>setShowNew(false)}/>}
           {showCategoryPicker && <Popup padding='false' setOpen={()=>setShowCategoryPicker(false)}><NewPrimitive.CategorySelection  setOpen={()=>setShowCategoryPicker(false)} categoryId={showCategoryPicker.categoryIds} setSelectedCategory={(d)=>{const r = showCategoryPicker.callback(d); if(r){setShowCategoryPicker()}}}/></Popup>}
           {showEditCategory && <GenericEditor target={showEditCategory.originTask} set={(p)=>showEditCategory.primitive.primitives.allCategory} listType='category_pill' options={MainStore().categories().filter((d)=>[32].includes(d.id))} primitive={showEditCategory.primitive} setOpen={()=>setShowEditCategory(null)}/> }
+          {showPrimitivePopup && <PrimitivePopup primitive={showPrimitivePopup} editing={true} setPrimitive={setShowPrimitivePopup}/>}
           </BrowserRouter>
       </div>}
   </HeroUIProvider>)

@@ -25,16 +25,10 @@ import { Input } from "./@components/input";
 import PrimitiveConfig from "./PrimitiveConfig";
 import { Badge } from "./@components/badge";
 import { Temporal } from "@js-temporal/polyfill";
-  
+import clsx from "clsx";
+import { Button } from "@heroui/react";
+import {Icon} from "@iconify/react"  
 
-const ExpandArrow = function(props) {
-  return (
-      <svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" {...props}>
-        <path clipRule="evenodd" fillRule="evenodd" d="M15 3.75a.75.75 0 01.75-.75h4.5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0V5.56l-3.97 3.97a.75.75 0 11-1.06-1.06l3.97-3.97h-2.69a.75.75 0 01-.75-.75zM9.53 14.47A.75.75 0 019.53 15.53L5.56 19.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75v-4.5a.75.75 0 011.5 0v2.69l3.97-3.97a.75.75 0 011.06 0z" />
-      </svg>
-  
-  );
-}
 
 function copyToClipboard( table ){
 
@@ -75,6 +69,9 @@ function copyToClipboard( table ){
 }
 
 export function Table(props) {
+    const [isPopped, setIsPopped] = useState(false);
+    const tableRef = useRef()
+
     const mapColumns = (columns) =>{
         const columnHelper = createColumnHelper()
 
@@ -112,7 +109,8 @@ export function Table(props) {
                                 accessorFn: d.accessorFn,
                                 fromStructure: d.fromStructure,
                                 startSize: d.width ?? (d.field === "id" ? 100 : undefined),
-                                minSize: d.minWidth ?? d.width
+                                minSize: d.minWidth ?? d.width,
+                                size: d.width ?? d.minWidth
                             })
                     case "numbered_title":
                         return columnHelper.accessor(d.title,
@@ -127,7 +125,9 @@ export function Table(props) {
                                 accessorFn:(info)=>info.plainId + " - " + info.title,
                                 export:(info)=>info.row.original?.plainId + " - " + info.row.original?.title,
                                 startSize: d.width,
-                                minSize:d.minWidth ?? d.width
+                                minSize:d.minWidth ?? d.width,
+                                size: d.width ?? d.minWidth
+
                             })
                     case "react":
                         return columnHelper.accessor(d.title,
@@ -140,7 +140,8 @@ export function Table(props) {
                                 accessorFn: (info)=>info[d.field]?.text,
                                 //export:(info)=>info.row.original?.[d.field]?.text,
                                 startSize: d.width,
-                                minSize: d.minWidth ?? d.width
+                                minSize: d.minWidth ?? d.width,
+                                size: d.width ?? d.minWidth
                             })
                     case "pill":
                         return columnHelper.accessor(d.title,
@@ -153,7 +154,8 @@ export function Table(props) {
                                 accessorFn: (info)=>info[d.field]?.text,
                                 export:(info)=>info.row.original?.[d.field]?.text,
                                 startSize: d.width,
-                                minSize: d.minWidth ?? d.width
+                                minSize: d.minWidth ?? d.width,
+                                size: d.width ?? d.minWidth
                             })
                     case "date":
                         return columnHelper.accessor(d.title,
@@ -174,7 +176,8 @@ export function Table(props) {
                                 header: () => d.title,
                                 export:(info)=>info.row.original?.[d.field]?.toString(),
                                 startSize: d.width,
-                                minSize: d.minWidth ?? d.width
+                                minSize: d.minWidth ?? d.width,
+                                size: d.width ?? d.minWidth
                             })
                     case "actions":
                         return columnHelper.accessor(d.title,
@@ -198,7 +201,8 @@ export function Table(props) {
                                 header: () => d.title,
                                 export:(info)=>undefined,
                                 startSize: d.width,
-                                minSize: d.minWidth ?? d.width
+                                minSize: d.minWidth ?? d.width,
+                                size: d.width ?? d.minWidth
                             })
                 }
             }
@@ -211,7 +215,9 @@ export function Table(props) {
                     accessorFn: d.accessorFn,
                     fromStructure: d.fromStructure,
                     startSize: d.width ?? (d.field === "id" ? 100 : undefined),
-                    minSize: d.minWidth ?? d.width
+                    minSize: d.minWidth ?? d.width,
+                    size: d.width ?? d.minWidth,
+                    allocSpace: d.allocSpace !== false
                 })
         })
         return fixed
@@ -238,7 +244,7 @@ export function Table(props) {
 
     function buildDynamicFieldsForPrimitiveList( data, getData = (r)=>r ){
         let dynamic = [
-            {field: 'plainId', title: "ID", width: 80},
+            {field: 'plainId', title: "ID", width: 100, allocSpace: false},
             {field: 'title', title: "Title"},
         ]
         if(data){
@@ -443,10 +449,13 @@ export function Table(props) {
       // Grab every visible leaf column
       const leafColumns = table.getVisibleLeafColumns();
   
-      let sumMin = 0;
+      let sumMin = 0, colsToShare= 0
       leafColumns.forEach((col) => {
         const declaredMin = col.columnDef.minSize || 50;
         sumMin += declaredMin;
+        if( col.columnDef.allocSpace){
+            colsToShare++
+        }
       });
   
       const extra = Math.max(0, parentWidth - sumMin);
@@ -454,8 +463,10 @@ export function Table(props) {
   
       const initialSizing = {};
       leafColumns.forEach((col) => {
-        const declaredMin = col.columnDef.minSize || 50;
-        initialSizing[col.id] = Math.floor(declaredMin + perColumnExtra);
+        if( col.columnDef.allocSpace ){
+            const declaredMin = col.columnDef.minSize || 50;
+            initialSizing[col.id] = Math.floor(declaredMin + perColumnExtra);
+        }
       });
   
       table.setColumnSizing(initialSizing);
@@ -463,6 +474,18 @@ export function Table(props) {
   
     const leafColumns = table.getVisibleLeafColumns();
     const sizing = table.getState().columnSizing || {};
+
+    useEffect(()=>{
+        if( tableRef?.current ){
+            const el = tableRef.current
+            const vh = window.innerHeight;
+            const eh = el.offsetHeight;
+
+            // compute the top/left so element’s center matches viewport’s center
+            el.style.top  = `${(vh - eh) / 2}px`;
+        }
+
+    }, [isPopped, tableRef?.current, pagination?.pageSize])
   
     const templateColsArray = [];
     if (hasLeftAction) {
@@ -482,21 +505,30 @@ export function Table(props) {
   
     // Join them into one string for CSS:
     const templateColumns = templateColsArray.join(" ");
-    return (
-        <>
-        <UIHelper.DelayedInput
-          value={globalFilter ?? ''}
-          onChange={value => setGlobalFilter(value)}
-          placeholder="Search table..."
-        />
-        <div key="table" className={`my-2 rounded-md border overflow-y-scroll relative ${props.className}`}>
+    
+    const tableContent = <div className="flex flex-col @container">
+        <div className="flex space-x-1 place-items-center">
+            {props.popout && <Button onPress={()=>setIsPopped(!isPopped)} size="sm" variant="light" isIconOnly>
+                        <Icon icon={isPopped ? "ri:collapse-diagonal-line" : "ri:expand-diagonal-line"} className="w-5 h-5 text-slate-500"/>
+            </Button>}
+
+            <UIHelper.DelayedInput
+            value={globalFilter ?? ''}
+            onChange={value => setGlobalFilter(value)}
+            placeholder="Search table..."
+            />
+        </div>
+        <div key="table" className={`my-2 rounded-md border overflow-y-scroll relative ${props.className} `}>
         <div 
             ref={gridRef}
             style={{
                 gridTemplateColumns: templateColumns
             }}
             onKeyDown={keyHandler}
-            className="grid w-full overflow-x-auto relative max-h-full">
+            className={clsx(
+                "grid w-full overflow-x-auto relative max-h-full",
+                isPopped ? "max-h-[85vh]" : ""
+            )}>
             {table.getHeaderGroups().map(headerGroup => (
                 <>
                 {hasLeftAction && <div className="flex place-items-center relative sticky top-0 z-10 mx-0.5 bg-white border-b border-gray-200 shrink-0">
@@ -545,7 +577,7 @@ export function Table(props) {
                         <div                         
                             onClick={props.onExpand ? (e)=>{e.stopPropagation();props.onExpand(primitive ?? id)} : undefined}
                             className={`group-hover:bg-gray-100 flex justify-center place-items-center pl-1 cursor-pointer text-gray-300 group-hover:text-gray-400 hover:text-gray-600 border-b border-gray-100 outline-none ${selected === id ? "bg-ccgreen-100" : ""}`}>
-                            <ExpandArrow className='w-4 h-4 '/>
+                            <Icon icon="ri:expand-diagonal-line" className="w-4 h-4"/>
                         </div>
                     }
                     {row.getVisibleCells().map(cell => {
@@ -579,23 +611,60 @@ export function Table(props) {
             )})}
         </div>
         </div>
-        <div className="w-full flex space-x-4 place-items-center text-sm justify-between pl-4">
-            {filteredCount === totalCount && <p className="flex shrink-0 text-gray-500 font-semibold">{totalCount} items</p>}
-            {filteredCount !== totalCount && <p className="flex shrink-0 text-gray-500 font-semibold">{totalCount} filtered to {filteredCount} items</p>}
-            <div className="flex space-x-6 place-items-center text-sm ">
-                <div className="flex space-x-4 w-48 place-items-center">
-                    <p className="flex shrink-0 text-gray-500 font-semibold">Rows per page</p>
-                    <UIHelper.OptionList name="rows_per_page" options={pageOptions} value={pagination.pageSize} onChange={d=>table.setPageSize(d)} zIndex={50} />
+        <div className="w-full flex space-y-2 @xl:space-y-0 @xl:space-x-4 flex-col @xl:flex-row @xl:justify-between place-items-center text-sm">
+                <div className="flex space-x-4 place-items-center justify-between w-full">
+                    {filteredCount === totalCount && <p className="flex shrink-0 text-gray-500 font-semibold">{totalCount} items</p>}
+                    {filteredCount !== totalCount && <p className="flex shrink-0 text-gray-500 font-semibold">{totalCount} filtered to {filteredCount} items</p>}
+                    <div className="flex grow-0 place-items-center space-x-2">
+                        <p className="flex shrink-0 text-gray-500 font-semibold">Rows per page</p>
+                        <UIHelper.OptionList name="rows_per_page" options={pageOptions} value={pagination.pageSize} onChange={d=>table.setPageSize(d)} zIndex={50} />
+                    </div>
                 </div>
-                <div className="flex space-x-2 place-items-center">
+                <div className="flex space-x-2 place-items-center justify-between w-full">
                     <p className="flex shrink-0 text-gray-500 font-semibold">Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() }</p>
-                    <UIHelper.Button disabled={!table.getCanPreviousPage()} icon={<ChevronDoubleLeftIcon className="size-4 my-1 -mx-1"/>} action={()=>table.setPageIndex(0)}/>
-                    <UIHelper.Button disabled={!table.getCanPreviousPage()} icon={<ChevronLeftIcon className="size-4 my-1 -mx-1"/>} action={()=>table.previousPage()}/>
-                    <UIHelper.Button disabled={!table.getCanNextPage()} icon={<ChevronRightIcon className="size-4 my-1 -mx-1"/>} action={()=>table.nextPage()}/>
-                    <UIHelper.Button disabled={!table.getCanNextPage()} icon={<ChevronDoubleRightIcon className="size-4 my-1 -mx-1"/>} action={()=>table.setPageIndex( table.getPageCount() - 1)}/>
+                    <div className="flex space-x-2">
+                        <UIHelper.Button disabled={!table.getCanPreviousPage()} icon={<ChevronDoubleLeftIcon className="size-4 my-1 -mx-1"/>} action={()=>table.setPageIndex(0)}/>
+                        <UIHelper.Button disabled={!table.getCanPreviousPage()} icon={<ChevronLeftIcon className="size-4 my-1 -mx-1"/>} action={()=>table.previousPage()}/>
+                        <UIHelper.Button disabled={!table.getCanNextPage()} icon={<ChevronRightIcon className="size-4 my-1 -mx-1"/>} action={()=>table.nextPage()}/>
+                        <UIHelper.Button disabled={!table.getCanNextPage()} icon={<ChevronDoubleRightIcon className="size-4 my-1 -mx-1"/>} action={()=>table.setPageIndex( table.getPageCount() - 1)}/>
+                    </div>
                 </div>
-            </div>
         </div>
-        </>
-   )
+        </div>
+    if(props.popout){
+        return (
+                <div
+                className={clsx(
+                    isPopped ? "fixed inset-0 z-100" : ""
+                )}
+                >
+                <div
+                    className={clsx(
+                    "absolute inset-0 bg-black bg-opacity-30 backdrop-blur-sm",
+                    isPopped ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+                    )}
+                    onClick={() => setIsPopped(false)}
+                />
+
+                <div
+                    ref={tableRef}
+                    className={clsx(
+                    "toolbar-wrapper",  
+                    isPopped && "absolute left-8 right-8 p-4 bg-white rounded-lg shadow-xl overflow-auto"
+                    )}
+                    onClick={e => e.stopPropagation()}
+                >
+                    {tableContent}
+                </div>
+
+                {!isPopped && (
+                    <button onClick={() => setIsPopped(true)}>
+                    Pop out toolbar
+                    </button>
+                )}
+                </div>
+            );
+
+    }
+   return tableContent 
 }

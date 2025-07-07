@@ -120,22 +120,21 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                         "cell":"background",
                         "widget":"background"
                     }}
+                    enableShapeSelection={false}
                     enableFrameSelection
                     callbacks={{
                         onClick:{
                             frame: (id)=>{
                                 //setActiveBoard(id)
-                                mainstore.sidebarSelect(id)
+                                mainstore.sidebarSelect(id, {forFlow: true})
                             },
                             primitive:(id, pageId, data, kG)=>{
                                 let stateData = kG.stateData?.[id]
                                 let findSelection = false
                                 if( !stateData ){
-                                    console.log(`>> Check level 1`)
                                     let parent = kG.original?.parent
                                     stateData = parent?.stateData?.[parent.id()]
                                     if( parent && !stateData ){
-                                        console.log(`>> Check level 2`)
                                         parent = parent.original?.parent
                                         stateData = parent?.stateData?.[parent.id()]
                                         findSelection = true
@@ -166,13 +165,13 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                                         if( findSelection ){
                                             data = data.filter(d=>id.includes(d.primitive?.id ?? d.id))
                                             if( data.length === id.length){
-                                                mainstore.sidebarSelect(id)
+                                                mainstore.sidebarSelect(id, {forFlow: true, asList: true, list: [mainstore.primitive(id)]})
                                                 return
                                             }
                                         }
                                         mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list: data, axisData})
                                     }else{
-                                        mainstore.sidebarSelect(id)
+                                        mainstore.sidebarSelect(id, {forFlow: true})
                                     }
                                 }
                             },

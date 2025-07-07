@@ -1,5 +1,4 @@
 
-
 function fastUnique(arr){
     return Array.from(new Set(arr));
 }
@@ -158,6 +157,15 @@ const heatMapPalette = [
             "#222"
         ],
         colors: ['#00429d', '#2b57a7', '#426cb0', '#5681b9', '#6997c2', '#7daeca', '#93c4d2', '#abdad9', '#caefdf', '#ffffe0']
+    },
+    {
+        title: "Dynamic heat",
+        name: "dynamic_heat",
+        dynamic: true,
+        colors:[
+            "#f5f5ab",
+            "#bd0026"
+        ]
     }
     
 
@@ -728,6 +736,16 @@ const PrimitiveConfig = {
                             {id:"weighted", title: "Weighted average"},
                         ]
                     },
+                    "show_value":{
+                        type: "option_list",
+                        title: "Show Value",
+                        default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:"number", title: "Number"},
+                            {id:"percent", title: "Percent"}
+                        ]
+                    },
                     "reverse_palette":{
                         type: "option_list",
                         title: "Reverse Palette",
@@ -898,7 +916,7 @@ const PrimitiveConfig = {
         }, {}) 
     },
     encodeExploreFilter:(option, val, invert)=>{
-        if( !val || val.length === 0){
+        if( val === undefined || val.length === 0){
             return undefined
         }
 
@@ -947,6 +965,9 @@ const PrimitiveConfig = {
         }else if( option.type === "parameter"){
             if( val?.bucket_min  !== undefined ){
                 return  {type: "parameter", param: option.parameter, value: {idx: val.idx, min_value: val.bucket_min, max_value: val.bucket_max}, pivot: option.access, relationship: option.relationship, invert}
+            }else if( option.axisData?.buckets){
+                const bucket = option.axisData?.buckets[val]
+                return  {type: "parameter", param: option.parameter, value: {bucket: val, min_value: bucket.min, max_value: bucket.lessThan}, pivot: option.access, relationship: option.relationship, invert}
             }else{
                 return  {type: "parameter", param: option.parameter, value: val, pivot: option.access, relationship: option.relationship, invert}
             }
@@ -1438,7 +1459,219 @@ const PrimitiveConfig = {
         }
         return out
 
-    },async buildFlowInstanceStatus(flowInstance, steps, functions = {}, options = {}){
+    },
+    convertEdgesToDepth( edges){
+        const adj = new Map();        // from → [to,…]
+        const indegree = new Map();   // node → # of incoming edges
+
+        edges.forEach(({from, to}) => {
+            if (!adj.has(from)) adj.set(from, []);
+            if (!adj.has(to))   adj.set(to, []);
+            adj.get(from).push(to);
+
+            indegree.set(to, (indegree.get(to) || 0) + 1);
+            if (!indegree.has(from)) indegree.set(from, 0);
+        });
+        const depth = new Map();  // node → its depth
+        const q = [];
+
+        for (let [node, d] of indegree.entries()) {
+            if (d === 0) {
+                q.push(node);
+                depth.set(node, 0);
+            }
+        }
+        while (q.length) {
+            const u = q.shift();
+            const d = depth.get(u);
+          
+            for (let v of adj.get(u)) {
+              // assign depth[v] = max(existing, d+1)
+              depth.set(v, Math.max(depth.get(v) || 0, d + 1));
+          
+              // “remove” edge u→v
+              indegree.set(v, indegree.get(v) - 1);
+              if (indegree.get(v) === 0) {
+                q.push(v);
+              }
+            }
+        }
+        return depth
+    },
+    flowInstanceStatusToMap( statusMap, {showHidden, showSkipped, groupByLabels}){
+        const visibleIds = new Set(
+            Object.entries(statusMap).filter(([id, info]) => {
+                const refParams = (info.primitive.configParent ?? info.primitive).referenceParameters;
+                const isVisible = showHidden ? true  : refParams?.showInMap !== false;
+                const isNotSkipped = showSkipped ? true : !info.skip;
+                return isVisible && isNotSkipped;
+              })
+              .map(([id]) => id)
+          );
+    
+          // 2) Build a lookup from each node ID → its direct children IDs
+          const childrenMap = {};
+          Object.values(statusMap).forEach(({ id, children }) => {
+            childrenMap[id] = (children || []).map((c) => c.id);
+          });
+    
+          // 3) Helper: collect all visible descendants of a node, skipping over hidden ones
+          const collectVisibleDescendants = (nodeId, visited = new Set()) => {
+            const targets = new Set();
+            const stack = [...(childrenMap[nodeId] || [])];
+            while (stack.length) {
+              const curr = stack.pop();
+              if (visited.has(curr)) continue;
+              visited.add(curr);
+    
+              if (visibleIds.has(curr)) {
+                targets.add(curr);
+              } else {
+                // dive into this hidden node’s children
+                (childrenMap[curr] || []).forEach((gc) => {
+                  if (!visited.has(gc)) stack.push(gc);
+                });
+              }
+            }
+            return targets;
+          };
+    
+          // 4) If groupByLabels: build label→IDs map for visible nodes
+          let labelGroups = null;
+          if (groupByLabels) {
+            labelGroups = {};
+            visibleIds.forEach((id) => {
+              // assume “label” is at info.primitive.configParent.label or info.primitive.label
+              const {children, ...info} = statusMap[id];
+              const label = (info.primitive.configParent ?? info.primitive).referenceParameters.labelForMap;
+              const icon = info.primitive.configParent?.metadata?.icon
+              if (label) {
+                if (!labelGroups[label]) labelGroups[label] = {ids:[], items:[], icon};
+                labelGroups[label].ids.push(id);
+                labelGroups[label].items.push(info);
+              }
+            });
+          }
+    
+          // 5) Determine representative ID for each visible node (possibly remapped by label)
+          //    repMap[id] = representative ID (either its label or itself)
+          const repMap = {};
+          if (groupByLabels) {
+            // for each label group, pick the label string as the rep ID
+            Object.entries(labelGroups).forEach(([label, {ids}]) => {
+              ids.forEach((id) => {
+                repMap[id] = `label:${label}`;
+              });
+            });
+          }
+          // for any visible ID not in repMap, it stays as itself
+          visibleIds.forEach((id) => {
+            if (!repMap[id]) repMap[id] = id;
+          });
+    
+          // 6) Build nodeList: one entry per unique repMap value
+          const seenReps = new Set();
+          const nodeList = [];
+          visibleIds.forEach((id) => {
+            const rep = repMap[id];
+            if (seenReps.has(rep)) return;
+            seenReps.add(rep);
+    
+            if (rep.startsWith("label:")) {
+              // grouped node: label = rep.slice(6)
+              let label = rep.slice(6);
+              const labelGroup = labelGroups[label]
+              if( labelGroup.ids.length > 1){
+                label += ` (${labelGroup.ids.length})`
+              }
+              nodeList.push({
+                id: rep,
+                name: label,
+                _itemIds: labelGroup.items.map(d=>d.primitive.id),
+                itemIds: labelGroup.ids,
+                status: ()=>{
+                    const itemStatus = labelGroup.items.map(d=>d.primitive.processing?.flow?.status ?? "not_run").filter((d,i,a)=>a.indexOf(d)===i)
+                    let groupStatus = "not_run"
+                    if( itemStatus.includes("error")){
+                        groupStatus = "error"
+                    }else if( itemStatus.includes("error_skip")){
+                        groupStatus = "error_skip"
+                    }else if( itemStatus.includes("rerun")){
+                        groupStatus = "rerun"
+                    }else if( itemStatus.includes("running")){
+                        groupStatus = "running"
+                    }else if( itemStatus.includes("waiting")){
+                        groupStatus = "waiting"
+                    }else if( itemStatus.includes("not_complete")){
+                        groupStatus = "not_complete"
+                    }else if( itemStatus.includes("complete")){
+                        groupStatus = "complete"
+                    }
+                    return groupStatus
+                },
+                progress:()=>{
+                  const progressList = labelGroup.items.map(d=>d.primitive.percentageProgress)
+                  const progress = Math.min(...progressList.filter(d=>d!==undefined))
+                  return progress
+                },
+                progressMessage: ()=>{
+                    const progressList = labelGroup.items.map(d=>d.primitive.progress).filter(Boolean)
+                    const progressCount = progressList.length
+                    if( progressCount === 0){
+                        return
+                    }
+                    if( progressCount === 1){
+                        return progressList[0]
+                    }
+                    return progressList.slice(0,3).join("\n") + (progressCount > 3 ? `\n+${progressCount - 3} others` : "")
+                },
+                skipped: false,
+                candidateForRun: labelGroup.items.some(d=>d.candidateForRun),
+                icon: labelGroup.icon
+              });
+            } else {
+              // ungrouped, use original info
+              const info = statusMap[id];
+              nodeList.push({
+                id,
+                itemIds: [info.primitive.id],
+                name: (info.primitive.configParent ?? info.primitive).title,
+                status: ()=>info.primitive.processing?.flow?.status ?? "not_run",
+                progress: ()=>info.primitive.percentageProgress,
+                progressMessage: ()=>info.primitive.progress,
+                //progress: ()=>({percentage: 0.35}),
+                candidateForRun: info.candidateForRun,
+                skipped: info.skip,
+                icon: info.primitive.configParent?.metadata?.icon,
+              });
+            }
+          });
+    
+          // 7) Build edgeList: for each visible “parent” ID, collect its visible descendants,
+          //    then map parent→rep and child→rep, skipping self‐loops and duplicates.
+          const edgeSet = new Set();
+          visibleIds.forEach((parentId) => {
+            const descendants = collectVisibleDescendants(parentId);
+            descendants.forEach((childId) => {
+              const repParent = repMap[parentId];
+              const repChild = repMap[childId];
+              if (repParent !== repChild) {
+                const key = `${repParent}->${repChild}`;
+                if (!edgeSet.has(key)) {
+                  edgeSet.add(key);
+                }
+              }
+            });
+          });
+    
+          const edgeList = Array.from(edgeSet).map((key) => {
+            const [from, to] = key.split("->");
+            return { from, to };
+          });
+    
+          return { nodes: nodeList, edges: edgeList, visibleIds: [...visibleIds] };
+    },
+    async buildFlowInstanceStatus(flowInstance, steps, functions = {}, options = {}){
         steps = steps.slice().filter(d=>d)
         let flowStarted = flowInstance.processing?.flow?.started
         const map = {}
@@ -1526,7 +1759,7 @@ const PrimitiveConfig = {
             for(const p of checkList){
                 await setupStep( p, status )
                 if( map[p.id]){
-                    const thisSkipped = map[p.id].skip === true ? true : false
+                    const thisSkipped = (map[p.id].skip === true || map[p.id].skipDownstream === true) ? true : false
                     if( status.skipForUpstream === undefined ){
                         status.skipForUpstream = thisSkipped
                     }else{
@@ -1548,7 +1781,7 @@ const PrimitiveConfig = {
                     }else if(step.processing?.flow?.status === "error_skip"){
                         status.needReason = step.processing?.flow?.status
                         status.error = step.processing?.flow?.error ?? "Error"
-                        status.skip = true
+                        status.skipDownstream = true
                     }else if(step.processing?.flow?.status === "error_ignore" || step.processing?.flow?.status === "complete"){
                         status.needReason = "complete"
                     }else{
@@ -1613,13 +1846,10 @@ const PrimitiveConfig = {
         for(const id of Object.keys(map)){
             const thisItem = map[id]
             if( thisItem.routing ){
-                console.log(`Need to remove ${id}`)
                 const nodesToUpdate = Object.values(map).filter(d=>d.children.some(d2=>d2.id === thisItem.id))
-                console.log(`- Need to modify dependencies of ${nodesToUpdate.length}`)
                 for(const updateNode of nodesToUpdate){
                     updateNode.children = updateNode.children.filter(d=>d.id !== thisItem.id)
                     updateNode.children.push(...thisItem.children)
-                    console.log(`--- done`)
                 }
                 delete map[id]
             }
@@ -1710,7 +1940,7 @@ const PrimitiveConfig = {
                     const isSameFlow       = imp.id === flowInstance.id;
                     const hasValidStart    = flowStarted !== undefined;
                     const otherFlowStarted = imp.processing?.flow?.started;
-                    const isComplete       = imp.processing?.flow?.status === "complete";
+                    const isComplete       = imp.processing?.flow?.status === "complete" || imp.processing?.flow?.status === "error_ignore";
 
                     const timingOk = !inAncestor ? otherFlowStarted <= flowStarted : otherFlowStarted <= flowStarted;
                     const importPrimValid = isSameFlow || (hasValidStart && isComplete && timingOk);

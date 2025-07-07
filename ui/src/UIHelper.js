@@ -300,10 +300,8 @@ function MyDisclosurePanel({ children, open, ...props }){
 };
 
 function PrimitiveField({name, className, primitive, field, submitOnEnter, editable, allowEmpty, major, ...props}){
-    console.log(`update = ${props.update}`)
     let currentValue = field === "title" ? primitive.title : primitive.referenceParameters[field]
     function submit(target){
-        console.log('blur')
         let val = ((major ? target.textContent.trim() : target.value) ?? "").trim()
         if( val.length === 0){
             val = undefined

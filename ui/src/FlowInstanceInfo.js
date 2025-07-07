@@ -284,6 +284,11 @@ export function FlowInstanceInfo({primitive, inputPrimitives, steps,...props}){
         </div>
         <div className={`${bg} ${padding} place-items-center`}>
             <ChevronDownIcon className={`size-5 text-gray-400 hover:text-gray-800 ${expand ? "rotate-180" : ""}`} onClick={()=>setExpand(!expand)}/> 
+            <UIHelper.IconButton 
+                            icon={<HeroIcon icon='FAPlay' className='size-4 text-ccgreen-600 group-hover:text-ccgreen-800 hover:text-ccgreen-800'/>}
+                            action={()=>{
+                                MainStore().doPrimitiveAction( primitive, "run_flow_instance")
+            }}/>
         </div>
     </>)
 }

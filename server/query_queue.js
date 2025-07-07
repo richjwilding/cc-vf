@@ -600,7 +600,6 @@ export async function processQueue(job, cancelCheck, extendJob){
                     let throwError = false
                     if( errorMessage ){
                         status.error = errorMessage
-                        throwError = true
                     }else if( totalCount === 0 && config.zeroAsError){
                        status.error ="no results" 
                     }

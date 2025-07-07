@@ -1,22 +1,7 @@
 
 export function getRegisteredDomain(url) {
   const hostname = new URL(url).hostname;
-  const parts = hostname.split('.');
-  const len = parts.length;
-
-  // Common second-level labels under country TLDs:
-  const SLD = new Set(['co','com','net','org','gov','edu','ac','mil','sch']);
-
-  // If it ends in e.g. “.co.uk” (2-letter country + known SLD), grab last 3 parts:
-  if (len >= 3 
-      && parts[len-1].length === 2 
-      && SLD.has(parts[len-2].toLowerCase())
-  ) {
-    return parts.slice(-3).join('.');
-  }
-
-  // Otherwise just take last 2 parts:
-  return parts.slice(-2).join('.');
+  return getBaseDomain( hostname )
 }
 
 export function pickAtRandom(input, count) {
@@ -57,11 +42,22 @@ export function roundCurrency(number){
     return prefix + formatNumber(number)
 }
 export function getBaseDomain(hostname) {
-  let parts = hostname.split('.');
-  if (parts.length > 2) {
-      return parts.slice(1).join('.'); 
+  const parts = hostname.split('.');
+  const len = parts.length;
+
+  // Common second-level labels under country TLDs:
+  const SLD = new Set(['co','com','net','org','gov','edu','ac','mil','sch']);
+
+  // If it ends in e.g. “.co.uk” (2-letter country + known SLD), grab last 3 parts:
+  if (len >= 3 
+      && parts[len-1].length === 2 
+      && SLD.has(parts[len-2].toLowerCase())
+  ) {
+    return parts.slice(-3).join('.');
   }
-  return hostname; // If no subdomain, return as is
+
+  // Otherwise just take last 2 parts:
+  return parts.slice(-2).join('.');
 }
 
 export function cleanURL(url){
@@ -172,7 +168,7 @@ export function markdownToSlate(markdownContent = "") {
     if( isInTable ){
       if( (rowPipeCount >0 ||raw[0] === "|") && rowPipeCount < currentTable.expectedPipeCount ){
         let cols = raw.split("|")
-        const isHeaderSep = cols.length > 1 && cols.every(c => /^-+$/.test(c));
+        const isHeaderSep = cols.length > 1 && cols.slice(1, -1).every(c => /^-+$/.test(c));
         if( !isHeaderSep ){
           const pipes = cols.length  - 1
           if( rowPipeCount > 1 && raw.startsWith("|")){

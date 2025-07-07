@@ -2027,7 +2027,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
     const sourceConfig = await getConfig(source)
 
     let requesterInFlow
-    if((source.type === "query" || source.type === "summary" || source.type === "search") && forceImport !== true){
+    if((source.type === "query" || source.type === "summary" || source.type === "search" || source.type === "actionrunner" || source.type === "action") && forceImport !== true){
         if( cache.imports[source.id]){
             console.log(`>>> returning import local cache`)
             return cache.imports[source.id]
@@ -2037,25 +2037,6 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             return [source]
         }
         
-        if(source.type === "query"){
-            let node = new Proxy(source.primitives, parser)
-
-            const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
-            list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
-            
-            const viewFilters = (await getBaseFilterForView( source, sourceConfig )).map(d=>{
-                if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
-                    return {
-                        ...d,
-                        is_range: true
-                }
-            }
-            return d
-            })
-            if( viewFilters.length > 0 ){
-                list = await filterItems( list, viewFilters)
-            }
-        }
         if(source.type === "search"){
  //           const nestedSearch = [source, ...(await primitiveChildren(source, "search"))].filter(d=>d)
             const nestedSearch = Object.values(source.primitives?.config ?? {}).length > 0 ? [source, ...(await primitivePrimitives(source, 'primitives.config', "search" ))].filter(d=>d) : [source]
@@ -2070,6 +2051,30 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 );
                 console.log(`Fetched ${list.length}`)
             }                
+        }else{
+            let node = new Proxy(source.primitives, parser)
+
+            const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
+            list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
+            
+            if( source.type === "actionrunner" || source.type === "action"){
+                list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
+            }
+            if( source.type === "query"){
+                
+                const viewFilters = (await getBaseFilterForView( source, sourceConfig )).map(d=>{
+                    if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
+                        return {
+                            ...d,
+                            is_range: true
+                        }
+                    }
+                    return d
+                })
+                if( viewFilters.length > 0 ){
+                    list = await filterItems( list, viewFilters)
+                }
+            }
         }
 
         if( sourceConfig.extract ){
@@ -2125,6 +2130,23 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                     const outputs = await getPrimitiveOutputs(instance)
                     if( outputs ){
                         list.push( outputs )
+                    }
+                }
+                return uniquePrimitives(list)
+            }else{
+                const pp = new Proxy(imp.primitives.outputs ?? {}, parser)
+                const addresses = pp.paths(source.id)
+                let list = []
+                if( addresses ){
+                    const instances = await primitiveChildren( imp, "flowinstance")
+                    for( const instance of instances){
+                        const outputs = await getPrimitiveOutputs(instance)
+                        for(const address of addresses){
+                            const [outputPin, inputPin] = address.slice(1).split("_")
+                            if( outputs ){
+                                list = list.concat( outputs[outputPin]?.data ?? [] ) 
+                            }
+                        }
                     }
                 }
                 return uniquePrimitives(list)
@@ -2573,22 +2595,24 @@ export async function getDataForProcessing(primitive, action = {}, source, optio
             for(const d of list){
                 let fragmentList = await ContentEmbedding.find({foreignId: d.id},{foreignId:1, part:1, text: 1})
                 let content
-                if( fragmentList && fragmentList.length > 0){
-                    content = fragmentList.map(d=>d.text).join(". ")
-                    console.log(`Fetched content from embbeding store ${c}`)
-                }else{
-                    content = (await getDocumentAsPlainText( d.id ))?.plain
-                    console.log(`Fetched content from bucket ${c}`)
-                }
-                if( content ){
-                    listOut.push(d)
-                    out.push( content )
+                try{
+
+                    if( fragmentList && fragmentList.length > 0){
+                        content = fragmentList.map(d=>d.text).join(". ")
+                        console.log(`Fetched content from embbeding store ${c}`)
+                    }else{
+                        content = (await getDocumentAsPlainText( d.id ))?.plain
+                        console.log(`Fetched content from bucket ${c}`)
+                    }
+                    if( content ){
+                        listOut.push(d)
+                        out.push( content )
+                    }
+                }catch(e){
+                    console.log(`Couldnt fetch content`)
+                    console.log(e)
                 }
                 c++
-                /*if( c > 100){
-                    console.log(`STOP FOR DEBUG`)
-                    break
-                }*/
             }
             console.log(`+++++ For content HAD ${list.length} now ${listOut.length} +++++`)
             return [listOut, out]

@@ -76,6 +76,11 @@ module.exports = {
       '5xl': '2000px',
     },
     extend: {
+       zIndex: {
+        '100': '100',
+        '999': '999',
+        '1000': '1000',
+      },
       transitionTimingFunction: {
         // cubic-bezier for a gentle overshoot/back-out
         'out-back': 'cubic-bezier(0.42, 0, 0.63, 1.51)',
@@ -149,7 +154,43 @@ module.exports = {
   },
   darkMode: "class",
   plugins: [
-    heroui(),
+    heroui({
+      themes:{
+        light:{
+          colors:{
+              primary:{
+                50: '#f7fdf9',
+                100: '#C9FACC',
+                200: '#95F6A5',
+                300: '#5EE582',
+                400: '#35CC6C',
+                500: '#03ab51',
+                600: '#029353',
+                700: '#017B52',
+                800: '#00634C',
+                900: '#005246',
+                DEFAULT: "#029353",
+                foreground: "#ffffff"
+              },
+              secondary:{
+                  50: '#f7fdf9',
+                100: '#0394ff',
+                200: '#9AE5FF',
+                300: '#67CFFF',
+                400: '#41B9FF',
+                500: '#0394ff',
+                600: '#0272DB',
+                700: '#0155B7',
+                800: '#003C93',
+                900: '#002B7A',
+                DEFAULT: "#0272DB",
+                foreground: "#ffffff"
+              },
+              focus: "#027939"
+          }
+        }
+      }
+    }),
     require('tailwindcss-bg-patterns'),
     require('@tailwindcss/container-queries'),
     plugin(function({ addUtilities, addComponents }) {

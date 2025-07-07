@@ -134,9 +134,9 @@ export default function SummaryCard({primitive, ...props}){
     }
 
     return  <div className="w-full bg-white flex flex-col p-2">
-                <div className="flex justify-between place-items-center">
+                {props.title !== false && <div className="flex justify-between place-items-center">
                     <PrimitiveCard variant={false} primitive={primitive} compact showEdit disableHover editing className='w-full !bg-transparent'/>
-                </div>
+                </div>}
                 {props.showSetting && <Panel collapsable open={false} className="!mt-0 ml-1" title="Settings" titleClassName='flex w-fit text-xs text-gray-500' arrowClass="text-gray-500 ml-0.5 w-4 h-4">
                     <div className="w-full flex-col text-xs my-2 space-y-1 shrink-0">
                         <PrimitiveCard.Parameters primitive={primitive} hidden='summary' editing leftAlign compactList className="text-xs text-slate-500" fullList />

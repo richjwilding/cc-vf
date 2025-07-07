@@ -14,7 +14,7 @@ import CollectionInfoPane from "./CollectionInfoPane";
 import useDataEvent from "./CustomHook";
 import { createPptx, exportKonvaToPptx, writePptx } from "./PptHelper";
 import Konva from "konva";
-import { compareTwoStrings, expandStringLiterals } from "./SharedTransforms";
+import { compareTwoStrings, expandStringLiterals, formatNumber } from "./SharedTransforms";
 import { getLogger } from './logger'
 import AgentChat from "./AgentChat";
 import clsx from "clsx";
@@ -863,7 +863,13 @@ function SharedRenderView(d, primitive, myState) {
                                     if( input.type === "segment"){
                                         text = input.filterDescription
                                     }else{
-                                        text = basePrimitive?.renderConfig?.field ? ( basePrimitive.renderConfig.field === "context" ? input.content : input.referenceParameters[basePrimitive.renderConfig.field]) : input.title
+                                        const field = basePrimitive?.renderConfig?.field ?? basePrimitive?.getConfig?.field
+                                        text = field ? ( field === "context" ? input.content : input.referenceParameters[field]) : input.title
+                                        if(field && input.metadata?.parameters[field] ){
+                                            if( input.metadata?.parameters[field].type === "number" ){
+                                                text = formatNumber( text )
+                                            }
+                                        }
                                     }
                                     data.push( text )
                                 }
@@ -2131,8 +2137,8 @@ export default function BoardViewer({primitive,...props}){
             ...(target.frames?.[fId] ?? {}),
             ...(x !== undefined && { x }),
             ...(y !== undefined && { y }),
-            ...(width !== undefined && { width }),
-            ...(height !== undefined && { height }),
+            ...(width !== undefined && width >0 && { width }),
+            ...(height !== undefined && height >0 && { height }),
         }
 
         target.setField(`frames.${fId}`, updateData)

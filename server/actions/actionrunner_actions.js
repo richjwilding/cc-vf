@@ -58,6 +58,21 @@ registerAction("lookup_entity", {type: "action"}, async (primitive, action, opti
                     if( data.length > 0){
                         const item = data[0]
                         console.log(`Got ${item.name} ${item.domain}`)
+
+                        const newData = {
+                            workspaceId: primitive.workspaceId,
+                            parent: primitive.id,
+                            paths: ['origin'],
+                            data:{
+                                title: item.name,
+                                referenceParameters:{
+                                  url: item.domain
+                                },
+                                type: "entity",
+                                referenceId: 29
+                            }
+                        }
+                        const newPrim = await createPrimitive( newData )
                     }
                 }
             }else if( config.entity_type === "Web Resource"){

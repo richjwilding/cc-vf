@@ -23,7 +23,7 @@ import { CheckboxField, Checkbox as LegacyCheckbox } from "./@components/checkbo
 import { AdjustmentsVerticalIcon, BackwardIcon, CloudArrowDownIcon, PlayCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
 import { Label } from "./@components/fieldset"
-import { Input, Select, SelectItem } from "@heroui/react"
+import { Button, Input, Select, SelectItem } from "@heroui/react"
 import {Checkbox} from "@heroui/react";
 import InputWithSync from "./InputWithSync"
 
@@ -247,9 +247,14 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         <DescriptionList inContainer={true} className="my-2 space-y-2">
                             <DescriptionTerm inContainer={true}>Map view</DescriptionTerm>
                             <DescriptionDetails inContainer={true}>
+                                <Checkbox size="sm" isSelected={frame.referenceParameters.fcAllowEdit} onValueChange={(selected)=>frame.setField('referenceParameters.fcAllowEdit', selected)}>Allow user to edit</Checkbox>
+                            </DescriptionDetails>
+                            <DescriptionTerm inContainer={true}>Map view</DescriptionTerm>
+                            <DescriptionDetails inContainer={true}>
                                 <div className="space-y-2 flex flex-col">
                                     <Checkbox size="sm" isSelected={frame.referenceParameters.showInMap !== false} onValueChange={(selected)=>frame.setField('referenceParameters.showInMap', selected)}>Show in map</Checkbox>
                                     <InputWithSync label="Label" placeholder="Label to show user" variant="bordered" primitive={frame} field="labelForMap"/>
+                                    <InputWithSync label="Label" placeholder="Description" variant="bordered" primitive={frame} field="stepDescription"/>
                                 </div> 
                             </DescriptionDetails>
                             <DescriptionTerm inContainer={true}>Error handling</DescriptionTerm>
@@ -286,7 +291,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     return <div className="text-sm text-yellow-800">Configuration for flow item</div>
                 })()}
             </div>
-    const underlyingInfo = !underlying ? <></> : <div className="px-2 py-2 mt-4 bg-ccgreen-50 border-ccgreen-200 border rounded-md">{(()=>{
+    let underlyingInfo = !underlying ? <></> : <div className="px-2 py-2 mt-4 bg-ccgreen-50 border-ccgreen-200 border rounded-md">{(()=>{
                     let flowinstance = underlying.findParentPrimitives({type:"flowinstance"})?.[0]
                     let title = flowinstance.primitives.imports.allItems[0]?.filterDescription
                     return <>
@@ -305,6 +310,15 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
 
                 })()}
             </div>
+    if( frame.type === "flow"){
+        const activeFlowInstance = props.flowInstances[frame.referenceParameters?.explore?.view ?? 0]
+        if( activeFlowInstance){
+            underlyingInfo =  <div className="px-2 py-2 mt-4 bg-ccgreen-50 border-ccgreen-200 border rounded-md"> 
+                <Button as="a" variant="ghost" color="primary" href={`/item/${activeFlowInstance.id}`}> View flow instance</Button>
+                </div>
+        }
+
+    }
 
     if( frame?.type === "actionrunner" && Object.values(frame.metadata?.parameters ?? {}).filter(d=>d.type).length === 0){
         const itemsForCategories = primitiveForContent.itemsForProcessing
@@ -475,7 +489,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
         const viewConfigs = frame.type === "flow" ? props.flowInstances.map((d,i)=>(
             {
                 id: i,
-                title:`Flow instance #${d.plainId}`
+                title:`Flow instance #${d.plainId} - ${d.title}`
             }
         )) : CollectionUtils.viewConfigs(list?.[0]?.metadata)
         const viewConfig = viewConfigs?.[activeView] 
@@ -834,9 +848,12 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
 
             }
         function flowPanel(){
-            let flowInstanceToShow
-            if( frame.type === "flow" && frame.flowElement ){
-                flowInstanceToShow = props.flowInstances[frame.referenceParameters?.explore?.view ?? 0]
+            let activeFlowInstance, flowInstanceToShow
+            if( frame.type === "flow" ){
+                activeFlowInstance = props.flowInstances[frame.referenceParameters?.explore?.view ?? 0]
+                if( frame.flowElement ){
+                    flowInstanceToShow = activeFlowInstance
+                }                    
             }
 
             return <><div className="space-y-2">
@@ -1132,19 +1149,6 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             </div>
         </>
     }
-    const discared = <>
-                <div>
-                <dl className="mt-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                        <dt className="text-sm text-gray-600">Add descendant view</dt>
-                        <dd className="text-sm font-medium text-gray-900"><ArrowRightCircleIcon className="w-6 h-6 text-gray-400 hover:text-gray-500"/></dd>
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <dt className="text-sm text-gray-600">Add Parent view</dt>
-                        <dd className="text-sm font-medium text-gray-900"><ArrowRightCircleIcon className="w-6 h-6 text-gray-400 hover:text-gray-500"/></dd>
-                    </div>
-                </dl>        
-            </div></>
     return <div 
             className='w-[32rem] 2xl:w-[40rem]'>
                 {content}

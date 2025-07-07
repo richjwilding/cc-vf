@@ -90,6 +90,49 @@ export const tagColors =  {
     Sky: ["#e0f2fe", "#bae6fd", "#7dd3fc", "#38bdf8", "#0ea5e9", "#0284c7"]
   };
 
+  function interpolateHexColors(startHex, endHex, steps) {
+    // strip “#”, handle shorthand
+    const normalize = hex => {
+      hex = hex.replace(/^#/, '');
+      if (hex.length === 3) {
+        hex = hex.split('').map(ch => ch+ch).join('');
+      }
+      return hex;
+    };
+  
+    const hexToRgb = hex => {
+      const h = normalize(hex);
+      return {
+        r: parseInt(h.slice(0,2), 16),
+        g: parseInt(h.slice(2,4), 16),
+        b: parseInt(h.slice(4,6), 16),
+      };
+    };
+  
+    const rgbToHex = ({r, g, b}) =>
+      '#' +
+      [r, g, b]
+        .map(v => v.toString(16).padStart(2, '0'))
+        .join('');
+  
+    const c1 = hexToRgb(startHex);
+    const c2 = hexToRgb(endHex);
+  
+    if (steps < 2) {
+      return [ normalize(startHex).startsWith('#') ? startHex : `#${normalize(startHex)}` ];
+    }
+  
+    const out = [];
+    for (let i = 0; i < steps; i++) {
+      const t = i / (steps - 1);
+      const r = Math.round(c1.r + (c2.r - c1.r) * t);
+      const g = Math.round(c1.g + (c2.g - c1.g) * t);
+      const b = Math.round(c1.b + (c2.b - c1.b) * t);
+      out.push(rgbToHex({ r, g, b }));
+    }
+    return out;
+  }
+
 function registerRenderer( mappings, callback){
     for(const d of [mappings].flat()){
         let obj = typeMaps
@@ -2249,7 +2292,7 @@ function renderBaselineOverviewSet(primitive, options){
         y: config.padding[0],
         width: width - config.padding[3] - config.padding[1],
         height: height - config.padding[0] - config.padding[2],
-        fill: '#f9fafb',
+        fill: 'transparent',
         name: "background"
     })
     g.add(r)
@@ -2568,8 +2611,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
             y: 0,
             width: config.width,
             height: config.height,
-            cornerRadius: 2,
-            fill: 'white',
+            fill: 'transparent',
         })
         g.add(r)
 
@@ -3479,7 +3521,7 @@ export function renderPlainObject(renderOptions = {}){
         width,
         height,
         id: options.ids?.[0],
-        name:"inf_track primitive no_hover"
+        name:"inf_track primitive shape_element"
     })
     if( options.fill || options.stroke){
         if( options.style === "line"){
@@ -3540,10 +3582,32 @@ export function renderPlainObject(renderOptions = {}){
                 })
                 .join('\n');
         }
+        let y = 0
+        if(options.heading){
+            const t = new CustomText({
+                x: padding[3],
+                y: y,
+                fontSize: 12,
+                fontFamily: fontFamily,
+                fontStyle:"bold",
+                text: options.heading.toUpperCase(),
+                fill: '#999999',
+                showPlaceHolder: false,
+                wrap: false,
+                bgFill: 'transparent',
+                align:'center',
+                width: width - padding[3] - padding[1],
+                withMarkdown: false,
+                ellipsis: false,
+                refreshCallback: options.imageCallback
+            })
+            g.add(t)
+            y += t.height() * 2
+        }
 
         const t = new CustomText({
             x: padding[3],
-            y: padding[1],
+            y: padding[1]+ y,
             width: width - padding[3] - padding[1],
             height: height - padding[2] - padding[0],
             lineHeight: options.lineHeight ?? 1.2,
@@ -3560,6 +3624,7 @@ export function renderPlainObject(renderOptions = {}){
     }else  if( type === "structured_text"){
         let y = 0, idx = 0
         const padding = options.padding ?? [0,0,0,0]
+        g.name("inf_track primitive")
         for(const block of text ){
             for(const section of block){
                 const thisText = flattenStructuredResponse([section], [section])
@@ -4315,7 +4380,9 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                 sub.rendered.y(sub.y)
                 sub.rendered.attrs.pageTrack = pageIdx
                 sub.rendered.find(d=>d.attrs.name?.includes("inf_track")).forEach(d=>d.attrs.pageTrack = pageIdx)
-                sub.rendered.name('inf_track primitive')
+                if( !sub.rendered.name()){
+                    sub.rendered.name('inf_track primitive')
+                }
                 sub.rendered.clip({
                     x: cl,
                     y: ct,
@@ -5655,18 +5722,20 @@ function renderBarChart( segments, options = {}){
         width: config.size,
         height: config.barHeght ?? config.size
     })
-    const asPercent = false
+    let showValue = options.showValue
+    const asPercent = options.showValue === "percent"
     const barWidth = options.stack ? config.size : config.size / segments.length
     const barBase = config.size - 0.2
     const barSize = (config.barHeght ?? config.size) - 0.2
-    const maxValue = options.stack ? segments.map(d=>d?.count ?? 0).reduce((a,c)=>c + a,0) : (asPercent ? 100 : segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0))
+    //const maxValue = options.stack ? segments.map(d=>d?.count ?? 0).reduce((a,c)=>c + a,0) : (asPercent ? 100 : segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0))
+    const total = segments.reduce((a,d)=>a+(d.count ?? 0), 0)
+    const maxValue = options.stack ? segments.map(d=>d?.count ?? 0).reduce((a,c)=>c + a,0) : (segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0) * (asPercent ? (100/total) : 1))
     const scale = barSize / maxValue 
     let colors = options.colors ?? categoryColors
     
-    const total = segments.reduce((a,d)=>a+(d.count ?? 0), 0)
 
 
-    const fontSize = 8
+    const fontSize = 4
     let x = 0, idx = 0, y = barBase
     for( const s of  segments){
         const count = asPercent ? 100 * s.count / total : s.count
@@ -5682,19 +5751,21 @@ function renderBarChart( segments, options = {}){
             });
             g.add(bar)
         }
-        /*const t = new CustomText({
-            x: x,
-            y: (barBase - h) - fontSize * 1.2,
-            fontSize: fontSize,
-            text: asPercent ? `${count.toFixed(2)}%` : count,
-            align:"center",
-            fill: '#334155',
-            bgFill: 'transparent',
-            width: barWidth,
-            align: "center",
-            refreshCallback: options.imageCallback
-        })
-        g.add(t)*/
+        if( showValue ){
+            const t = new CustomText({
+                x: x,
+                y: (barBase - h) - fontSize * 1.2,
+                fontSize: fontSize,
+                text: asPercent ? `${count.toFixed(0)}%` : count,
+                align:"center",
+                fill: '#334155',
+                bgFill: 'transparent',
+                width: barWidth,
+                align: "center",
+                refreshCallback: options.imageCallback
+                })
+            g.add(t)
+        }
         idx++
         if( options.stack){
             y -= h
@@ -5825,7 +5896,12 @@ function renderSubCategoryChart( title, data, options = {}){
     let colors = categoryColors
     let selectedPalette = heatMapPalette.find(d=>d.name === paletteName)
     if( selectedPalette ){
-        if( selectedPalette.category_colors ){
+        if( selectedPalette.dynamic){
+            colors = interpolateHexColors(selectedPalette.colors.at(0), selectedPalette.colors.at(-1), data.length)
+            if( options.reversePalette ){
+                colors = [...selectedPalette.colors].reverse()
+            }
+        }else if( selectedPalette.category_colors ){
             colors = selectedPalette.category_colors 
         }else{
             if( options.reversePalette === false){
@@ -5867,7 +5943,7 @@ function renderSubCategoryChart( title, data, options = {}){
     let pieSize = fullPieSize
     const pieMid = (fullPieSize / 2)
     if( options.style ==="bar" || options.style ==="stacked_bar"  ){
-        sg.add( renderBarChart(data, {size: fullPieSize, x: (itemSize - fullPieSize) / 2, barHeght: options.scale ? fullPieSize * options.scale : undefined, y: pieY, colors: colors, stack: options.style === "stacked_bar"}))
+        sg.add( renderBarChart(data, {size: fullPieSize, x: (itemSize - fullPieSize) / 2, barHeght: options.scale ? fullPieSize * options.scale : undefined, y: pieY, colors: colors, showValue: options.showValue, stack: options.style === "stacked_bar"}))
     }else if( options.style === "weighted"){
         showLegend = false
         const { weightedSum, totalCount } = data.reduce(
@@ -6248,6 +6324,7 @@ registerRenderer( {type: "default", configs: "cat_overview"}, (primitive, option
                                                 itemSize, 
                                                 innerPadding, 
                                                 style: config.style, 
+                                                showValue: config.show_value !== false, 
                                                 hideTitle: config.show_title === false, 
                                                 hideLegend: config.show_legend === false, 
                                                 byTag: config.by_tag,
@@ -6345,6 +6422,7 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         max,
         min,
         count,
+        showValue: renderOptions.show_value ?? false, 
         legendSize: renderOptions.legend_size,
         legendOnRight: renderOptions.show_legend === "right",
         horizontalLegend: renderOptions.show_legend !== "right",

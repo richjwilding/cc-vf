@@ -523,7 +523,9 @@ _setTextData() {
         startIndent = startX
         placeTextWidth = maxWidth
         currentHeightPx = startRow + maxForRow + rowSpacing
-        this.textArr[this.textArr.length - 1].tableInfo.tableHeight = currentHeightPx
+        if( this.textArr[this.textArr.length - 1]){
+          this.textArr[this.textArr.length - 1].tableInfo.tableHeight = currentHeightPx
+        }
         fontScaleForTable = 1
         baseLineHeightPx = mainLineHeight
       }
@@ -543,6 +545,7 @@ _setTextData() {
       }
       const children = section.children ?? [section]
       let markAsLastParagraph = false
+      let bulletIsBold
       if( children ){
         let indent = startIndent
         let fragmentIdx = 0
@@ -576,9 +579,18 @@ _setTextData() {
             let text = frag.text
             let fragChildren = frag.children
             if( text !== undefined){
+
+              let boldToUse = bold
+              if( isListItem ){
+                if( fragmentIdx === 0 ){
+                  bulletIsBold = bold
+                }
+                boldToUse = bulletIsBold
+              }
+
               text = text.replace(/^\s+/," ")
 
-              const result = placeText( text, large, bold, bullet, startIndent, indent, color, lastLine, tableInfo)
+              const result = placeText( text, large, boldToUse, bullet, startIndent, indent, color, lastLine, tableInfo)
               indent = result.indent
               if( result.textWidth > maxUsedWidth ){
                 maxUsedWidth = result.textWidth

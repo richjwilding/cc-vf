@@ -74,7 +74,7 @@ export class BaseQueue {
             timeField = "completed"
 
         }else if(result.success === true){
-            status = "completed"
+            status = "complete"
             timeField = "completed"
         }
         this.logger.info("Got notification", { id:job.id, status, error, childJob, mode: job.mode });

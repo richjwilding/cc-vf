@@ -16,6 +16,7 @@ window.setupPPTX = ()=>{
     return createPptx()
 }
 
+
 export async function exportKonvaToPptx( stage, pptx, options = {} ){
     let savePptx = false
     
@@ -187,8 +188,141 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             const LINE_MULT_FACTOR = 0.823
             const lineSpacingMultiple = konvaNode.lineHeight() * LINE_MULT_FACTOR
 
-            //indent,large, bold
             if( konvaNode.className === "CustomText"){
+
+                let inTable = false, liveTable = [], tableSet = []
+
+
+                const DB = konvaNode.fontStyle() === "bold"
+            const DF = konvaNode.fontFamily() + (konvaNode.fontStyle()==="light"?" Light": (konvaNode.fontStyle()==="bold" ? " Bold" : "" ));
+            const DS = fontSize.toFixed(3);
+            const DC = toHex(konvaNode.fill());
+            const LS = lineSpacingMultiple;
+            const BI = (fontSize * 0.4).toFixed(3);
+
+            let textObjs  = [];
+            let prevSeg   = null;
+            let hasIndents = false;
+            let lastNewPara
+
+
+                function computeSpacingBefore(curr, prev, lineHeight, fontScale, thisScale) {
+                    if (!prev) return 0;
+                    const prevFS = prev.large ? kLargeFontSize : kFontSize;
+                    const currFS = curr.large ? kLargeFontSize : kFontSize;
+
+                    const bottomPrev = prev.y + (prevFS / 2) + (prevFS * 0.24 * lineHeight);
+                    const topCurr   =  curr.y + (currFS / 2) - (currFS * 0.76 * lineHeight);
+
+                    const raw = (topCurr - bottomPrev)
+                                * fontScale * thisScale
+                                * lineHeight * 0.98;
+                    return Math.max(0, Number(raw.toFixed(3)));
+                }
+
+                let idx = 1
+
+                for (const seg of konvaNode.textArr) {
+                    idx++
+                    if (!seg.text || seg.tableInfo) {
+                        if( seg.tableInfo){
+                            if( !inTable ){
+                                liveTable = []
+                                inTable = true
+                            }
+                            liveTable.push( seg )
+                            continue
+                        }else{
+                            if( inTable ){
+                                console.log(`Finished table`)
+                                console.log( tableSet)
+                                inTable = false
+                                tableSet.push(liveTable)
+                                liveTable = undefined
+                            }
+                        }
+                        continue
+                    }
+                    const newPara =
+                    !prevSeg
+                    || (seg.bullet && !prevSeg.bullet) 
+                    || ((seg.bullet === true) && (prevSeg.bullet === true))
+                    || seg.indentLevel !== prevSeg.indentLevel
+                    || prevSeg.lastInParagraph
+
+                    if (newPara && textObjs.length) {
+                        textObjs[textObjs.length - 1].options.breakLine = true;
+                    }
+                    let prefix = (!newPara && textObjs.length && textObjs.at(-1)?.text.at(-1) !== " ") ? " " : ""
+                    
+                    const spB = newPara
+                        ? computeSpacingBefore(seg, prevSeg,
+                            konvaNode.lineHeight(), fontScale, thisScale)
+                        : undefined;
+
+                    const runOpts = {
+                        fontFace: DF,
+                        fontSize: DS,
+                        color:    DC,
+                        bold:     !!(seg.bold || seg.large),
+                        ...(newPara ? { paraSpaceBefore: spB, paraSpaceAfter: 0 } : {}),
+                        breakLine: seg.lastInParagraph
+                    };
+                    if (seg.large){
+                        runOpts.fontSize = largeFontSize.toFixed(3);
+                    }
+                    if( (newPara && seg.bullet)){
+                        runOpts.bullet = {indent: BI}
+                        runOpts.indentLevel = seg.indentLevel ?? 1
+                        hasIndents = true
+                    }
+                    if( newPara ){
+                        textObjs.push( {
+                            text: prefix + seg.text,
+                            options: runOpts
+                        })
+                    }else{
+                        const prior = textObjs.at(-1)?.text ?? ""
+                        let newText = (prior.at(-1) === " " || seg.text.at(0) === " ") ? prior + seg.text : prior + " " + seg.text
+                        textObjs.at(-1).text = newText
+
+                    }
+                prevSeg = seg;
+                }
+
+                slide.addText(textObjs, {
+                    x: rx, y: ry, w: rw * 1.01, h: rh,
+                    fontFace:           DF,
+                    fontSize:           DS,
+                    color:              DC,
+                    lineSpacingMultiple: LS,
+                    margin:             konvaNode.padding(),
+                    align:              hasIndents ? undefined : konvaNode.align(),
+                    valign:             hasIndents ? "top"     : konvaNode.verticalAlign(),
+                });
+             
+     /*           slide.addText(
+  [
+    {
+      text: "Affiliate-only monetization",
+      options: {
+        bullet: true,     // turn the bullet on
+        indentLevel: 1    // first (top-level) bullet
+      }
+    }
+  ],
+  {
+    x: rx,    // inches from left
+    y: ry,    // inches from top
+    w: rw,    // width
+    h: rh,  // height
+    fontFace: "Poppins",
+    fontSize: 24,
+    color: "000000"
+  }
+);*/
+                
+/*
                 let indentTracker = false, indentLevel = 0, yTracker
                 let agg = []
                 let stack = []               
@@ -199,7 +333,9 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                 let tIdx = 0
                 let bulletNeedsFlushing = false
                 let lastSegment, startSegment, latchSegment, lastFontSize
-                let inTable = false, liveTable = [], tableSet = []
+
+
+
                 for( const d of konvaNode.textArr){
                     if( d.tableInfo){
                         if( !inTable ){
@@ -358,6 +494,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                     fontSize: fontSize.toFixed(3),
                     color: toHex(konvaNode.fill()),
                 });
+                */
                 if( konvaNode.attrs?.url){
                     slide.addShape(pptx.shapes.RECTANGLE, {
                         x: rx,
@@ -367,6 +504,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                         hyperlink: {url: konvaNode.attrs.url}
                     })
                 }
+                
                 if( inTable ){
                     tableSet.push(liveTable)
                 }

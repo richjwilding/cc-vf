@@ -190,12 +190,13 @@ export async function summarizeMultiple(list, options = {} ){
                                         - To create a top-level bullet, start the line with '- ' (dash + space).
                                         - To create a second-level bullet, start the line with ' - ' (space + dash + space).
                                         - To create a third-level bullet, start the line with ' . - ' (two spaces + dashes + space).
-                                        - Emphasised / bold text: wrap the text in '** (e.g. '**important point**') NB. Do not emphasis / bold full sentances - just a few key words if and where appropriate.  
                                         - To build a table, each header or cell row must start and end with '|' and the separator line must be '|----|----|'.
                                         - End every table row with a single newline character.
                                         - Never include any other Markdown tokens or literal placeholder text.
                                         `.replaceAll(/\s+/g," ") : "Format your response as a simple string using any formatting specified above"
     
+// - Emphasised / bold text: wrap the text in '** (e.g. '**important point**') NB. Do not emphasis / bold full sentances - just a few key words if and where appropriate.  
+
     let outputFields, wholeResponse = options.wholeResponse
     if( options.output){
         outputFields = options.output

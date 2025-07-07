@@ -1491,6 +1491,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
       <Slate  editor={editor} initialValue={value} onChange={(newValue) => setValue(newValue)}>
         <Editable
           ref={slateRef}
+          readOnly={props.readOnly}
             className={clsx([
               props.float ? "focus:outline-none" : "border",
               'max-h-[inherit] overflow-y-scroll p-1 w-full'
