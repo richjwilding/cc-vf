@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useState } from "react" 
-import MainStore from "./MainStore"
+import MainStore, { uniquePrimitives } from "./MainStore"
 import Panel from "./Panel"
 import { PrimitiveCard } from "./PrimitiveCard"
 import NewPrimitive from "./NewPrimitive"
@@ -34,6 +34,7 @@ export default function WorkflowDashboard(props){
         }
     }, [MainStore().homescreenReady])
     
+    const templates = MainStore().templates().filter(d=>d.type === "flow")
     const workflows = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="flow" && !p.inFlow))
     const handleCreate = (prim)=>{
         setShowNew(false)
@@ -130,12 +131,18 @@ export default function WorkflowDashboard(props){
     })
 
     console.log(flowInstanceInfo)
+
+    const createList = uniquePrimitives([
+        ...workflows,
+        ...templates
+    ])
+
     return (
     <div className="w-full h-full overflow-y-scroll px-4 pb-4 max-w-7xl mx-auto space-y-6">
         <Panel key='boards' icon={SparklesIcon} title='Create new flow' collapsable={true} count={workflows.length} open={true} major='true' className='w-full rounded-xl bg-white/60 p-4 shadow-md'>
             <div className="w-full flex overflow-x-scroll">
                 <div className="w-fit flex gap-4 p-4">
-                    {workflows.map((p)=>{
+                    {createList.map((p)=>{
                         return <WorkflowCard primitive={p} onClick={()=>alert("new")}/>
                     })}
                 </div>

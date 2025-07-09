@@ -37,6 +37,7 @@ export function KonvaPrimitive({primitive, ...props}){
     }
 
     return <Stage 
+                key={primitive?.id}
                 onClick={clickHandler}
                 ref={stageRef} width={300} height={300} className="inline-flex rounded-lg border m-2 p-2 hover:shadow-md transform transition-transform duration-100 ease-out-back hover:-translate-y-1 hover:border-gray-300">
                     <Layer

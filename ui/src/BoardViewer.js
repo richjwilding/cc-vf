@@ -178,7 +178,6 @@ function preparePageElements( d, pageState ){
         let masterVariants = {}
         const partialVariants = {}
         const pageVariants = {}
-        console.log(pageInputs)
         for(let child of childNodes){
             const {x,y,s, ...renderConfigOverride} = configPage.frames?.[child.id] ?? {x: 0, y: 0, s: 1}
             tempState[child.id] = {
@@ -223,7 +222,7 @@ function preparePageElements( d, pageState ){
                 }
             }
         }
-        console.log(`Preparing ${Object.keys(pageVariants).length} variants for ${d.plainId} ${d.title}`)
+       // console.log(`Preparing ${Object.keys(pageVariants).length} variants for ${d.plainId} ${d.title}`)
         if(Object.keys(masterVariants).length === 0){
             if(Object.keys(partialVariants).length > 0){
                 masterVariants = partialVariants
@@ -1198,7 +1197,6 @@ function SharedRenderView(d, primitive, myState) {
                                 rows = {}
                             }
                             dataTable = CollectionUtils.createDataTable( items, {columns, rows, viewFilters, config: setupDataConfig(dataSource.viewConfig), hideNull, alreadyFiltered: true})
-                            console.log(`GOT from ${dataSource.id}`)
                         }
 
                     }

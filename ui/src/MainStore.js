@@ -1984,6 +1984,12 @@ function MainStore (prims){
         addPrimitive:function(data){
             obj.data.primitives[data.id || data._id] = primitive_access(data,"primitive")
         },
+        templates:function(){
+            return Object.values(obj.data.templates)
+        },
+        template:function(id){
+            return obj.data.templates[id]
+        },
         primitives:function(){
             return Object.values(obj.data.primitives)
         },
@@ -3400,6 +3406,7 @@ function MainStore (prims){
                 obj.data.workspaces = []
                 obj.data.users = []
                 obj.data.frameworks = []
+                obj.data.templates = {}
                 return
             }
                 obj.activeUser = status.user
@@ -3409,29 +3416,37 @@ function MainStore (prims){
 
         return new Promise((resolve)=>{
             const users = fetch('/api/users').then(response => {obj.loadProgress.push('users');return response.json()})
-            const companies = fetch('/api/companies').then(response => {obj.loadProgress.push('companies');return response.json()})
-            const contacts = fetch('/api/contacts').then(response => {obj.loadProgress.push('contacts');return response.json()})
+            //const companies = fetch('/api/companies').then(response => {obj.loadProgress.push('companies');return response.json()})
+            //const contacts = fetch('/api/contacts').then(response => {obj.loadProgress.push('contacts');return response.json()})
             const categories = fetch('/api/categories').then(response => {obj.loadProgress.push('categories');return response.json()})
             const workspaces = fetch('/api/workspaces').then(response => {obj.loadProgress.push('workspaces');return response.json()})
-            const frameworks = fetch('/api/frameworks').then(response => {obj.loadProgress.push('frameworks');return response.json()})
+            const templates = fetch('/api/templates').then(response => {obj.loadProgress.push('templates');return response.json()})
+            //const frameworks = fetch('/api/frameworks').then(response => {obj.loadProgress.push('frameworks');return response.json()})
             
-            Promise.all([users,companies,contacts,categories,workspaces,frameworks]).then(([users, companies,contacts, categories,workspaces,frameworks])=>{
+            //Promise.all([users,companies,contacts,categories,workspaces,frameworks]).then(([users, companies,contacts, categories,workspaces,frameworks])=>{
+            Promise.all([users,categories,workspaces, templates]).then(([users, categories,workspaces,templates])=>{
                 obj.data.users = users.map((d)=>{
                     return {...d, id: d.id || d._id}
                 })
-                obj.data.companies = companies
+                /*obj.data.companies = companies
                 obj.data.contacts = contacts.map((d)=>{
                     d.id = d.id !== undefined ? d.id : d._id; 
                     if( d.avatarPresent){
                         d.avatarUrl = `/api/avatarImage/${d.id}?${d.updatedAt ? new Date(d.updatedAt).getTime() : ""}`
                     }
-                    return d} )
+                    return d} )*/
                 obj.data.categories = categories.reduce((o,d)=>{o[d.id] = d; return o}, {})
                 obj.data.primitives = {}
                 obj.activeUser.info = obj.users().find((d)=>d._id === obj.activeUser._id)
                 obj.activeUser.id = obj.activeUser.info.id
                 obj.data.workspaces = workspaces.map((d)=>{d.id = d._id; return d})
-                obj.data.frameworks = frameworks.map((d)=>{d.id = d._id; return d})
+                obj.data.templates = templates.reduce((a,c)=>{
+                    c.id = c._id
+                    c.isTemplate = true
+                    a[c.id] = c
+                    return a
+                }, {})
+                //obj.data.frameworks = frameworks.map((d)=>{d.id = d._id; return d})
 
 //                obj.processOutstandingDiscovery()
                 resolve(true)

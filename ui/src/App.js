@@ -28,6 +28,7 @@ import WorkflowDashboard from './WorkflowDashboard.js';
 import { HeroUIProvider } from '@heroui/system';
 import SignupPage from './SignUp.js';
 import { PrimitivePopup } from './PrimitivePopup.js';
+import ResetPasswordPage from './ResetPassword.js';
 
 library.add(faTags, faRobot, faTrash, faChevronDown, faLinkedin, faFilter, faCircleInfo, faSpinner, faTriangleExclamation)
 
@@ -157,6 +158,7 @@ function App() {
             <Routes>
               <Route path="/login" element={<SignIn/>}/>
               <Route path="/signup" element={<SignupPage/>}/>
+              <Route path="/reset/:id" element={<ResetPasswordPage/>}/>
               <Route path="/" element={<SideNav workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}>
                 <HomeScreen workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}/>
               </SideNav>}/>

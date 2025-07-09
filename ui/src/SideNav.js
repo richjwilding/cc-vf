@@ -198,7 +198,7 @@ const mainMenu = navigation.map((item) => (
                     name="workspace"
                     zIndex="50"
                     value={props.workspace}
-                    placeholder="Workspace..."
+                    placeholder="Project..."
                     onChange={setWorkspace}
                     options={workspaces.map(d=>({
                       title: <><span className={classNames(`bg-${d.color}-500`, 'inline-flex shrink-0 mr-4 h-2.5 w-2.5 rounded-full')} aria-hidden="true"/><span>{d.title}</span></>, 
@@ -257,7 +257,7 @@ const mainMenu = navigation.map((item) => (
                     name="workspace"
                     zIndex="50"
                     value={props.workspace}
-                    placeholder="Workspace..."
+                    placeholder="Project..."
                     onChange={setWorkspace}
                     options={workspaces.map(d=>({
                       title: <><span className={classNames(`bg-${d.color}-500`, 'inline-flex shrink-0 mr-4 h-2.5 w-2.5 rounded-full')} aria-hidden="true"/><span>{d.title}</span></>, 

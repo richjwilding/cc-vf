@@ -16,6 +16,8 @@ import Embedding from '../model/Embedding';
 import axios from 'axios';
 import { unpack, pack } from 'msgpackr';
 import { handleChat } from '../actions/agent';
+import { findCompanyURLByNameLogoDev } from '../task_processor';
+import { compareTwoStrings } from '../actions/SharedTransforms';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -46,7 +48,24 @@ router.get('/', async function(req, res, next) {
     res.json({up: true})
 })
 
+router.get('/companyDetails', async (req, res) => {
+    const name = req.query.name;
+    let domain = req.query.domain;
+    let key = process.env.LOGODEV_KEY
 
+  
+    try {
+        if( name ){
+            const data = await findCompanyURLByNameLogoDev( name, {withDescriptions: true} )
+            res.json( data )
+        }else{
+            res.json( {} )
+        }
+    } catch (error) {
+      console.error('Error fetching image:', error.message);
+      res.status(500).send('Error fetching image');
+    }
+  });
 router.get('/companyLogo', async (req, res) => {
     const name = req.query.name;
     let domain = req.query.domain;
@@ -65,8 +84,12 @@ router.get('/companyLogo', async (req, res) => {
                     'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
                 }
             });
-            if( data?.[0]?.domain  ){
-                domain = data[0].domain
+            const scored  = data.map(d=>[d, compareTwoStrings(d.name.toLowerCase(), name.toLowerCase())]).sort((a,b)=>b[1] - a[1])
+            const sorted = scored.filter(d=>d[0].domain)
+            
+            const winner = sorted[0][0]
+            if( winner?.domain  ){                
+                domain = winner.domain
                 key = process.env.LOGODEV_KEY
             }else{
                 return res.status(400).send('Couldnt find a match');
@@ -178,11 +201,33 @@ router.get('/avatarImage/:id', async function(req, res, next) {
         res.status(501).json({message: "Error", error: error})
     }
 })
+router.get('/templates', async function(req, res, next) {
+
+    const publicWorkflowQuery ={
+                                $and: [
+                                    { type: 'flow'},
+                                    { "published.public":  true},
+                                    { deleted: {$exists: false}}
+                                ]
+                            }
+    try {
+        const results = await Primitive.find(publicWorkflowQuery,{crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0})
+        res.json(results)
+      } catch (err) {
+        res.json({error: err})
+      }
+
+})
 router.get('/users', async function(req, res, next) {
 
     try {
-        const results = await User.find({})
+        const workspaces = req.user.workspaceIds
+        const results = await User.find({$or:[
+            {_id: req.user._id},
+            {workspaces: {$in: workspaces}}
+        ]}, "avatarUrl email id googleId name external workspaces _id")
         res.json(results)
+
       } catch (err) {
         res.json({error: err})
       }
@@ -219,7 +264,8 @@ router.get('/contacts', async function(req, res, next) {
 router.get('/workspaces', async function(req, res, next) {
 
     try {
-        const results = await Workspace.find({})
+        const workspaces = req.user?.workspaceIds ?? []
+        const results = await Workspace.find({_id: workspaces})
         res.json(results)
       } catch (err) {
         res.json({error: err})
@@ -309,15 +355,17 @@ router.get('/primitives', async function(req, res, next) {
     let workspaceId = req.query.workspace
     const owns = req.query.owns
 
+
+
     try {
-        const user = await User.findOne({email: req.user.email})
-        const workspaces = user.workspaces || []
-      //  const results = await Primitive.find({})
-      let query = {$and: [
+        const workspaces = req.user.workspaceIds
+      let query = {
+                $and: [
                     { workspaceId: { $in: workspaces }},
                     { type: { $in: ['activity','experiment','venture', 'board','working'] }},
                     { deleted: {$exists: false}}
-                ]}
+                ]
+            }
     
         if( owns !== undefined ){
             let primitive
@@ -337,39 +385,37 @@ router.get('/primitives', async function(req, res, next) {
         
       if( workspaceId !== undefined){
         query = {
-            $and: [
-                {$or: [
-                    {workspaceId: workspaceId},
-                    query
-                ]},
-                { deleted: {$exists: false}}
-            ]
-                
-        }
-        if( workspaceId === "all"){
+                        $and: [
+                            {$or: [
+                                {workspaceId: workspaceId},
+                                query
+                            ]},
+                            { deleted: {$exists: false}}
+                        ]
+                    }
+        /*if( workspaceId === "all"){
             query = { 
                 $and: [
                     {workspaceId: { $in: workspaces }},
                     { deleted: {$exists: false}}
                 ]
             }
-        }
+        }*/
       }
         
-        
-        //const results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0})
         console.log(`Doing fetch....`)
         let results
         if( workspaceId ){
-            console.time(`multi`)
             if( true ){
                 async function getData(hexChar){
                     if( hexChar === "-"){
-                        let query = {$and: [
-                            { workspaceId: { $in: workspaces.filter(d=>d !== workspaceId) }},
-                            { type: { $in: ['activity','experiment','venture', 'board','working'] }},
-                            { deleted: {$exists: false}}
-                        ]}
+                        let query = {
+                                        $and: [
+                                            { workspaceId: { $in: workspaces.filter(d=>d !== workspaceId) }},
+                                            { type: { $in: ['activity','experiment','venture', 'board','working'] }},
+                                            { deleted: {$exists: false}}
+                                        ]                                            
+                        }
                         return await Primitive.find(query, DONT_LOAD_UI)
                     }
 //                    return await fetchPrimitives(undefined, { "_id": { "$regex": `[${hexChar}]$`}, "workspaceId": workspaceId }, DONT_LOAD)
@@ -400,7 +446,6 @@ router.get('/primitives', async function(req, res, next) {
                 results = data.flat()
             }
             console.log(`Back with ${results.length}`)
-            console.timeEnd(`multi`)
         }else{
             results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0})
         }

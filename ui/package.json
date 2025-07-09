@@ -39,6 +39,7 @@
     "konva": "^9.3.0",
     "libavoid-js": "^0.4.0",
     "msgpackr": "^1.10.1",
+    "node-vibrant": "^4.0.3",
     "npm": "^11.4.1",
     "openai": "^3.2.1",
     "pdfjs-dist": "^2.16.105",

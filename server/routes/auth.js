@@ -55,7 +55,7 @@ router.post(
       await user.save();
 
       // 3. Send email with link (you’ll have to create an email template):
-      const resetUrl = `${process.env.APP_BASE_URL}/auth/reset/${token}`;
+      const resetUrl = `${process.env.APP_BASE_URL}/reset/${token}`;
       const mailOptions = {
         to: user.email,
         from: process.env.FROM_EMAIL, // e.g. '"YourApp Support" <support@yourapp.com>'
@@ -164,7 +164,7 @@ router.post(
       }
 
       const newUser = await User.register(
-        new User({ email: normalized, name, googleId: null }),
+        new User({ email: normalized, name, external: true,googleId: null }),
         password
       );
       // At this point, newUser.hash & newUser.salt are set behind-the-scenes

@@ -2291,7 +2291,7 @@ function renderBaselineOverviewSet(primitive, options){
         x: config.padding[3],
         y: config.padding[0],
         width: width - config.padding[3] - config.padding[1],
-        height: height - config.padding[0] - config.padding[2],
+        height: height ? height - config.padding[0] - config.padding[2] : 0,
         fill: 'transparent',
         name: "background"
     })
@@ -5751,7 +5751,7 @@ function renderBarChart( segments, options = {}){
                 width: barWidth,
                 height: h,
                 fill: s.color ?? colors[idx % colors.length],
-                name: "cell clickable",
+                name: "cell clickable hover",
                 id: `0-${s.idx}`,
             });
             g.add(bar)
@@ -8023,8 +8023,6 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     }
 
 
-    console.log(columnX)
-    console.log(rowY)
     let maxX = 50, maxY = 50
 
     let ox = 0, oy = 0

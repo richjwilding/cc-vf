@@ -969,15 +969,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 clearTimeout( myState.current.resizeTimer )
             }
             myState.current.resizeTimer = setTimeout(() => {
-                console.log('resize timeout')
-                
                 myState.current.width = w ?? frameRef.current.offsetWidth
                 myState.current.height = h ?? frameRef.current.offsetHeight
                 stageRef.current.width( (enableFlipping ? 2 : 1) * myState.current.width)
                 stageRef.current.height( (enableFlipping ? 2 : 1) * myState.current.height)
                 if( enableFlipping ){
                     let [x,y,scale] = restoreTransform()
-                    console.log(x,y,scale)
                     alignViewport(x,y,scale)
                     updateVisibility(myState.current.flipping?.last.cx ?? 0, myState.current.flipping?.last.cy ?? 0)
                     stageRef.current.batchDraw()
@@ -3286,9 +3283,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 return
             }
             let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, clickable_names, undefined, true))
-            console.log(found)
-
-              
+            //console.log(found)
 
             let doneClick = false
             for( const d of found){
