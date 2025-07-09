@@ -3,16 +3,14 @@ import { createEditor, Editor, Transforms, Text, Node, Element as SlateElement, 
 import { Slate, Editable, withReact, ReactEditor } from 'slate-react';
 import { withHistory } from 'slate-history';
 import { markdownToSlate, pickAtRandom } from './SharedTransforms';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import clsx from 'clsx';
 import MainStore from './MainStore';
-import { ArrowRightCircleIcon, ArrowRightIcon, PlusCircleIcon, PlusIcon } from '@heroicons/react/24/outline';
+import { ArrowRightIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
 import { Logo } from './logo';
-import { Stage } from 'react-konva';
-import { RenderPrimitiveAsKonva } from './RenderHelpers';
 import { KonvaPrimitive } from './KonvaPrimitive';
 import { VisualizationPreview } from './VisualizationPreview';
-import { Button } from '@heroui/react';
+import { PrimitiveReferenceInfo } from './@components/PrimitiveReferenceInfo';
+import { Button, Popover, PopoverContent, PopoverTrigger } from '@heroui/react';
 
   
 function withBadges(editor) {
@@ -50,27 +48,23 @@ function MarkdownBadge({ badgeType, actionCallback }) {
         return runningBadge(badgeType.trim())
       }
       if(badgeType.startsWith("id:")){
-        let ids = badgeType.slice(3).split(",")
+        let ids = badgeType.slice(3).split(",").map(d=>d.trim())
         const mainstore = MainStore()
         let overflow = ids.length > 5 ? ids.length - 5 : undefined
-        if( overflow ){
+        /*if( overflow ){
           ids = pickAtRandom(ids, 5)
-        }
-        const badges = ids.map(d=>{
-          const p = mainstore.primitive(d.trim())
-          if( p ){
-            return  <span 
-              className="bg-gray-200 border hover:bg-gray-300 hover:border-gray-400 inline-flex mx-0.5 items-center justify-center p-0.5 rounded-full text-gray-600 hover:text-gray-800" 
-              onClick={()=>mainstore.sidebarSelect(p)}
-              >
-            <ArrowRightIcon className='w-3'/>
-          </span>
-          }
-        })
-        return <>
-          {badges}
-          {overflow && <span className="-mt-1 align-middle bg-gray-200 inline-block mx-0.5 px-1 py-1 rounded text-gray-600 leading-none text-[8px]">+{overflow}</span>}
-        </>
+        }*/
+        const items = ids.map(d=>mainstore.primitive(d))
+         return <Popover placement="left" showArrow={true} size="lg" backdrop='blur'>
+            <PopoverTrigger>
+                <span className="bg-gray-200 border hover:bg-gray-300 hover:border-gray-400 inline-flex mx-0.5 items-center justify-center p-0.5 rounded-full text-gray-600 hover:text-gray-800">
+                  <ArrowRightIcon className='w-3'/>
+                </span>
+            </PopoverTrigger>
+            <PopoverContent>
+              {({ open }) => <PrimitiveReferenceInfo items={items}/>}
+            </PopoverContent>
+        </Popover>    
       }else if(badgeType.startsWith("ref:")){
         let ids = badgeType.slice(4).split(",")
         const mainstore = MainStore()

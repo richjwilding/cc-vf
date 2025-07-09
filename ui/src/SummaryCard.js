@@ -129,7 +129,18 @@ export default function SummaryCard({primitive, ...props}){
 
             summary = <MarkdownEditor ref={summaryRef} initialMarkdown={out}/>
         }else{
-            summary = <MarkdownEditor ref={summaryRef} initialMarkdown={primitive.referenceParameters?.summary }/>
+
+            let plainSummary = primitive.referenceParameters?.summary
+            const sources = primitive.getResultSources
+            if(sources.length > 0){
+                plainSummary += ` [[id:${sources.join(", ")}]]`
+            }else{
+                const refs = primitive.primitives.ref.allIds
+                if(refs.length > 0){
+                    plainSummary += ` [[id:${refs.join(", ")}]]`
+                }
+            }
+            summary = <MarkdownEditor ref={summaryRef} initialMarkdown={plainSummary }/>
         }
     }
 

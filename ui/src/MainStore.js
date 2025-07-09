@@ -110,6 +110,24 @@ const actions = {
             ...(receiver.flowErrors ?? {})
         }
     },
+    getResultSources(d, receiver, obj){
+        let out = [receiver]
+        let changed = false
+        do{
+            changed = false
+            out = uniquePrimitives( out.map(d=>{
+                if( d.referenceId === 82 || d.type == "summary" || d.type === "query"){
+                    changed = true
+                    return [d.primitives.source.allItems,d.primitives.link.allItems].flat()
+                }else{
+                    if( d !== receiver){
+                        return d
+                    }
+                }
+            }).flat(Infinity))
+        }while(changed)
+        return out
+    },
     setFlow(d, receiver, obj){
         return (status)=>{
             if( receiver.type === "search" ){

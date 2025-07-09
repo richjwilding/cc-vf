@@ -80,6 +80,9 @@ export function FlowContent({ primitives, axisData, ...props }) {
             }
           }
           
+        }else{
+          //tableData = [primitive]
+          //empty = false
         }
       }
       if( tableData ){
@@ -91,9 +94,10 @@ export function FlowContent({ primitives, axisData, ...props }) {
         }else{
           thisContent = <>
               <Table
-                  key={primitive.id}
+                  key={primitive.id + (props.filters ? props.filters.map(d=>d.value).join("-") : "")}
                   primitive={primitive}
                   page={0}
+                  popout={true}
                   pageItems={20}
                   onExpand={(p)=>MainStore().primitivePopup(p)}
                   data={tableData} 

@@ -233,7 +233,7 @@ export default function FlowInstancePage({primitive, ...props}){
                                             src={`/api/image/${targetFlow.id}`} 
                                             className={clsx([
                                                 'w-full object-cover',
-                                                showOutput ? "max-h-32" : "min-h-32 [@media(min-height:1024px)]:min-h-64"
+                                                showOutput ? "max-h-32" : "max-h-32 [@media(min-height:1024px)]:max-h-64"
                                             ])}
                                         />}
                         {!showImage && <div className={clsx([

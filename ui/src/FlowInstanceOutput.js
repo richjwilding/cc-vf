@@ -1,4 +1,4 @@
-import MainStore from "./MainStore";
+import MainStore, { uniquePrimitives } from "./MainStore";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import InfiniteCanvas from "./InfiniteCanvas";
 import BoardViewer, { IGNORE_NODES_FOR_EXPORT } from "./BoardViewer";
@@ -98,7 +98,6 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
         return BoardViewer.renderBoardView(d, primitive, myState)
     })).flat().filter(Boolean)
 
-
     //return  <div className="flex h-full w-full relative border rounded-lg border-gray-200 overflow-hidden mb-2 bg-white">
     return  <div className="@container flex h-full w-full relative overflow-hidden bg-white">
                 <InfiniteCanvas
@@ -124,9 +123,42 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                     enableFrameSelection
                     callbacks={{
                         onClick:{
+                            column_header:(id, pageId, data, kG)=>{
+                                const colIdx = id[0]?.split("_")[1]
+                                if( colIdx !== undefined ){
+                                    const view = kG.original?.parent?.findAncestor(".view")
+                                    if( view ){
+                                        const stateData = view.stateData?.[view.id()]
+                                        const data = stateData?.data
+                                        if(data){
+                                            const list = uniquePrimitives( data.cells.filter(d=>d.cIdx == colIdx).flatMap(d=>d.items) )
+                                            mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list})
+                                        }
+                                    }
+
+                                }
+                            },
+                            row_header:(id, pageId, data, kG)=>{
+                                const rowIdx = id[0]?.split("_")[1]
+                                if( rowIdx !== undefined ){
+                                    const view = kG.original?.parent?.findAncestor(".view")
+                                    if( view ){
+                                        const stateData = view.stateData?.[view.id()]
+                                        const data = stateData?.data
+                                        if(data){
+                                            const list = uniquePrimitives( data.cells.filter(d=>d.rIdx == rowIdx).flatMap(d=>d.items) )
+                                            mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list})
+                                        }
+                                    }
+
+                                }
+                            },
                             frame: (id)=>{
                                 //setActiveBoard(id)
-                                mainstore.sidebarSelect(id, {forFlow: true})
+                                const prim = mainstore.primitive(id)
+                                if( prim ){
+                                    mainstore.sidebarSelect(prim, {forFlow: true, asList: prim.type === "view"})
+                                }
                             },
                             primitive:(id, pageId, data, kG)=>{
                                 let stateData = kG.stateData?.[id]
@@ -177,29 +209,54 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                             },
                             cell:(id, pageId, data, kG)=>{
                                 const cell = id?.[0]
-                                const frameId = kG?.original?.parent?.attrs?.id
+                                let frameId = kG?.original?.parent?.attrs?.id
+                                let direct = false
+
+                                if( kG && !kG.original){
+                                    kG = kG.findAncestor('.inf_track')
+                                    frameId = kG.attrs.id
+                                    direct = true
+                                }
+
                                 if( cell && frameId){
                                     const [cIdx,rIdx] = cell.split("-")
                                     
-                                    let stateData = kG.original.parent.stateData
-                                    let sourceState = stateData[frameId]
-                                    if( sourceState.axisSource ){                                        
-                                        let axisSource = sourceState.axisSource
-                                        if( axisSource.inFlow && axisSource.configParent.flowElement ){
-                                            axisSource = axisSource.configParent
-                                        }
-                                        sourceState = stateData[axisSource.id]
-                                    }
+                                    let stateData = direct ? kG.stateData : kG.original.parent.stateData
+                                    if( stateData ){
 
-                                    if( sourceState?.axis){
-
+                                        let sourceState = stateData[frameId]
+                                        let sourcePrimitive = sourceState.underlying
                                         
-                                        let filters = [
+                                        if( sourceState.axisSource ){                                        
+                                            let axisSource = sourceState.axisSource
+                                            if( axisSource.inFlow && axisSource.configParent.flowElement ){
+                                                axisSource = axisSource.configParent
+                                            }
+                                            const axisSourceState = stateData[axisSource.id]
+                                            sourcePrimitive = axisSourceState.underlying
+                                            if( !sourceState.data ){
+                                                sourceState = axisSourceState
+                                            }
+                                        }
+                                        let filters
+                                        
+                                        if(sourceState.data){
+                                            const data = sourceState.data
+                                            const cellData = data.cells.find(d=>d.id === cell)
+                                            
+                                            filters = [
+                                                PrimitiveConfig.encodeExploreFilter( data.defs?.columns, cellData.columnIdx ),
+                                                PrimitiveConfig.encodeExploreFilter( data.defs?.rows, cellData.rowIdx ),
+                                            ].filter(d=>d)
+                                            
+                                        }else if( sourceState?.axis){
+                                            filters = [
                                                 PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
                                                 PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
                                             ].filter(d=>d)                                    
+                                        }
                                         console.log(filters)
-                                        mainstore.sidebarSelect(sourceState.underlying, {forFlow: true, asList: true, filters})
+                                        mainstore.sidebarSelect(sourcePrimitive, {forFlow: true, asList: true, filters})
                                     }
                                 }
                             },

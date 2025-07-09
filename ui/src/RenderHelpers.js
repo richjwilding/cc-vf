@@ -3621,6 +3621,9 @@ export function renderPlainObject(renderOptions = {}){
             refreshCallback: options.imageCallback
         })
         g.add(t)
+        if( options.fromPrimitive){
+            g.name("inf_track primitive")
+        }
     }else  if( type === "structured_text"){
         let y = 0, idx = 0
         const padding = options.padding ?? [0,0,0,0]
@@ -3671,7 +3674,7 @@ registerRenderer( {type: "categoryId", id: 149, configs: "default"}, function re
     return baseImageWithText(primitive, {itemSize: options?.width ?? 280, ...options, textField: primitive.referenceParameters?.overview, padding: [10,10,10,10], imageUrl: primitive.referenceParameters?.imageUrl})
 })
 registerRenderer( {type: "categoryId", id: 123, configs: "default"}, function renderFunc(primitive, options = {}){
-    return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.description, width: 320, padding: [20,20,20,20], imageUrl: primitive.referenceParameters?.imageUrl})
+    return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.description, width: options.width ?? 320, padding: [20,20,20,20], imageUrl: primitive.referenceParameters?.imageUrl})
 })
 registerRenderer( {type: "categoryId", id: 122, configs: "default"}, function renderFunc(primitive, options = {}){
     return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.overview, imageUrl: primitive.referenceParameters?.imageUrl})
@@ -5748,6 +5751,8 @@ function renderBarChart( segments, options = {}){
                 width: barWidth,
                 height: h,
                 fill: s.color ?? colors[idx % colors.length],
+                name: "cell clickable",
+                id: `0-${s.idx}`,
             });
             g.add(bar)
         }
@@ -5831,6 +5836,8 @@ function renderPieChart( segments, options = {}){
             //strokeWidth: 1,
             strokeScaleEnabled: false,
             rotation: 270 + a,
+            name: "cell clickable",
+            id: `0-${s.idx}`,
           });
         g.add(wedge)
         a += degs
@@ -5853,6 +5860,13 @@ function renderSubCategoryChart( title, data, options = {}){
         itemSize = 200,        
         paletteName        
     } = options
+    
+    data = data.map((d,i)=>{
+        return {
+            ...d,
+            idx: i
+        }
+    })
 
     if( options.byTag ){
         data = data.sort((a,b)=>a.tag - b.tag)

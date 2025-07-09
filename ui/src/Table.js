@@ -19,14 +19,13 @@ import PrimitivePicker from "./PrimitivePicker";
 import NewPrimitive from "./NewPrimitive";
 import { roundCurrency } from "./SharedTransforms";
 import UIHelper from "./UIHelper";
-import { Dropdown } from "./@components/dropdown";
 import { Combobox, ComboboxLabel, ComboboxOption } from "./@components/combobox";
 import { Input } from "./@components/input";
 import PrimitiveConfig from "./PrimitiveConfig";
 import { Badge } from "./@components/badge";
 import { Temporal } from "@js-temporal/polyfill";
 import clsx from "clsx";
-import { Button } from "@heroui/react";
+import { Button, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger, Select, SelectItem } from "@heroui/react";
 import {Icon} from "@iconify/react"  
 
 
@@ -425,7 +424,6 @@ export function Table(props) {
 
       const alignTop = true
 
-      const pageOptions = [10,20,50,100].map(d=>({id: d, title: d}))
       window.table = table
     const filteredCount = table.getFilteredRowModel().rows.length;
     const totalCount = table.getPreFilteredRowModel().rows.length;
@@ -615,9 +613,18 @@ export function Table(props) {
                 <div className="flex space-x-4 place-items-center justify-between w-full">
                     {filteredCount === totalCount && <p className="flex shrink-0 text-gray-500 font-semibold">{totalCount} items</p>}
                     {filteredCount !== totalCount && <p className="flex shrink-0 text-gray-500 font-semibold">{totalCount} filtered to {filteredCount} items</p>}
-                    <div className="flex grow-0 place-items-center space-x-2">
-                        <p className="flex shrink-0 text-gray-500 font-semibold">Rows per page</p>
-                        <UIHelper.OptionList name="rows_per_page" options={pageOptions} value={pagination.pageSize} onChange={d=>table.setPageSize(d)} zIndex={50} />
+                    <div className="flex grow-0 shrink-0 place-items-center space-x-2 w-min-content">
+                        <Select 
+                            variant="bordered" 
+                            classNames={{
+                                mainWrapper:"min-w-20" 
+                            }}
+                            label="Rows per page" 
+                            labelPlacement="outside-left" 
+                            selectedKeys={[`${pagination.pageSize}`]}
+                            onChange={e=>table.setPageSize(parseInt(e.target.value))}>
+                                {["10","20","50","100"].map(d=><SelectItem textValue={d} key={d}>{d}</SelectItem>)}
+                        </Select>
                     </div>
                 </div>
                 <div className="flex space-x-2 place-items-center justify-between w-full">
@@ -656,12 +663,6 @@ export function Table(props) {
                 >
                     {tableContent}
                 </div>
-
-                {!isPopped && (
-                    <button onClick={() => setIsPopped(true)}>
-                    Pop out toolbar
-                    </button>
-                )}
                 </div>
             );
 

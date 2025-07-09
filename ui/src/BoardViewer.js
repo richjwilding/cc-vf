@@ -769,11 +769,12 @@ function SharedRenderView(d, primitive, myState) {
                 const pins = Object.keys(pageOutputs ?? {}).filter(d2=>pageOutputs[d2].allIds.includes(d.id)).map(d=>d.split("_")[0])
                 if( pins.length > 0){
                     let pageInputs = pageInstance.inputs
-                    let inputs
+                    let inputs, sources
                     if( myState[stateId].variant ){
                         inputs = myState[stateId].variant
                     }else{
                         inputs =pins.flatMap(pin=>pageInputs[pin]?.data ?? [])
+                        sources =pins.flatMap(pin=>pageInputs[pin]?.source ?? [])
                         
                         let variants = getPageVariants( pageInputs, inputs)
                         inputs = variants.length > 0 ? variants[0] : inputs
@@ -870,6 +871,7 @@ function SharedRenderView(d, primitive, myState) {
                                                 text = formatNumber( text )
                                             }
                                         }
+                                        format.fromPrimitive = true
                                     }
                                     data.push( text )
                                 }
@@ -954,7 +956,8 @@ function SharedRenderView(d, primitive, myState) {
                     }else{
                         myState[stateId].object = {
                             type: "text",
-                            ids: inputs.map(d=>d.id),
+                            ids: sources.map(d=>d.id),
+                            fromPrimitive: true,
                             text: inputs,
                             ...format
                         } 
@@ -1614,6 +1617,7 @@ export default function BoardViewer({primitive,...props}){
         if (node) {
           canvas.current = node;
           myState.current.canvas = node
+          window.canvas = node
         }
       };
 

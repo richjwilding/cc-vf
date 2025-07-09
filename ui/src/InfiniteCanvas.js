@@ -226,6 +226,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             removeFrame,
             restoreChildren,
             restoreChildrenForTracking,
+            orderNestedFrames,
             framePosition,
             frameList,
             updateIndicators,
@@ -906,7 +907,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 d.x(x )
                 d.y(y )
                 d.scale({x: s, y: s})
-                if( cl !== undefined){
+                if( cl !== undefined && d.clip){
                     d.clip({
                         x: cl,
                         y: ct,
@@ -1668,6 +1669,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         finalizeImages(stageRef.current, {imageCallback: processImageCallback})
 
+        for( const frame of myState.current.frames ?? []){
+            orderNestedFrames(frame.node)
+        }
 
         for( const frame of myState.current.frames ?? []){
             buildPositionCache(frame)
@@ -2879,6 +2883,43 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 },
             }
         )
+        function resolveNodePostion( node ){
+            let x = node.x()
+            let y = node.y()
+            let s = node.scaleX()
+            while(node.parent){
+                let ps = node.parent.scaleX()
+                x *= ps
+                y *= ps
+                s *= ps
+                x += node.parent.x()
+                y += node.parent.y()
+                node = node.parent
+                if( node.attrs.name?.includes("frame")){
+                    break
+                }
+            }
+            return {x,y,s}
+        }
+        function isPointInWedge(pt, wedge) {
+            // 1. translate to wedge-centered coords
+            const {x: wx, y: wy, s} = resolveNodePostion(wedge)
+            const dx = pt.x - wx, dy = pt.y - wy
+            // 2. radial check
+            if (dx*dx + dy*dy > Math.pow(wedge.radius() * s, 2)) {
+                return false;
+            }
+            // 3. angle check
+            let a = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+            const start = (wedge.rotation() % 360 + 360) % 360;
+            const end   = (start + wedge.angle()) % 360;
+            if (start < end) {
+                return a >= start && a <= end;
+            } else {
+                // wraps past 360°
+                return a >= start || a <= end;
+            }
+        }
 
         function findTrackedNodesAtPosition(px,py, classes, includeFrame = false, forClick){
             if( !myState.current?.frames){return}
@@ -2911,15 +2952,29 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 let addMajor = true
 
                                 if( forClick ){
-                                    const clickables = d.children?.filter(d2=>d2.attrs.name?.split(" ").includes("clickable"))
+                                    const clickables = d.find(".clickable")
                                     if( clickables && clickables?.length){
                                         for( const d2 of clickables ){
+                                            const pos = d2.getRelativePointerPosition()
+                                            if( d2 instanceof Konva.Wedge ){
+                                                if( isPointInWedge( {x, y}, d2)){
+                                                    found.push(d2)
+                                                    addMajor = false
+                                                }
+
+                                            }else{
+                                                if( pos.x >= 0 && pos.x <= d2.width() && pos.y >=0 && pos.y <= d2.height()){
+                                                    found.push(d2)
+                                                    addMajor = false
+                                                }
+                                            }
+                                            /*
                                             if( (d2.attrs.width * myState.current.viewport.scale) > 5 && (d2.attrs.height * myState.current.viewport.scale) > 5){
                                                 if( (d.x() + d2.x()) <= x && (d.y() + d2.y()) <= y &&  (d.x() + d2.x() + (d2.attrs.width * d2.scaleX())) >= x && (d.y() + d2.y() + (d2.attrs.height * d2.scaleY())) >= y){
                                                     found.push(d2)
                                                     addMajor = false
                                                 }
-                                            }
+                                            }*/
                                         }
                                     }
                                 }
@@ -3137,6 +3192,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     let count = 0, changed = false
                     const seen = new Set();
                     for(const frame of myState.current.frames){
+                        const forFrame = []
                         do{
                             changed = false
                             for(const d of frame.lastNodes){
@@ -3154,7 +3210,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                     if(d.attrs.name === "frame"  || d.attrs.name === "view" ){
                                         continue
                                     }
-                                    insertByZIndex(updates, d);
+                                    forFrame.push(d)
                                     seen.add(d._id)
                                     changed = true
                                     count++
@@ -3162,9 +3218,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                     if( y1 < minY){minY = y1}
                                     if( x2 > maxX){maxX = x2}
                                     if( y2 > maxY){maxY = y2}
+                                    continue
                                 }
                             }
                         }while(changed)
+                        updates.push(...forFrame.sort((a,b)=>a.zIndex() - b.zIndex()))
                     }
                 requestAnimationFrame(()=>{
                     let canvas = layerRef.current.getCanvas()
@@ -3223,7 +3281,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 return
             }
             let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
-            const clickable_names = ["widget", "frame_label",...Object.keys(props.selectable), ...Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
+            const clickable_names = ["widget", "inf_track", "frame_label",...Object.keys(props.selectable), ...Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
             if( clickable_names.length === 0 ){
                 return
             }

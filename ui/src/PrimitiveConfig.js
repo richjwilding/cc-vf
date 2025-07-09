@@ -956,7 +956,7 @@ const PrimitiveConfig = {
         }else if( option?.type === "title" ){
             return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
         }else if( option?.type === "icon"){
-            return  {type: "title", value: val, pivot: option.access, relationship: option.relationship, invert}
+            return  {type: "parent", value: val, pivot: option.access, relationship: option.relationship, invert}
         }else if( option?.type === "segment_filter"){
             if( Array.isArray(val)){
                 return  {type: "segment_filter", value: val,  pivot: option.access, relationship: option.relationship, invert}

@@ -7,20 +7,25 @@ export function KonvaPrimitive({primitive, ...props}){
 
     useLayoutEffect(()=>{
         if( stageRef.current){
-            const items = RenderPrimitiveAsKonva(primitive, {imageCallback: (d)=>{
-                console.log("GOT IMAGE CALLACK")
-                            d.refreshCache()
-                d.draw()
-            }})
-            let scale = 0.8
-            stageRef.current.scale({x: scale, y: scale})
-            stageRef.current.children[0].add(items)
-            stageRef.current.width( items.width() * scale)
-            stageRef.current.height( items.height() * scale )
+            const items = RenderPrimitiveAsKonva(primitive, {
+                    width: props.width,
+                imageCallback: (d)=>{
+                    d.refreshCache()
+                    d.draw()
+                }
+            })
+            if( items ){
 
-            setTimeout(()=>{
-                finalizeImages(items)
-            }, 200)
+                let scale = 0.8
+                stageRef.current.scale({x: scale, y: scale})
+                stageRef.current.children[0].add(items)
+                stageRef.current.width( items.width() * scale)
+                stageRef.current.height( items.height() * scale )
+                
+                setTimeout(()=>{
+                    finalizeImages(items)
+                }, 200)
+            }
         }
     }, [stageRef.current])
     
