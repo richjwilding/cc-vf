@@ -50,12 +50,18 @@ export const SIO = {
     io.on("connection", function(socket){
         var userId = socket.request.session?.passport?.user;
         
+        socket.join(`user:${userId}`)
         socket.emit("control", {needLogin: userId === undefined})
         socket.on('room', function(room) {
-            console.log(`changing room to ${room}`)
+            console.log(`changing room to ${room} for user ${userId}`)
             socket.join(room);
         });
     });
+   },
+   notifyUsers: async function (userIds, data) {
+      for( const userId of userIds){
+        await this.sendNotificationToSocket( `user:${userId}`, data)
+      }
    },
    notifyPrimitiveEvent: function (primitive_or_workspace, data) {
       let workspaceId;
@@ -64,6 +70,9 @@ export const SIO = {
       } else {
         workspaceId = primitive_or_workspace;
       }
+      this.sendNotificationToSocket( workspaceId, data)
+   },
+   sendNotificationToSocket: async function (room, data) {
 
     const serializeIfNeeded = (obj) => {
         if (!obj || typeof obj !== 'object') {
@@ -97,11 +106,11 @@ export const SIO = {
     }
 
     if (isMainThread) {
-      io.to(workspaceId).emit("message", data);
+      io.to(room).emit("message", data);
     } else {
       if (!parentPort) {
         console.error(
-          "[SIO] Cannot forward notifyPrimitiveEvent: parentPort is not available."
+          "[SIO] Cannot forward message: parentPort is not available."
         );
         return;
       }
@@ -109,9 +118,9 @@ export const SIO = {
       try{
 
           parentPort.postMessage({
-              type: "notifyPrimitiveEvent",
+              type: "sendNotificationToSocket",
               data: {
-                  workspaceId,
+                  room,
                   message: JSON.stringify(data),
                 },
             });

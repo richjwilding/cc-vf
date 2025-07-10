@@ -8,6 +8,7 @@ import Category from "./model/Category";
 import Primitive from "./model/Primitive";
 import { SIO } from "./socket";
 import PrimitiveConfig from "./PrimitiveConfig";
+var ObjectId = require('mongoose').Types.ObjectId;
 
 
 registerAction("new_flow_instance", undefined, async (primitive, a, options)=>{
@@ -260,6 +261,113 @@ export async function scaffoldWorkflow( flow, options = {} ){
             await scaffoldWorkflowInstance( instance, flow, steps, flowImports, options)
         }
     }
+}
+
+export async function fetchExpandedFlowSteps( flow ){
+    const rootId = new ObjectId(flow.id)
+    const res = await Primitive.aggregate([
+  { $match: { _id: rootId } },
+
+  // 1) convert your origin‐string array into real ObjectIds
+  { $addFields: {
+      originIds: {
+        $map: {
+          input: "$primitives.origin",
+          as:    "s",
+          in:    { $toObjectId: "$$s" }
+        }
+      }
+  }},
+
+  // 2) fetch all direct children (mixed types)
+  { $lookup: {
+      from:         "primitives",
+      localField:   "originIds",
+      foreignField: "_id",
+      as:           "childrenOfRoot"
+  }},
+  { $addFields: {
+      childrenOfRoot: {
+        $filter: {
+          input: "$childrenOfRoot",
+          as:    "c",
+          cond:  { $ne: ["$$c.type", "flowinstance"] }
+        }
+      }
+  }},
+
+  // 3) recursively walk *only* flows (they link via the original string array,
+  //    but you'll only get matches where origin[str] === `toString(_id)`)
+  { $graphLookup: {
+      from:                  "flowsPrimitivesForClone",
+      startWith:             "$primitives.origin",
+      connectFromField:      "primitives.origin",
+      connectToField:        "idStr",
+      as:                    "flowsOnly",
+      restrictSearchWithMatch: { type: "flow" }
+  }},
+
+   { $addFields: {
+      flowChildOrigins: {
+        $reduce: {
+          input:        "$flowsOnly",
+          initialValue: [],
+          in: {
+            // concat each flow’s origin[] (or [] if missing)
+            $concatArrays: [
+              "$$value",
+              { $ifNull: ["$$this.primitives.origin", []] }
+            ]
+          }
+        }
+      }
+    }
+  },
+  { 
+  $addFields: {
+    flowChildOriginIds: {
+      $map: {
+        input: "$flowChildOrigins",
+        as:    "s",
+        in:    { $toObjectId: "$$s" }
+      }
+    }
+  }
+},
+
+  // then pull those IDs back in:
+  { $lookup: {
+      from:         "primitives",
+      localField:   "flowChildOriginIds",
+      foreignField: "_id",
+      as:           "childrenOfFlows"
+  }},
+  { $addFields: {
+      childrenOfFlows: {
+        $filter: {
+          input: "$childrenOfFlows",
+          as:    "c",
+          cond:  { $ne: ["$$c.type", "flowinstance"] }
+        }
+      }
+  }},
+
+  // 5) union everything
+  { $addFields: {
+      nestedStack: { $setUnion: ["$childrenOfRoot","$childrenOfFlows"] }
+  }},
+  { $project: { nestedStack:1, _id:0 } }
+]);
+    console.log(res)
+    return res
+}
+
+export async function replicateWorkflow( flow, targetWorkspace ){
+    console.time("FETCH")
+    const steps = await fetchExpandedFlowSteps(flow)
+    console.log( steps )
+    console.timeEnd("FETCH")
+    return steps
 }
 
 export async function getInstanceStepsWithImports( flowInstance, {withParentFlow = false, lean = false} = {}){

@@ -9,7 +9,7 @@ import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { buildEmbeddingsForPrimitives, getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
-import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive, recoverPrimitive, doPurge, fetchPrimitives, DONT_LOAD, executeConcurrently, DONT_LOAD_UI} from '../SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive, recoverPrimitive, doPurge, fetchPrimitives, DONT_LOAD, executeConcurrently, DONT_LOAD_UI, createWorkspace, updateWorkspace} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
 import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
@@ -225,7 +225,7 @@ router.get('/users', async function(req, res, next) {
         const results = await User.find({$or:[
             {_id: req.user._id},
             {workspaces: {$in: workspaces}}
-        ]}, "avatarUrl email id googleId name external workspaces _id")
+        ]}, "avatarUrl email id googleId name external permissions workspaces _id")
         res.json(results)
 
       } catch (err) {
@@ -264,8 +264,12 @@ router.get('/contacts', async function(req, res, next) {
 router.get('/workspaces', async function(req, res, next) {
 
     try {
-        const workspaces = req.user?.workspaceIds ?? []
-        const results = await Workspace.find({_id: workspaces})
+        const user = await User.findOne({_id: req.user?._id})
+        let results 
+        if( user ){
+            const workspaces = user.workspaces ?? []
+            results = await Workspace.find({_id: workspaces})
+        }
         res.json(results)
       } catch (err) {
         res.json({error: err})
@@ -281,6 +285,43 @@ router.get('/categories', async function(req, res, next) {
         res.json({error: err})
       }
 
+})
+router.post('/workspace/:id/update/', async function(req, res, next) {
+        try {
+            const workspaceId = req.params.id
+            const user = req.user._id
+            const data = req.body
+
+            const ownerUser = await User.findOne({_id: user, workspaces: {$in: workspaceId}})
+
+            if( ownerUser?.permissions?.manageWorkspaces){
+                const result = await updateWorkspace( workspaceId, data )
+                res.json({success: true, result})
+            }else{
+                res.json({success: false, error: "Permission denied"})
+            }
+
+        }catch(err){
+            console.log(err)
+            res.json({error: err})
+        }
+})
+router.post('/workspace/new/', async function(req, res, next) {
+        try {
+            const owner = req.user._id
+            const data = req.body
+            const ownerUser = await User.findOne({_id: owner})
+            if( ownerUser?.permissions?.manageWorkspaces || ownerUser.workspaces?.length === 0 ){
+                console.log(owner, data)
+                const result = await createWorkspace( data, owner)
+                res.json({success: true, result})
+            }else{
+                res.json({success: false, error: "Permission denied"})
+            }
+        }catch(err){
+            console.log(err)
+            res.json({error: err})
+        }
 })
 /*
     router.post('/primitive/:id/addImport', async function(req, res, next) {

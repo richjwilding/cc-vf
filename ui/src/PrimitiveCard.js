@@ -45,6 +45,7 @@ import CollectionUtils from './CollectionHelper';
 import MarkdownEditor from './MarkdownEditor';
 import { roundCurrency } from './SharedTransforms';
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from './@components/description-list';
+import { useSmoothGradient } from './@components/SmoothGradient';
 
 export const ExpandArrow = function(props) {
   return (
@@ -1637,6 +1638,7 @@ const Title = function({primitive, ...props}){
 const Hero = function({primitive, ...props}){
     const metadata = primitive.metadata
     const color = primitive.workspace?.color || "slate"
+    const {gradient, values: colors} = useSmoothGradient(color)
     const navigate = useNavigate();
 
     return (<div 
@@ -1655,8 +1657,9 @@ const Hero = function({primitive, ...props}){
           "shadow border-[1px]",
           props.className].filter((d)=>d).join(' ')
         }>
-          <div className={`relative h-32 rounded-t-lg flex-0 text-${color}-900`}>
-            <div className={`absolute pattern-isometric pattern-${color}-600 pattern-bg-${color}-500 pattern-opacity-20 pattern-size-8 h-full w-full rounded-t-lg`}></div>
+          <div className={`relative h-32 rounded-t-lg flex-0 text-white`}>
+            {/*<div className={`absolute pattern-isometric pattern-${color}-600 pattern-bg-${color}-500 pattern-opacity-20 pattern-size-8 h-full w-full rounded-t-lg`}></div>*/}
+            <div className={`absolute h-full w-full rounded-t-lg`} style={{backgroundImage: gradient}}></div>
             <div className='absolute bottom-0 px-3 py-2 flex w-full'>
               {metadata && metadata.icon && <HeroIcon icon={metadata.icon} className='w-16 h-16' strokeWidth={0.8}/>}
               <div className='ml-2'>

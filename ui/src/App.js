@@ -29,6 +29,7 @@ import { HeroUIProvider } from '@heroui/system';
 import SignupPage from './SignUp.js';
 import { PrimitivePopup } from './PrimitivePopup.js';
 import ResetPasswordPage from './ResetPassword.js';
+import ProjectScreen from './ProjectScreen.js';
 
 library.add(faTags, faRobot, faTrash, faChevronDown, faLinkedin, faFilter, faCircleInfo, faSpinner, faTriangleExclamation)
 
@@ -181,6 +182,7 @@ function App() {
                 </SideNav>}>
                   <Route path="/workflows/" element={<WorkflowDashboard widePage={widePage} setWidePage={setWidePage} workspaceId={mainstore.activeWorkspaceId} />}/>
                   <Route path="/item/:id" element={<PrimitivePage key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`} primitive={pagePrimitive} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>}/>
+                  <Route path="/project/:id" element={<ProjectScreen/>}/>
                 </Route>
             </Routes>
           <Sidebar open={open} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>

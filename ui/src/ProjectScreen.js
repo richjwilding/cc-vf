@@ -3,21 +3,22 @@ import MainStore from "./MainStore"
 import Panel from "./Panel"
 import { PrimitiveCard } from "./PrimitiveCard"
 import NewPrimitive from "./NewPrimitive"
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import useDataEvent from "./CustomHook"
 import { Avatar, AvatarGroup, Button, Chip, Divider, ScrollShadow, Tab, Tabs, Tooltip } from "@heroui/react"
 import { Icon } from "@iconify/react/dist/iconify.js"
 
-export default function HomeScreen(props){
+export default function ProjectScreen(props){    
     const mainstore = MainStore()
     const navigate = useNavigate()        
     const [showNew, setShowNew] = useState(false)
+    const {id} = useParams()
 
     const filterForWorksapce = (array)=>{
-        if( props.workspace === undefined ){
+        if( id === undefined ){
             return array
         }
-        return array.filter((d)=>d.workspaceId === props.workspace)
+        return array.filter((d)=>d.workspaceId === id)
     }
 
     useEffect(()=>{

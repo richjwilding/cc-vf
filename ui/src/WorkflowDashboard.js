@@ -143,7 +143,7 @@ export default function WorkflowDashboard(props){
             <div className="w-full flex overflow-x-scroll">
                 <div className="w-fit flex gap-4 p-4">
                     {createList.map((p)=>{
-                        return <WorkflowCard primitive={p} onClick={()=>alert("new")}/>
+                        return <WorkflowCard primitive={p} onClick={()=>alert(p.id)}/>
                     })}
                 </div>
             </div>

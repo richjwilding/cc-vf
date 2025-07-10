@@ -8,11 +8,15 @@ import useDataEvent from "./CustomHook"
 import { Avatar, AvatarGroup, Button, Chip, Divider, ScrollShadow, Tab, Tabs, Tooltip } from "@heroui/react"
 import { Icon } from "@iconify/react/dist/iconify.js"
 import WorkspaceCard from "./WorkspaceCard"
+import WorkspaceEditor from "./WorkspaceEditor"
 
 export default function HomeScreen(props){
     const mainstore = MainStore()
     const navigate = useNavigate()        
     const [showNew, setShowNew] = useState(false)
+    const [isCreatingNewWorkspace, setIsCreatingNewWorkspace] = useState(false);
+    const [configWorkspace, setConfigWorkspace] = useState(false);
+    useDataEvent("workspace_added" )
 
     const filterForWorksapce = (array)=>{
         if( props.workspace === undefined ){
@@ -27,24 +31,22 @@ export default function HomeScreen(props){
             MainStore().loadHomeScreenPrimitives()
         }
     }, [MainStore().homescreenReady])
-    
-    const boards = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="board" || p.type==="working"))
-    const activities = filterForWorksapce(MainStore().primitives().filter((p)=>p.isTask))
-    const ventures = filterForWorksapce(MainStore().primitives().filter((p)=>p.type === 'venture' || p.type==="concept"))
-    const handleCreate = (prim)=>{
-        setShowNew(false)
-        navigate(`/item/${prim.id}`)
+
+    async function setWorkspace(id){
+        console.log(id)
+        navigate(`/project/${id}`)
+        await mainstore.loadActiveWorkspace(id)
     }
-    useDataEvent('new_primitive delete_primitive',undefined)
-
-
-    const projects = mainstore.activeUser.info.workspaces.map(d=>mainstore.workspace(d)) ?? []
+    
+    const projects = mainstore.activeUser.info.workspaces.map(d=>mainstore.workspace(d)).filter(Boolean) ?? []
 
     const projectTabs = [
         {key:"draft", title: "Draft", count: projects.filter(d=>d.status === "draft").length},
         {key:"active", title: "Active", count: projects.filter(d=>d.status === "active" || d.status === undefined).length},
         {key:"complete", title: "Complete", count: projects.filter(d=>d.status === "complete").length}
     ]
+
+    console.log(configWorkspace, isCreatingNewWorkspace)
 
     return (<>
 
@@ -57,6 +59,7 @@ export default function HomeScreen(props){
                     </div>
                     <Button
                     color="primary"
+                    onPress={()=>setIsCreatingNewWorkspace(true)}
                     startContent={
                         <Icon className="flex-none text-current" icon="lucide:plus" width={16} />
                     }
@@ -80,9 +83,10 @@ export default function HomeScreen(props){
                 className="-mx-2 flex w-full grow"
             >
                 <div className="flex flex-wrap ">
-                    {projects.slice(0,30).map(d=><WorkspaceCard workspace={d}/>)}
+                    {projects.map(d=><WorkspaceCard key={d.id} workspace={d} onPress={()=>setWorkspace(d.id)} openSettings={setConfigWorkspace}/>)}
                 </div>
             </ScrollShadow>
         </div>
+        <WorkspaceEditor isOpen={isCreatingNewWorkspace || configWorkspace}  onClose={() => {setConfigWorkspace(false);setIsCreatingNewWorkspace(false)}}  workspace={configWorkspace} newWorkspace={isCreatingNewWorkspace}/>
     </> )
 }

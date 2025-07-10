@@ -14,7 +14,7 @@
     "@headlessui-float/react": "^0.11.4",
     "@headlessui/react": "^2.0.4",
     "@heroicons/react": "^2.0.13",
-    "@heroui/react": "^2.7.8",
+    "@heroui/react": "^2.7.11",
     "@iconify/react": "^6.0.0",
     "@js-temporal/polyfill": "^0.5.1",
     "@popperjs/core": "^2.11.8",

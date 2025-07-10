@@ -190,9 +190,9 @@ class QueueManager {
                                     jobId: message.id
                                 });
 
-                            }else if (message.type === 'notifyPrimitiveEvent') {
-                                const { workspaceId, message: data } = message.data;
-                                SIO.notifyPrimitiveEvent(workspaceId, JSON.parse(data));
+                            }else if (message.type === 'sendNotificationToSocket') {
+                                const { room, message: data } = message.data;
+                                SIO.sendNotificationToSocket(room, JSON.parse(data));
                             }else if(message.type === "ready"){
                                 readyCount++
                                 logger.debug(`${readyCount} worker(s) ready for ${type}`)

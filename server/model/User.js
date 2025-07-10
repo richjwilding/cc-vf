@@ -31,6 +31,7 @@ const UserSchema = new mongoose.Schema({
   resetPasswordExpires: Date,
 }, {
   timestamps: true,
+  strict: false
 })
 
 // Tell passport‐local‐mongoose to use `email` as the “username” field:

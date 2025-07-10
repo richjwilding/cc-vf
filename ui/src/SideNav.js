@@ -20,7 +20,8 @@ function classNames(...classes) {
 }
 
 export default function SideNav(props) {
-  const workspaces = MainStore().activeUser?.info.workspaces.map((d)=>MainStore().workspace(d)) ?? []
+  const mainstore = MainStore()
+  const workspaces = mainstore.activeUser?.info.workspaces.map((d)=>MainStore().workspace(d)).filter(Boolean) ?? []
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [pageDetailPane, setPageDetailPane] = useState(false)
   const sizeToggle = props.widePage ? "3xl" : "xl"
@@ -41,9 +42,10 @@ export default function SideNav(props) {
 
 const navigation = [
   { name: 'Home', onClick: ()=>{navigate('/')}, icon: HomeIcon, current: urlPath === "" || urlPath === "/" },
+  mainstore.activeWorkspaceId && !mainstore.activeUser.info.external && { name: 'Project Home', onClick: ()=>{navigate(`/project/${mainstore.activeWorkspaceId}`)}, icon: SparklesIcon, current: urlPath.includes("/project")},
   { name: 'Workflows', onClick: ()=>{navigate('/workflows')}, icon: SparklesIcon, current: urlPath.includes("/workflows")},
   { name: 'Downloads', onClick: ()=>{navigate('/')}, icon: ArrowDownTrayIcon, current: urlPath.includes("/downloads") },
-]
+].filter(Boolean)
 
 function setWorkspace(id){
   props.setWorkspace(id)

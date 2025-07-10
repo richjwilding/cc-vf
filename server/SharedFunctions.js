@@ -33,6 +33,8 @@ import { expandStringLiterals, findFilterMatches } from './actions/SharedTransfo
 import { fetchMoneySavingExpertSearchResults, moneySavingExpertSERP } from './scrapers/moneysavingexpert.js';
 import mongoose, { Types } from 'mongoose';
 import { reviseUserRequest } from './prompt_helper.js';
+import Workspace from './model/Workspace.js';
+import User from './model/User.js';
 
 const logger = getLogger('sharedfn', "debug"); // Debug level for moduleA
 
@@ -1703,18 +1705,6 @@ export async function multiPrimitiveAtOrginLevel( list, level, relationship = "o
             pId = nextPass
         }while( pId.length )
         return []
-        /*
-        let pId = startIds[idx]        
-
-        let next
-        do{
-            next = cache[pId]
-            if( next && (next.level === level)){
-                return next.primitive
-            }
-            pId = next?.next
-        }while( pId && next)
-        return undefined*/
     })
 
     return resolve
@@ -5202,6 +5192,75 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     }catch(error){
         console.log(`doPrimitiveAction error ${primitive ? primitive._id.toString() : ""} ${actionKey}`)
         console.log(error)
+    }
+}
+export async function updateWorkspace( workspaceId, allData ){
+    const existing = await Workspace.findOne({_id: workspaceId})
+    if( existing ){
+        let {users, _id, id, ...data} = allData
+
+        const doc = await Workspace.findOneAndUpdate({
+            _id: workspaceId,
+        },{
+            ...data
+        })
+        const usersToNotify = await User.find({workspaces:{$in: workspaceId}}, "_id")
+        if( doc ){
+            SIO.notifyUsers( usersToNotify.map(d=>d.id),
+                                [{
+                                    type: "workspace_updated",
+                                    id: workspaceId,
+                                    data
+                                }])
+        }
+        return doc
+
+    }
+    throw `Workspace ${workspaceId} not found`
+}
+export async function createWorkspace( allData, owner, options={} ){
+    try{
+        let {users, ...data} = allData
+        
+        users.push(owner)
+        users = users.filter((d,i,a)=>a.indexOf(d) === i)
+
+        if( data.title && owner ){
+            const newWorkspace = await Workspace.create({
+                ...data,
+                owner: owner
+            })
+            if( newWorkspace._id){
+                await User.updateMany(
+                    { _id: { $in: users } },
+                    {
+                        $push: {
+                            workspaces: {
+                                $each: [ newWorkspace.id ],
+                                $position: 0
+                            }
+                        }
+                    }
+                );
+                SIO.notifyUsers( users,
+                [{
+                    type: "workspace_added",
+                    id: newWorkspace._id,
+                    data
+                }])
+            }
+            
+            /*SIO.notifyPrimitiveEvent( newWorkspace,
+                                [{
+                                    type: "new_workspace",
+                                    data: [newWorkspace]
+                                }])*/
+            return newWorkspace
+        }else{
+            throw "Missing title / owner"
+        }
+    }catch(err){
+        logger.error("Error in createWorkspace", err)
     }
 }
 

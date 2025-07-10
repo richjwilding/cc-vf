@@ -1385,6 +1385,29 @@ function MainStore (prims){
                     if( entry.primitiveIds && Array.isArray(entry.primitiveIds) ){
                         obj.removePrimitive(undefined, entry.primitiveIds)
                     }
+                }else if(entry.type === "workspace_added"){
+                    console.log(`Adding workspace`)
+                    const targetWorkspaceId = entry.id
+                    obj.data.workspaces.push({
+                        id: targetWorkspaceId,
+                        _id: targetWorkspaceId,
+                        ...entry.data
+                    })
+                    if( obj.activeUser?.info?.workspaces ){
+                        obj.activeUser.info.workspaces.unshift( targetWorkspaceId )
+                    }
+                    obj.triggerCallback("workspace_added", [targetWorkspaceId], entry.data, true)
+                }else if(entry.type === "workspace_updated"){
+                    const targetWorkspaceId = entry.id
+                    if( obj.workspace(targetWorkspaceId) ){
+                        const existing = obj.data.workspaces.find(d=>d.id === targetWorkspaceId)
+                        if( existing ){
+                            for( const [k,v] of Object.entries( entry.data )){
+                                existing[k]  = v
+                            }
+                        }
+                        obj.triggerCallback("workspace_updated", [targetWorkspaceId], entry.data, true)
+                    }
                 }else if(entry.type === "set_fields"){
                     if( entry.fields){
                         const target = obj.primitive( entry.primitiveId)
@@ -3446,9 +3469,6 @@ function MainStore (prims){
                     a[c.id] = c
                     return a
                 }, {})
-                //obj.data.frameworks = frameworks.map((d)=>{d.id = d._id; return d})
-
-//                obj.processOutstandingDiscovery()
                 resolve(true)
             })
         })
